@@ -1,0 +1,424 @@
+# In-App AI Agent (SAM)
+
+SAM is OpenSEO's in-app SEO agent. It runs inside a Cloudflare Durable Object
+via `@cloudflare/think` and calls the same shared MCP tool handlers as the MCP
+server — in-process, never over HTTP, and never directly against DataForSEO.
+
+This document describes the configuration surface added in Phases O and O2:
+multi-provider model and provider settings, connection testing, bounded loops,
+tool-call deduplication, and workflow presets.
+
+## How Model Configuration Resolves
+
+The agent resolves which provider and model to run on every turn, in this
+order:
+
+1. **Project settings** (project settings page → AI agent section) — applies
+   only when the project has a non-inheriting row saved.
+2. **Organization settings** (Settings page → AI agent section) — the global
+   default for all projects.
+3. `AI_AGENT_PROVIDER` + `AI_AGENT_MODEL` environment variables (provider must
+   be one of `openrouter | openai | gemini | anthropic`; anything else is
+   ignored).
+4. The chosen provider's own fallback model env var (`OPENROUTER_MODEL`,
+   `OPENAI_MODEL`, `GEMINI_MODEL`, `ANTHROPIC_MODEL`).
+5. Built-in defaults per provider (`openrouter` → `minimax/minimax-m3`,
+   `openai` → `gpt-5`, `gemini` → `gemini-2.5-flash`, `anthropic` →
+   `claude-sonnet-4-5`).
+
+When no settings row and no `AI_AGENT_PROVIDER` exist, the default provider is
+**openrouter**, which preserves the pre-O2 single-provider behavior.
+
+A settings row only counts when **both** provider and model are set. Model ids
+are validated against the selected provider's pattern (see
+`validateModelForProvider` in `providers.ts`); an invalid pair is rejected at
+save time, and a settings row whose model doesn't match its provider (for
+example from an older save) is normalized at runtime to the provider's default
+model instead of being sent to the wrong API. Clearing a project's model
+override removes the row entirely, so the project inherits the
+organization/environment default again.
+
+## Configuration Scopes & Editable Credentials (Phase S)
+
+AI configuration resolves per field across three scopes, **provider-aware**:
+
+```text
+Project row → Organization row → Environment → Built-in default
+```
+
+Each scope row (`ai_agent_settings`, one per scope) persists:
+
+- `provider` + `model` (as before),
+- `base_url` — plaintext endpoint override (OpenAI-Compatible / Ollama Cloud
+  only; honored only when the row's provider is the effective one),
+- `credentials` — an **encrypted** JSON map `{providerId: apiKey}` (AES-GCM
+  via better-auth's `symmetricEncrypt`, keyed from
+  `AI_CREDENTIALS_ENCRYPTION_KEY` or `BETTER_AUTH_SECRET`, domain-separated
+  as `:ai-credentials-v1` so it can never be cross-decrypted with OAuth
+  tokens). Plaintext keys are never returned by any GET, never logged, and
+  never reach the browser; the UI shows masked suffixes and explicit
+  Change/Remove actions, with "blank = do not modify" semantics.
+
+Provider-aware credential fallback — a scope's key is used **only for its own
+provider**: project(OpenAI Compatible, custom Base URL) + organization key for
+the same provider → combined; a Gemini project never inherits an OpenAI key
+(→ falls back to the Gemini environment key, or "Not configured").
+
+- **Environment defaults** are read-only in the UI (shown on the
+  organization page); the browser never edits deployment env vars.
+- **Test Connection** always tests the current edit state (unsaved provider/
+  key/Base URL/model round-trip over TLS, never persisted), falling back to
+  the effective configuration for untouched fields.
+- **Refresh Models** bypasses the 12h catalog cache and re-fetches;
+  catalogs are cached per **provider + normalized Base URL**, so two
+  gateways never share a cached catalog.
+- **Use inherited settings** deletes the scope row; the parent scope (or
+  environment) becomes effective immediately.
+- SAM resolves the same effective configuration before each turn — saved
+  changes apply to future turns while existing conversations stay intact.
+- Deployments without a configured encryption key (neither env var set)
+  cannot store credentials; env fallback keeps working and the UI explains
+  the gap.
+
+## Provider Support
+
+OpenSEO supports multiple AI providers, including OpenRouter, OpenAI, Google
+Gemini, Anthropic, OpenAI-compatible endpoints, and Ollama Cloud. Provider
+availability depends on configuration and model capabilities.
+
+Adapters live in `provider-adapters.ts`, shared helpers in
+`provider-shared.ts`, contract + registry in `providers.ts`; the `AiProvider`
+interface lets another provider slot in without touching the agent or the UI:
+
+| Provider          | Key env var                                                  | Model env var             | Built-in model           |
+| ----------------- | ------------------------------------------------------------ | ------------------------- | ------------------------ |
+| OpenRouter        | `OPENROUTER_API_KEY`                                         | `OPENROUTER_MODEL`        | `minimax/minimax-m3`     |
+| OpenAI            | `OPENAI_API_KEY`                                             | `OPENAI_MODEL`            | `gpt-5`                  |
+| Google Gemini     | `GEMINI_API_KEY`                                             | `GEMINI_MODEL`            | `gemini-2.5-flash`       |
+| Anthropic         | `ANTHROPIC_API_KEY`                                          | `ANTHROPIC_MODEL`         | `claude-sonnet-4-5`      |
+| OpenAI Compatible | `OPENAI_COMPATIBLE_API_KEY` (+ `OPENAI_COMPATIBLE_BASE_URL`) | `OPENAI_COMPATIBLE_MODEL` | `gpt-4o-mini`            |
+| Ollama Cloud      | `OLLAMA_API_KEY` (+ optional `OLLAMA_CLOUD_BASE_URL`)        | `OLLAMA_CLOUD_MODEL`      | `qwen3-coder:480b-cloud` |
+
+### OpenAI-Compatible endpoints
+
+Any service speaking the OpenAI chat API works through this provider:
+gateways, vLLM, LM Studio, and **local Ollama** (`http://localhost:11434/v1`;
+inside Docker Desktop use `http://host.docker.internal:11434/v1` — container
+localhost is not the host). Configuration:
+
+- `OPENAI_COMPATIBLE_BASE_URL` — required; deployment configuration, shown
+  read-only in Settings → AI. Trailing slashes are normalized and `/v1` is
+  never duplicated.
+- `OPENAI_COMPATIBLE_API_KEY` — optional; some local gateways need none.
+- Model selection via the settings UI (catalog discovery from
+  `<base>/models`, with manual model entry when discovery is unavailable).
+
+### Ollama Cloud
+
+No local Ollama installation required. Defaults to the official cloud
+endpoint (`https://ollama.com/v1`); override with `OLLAMA_CLOUD_BASE_URL`
+for testing/enterprise compatibility. Tool calling and streaming work through
+the same OpenAI-compatible contract.
+
+### Base URL security
+
+User/deployment-supplied Base URLs are validated before use: absolute
+http(s) URLs only, no embedded credentials, and cloud metadata endpoints
+(`169.254.169.254`, `metadata.google.internal`) are always blocked. Hosted
+deployments (`AUTH_MODE=hosted`) additionally require HTTPS and reject
+private/loopback targets (SSRF protection); self-hosted/local runtimes may
+explicitly point at private gateways such as local Ollama.
+
+### Data policies (Zero Data Retention)
+
+The OpenRouter adapter routes requests to Zero-Data-Retention endpoints by
+product policy. If the selected model has no ZDR-compatible endpoint,
+requests fail with a clear DATA_POLICY_BLOCKED message:
+
+> OpenRouter could not find an endpoint compatible with your current Zero
+> Data Retention policy for this model. Choose a compatible model or adjust
+> your OpenRouter privacy settings.
+
+with a link to [openrouter.ai/settings/privacy](https://openrouter.ai/settings/privacy).
+OpenSEO never disables or works around the policy automatically, never
+silently switches models, and never surfaces raw provider payloads.
+
+Every provider supports:
+
+- **Model catalog** — fetched from the provider's models endpoint (OpenRouter:
+  `/api/v1/models`; OpenAI: `/v1/models`; Gemini: `/v1beta/models`;
+  Anthropic: `/v1/models`; OpenAI-Compatible/Ollama Cloud: `<base>/models`),
+  normalized to id/name/context length/pricing/tool support, and cached
+  server-side in R2 for 12 hours. An unconfigured or unreachable provider
+  yields an empty catalog; the UI then degrades to a manual model-id input.
+  Values an endpoint does not expose stay unknown — never invented.
+- **Connection test** — a minimal `generateText` with `maxOutputTokens: 8`
+  plus a best-effort tool-calling probe. Failures are normalized into one
+  vocabulary (AUTH_ERROR, MODEL_UNAVAILABLE, DATA_POLICY_BLOCKED,
+  INVALID_BASE_URL, RATE_LIMITED, PROVIDER_UNAVAILABLE, CONNECTION_TIMEOUT,
+  UNSUPPORTED_FEATURE — plus TOOL_INPUT_INVALID, which SAM's tool loop can
+  produce but a connection test never will) with curated user-safe messages —
+  raw provider payloads, keys, and stacks never reach the UI. Missing keys
+  short-circuit without calling the API.
+- **Cost estimate** — real per-call USD cost when the provider reports it
+  (OpenRouter via `providerMetadata.openrouter.usage.cost`); providers without
+  per-call pricing report 0.
+
+The SAM agent itself stays provider-agnostic: it receives a resolved
+`{provider, model}` pair and a matching `LanguageModelV3` instance; there is no
+provider-specific logic in the SAM tool layer. AI SDK version pairing note:
+the app pins `ai@6.x` (required by `@cloudflare/think`'s peer range
+`^6.0.182`) with `@ai-sdk/openai@3.x`, `@ai-sdk/google@3.x`, and
+`@ai-sdk/anthropic@3.x`, whose chat models are `LanguageModelV3` — compatible
+with ai 6's `LanguageModel` union.
+
+## Long-Running Tools (Site Audits)
+
+Site audits are asynchronous workflows: `run_site_audit` starts one and
+returns immediately with `{auditId, state: "started"}`; results don't exist
+yet at that point. The agent distinguishes a **START request** ("start an
+audit" — starting it is a complete answer) from a **FINAL RESULT request**
+("give me the page count / issues") and, for the latter, waits for a terminal
+state through the dedicated `poll_site_audit` tool before answering.
+
+`poll_site_audit` is agent-side orchestration around the same
+`get_audit_status` handler the MCP server registers (identical D1 state,
+project scoping, and dead-workflow self-heal — no state bypass):
+
+- **Normalized states** — every read maps to
+  `started | running | completed | failed | cancelled` with
+  `progress: {current, total}` and `resultReady`. There is no distinct
+  persisted "cancelled" state: an audit deleted mid-wait surfaces as
+  NOT_FOUND → `cancelled`; a terminated workflow self-heals to `failed`.
+- **Polling policy** — exponential backoff (first read immediate, then ~1s,
+  ~2s, ~4s… capped), bounded by both an attempt cap and an overall
+  wall-clock window.
+- **Terminal behavior** — `completed` → fetch `get_audit_issues` /
+  `get_audit_pages` only as the request requires; `failed`/`cancelled` →
+  plain explanation, offer to retry; budget exhausted while still running →
+  the agent says exactly that the audit is still running and never invents
+  page counts or issues from partial progress.
+- **Budget accounting** — the wait counts as ONE call toward
+  `AI_AGENT_MAX_TOOL_CALLS`; its internal status reads are logged (full
+  observability preserved) but are cheap OpenSEO-state reads, not paid calls,
+  and cannot loop forever.
+- **Single-flight** — concurrent waits in the same conversation share one
+  poller per audit; terminal results are memoized per explicit audit id.
+- **UX aggregation** — repeated polling collapses into one chat badge
+  ("Running site audit…"), with the outcome/progress as a suffix ("complete ·
+  50/50 pages"). The dedup cache never serves stale audit-status snapshots.
+
+Polling bounds are env-tunable (defaults in `samTurnControls.ts`):
+
+| Variable                     | Default  | Meaning                            |
+| ---------------------------- | -------- | ---------------------------------- |
+| `AI_AGENT_POLL_INITIAL_MS`   | `1000`   | First backoff delay                |
+| `AI_AGENT_POLL_MAX_MS`       | `8000`   | Backoff cap between reads          |
+| `AI_AGENT_MAX_POLL_ATTEMPTS` | `12`     | Max status reads per wait          |
+| `AI_AGENT_TOOL_TIMEOUT_MS`   | `150000` | Overall wall-clock window per wait |
+
+The orchestration is provider-neutral: it is plain tool logic around OpenSEO
+state, with no model- or provider-specific branching.
+
+## Bounded Loops and Cost Control
+
+- `AI_AGENT_MAX_STEPS` (default `48`) — Think's `maxSteps` bound for a turn.
+- `AI_AGENT_MAX_TOOL_CALLS` (default `24`) — a stop condition
+  (`samTurnControls.ts`) that ends the turn once the cumulative number of tool
+  calls across all steps reaches the cap. This is the primary cost guard:
+  SEO tool calls are the paid part of a turn.
+- **Tool-call dedup** (`samToolExecution.ts`) — each SAM conversation keeps a
+  bounded cache (64 entries, oldest evicted) keyed by `toolName:JSON(args)`.
+  An identical repeat within the same session is served from cache instead of
+  hitting the router again. Errors are never cached. The cache lives on the
+  Durable Object instance, so it survives across turns of one conversation but
+  is lost on eviction — by design.
+- **Tool event logging** — every tool execution emits a structured
+  `sam-tool` JSON log line (tool, reused flag, status, duration).
+
+The system prompt also instructs SAM to reuse already-fetched data rather than
+re-requesting tools, and to treat tool outputs as untrusted data
+(prompt-injection guidance).
+
+## Tool-Input Errors vs Provider Errors (Phase V)
+
+Two different failures can interrupt a turn, and they are classified at
+different layers with different vocabularies:
+
+- **Tool-input errors** (`TOOL_INPUT_INVALID`) — the model emitted a tool
+  request whose arguments failed the tool's Zod schema validation, or named a
+  tool that does not exist (`InvalidToolInputError` / `NoSuchToolError` /
+  `ToolCallRepairError` from the AI SDK). The failure happens in the SDK's
+  parse step, **before** `execute()` runs: no tool handler, no DataRouter, no
+  provider, and no DataForSEO call happens for a rejected request.
+- **Provider errors** (`UNSUPPORTED_FEATURE`, `AUTH_ERROR`, `RATE_LIMITED`, …)
+  — the provider itself failed or lacks a capability.
+
+The distinction is enforced by classification order
+(`normalizeProviderError` in `providerErrors.ts`): tool-input detection runs
+**first**, so a schema failure can never be labeled a provider failure. The
+provider-capability match is deliberately precise — it requires both a
+capability term (tool calling / function calling / tools) and a refusal term
+("not supported", "does not support"), never the bare word "tool". This is
+the fix for the 2026-09-02 incident, where three schema-invalid requests
+(`list_saved_keywords {limit: 200}`; `get_serp_results` with bare-string and
+`{q: …}` query objects) all rendered as
+"ollama_cloud does not support a required feature (such as tool calling)…" —
+blaming a provider that was never called.
+
+**Model self-correction.** Within the turn, the AI SDK feeds the raw
+validation diagnosis (Zod issue paths and expectations — never echoed
+argument values) back to the model as the tool call's result, and the loop
+continues to the next step (bounded by `AI_AGENT_MAX_STEPS` and
+`AI_AGENT_MAX_TOOL_CALLS`). This is how the incident's model self-corrected
+`{q: …}` to `{keyword: …}` on its third attempt. `TOOL_INPUT_INVALID` is
+non-retryable in the provider sense: nothing automatically re-sends the same
+invalid request; only the model's corrected arguments produce a new call.
+
+**What the user sees.** The stream seam (`samStreamErrorGuard`, Phase U) and
+the turn error hook render the curated message
+("Invalid tool arguments for <tool>: <safe field-level detail>. The request
+was not executed and no provider call was made.") — no provider name, no raw
+payload, no stack. The client fallback (`samErrorFallbacks.ts`) maps any raw
+SDK tool-input wording that escapes a seam to the same vocabulary. Tool
+badges in the chat show the rejection as a failed tool call.
+
+**Observability.** Rejections emit a structured
+`sam-tool-input-error` log line (session, project, tool name, error class) —
+sibling to the `sam-tool` execution events, which they can never become (they
+never reach `execute()`). Raw arguments are never logged.
+
+**Security.** The curated message carries only schema-derived facts: the tool
+name, the failing field paths, and the expected types/values. Zod issue
+payloads do not serialize received input values; where the SDK's validator
+form echoes raw arguments ("Value: …"), that portion is stripped before the
+message is composed. Stacks, secrets, headers, and provider internals never
+reach the UI (Phase U invariant).
+
+## Streaming Render Stability (Phase T2)
+
+Multi-tool turns stream hundreds (sometimes thousands) of WebSocket chunks per
+assistant message, and a single tool part can carry hundreds of KB. Each chunk
+replaces the whole streamed message in the chat client's store
+(`@ai-sdk/react` clones the message and the messages array on every update).
+Unthrottled, the chat tree re-renders per chunk — faster than the main thread
+can commit — which React 19 eventually aborts with "Maximum update depth
+exceeded". Three provider-neutral client/agent-side guards prevent that:
+
+1. **Streaming throttle** (`SamConversation.tsx`) — `useAgentChat` is passed
+   `experimental_throttle: 100`, so the store notifies React at most ~10×/s
+   during streaming. Text, tool-call, and badge updates coalesce at lower
+   frequency **by design**; the final message always renders in full once the
+   stream settles (the throttle has a trailing edge, so nothing is lost).
+   This is purely a render-frequency bound — it changes nothing about server
+   execution, providers, DataRouter, or MCP contracts.
+2. **Chat message memoization** (`ChatMessage.tsx`) — `ChatMessage` is wrapped
+   in `React.memo` with a comparator that re-renders a bubble only when its
+   message object is replaced (the store clones the streaming message on
+   every update, so content/tool-part/error changes always re-render), when
+   its `streaming` flag flips, or when its label resolver changes. Settled
+   history messages keep their references and bail out even while another
+   message streams and the parent rebuilds handler props per render.
+3. **Agent-side Search Console bounding** (`samGscBounding.ts`) — when SAM
+   calls `get_search_console_performance`, the result is bounded to the top
+   **50 rows** by GSC's clicks-descending order before it becomes a tool part
+   (the public MCP tool keeps its full 1000-row product contract — only the
+   agent's copy is bounded). Both the structured rows AND the text summary are
+   bounded: the MCP tool's own summary tabulates every fetched row, so it is
+   regenerated from the bounded rows (a compact key/clicks/impressions/CTR/
+   position table) — otherwise a 1000-row text table (~200KB) would ride into
+   the transcript even with bounded data. The chosen limit is based on the
+   tool's own surface: the MCP text summary shows the top 15 rows, 50 rows
+   covers top-queries/pages, head striking-distance analysis, and date trends
+   in ~5–15KB, and the bounded note (computed from the actual returned rows —
+   never invented aggregates) tells the model the returned-row click/impression
+   totals and how to fetch the next slice with `startRow` or narrower filters.
+
+All three are provider-neutral: no behavior keys off the provider or model, so
+the guards hold identically for OpenRouter, OpenAI, Gemini, Anthropic,
+OpenAI-Compatible, and Ollama Cloud.
+
+## Tool Surface
+
+SAM exposes the shared MCP toolset (~23 tools), including four site-audit
+tools added in Phase O: `run_site_audit`, `get_audit_status`,
+`get_audit_issues`, and `get_audit_pages`. All tools keep their existing
+authorization, DataRouter, cache, and budget behavior — SAM adds no new
+mutation-capable tools.
+
+## Workflow Presets
+
+The SAM empty state offers five one-click workflow templates in addition to
+the quick-question chips:
+
+1. **Full SEO opportunity analysis** — site read + Search Console + keyword
+   gaps, prioritized.
+2. **Commercial keyword research** — high-intent terms with volume/difficulty
+   and page placement suggestions.
+3. **Competitor analysis** — SERP competitors, their coverage, and your gap
+   list.
+4. **Technical SEO** — site audit followed by a prioritized fix order.
+5. **Executive SEO plan** — current standing, top moves, expected impact, and
+   a 90-day timeline.
+
+## Configuration Files
+
+| Concern                                                | Location                                                                                                                                                  |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Settings table + migrations                            | `src/db/sam.schema.ts`, `src/db/pg/sam.schema.ts`, `drizzle/0039_ordinary_azazel.sql`, `drizzle-pg/0016_sloppy_cargill.sql` + `0017_mute_joshua_kane.sql` |
+| Repository (org/project rows)                          | `src/server/features/ai/AiSettingsRepository.ts`                                                                                                          |
+| Provider contract + registry + validation              | `src/server/features/ai/providers.ts`                                                                                                                     |
+| Provider adapters (OpenAI/Gemini/Anthropic/OpenRouter) | `src/server/features/ai/provider-adapters.ts`                                                                                                             |
+| Shared probe/cache/classification helpers              | `src/server/features/ai/provider-shared.ts`                                                                                                               |
+| Resolution + masked status                             | `src/server/features/ai/AiSettingsService.ts`                                                                                                             |
+| Server functions (settings/models/test)                | `src/serverFunctions/aiSettings.ts`                                                                                                                       |
+| Agent wiring (model, bounds, tracker)                  | `src/server/features/sam/SamChatAgent.ts`                                                                                                                 |
+| Tool adapter (dedup + audit tools)                     | `src/server/features/sam/samChatTools.ts`                                                                                                                 |
+| Loop bounds                                            | `src/server/features/sam/samTurnControls.ts`                                                                                                              |
+| Long-running tool orchestration (audit polling)        | `src/server/features/sam/samLongRunningTools.ts`                                                                                                          |
+| Tool execution tracking                                | `src/server/features/sam/samToolExecution.ts`                                                                                                             |
+| Settings UI (global)                                   | `src/client/features/ai/AiSettingsSection.tsx`                                                                                                            |
+| Settings UI (project override)                         | `src/client/features/ai/ProjectAiSettingsSection.tsx`                                                                                                     |
+| Model picker + catalog filter                          | `src/client/features/ai/AiModelSelect.tsx`, `src/client/features/ai/modelFilter.ts`                                                                       |
+| Connection test UI                                     | `src/client/features/ai/AiConnectionTest.tsx`                                                                                                             |
+| Presets                                                | `src/client/features/sam/SamConversation.tsx`                                                                                                             |
+
+## Environment Variables
+
+| Variable                  | Default              | Meaning                                                                                   |
+| ------------------------- | -------------------- | ----------------------------------------------------------------------------------------- |
+| `AI_AGENT_PROVIDER`       | `openrouter`         | Default provider when no settings row exists (`openrouter`/`openai`/`gemini`/`anthropic`) |
+| `OPENROUTER_API_KEY`      | _(none)_             | OpenRouter credential; enables the provider                                               |
+| `OPENAI_API_KEY`          | _(none)_             | OpenAI credential; enables the provider                                                   |
+| `GEMINI_API_KEY`          | _(none)_             | Google Gemini credential; enables the provider                                            |
+| `ANTHROPIC_API_KEY`       | _(none)_             | Anthropic credential; enables the provider                                                |
+| `AI_AGENT_MODEL`          | _(none)_             | Preferred env fallback model (for `AI_AGENT_PROVIDER`)                                    |
+| `OPENROUTER_MODEL`        | `minimax/minimax-m3` | OpenRouter env fallback model                                                             |
+| `OPENAI_MODEL`            | `gpt-5`              | OpenAI env fallback model                                                                 |
+| `GEMINI_MODEL`            | `gemini-2.5-flash`   | Gemini env fallback model                                                                 |
+| `ANTHROPIC_MODEL`         | `claude-sonnet-4-5`  | Anthropic env fallback model                                                              |
+| `AI_AGENT_MAX_STEPS`      | `48`                 | Turn step bound                                                                           |
+| `AI_AGENT_MAX_TOOL_CALLS` | `24`                 | Tool-call cap per turn                                                                    |
+
+Note for local Docker dev: provider keys must come through `.env.docker` via
+`env_file` — an `environment:` mapping in `compose.dev.yaml` would override
+the env_file value with the host shell's unset variable and silently disable
+the provider.
+
+## Testing
+
+Focused tests cover provider catalog parsing/failure classification and the
+registry (`providers.test.ts`), settings resolution order, per-provider
+precedence, invalid-pair validation, and key masking
+(`AiSettingsService.test.ts`), the model-picker filter (`AiModelSelect.test.ts`),
+dedup cache and event logging (`samToolExecution.test.ts`), env parsing
+plus the tool-call counter (`samTurnControls.test.ts`), the streaming throttle
+seam and large-tool-output behavior (`samStreamingThrottle.test.ts`), the
+ChatMessage memo comparator (`ChatMessage.memo.test.ts`), agent-side GSC
+bounding (`samGscBounding.test.ts`), the full tool-input classification
+matrix including the 2026-09-02 incident reproduction through the real AI SDK
+loop (`providerErrors.test.ts`, `samToolInputErrors.test.ts`), the stream
+error seams (`samStreamErrorGuard.test.ts`, `samStreamErrorSeam.test.ts`),
+and the client error fallbacks (`samErrorFallbacks.test.ts`). Tests mock the
+provider (`fetch`, `generateText`, `MockLanguageModelV3`) and the R2 cache;
+no real provider or database calls are made.

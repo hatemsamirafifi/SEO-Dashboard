@@ -28,9 +28,31 @@ import {
   getSearchConsolePerformanceTool,
   inspectUrlsTool,
 } from "@/server/mcp/tools/search-console-tools";
+import {
+  getAuditIssuesTool,
+  getAuditPagesTool,
+  getAuditStatusTool,
+  runSiteAuditTool,
+} from "@/server/mcp/tools/site-audit-tools";
 import { whoamiTool } from "@/server/mcp/tools/whoami";
 import { discoverSiteUrls, readPages, readSite } from "@/server/lib/scrape";
 import openSeoFactSheet from "@/server/features/onboarding/openseo-fact-sheet.md?raw";
+import { boundAgentGscOutput } from "@/server/features/sam/samGscBounding";
+import {
+  nullToolExecutionTracker,
+  type ToolExecutionTracker,
+} from "@/server/features/sam/samToolExecution";
+import {
+  createToolRecoveryState,
+  type ToolRecoveryState,
+} from "@/server/features/sam/samToolRecovery";
+import { executeAdaptedTool } from "@/server/features/sam/samGuardedToolExecute";
+import {
+  buildPollSiteAuditTool,
+  type PollCoordinator,
+  tagStartedAudit,
+} from "@/server/features/sam/samLongRunningTools";
+import type { PollConfig } from "@/server/features/sam/samTurnControls";
 
 // SAM reads more of a site than the onboarding preview: enough pages to work
 // out what a business does, sells, and positions against on its own.
@@ -41,26 +63,13 @@ const SAM_MAX_MAPPED_URLS = 60;
 // the exact same definitions the MCP server registers, so the in-app agent and
 // the MCP server can never drift in what a tool does or how it bills.
 type McpToolDefinition<Shape extends ZodRawShape> = {
+  name: string;
   config: { description: string; inputSchema: Shape };
   handler: (
     args: z.infer<z.ZodObject<Shape>>,
     extra: ToolExtra,
   ) => Promise<CallToolResult>;
 };
-
-// Flatten an MCP CallToolResult into a plain value for the model: the handler's
-// human-readable text summary plus the structured data it returned.
-function toModelOutput(result: CallToolResult): unknown {
-  const summary = (result.content ?? [])
-    .filter(
-      (part): part is { type: "text"; text: string } => part.type === "text",
-    )
-    .map((part) => part.text)
-    .join("\n");
-  return result.structuredContent
-    ? { summary, data: result.structuredContent }
-    : { summary };
-}
 
 // Adapt one MCP tool into an AI SDK tool. The MCP handler reads auth from `extra`
 // (via requireMcpToolAuthContext) and self-gates project access against the org,
@@ -70,16 +79,44 @@ function toModelOutput(result: CallToolResult): unknown {
 // server-side: any tool with a `projectId` input has it stripped from the schema
 // the model sees and injected at call time. The model never has to know or pass
 // the id, can't target another project, and can't hallucinate a wrong one.
+//
+// The tracker dedups identical calls within the conversation (the model can
+// re-request the same tool call after a stall/retry) and logs every execution;
+// a null/no-op tracker keeps non-SAM callers unaffected.
+// Tools whose output must never be served from the dedup cache: they are
+// progress reads over mutable workflow state, and a cached "running" snapshot
+// would make every repeat poll return the same stale result until the DO is
+// evicted (the failure mode that motivated Phase P). The reads are cheap D1
+// lookups, so skipping the cache costs nothing.
+const FRESH_READ_TOOLS = new Set(["get_audit_status"]);
+
+type AdaptMcpToolContext = {
+  extra: ToolExtra;
+  projectId: string;
+  tracker: ToolExecutionTracker;
+  sessionId: string;
+  /** Per-turn failure state — blocks repeat calls to known-unavailable tools. */
+  recovery: ToolRecoveryState;
+  /** Bounded wait before the single automatic retry (injectable for tests). */
+  sleep: (ms: number) => Promise<void>;
+};
+
+type AdaptMcpToolOptions = {
+  description?: string;
+  postProcess?: (output: unknown) => unknown;
+};
+
 function adaptMcpTool<Shape extends ZodRawShape>(
   def: McpToolDefinition<Shape>,
-  extra: ToolExtra,
-  projectId: string,
+  ctx: AdaptMcpToolContext,
+  opts?: AdaptMcpToolOptions,
 ): Tool {
+  const { extra, projectId } = ctx;
   const { projectId: _projectIdSchema, ...modelShape } = def.config.inputSchema;
   const bindsProject = "projectId" in def.config.inputSchema;
 
   return tool({
-    description: def.config.description,
+    description: opts?.description ?? def.config.description,
     inputSchema: z.object(bindsProject ? modelShape : def.config.inputSchema),
     execute: async (args) => {
       // Reconstruct the handler's validated arg shape by injecting the session
@@ -88,20 +125,19 @@ function adaptMcpTool<Shape extends ZodRawShape>(
       const fullArgs = (bindsProject
         ? { ...args, projectId }
         : args) as unknown as z.infer<z.ZodObject<Shape>>;
-      try {
-        // Tool calls run inside Think's inference loop, outside any ambient
-        // request scope, so each execution scopes its own Postgres client
-        // (no-op in D1 mode) — same rule as the DO's other DB-touching seams.
-        return toModelOutput(
-          await withPgClient(() => def.handler(fullArgs, extra)),
-        );
-      } catch (error) {
-        // Surface the failure to the model so it can recover or report it,
-        // rather than aborting the whole turn on one bad tool call.
-        return {
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
+      // Tool calls run inside Think's inference loop, outside any ambient
+      // request scope, so each execution scopes its own Postgres client
+      // (no-op in D1 mode) — same rule as the DO's other DB-touching seams.
+      // Duplicate-call protection, the single bounded retry, and the curated
+      // failure signals live in the shared guarded runner (samToolRecovery).
+      return executeAdaptedTool({
+        toolName: def.name,
+        fullArgs,
+        ctx,
+        run: () => withPgClient(() => def.handler(fullArgs, extra)),
+        postProcess: opts?.postProcess,
+        cacheable: !FRESH_READ_TOOLS.has(def.name),
+      });
     },
   });
 }
@@ -125,7 +161,7 @@ function scrapeTools(projectDomain: string | null): ToolSet {
         if (!target) {
           return {
             error:
-              "This project has no website set — ask the user for their site first.",
+              "This project has no website set â€” ask the user for their site first.",
           };
         }
         const result = await discoverSiteUrls(target, SAM_MAX_MAPPED_URLS);
@@ -135,7 +171,7 @@ function scrapeTools(projectDomain: string | null): ToolSet {
       },
     }),
     read_pages: tool({
-      description: `Read up to ${SAM_MAX_SCRAPE_PAGES} web pages as plain text — the project's own pages or anyone else's (competitors, references). Pass specific \`urls\` (usually picked from map_links); omit to read a representative sample of the project's own site. Uses no credits.`,
+      description: `Read up to ${SAM_MAX_SCRAPE_PAGES} web pages as plain text â€” the project's own pages or anyone else's (competitors, references). Pass specific \`urls\` (usually picked from map_links); omit to read a representative sample of the project's own site. Uses no credits.`,
       inputSchema: z.object({
         urls: z
           .array(z.string().url())
@@ -155,7 +191,7 @@ function scrapeTools(projectDomain: string | null): ToolSet {
         if (!site) {
           return {
             error:
-              "This project has no website set — ask the user for their site, or pass explicit urls.",
+              "This project has no website set â€” ask the user for their site, or pass explicit urls.",
           };
         }
         if (site.blocked) {
@@ -173,19 +209,38 @@ function scrapeTools(projectDomain: string | null): ToolSet {
 
 /**
  * Builds SAM's tool surface as an AI SDK ToolSet: the full MCP toolset plus the
- * free site-reading tools. Every tool the OpenSEO MCP server exposes is
- * available; auth/billing context is carried on a synthetic `ToolExtra` the
- * handlers read exactly as they would on the real MCP route. DataForSEO spend
- * is metered inside the shared client, so tool calls draw down the org's
- * credits automatically.
+ * free site-reading tools and the audit poll orchestrator. Every tool the
+ * OpenSEO MCP server exposes is available; auth/billing context is carried on
+ * a synthetic `ToolExtra` the handlers read exactly as they would on the real
+ * MCP route. DataForSEO spend is metered inside the shared client, so tool
+ * calls draw down the org's credits automatically.
+ *
+ * `tracker` (optional) enables per-conversation dedup + execution logging; pass
+ * the result of `createToolExecutionTracker` from the DO, or nothing to keep
+ * plain behavior.
+ *
+ * `options.poll` + `options.pollCoordinator` enable `poll_site_audit` — the
+ * long-running-tool wait described in samLongRunningTools.ts. The coordinator
+ * should come from the DO so single-flight/terminal memo survive across turns.
  */
 export function buildSamMcpTools(
   authContext: McpToolAuthContext,
   project: { id: string; domain: string | null },
+  tracker?: ToolExecutionTracker,
+  options?: {
+    poll?: PollConfig;
+    pollCoordinator?: PollCoordinator;
+    /** Per-turn failure state. Defaults to a fresh instance (= this turn). */
+    recovery?: ToolRecoveryState;
+    /** Bounded wait before the single automatic retry (tests inject instant). */
+    sleep?: (ms: number) => Promise<void>;
+  },
 ): ToolSet {
   const projectId = project.id;
+  const sessionId = "sam";
+  const toolTracker = tracker ?? nullToolExecutionTracker;
   const extra: ToolExtra = {
-    // Placeholder to satisfy ToolExtra — no tool handler or the DataForSEO
+    // Placeholder to satisfy ToolExtra â€” no tool handler or the DataForSEO
     // client reads this signal (true on the real MCP route too), so aborting a
     // turn does not cancel in-flight tool requests.
     signal: new AbortController().signal,
@@ -200,9 +255,26 @@ export function buildSamMcpTools(
     sendRequest: () =>
       Promise.reject(new Error("sendRequest is unsupported in the SAM agent")),
   };
+  const adaptCtx: AdaptMcpToolContext = {
+    extra,
+    projectId,
+    tracker: toolTracker,
+    sessionId,
+    // Fresh per build (= per turn: beforeTurn rebuilds the toolset every
+    // turn), unless the caller injected a shared instance. Never survives
+    // across turns — a tool blocked in turn A is retryable in turn B.
+    recovery: options?.recovery ?? createToolRecoveryState(sessionId),
+    sleep:
+      options?.sleep ??
+      ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+  };
+  const adapt = <Shape extends ZodRawShape>(
+    def: McpToolDefinition<Shape>,
+    opts?: AdaptMcpToolOptions,
+  ): Tool => adaptMcpTool(def, adaptCtx, opts);
 
   // Note: no `list_projects`. SAM is bound to the session's project, so
-  // discovering other projects isn't part of its job — every project-scoped tool
+  // discovering other projects isn't part of its job â€” every project-scoped tool
   // below has `projectId` injected server-side by adaptMcpTool.
   return {
     // On-demand product reference (kept out of the system prompt: inlining it
@@ -214,55 +286,59 @@ export function buildSamMcpTools(
       execute: () => Promise.resolve({ factSheet: openSeoFactSheet }),
     }),
     ...scrapeTools(project.domain),
-    whoami: adaptMcpTool(whoamiTool, extra, projectId),
-    list_saved_keywords: adaptMcpTool(listSavedKeywordsTool, extra, projectId),
-    research_keywords: adaptMcpTool(researchKeywordsTool, extra, projectId),
-    save_keywords: adaptMcpTool(saveKeywordsTool, extra, projectId),
-    get_domain_overview: adaptMcpTool(getDomainOverviewTool, extra, projectId),
-    get_domain_keyword_suggestions: adaptMcpTool(
-      getDomainKeywordSuggestionsTool,
-      extra,
-      projectId,
-    ),
-    get_backlinks_overview: adaptMcpTool(
-      getBacklinksOverviewTool,
-      extra,
-      projectId,
-    ),
-    get_backlinks_profile: adaptMcpTool(
-      getBacklinksProfileTool,
-      extra,
-      projectId,
-    ),
-    get_serp_results: adaptMcpTool(getSerpResultsTool, extra, projectId),
-    get_rank_tracker: adaptMcpTool(getRankTrackerTool, extra, projectId),
-    get_ranked_keywords: adaptMcpTool(getRankedKeywordsTool, extra, projectId),
-    find_serp_competitors: adaptMcpTool(
-      findSerpCompetitorsTool,
-      extra,
-      projectId,
-    ),
-    search_local_businesses: adaptMcpTool(
-      searchLocalBusinessesTool,
-      extra,
-      projectId,
-    ),
-    get_local_serp_results: adaptMcpTool(
-      getLocalSerpResultsTool,
-      extra,
-      projectId,
-    ),
-    get_google_business_questions: adaptMcpTool(
-      getGoogleBusinessQuestionsTool,
-      extra,
-      projectId,
-    ),
-    get_keyword_metrics: adaptMcpTool(getKeywordMetricsTool, extra, projectId),
-    get_search_console_performance: adaptMcpTool(
-      getSearchConsolePerformanceTool,
-      extra,
-      projectId,
-    ),
-    inspect_urls: adaptMcpTool(inspectUrlsTool, extra, projectId),
+    whoami: adapt(whoamiTool),
+    list_saved_keywords: adapt(listSavedKeywordsTool),
+    research_keywords: adapt(researchKeywordsTool),
+    save_keywords: adapt(saveKeywordsTool),
+    get_domain_overview: adapt(getDomainOverviewTool),
+    get_domain_keyword_suggestions: adapt(getDomainKeywordSuggestionsTool),
+    get_backlinks_overview: adapt(getBacklinksOverviewTool),
+    get_backlinks_profile: adapt(getBacklinksProfileTool),
+    get_serp_results: adapt(getSerpResultsTool),
+    get_rank_tracker: adapt(getRankTrackerTool),
+    get_ranked_keywords: adapt(getRankedKeywordsTool),
+    find_serp_competitors: adapt(findSerpCompetitorsTool),
+    search_local_businesses: adapt(searchLocalBusinessesTool),
+    get_local_serp_results: adapt(getLocalSerpResultsTool),
+    get_google_business_questions: adapt(getGoogleBusinessQuestionsTool),
+    get_keyword_metrics: adapt(getKeywordMetricsTool),
+    get_search_console_performance: adapt(getSearchConsolePerformanceTool, {
+      // The public MCP tool can return up to 1000 rows (the product contract);
+      // in the agent transcript that is a multi-hundred-KB tool part the model
+      // barely uses and the streaming client clones per chunk (the Phase T
+      // render storm). Bound only the agent's copy — the MCP route is untouched.
+      description:
+        "Query the connected Search Console property's Search Analytics: clicks, impressions, CTR, and average position by query/page/country/device/date. First-party data — use it for what already ranks, near-ranking queries, and pages with real demand. ctr is a 0-1 fraction; position is a 1-based average. Read-only; uses no credits. Agent results are bounded to the top rows by clicks — the output note says how to fetch more (startRow / narrower filters).",
+      postProcess: boundAgentGscOutput,
+    }),
+    inspect_urls: adapt(inspectUrlsTool),
+    run_site_audit: adapt(runSiteAuditTool, {
+      // SAM-specific orchestration guidance: the shared MCP description stays
+      // untouched for external MCP clients; here it routes the model to the
+      // poller instead of improvising a get_audit_status loop.
+      description:
+        "Start a site audit: crawls the site (robots.txt-aware, same-origin) and checks every page for SEO issues. Returns immediately with the audit id and state=started. If the user asked for audit RESULTS (page counts, issues), call poll_site_audit next and wait for a terminal state before answering — never report numbers from a partial crawl.",
+      postProcess: tagStartedAudit,
+    }),
+    get_audit_status: adapt(getAuditStatusTool, {
+      // One free snapshot. Waiting belongs in poll_site_audit so backoff,
+      // timeout, and UI aggregation stay consistent.
+      description:
+        "Single snapshot of a site audit's current state (phase, pages crawled, Lighthouse progress). Free — reads OpenSEO state. To WAIT for completion, call poll_site_audit instead — it polls with backoff and returns a terminal state.",
+    }),
+    get_audit_issues: adapt(getAuditIssuesTool),
+    get_audit_pages: adapt(getAuditPagesTool),
+    ...(options?.poll && options.pollCoordinator
+      ? {
+          poll_site_audit: buildPollSiteAuditTool({
+            projectId,
+            extra,
+            tracker: toolTracker,
+            sessionId,
+            coordinator: options.pollCoordinator,
+            config: options.poll,
+          }),
+        }
+      : {}),
   };
 }

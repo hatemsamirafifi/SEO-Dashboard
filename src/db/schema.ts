@@ -75,6 +75,8 @@ export const {
   organizationActivationState,
   projectActivationState,
   backlinkSnapshots,
+  competitorSnapshots,
+  domainOverviewSnapshots,
   audits,
   auditPages,
   auditLinks,
@@ -82,6 +84,7 @@ export const {
   auditLighthouseResults,
   samSessions,
   samProjectMemory,
+  aiAgentSettings,
   user,
   session,
   account,
@@ -93,4 +96,6 @@ export const {
   gscConnections,
   redditAttributions,
   telemetryState,
+  seoProviderSettings,
 } = schema;
+

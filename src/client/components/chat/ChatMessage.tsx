@@ -1,5 +1,5 @@
 import { type UIMessage } from "ai";
-import { useState } from "react";
+import { memo, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -10,13 +10,31 @@ import {
   Undo2,
 } from "lucide-react";
 import { Markdown } from "@/client/components/Markdown";
+import {
+  buildRenderPlan,
+  getToolFailureDetail,
+  isToolPart,
+  isToolPartFailed,
+  safeParts,
+  type ChatToolPart,
+  type ToolPartGroup,
+} from "@/client/components/chat/toolParts";
 
 // Shared rendering for the chat agents (onboarding + SAM). The chats differ
 // only in which tools are available and how tool names become labels
 // (resolveToolLabel) plus which message actions their server supports
 // (onUndo/onEdit); the UI itself is identical and lives here.
 
-export type ToolLabel = { running: string; done: string };
+export type ToolLabel = {
+  running: string;
+  done: string;
+  /**
+   * Optional state/progress suffix computed from the part itself — e.g. an
+   * audit poller rendering "12/50 pages" or a terminal outcome. Return null
+   * for no suffix. Only the group's most recent part is summarized.
+   */
+  detail?: (part: ChatToolPart) => string | null;
+};
 
 // Maps a UIMessage tool part type (e.g. "tool-get_serp_results") to its label,
 // or null to hide the badge entirely (onboarding hides tools it hasn't curated).
@@ -34,22 +52,23 @@ export function humanizeToolLabel(partType: string): ToolLabel {
 // Whether an assistant message already shows something — visible text, reasoning,
 // or a tool badge. Used to decide when the standalone typing indicator is still
 // needed: a running tool badge already reads as progress, so the dots would
-// double up.
+// double up. Malformed parts (a provider failure can persist/stream null
+// entries) are filtered before any property access.
 export function messageHasVisibleContent(message: UIMessage): boolean {
-  return message.parts.some(
+  return safeParts(message.parts).some(
     (part) =>
       (part.type === "text" && part.text.trim().length > 0) ||
       (part.type === "reasoning" && part.text.trim().length > 0) ||
-      part.type.startsWith("tool-"),
+      isToolPart(part),
   );
 }
 
 // Plain text of a message for the clipboard: its visible text parts only (no
 // reasoning traces, no tool payloads).
 function messageText(message: UIMessage): string {
-  return message.parts
+  return safeParts(message.parts)
     .filter(
-      (part): part is Extract<typeof part, { type: "text" }> =>
+      (part): part is Extract<UIMessage["parts"][number], { type: "text" }> =>
         part.type === "text",
     )
     .map((part) => part.text)
@@ -161,25 +180,33 @@ function ReasoningBlock({
   );
 }
 
-// A small inline badge for one tool call, rendered in document order inside the
-// assistant bubble so the sequence of work stays visible after it completes.
+// A small inline badge for one run of same-type tool calls, rendered in
+// document order inside the assistant bubble so the sequence of work stays
+// visible after it completes. Repeated polling calls (identical part type,
+// back to back) collapse into a single badge with a ×N count — the model's
+// wait loop reads as one activity, not a wall of identical rows.
 function ToolBadge({
-  part,
+  group,
   live,
   resolveToolLabel,
 }: {
-  part: UIMessage["parts"][number];
+  group: ToolPartGroup;
   live: boolean;
   resolveToolLabel: ResolveToolLabel;
 }) {
-  const labels = resolveToolLabel(part.type);
+  const labels = resolveToolLabel(group.type);
   if (!labels) return null;
+  const part = group.last;
   const state = "state" in part ? part.state : undefined;
   const isDone = state === "output-available";
+  const failed = isToolPartFailed(part);
   // A "running" part in a message that is no longer being generated never
   // finished — the turn was interrupted. Show it as failed, not spinning.
-  const isError = state === "output-error" || (!isDone && !live);
+  const isError = failed || state === "output-error" || (!isDone && !live);
   const isRunning = !isError && !isDone;
+  const customDetail = isDone && labels.detail ? labels.detail(part) : null;
+  const failureDetail = isError ? getToolFailureDetail(part) : null;
+  const detail = customDetail ?? failureDetail;
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
@@ -193,7 +220,11 @@ function ToolBadge({
       ) : (
         <Check className="size-3" />
       )}
-      <span>{isRunning ? `${labels.running}…` : labels.done}</span>
+      <span>
+        {isRunning ? `${labels.running}…` : labels.done}
+        {group.parts.length > 1 ? ` ×${group.parts.length}` : ""}
+        {detail ? ` · ${detail}` : ""}
+      </span>
     </span>
   );
 }
@@ -208,8 +239,18 @@ function ToolBadge({
  * get undo (rewind the conversation to before this message) and edit (rewind,
  * then resend the edited text) when the chat passes the handlers — both need
  * server support, so chats opt in.
+ *
+ * Memoized: during streaming, every chunk replaces the whole streaming
+ * message object, so the chat re-renders per chunk — but only THAT message's
+ * identity changes. Static history must not pay that cost. The comparator
+ * relies on reference identity of `message` (the AI SDK clones the streamed
+ * message every update, so streaming messages DO get a new reference and
+ * re-render; untouched messages keep theirs and bail out). Unstable handler
+ * props (onUndo/onEdit are fresh closures each parent render, wired only for
+ * user messages) are deliberately compared by message id: the handlers are
+ * pure `undoFrom(message.id)` bindings whose behavior depends only on the id.
  */
-export function ChatMessage({
+function ChatMessageImpl({
   message,
   resolveToolLabel,
   streaming,
@@ -273,7 +314,7 @@ export function ChatMessage({
       <div className="group flex flex-col gap-1">
         <div className="flex justify-end pl-8 sm:pl-16">
           <div className="rounded-box rounded-br-sm bg-primary px-4 py-2.5 text-sm text-primary-content">
-            {message.parts.map((part, index) =>
+            {safeParts(message.parts).map((part, index) =>
               part.type === "text" ? (
                 <span key={index} className="whitespace-pre-wrap">
                   {part.text}
@@ -301,7 +342,18 @@ export function ChatMessage({
   return (
     <div className="group flex flex-col gap-1">
       <div className="min-w-0 space-y-2 text-sm">
-        {message.parts.map((part, index) => {
+        {buildRenderPlan(message.parts).map((entry, index) => {
+          if (entry.kind === "tools") {
+            return (
+              <ToolBadge
+                key={`tool-${index}`}
+                group={entry.group}
+                live={Boolean(streaming)}
+                resolveToolLabel={resolveToolLabel}
+              />
+            );
+          }
+          const { part } = entry;
           if (part.type === "reasoning") {
             return part.text.trim() ? (
               <ReasoningBlock
@@ -316,16 +368,6 @@ export function ChatMessage({
               <Markdown key={index}>{part.text}</Markdown>
             ) : null;
           }
-          if (part.type.startsWith("tool-")) {
-            return (
-              <ToolBadge
-                key={index}
-                part={part}
-                live={Boolean(streaming)}
-                resolveToolLabel={resolveToolLabel}
-              />
-            );
-          }
           return null;
         })}
       </div>
@@ -333,3 +375,47 @@ export function ChatMessage({
     </div>
   );
 }
+
+/**
+ * Equality for the memoized ChatMessage. Reference-equal on everything cheap
+ * and stable; reference equality on `message` (the store clones the streamed
+ * message every update, so content changes always produce a new reference —
+ * and static messages keep theirs). The unstable handler props are compared by
+ * message id, since each is a pure `undoFrom(message.id)` binding whose
+ * behavior depends only on that id. `streaming` is a boolean and
+ * `resolveToolLabel` is a module-level constant per chat, so strict equality
+ * is correct for both.
+ */
+function chatMessagePropsEqual(
+  prev: Readonly<Record<string, unknown>>,
+  next: Readonly<Record<string, unknown>>,
+): boolean {
+  const sameMessageId = (): boolean => {
+    const prevId = getMessageId(prev.message);
+    const nextId = getMessageId(next.message);
+    return prevId !== undefined && prevId === nextId;
+  };
+  return (
+    prev.message === next.message &&
+    prev.streaming === next.streaming &&
+    prev.resolveToolLabel === next.resolveToolLabel &&
+    (prev.onUndo === next.onUndo ||
+      (prev.onUndo != null && next.onUndo != null && sameMessageId())) &&
+    (prev.onEdit === next.onEdit ||
+      (prev.onEdit != null && next.onEdit != null && sameMessageId()))
+  );
+}
+
+/** Narrow the message prop to its id without an unsafe cast: memo comparators
+ * receive unknown-shaped records, so guard the property access instead. */
+function getMessageId(message: unknown): unknown {
+  if (typeof message !== "object" || message === null) return undefined;
+  return Reflect.get(message, "id");
+}
+
+export const ChatMessage = memo(ChatMessageImpl, chatMessagePropsEqual);
+
+// Exposed for the memoization regression test: asserts the bailout rules the
+// comparator implements (static messages bail out; content/streaming changes
+// re-render) without needing a DOM test renderer.
+export { chatMessagePropsEqual as chatMessagePropsEqualForTest };

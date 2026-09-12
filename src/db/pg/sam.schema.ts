@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
-import { index, pgTable, primaryKey, text } from "drizzle-orm/pg-core";
-import { user } from "./better-auth-schema";
+import { index, pgTable, primaryKey, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { user, organization } from "./better-auth-schema";
 import { projects } from "./app.schema";
 
 // See src/db/pg/app.schema.ts for why timestamps are ISO-8601 UTC text.
@@ -35,6 +35,38 @@ export const samSessions = pgTable(
       table.projectId,
       table.updatedAt,
     ),
+  ],
+);
+
+// See src/db/sam.schema.ts: per-scope AI provider/model selection (project >
+// organization > environment). Credentials stay server-side.
+export const aiAgentSettings = pgTable(
+  "ai_agent_settings",
+  {
+    provider: text("provider").notNull().default("openrouter"),
+    model: text("model").notNull().default(""),
+    // Endpoint override for endpoint providers (plaintext config, not a
+    // secret); honored only when the row's provider is the effective one.
+    baseUrl: text("base_url"),
+    // Encrypted JSON map { [providerId]: apiKey } — better-auth AES-GCM
+    // envelope (see credentialCrypto.ts). Never plaintext.
+    credentials: text("credentials"),
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "cascade",
+    }),
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "cascade",
+    }),
+    updatedAt: text("updated_at").notNull().default(isoNow),
+  },
+  (table) => [
+    // One row per scope: at most one org row and one project row.
+    uniqueIndex("ai_agent_settings_org_idx")
+      .on(table.organizationId)
+      .where(sql`${table.projectId} is null`),
+    uniqueIndex("ai_agent_settings_project_idx")
+      .on(table.projectId)
+      .where(sql`${table.organizationId} is null`),
   ],
 );
 

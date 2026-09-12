@@ -36,6 +36,7 @@ export const fetchRankCheckTaskResult: DataforseoSections["fetchRankCheckTaskRes
 
 export type {
   LabsKeywordDataItem,
+  DomainMetricsItem,
   DomainRankedKeywordItem,
   RelevantPagesItem,
 } from "@/server/lib/dataforseo/labs";
@@ -55,4 +56,12 @@ export type {
   ReferringDomainItem,
   DomainPageSummaryItem,
   BacklinksHistoryItem,
-} from "@/server/lib/dataforseo/backlinks";
+} from "@/server/lib/dataforseo/backlinks-schemas";
+
+export {
+  backlinksSummaryItemSchema,
+  backlinksItemSchema,
+  referringDomainItemSchema,
+  domainPageSummaryItemSchema,
+  backlinksHistoryItemSchema,
+} from "@/server/lib/dataforseo/backlinks-schemas";

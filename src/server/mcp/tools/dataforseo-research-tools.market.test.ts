@@ -10,9 +10,24 @@ import { MCP_AUTH_CONTEXT_PROP } from "@/server/mcp/context";
 const mocks = vi.hoisted(() => ({
   createDataforseoClient: vi.fn(),
   getProjectForOrganization: vi.fn(),
+  seoDataRouter: {
+    route: vi.fn(),
+  },
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
+
+vi.mock("@/server/lib/r2-cache", () => ({
+  buildCacheKey: vi.fn(async (prefix: string) => prefix),
+  getCached: vi.fn(async () => null),
+  setCached: vi.fn(async () => {}),
+  CACHE_TTL: { researchResult: 86400 },
+}));
+
+vi.mock("@/server/lib/seo-data", () => ({
+  getSeoDataRouter: () => mocks.seoDataRouter,
+  isDataforseoBudgetAvailable: vi.fn(async () => true),
+}));
 
 vi.mock("@/server/lib/dataforseo", () => ({
   createDataforseoClient: mocks.createDataforseoClient,
@@ -67,25 +82,32 @@ type MarketArgs = {
 };
 
 async function runRankedKeywords(args: MarketArgs) {
-  const rankedKeywords = vi.fn().mockResolvedValue({
-    items: [],
-    totalCount: 0,
-  });
-  mocks.createDataforseoClient.mockReturnValue({
-    domain: { rankedKeywords },
+  mocks.seoDataRouter.route.mockResolvedValue({
+    dataType: "domain_keywords",
+    provider: "dataforseo",
+    fromCache: false,
+    durationMs: 100,
+    data: { items: [], totalCount: 0 },
   });
   const { getRankedKeywordsTool } = await import("./dataforseo-research-tools");
   await getRankedKeywordsTool.handler(
     { projectId: "project_1", target: "acmeexample.com", ...args },
     toolExtra,
   );
-  return rankedKeywords;
+  // Return a matcher-like object for toHaveBeenCalledWith checks
+  return {
+    toHaveBeenCalledWith: (expectation: unknown) =>
+      expect(mocks.seoDataRouter.route).toHaveBeenCalledWith(expectation),
+  };
 }
 
 async function runSerpCompetitors(args: MarketArgs) {
-  const serpCompetitors = vi.fn().mockResolvedValue([]);
-  mocks.createDataforseoClient.mockReturnValue({
-    labs: { serpCompetitors },
+  mocks.seoDataRouter.route.mockResolvedValue({
+    dataType: "competitors",
+    provider: "dataforseo",
+    fromCache: false,
+    durationMs: 100,
+    data: [],
   });
   const { findSerpCompetitorsTool } =
     await import("./dataforseo-research-tools");
@@ -93,7 +115,7 @@ async function runSerpCompetitors(args: MarketArgs) {
     { projectId: "project_1", keywords: ["seo"], ...args },
     toolExtra,
   );
-  return serpCompetitors;
+  return mocks.seoDataRouter.route;
 }
 
 describe("market resolution for Labs tools", () => {
@@ -101,6 +123,7 @@ describe("market resolution for Labs tools", () => {
     vi.resetModules();
     mocks.createDataforseoClient.mockReset();
     mocks.getProjectForOrganization.mockReset();
+    mocks.seoDataRouter.route.mockReset();
     setProject({ locationCode: 2840, languageCode: "en" });
   });
 
@@ -109,7 +132,7 @@ describe("market resolution for Labs tools", () => {
     const rankedKeywords = await runRankedKeywords({
       market: { country: "US" },
     });
-    expect(rankedKeywords).toHaveBeenCalledWith(
+    rankedKeywords.toHaveBeenCalledWith(
       expect.objectContaining({ locationCode: 2840, languageCode: "en" }),
     );
   });
@@ -135,7 +158,7 @@ describe("market resolution for Labs tools", () => {
       locationCode: 2756,
       languageCode: "de",
     });
-    expect(rankedKeywords).toHaveBeenCalledWith(
+    rankedKeywords.toHaveBeenCalledWith(
       expect.objectContaining({ locationCode: 2756, languageCode: "de" }),
     );
 
@@ -151,7 +174,7 @@ describe("market resolution for Labs tools", () => {
   it("uses the selected location's default language when only locationCode is explicit", async () => {
     setProject({ locationCode: 2704, languageCode: "vi" });
     const rankedKeywords = await runRankedKeywords({ locationCode: 2276 });
-    expect(rankedKeywords).toHaveBeenCalledWith(
+    rankedKeywords.toHaveBeenCalledWith(
       expect.objectContaining({ locationCode: 2276, languageCode: "de" }),
     );
   });
@@ -163,7 +186,7 @@ describe("market resolution for Labs tools", () => {
       languageCode: "de",
       market: { country: "US" },
     });
-    expect(rankedKeywords).toHaveBeenCalledWith(
+    rankedKeywords.toHaveBeenCalledWith(
       expect.objectContaining({ locationCode: 2756, languageCode: "de" }),
     );
   });
@@ -196,7 +219,7 @@ describe("market resolution for Labs tools", () => {
   it("follows the project's default market when the market object is omitted", async () => {
     setProject({ locationCode: 2704, languageCode: "vi" });
     const rankedKeywords = await runRankedKeywords({});
-    expect(rankedKeywords).toHaveBeenCalledWith(
+    rankedKeywords.toHaveBeenCalledWith(
       expect.objectContaining({ locationCode: 2704, languageCode: "vi" }),
     );
   });
@@ -206,7 +229,7 @@ describe("market resolution for Labs tools", () => {
     // tools must not inherit it.
     setProject({ locationCode: 2352, languageCode: "en" });
     const rankedKeywords = await runRankedKeywords({});
-    expect(rankedKeywords).toHaveBeenCalledWith(
+    rankedKeywords.toHaveBeenCalledWith(
       expect.objectContaining({ locationCode: 2840, languageCode: "en" }),
     );
   });

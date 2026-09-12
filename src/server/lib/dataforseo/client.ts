@@ -18,6 +18,13 @@ import {
 } from "@/server/lib/dataforseo/envelope";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { AppError } from "@/server/lib/errors";
+import {
+  assertDataforseoBudgetAvailable,
+  recordDataforseoCall,
+} from "@/server/lib/seo-data/cost-tracker";
+import { runWithDataforseoContext } from "@/server/lib/dataforseo/context";
+import { resolveEffectiveDataforseoConfig } from "@/server/features/settings/services/DataforseoSettingsService";
+import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
 
 export { mapDataforseoPathToCreditFeature };
 
@@ -139,11 +146,50 @@ async function meterDataforseoCall<T>(
   execute: () => Promise<DataforseoApiResponse<T>>,
   creditFeature?: CreditFeature,
 ): Promise<T> {
+  const config = await resolveEffectiveDataforseoConfig({
+    organizationId: customer.organizationId,
+    projectId: customer.projectId,
+  });
+
+  if (!config.enabled) {
+    throw new ProviderUnavailableError(
+      "dataforseo",
+      "DataForSEO is disabled in settings",
+    );
+  }
+
+  if (!config.configured) {
+    throw new AppError(
+      "DATAFORSEO_AUTH_FAILED",
+      "DataForSEO credentials are not configured",
+    );
+  }
+
+  const runCall = () =>
+    runWithDataforseoContext(
+      {
+        organizationId: customer.organizationId,
+        projectId: customer.projectId,
+        login: config.login,
+        password: config.password,
+      },
+      execute,
+    );
+
   const isHostedMode = await isHostedServerAuthMode();
 
   if (!isHostedMode) {
-    const result = await execute();
-    return result.data;
+    await assertDataforseoBudgetAvailable();
+    try {
+      const result = await runCall();
+      recordDataforseoCall(result.billing.costUsd);
+      return result.data;
+    } catch (error) {
+      if (error instanceof DataforseoChargedTaskError) {
+        recordDataforseoCall(error.billing.costUsd);
+      }
+      throw error;
+    }
   }
 
   const billingCustomer = await getOrCreateOrganizationCustomer(customer);
@@ -154,7 +200,7 @@ async function meterDataforseoCall<T>(
 
   let result: DataforseoApiResponse<T>;
   try {
-    result = await execute();
+    result = await runCall();
   } catch (error) {
     if (error instanceof DataforseoChargedTaskError) {
       // A malformed request (DataForSEO "Invalid Field: ...") that DataForSEO
@@ -175,6 +221,7 @@ async function meterDataforseoCall<T>(
     }
     throw error;
   }
+
 
   await trackDataforseoCost({
     customer,
