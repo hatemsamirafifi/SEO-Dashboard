@@ -1,14 +1,14 @@
 # OpenSEO — Product Requirements Document (PRD)
 
-> Open source alternative to Semrush and Ahrefs
+> Open source alternative to Semrush and Ahrefs for humans and AI agents
 
-| Field | Value |
-| --- | --- |
-| Product | OpenSEO |
-| Version | 0.1.3 |
-| Status | Live (hosted at [openseo.so](https://openseo.so) + self-hostable) |
-| Doc status | Living document — reflects the shipped product |
-| Audience | Maintainers, contributors, and agents working on this repo |
+| Field      | Value                                                                                     |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| Product    | OpenSEO                                                                                   |
+| Version    | 0.1.3                                                                                     |
+| Status     | Live (hosted at [openseo.so](https://openseo.so) + self-hostable via Docker & Cloudflare) |
+| Doc status | Living document — reflects the shipped product and architecture                           |
+| Audience   | Maintainers, contributors, and agents working on this repo                                |
 
 ---
 
@@ -16,232 +16,297 @@
 
 ### 1.1 Problem
 
-Professional SEO tools (Semrush, Ahrefs) are expensive, subscription-locked, and bloated. Independent operators, small teams, and AI-agent workflows either pay for suites they barely use or go without SEO data entirely. There is no credible, self-hostable, pay-as-you-go SEO platform designed for both humans and AI agents.
+Professional SEO tools (Semrush, Ahrefs) are prohibitively expensive, locked behind aggressive subscription tiers, and overburdened with bloat. Independent operators, small agencies, and developers integrating SEO into AI-agent workflows either overpay for tools they barely utilize or lack access to reliable SEO data altogether. Furthermore, existing suites are built exclusively for human point-and-click usage, lacking native interfaces, protocols, and tooling for autonomous AI agents.
 
 ### 1.2 Solution
 
-OpenSEO is an all-in-one, open-source SEO platform with two defining properties:
+OpenSEO is an all-in-one, open-source SEO platform defined by four core principles:
 
-1. **Pay-as-you-go data** — bring your own DataForSEO API key and pay only for what you use. No subscription required to self-host.
-2. **AI-first** — every workflow is exposed through an MCP server and reusable Agent Skills, so AI agents (Claude Code, OpenClaw, Hermes, or the in-app agent) operate the same SEO data humans do.
+1. **Pay-as-you-go data** — Bring your own DataForSEO API key and pay only for actual consumption. No mandatory subscription to self-host.
+2. **AI-first ecosystem** — Every capability is exposed through a Model Context Protocol (MCP) server, 15+ reusable Agent Skills, and **SAM**, an in-app stateful SEO agent running in Cloudflare Durable Objects.
+3. **Free-first data routing** — Aggressive multi-tier caching, free first-party integrations (Google Search Console, Google Ads, Bing Webmaster), and local crawlers minimize paid API calls.
+4. **Transparent, forkable stack** — Dual SQLite/Postgres database parity with Drizzle ORM, modern React 19 / TanStack Start architecture, and rapid deployment via Docker or Cloudflare Workers.
 
-A hosted version exists for users who don't want to self-host; it charges ~28% over DataForSEO cost per request.
+A hosted version operates at [openseo.so](https://openseo.so) for users seeking a zero-maintenance experience, charging a modest ~28% margin on DataForSEO API requests.
 
 ### 1.3 Goals
 
-- Give individuals and small teams Semrush/Ahrefs-class SEO workflows at a fraction of the cost.
-- Be the best-in-class SEO tool for AI agents (MCP, Agent Skills, in-app agent).
-- Keep the product forkable: users can vibe-code their own custom tool on top of it.
-- Minimize paid API spend through a cache-first, free-first data architecture.
+- Provide independent site owners and agencies with Semrush/Ahrefs-grade workflows at a fraction of traditional SaaS costs.
+- Deliver the reference SEO platform for AI agents (Claude Code, OpenClaw, Hermes, Cursor) via MCP and structured tool contracts.
+- Maintain a cache-first, free-first data pipeline that prioritizes free/first-party data before touching paid APIs.
+- Provide enterprise-grade credential security (AES-GCM encryption with domain separation) and scoped configuration hierarchies.
+- Ensure 100% database compatibility across edge SQLite (Cloudflare D1) and hosted PostgreSQL.
 
 ### 1.4 Non-goals
 
-- Full feature parity with Semrush/Ahrefs (focused workflows over a bloated suite).
-- Building our own global search index / crawler fleet — we aggregate first-party and third-party data instead.
-- Enterprise team management / SSO-heavy workflows (self-host users can use Cloudflare Access).
+- Building and indexing a proprietary global web crawler fleet (OpenSEO aggregates first-party and third-party data).
+- Cluttered, enterprise-heavy bureaucracy and complex multi-tenant role permissions beyond Cloudflare Access / Better Auth.
+- 10-year deep historical cold archives — OpenSEO stores active snapshots and queries live provider data on demand.
 
 ---
 
 ## 2. Users & Personas
 
-| Persona | Description | Primary need |
-| --- | --- | --- |
-| **Indie site owner** | Runs 1–5 sites solo, budget-sensitive | Affordable rank tracking, audits, keyword research |
-| **SEO freelancer / consultant** | Manages client sites, needs client-ready reports | Multi-project workflows, white-labelable self-host |
-| **AI-agent power user** | Works via Claude Code / OpenClaw / Hermes daily | MCP tools and skills that return structured SEO data |
-| **Self-hoster / hacker** | Wants control over data and costs | Docker or Cloudflare deployment, BYO API keys |
-| **Hosted subscriber** | Doesn't want to self-host; $10/mo support tier | Zero-setup access to the same product |
+| Persona                             | Description                                               | Primary Need                                                      |
+| ----------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------- |
+| **Indie site owner / Bootstrapper** | Manages 1–5 sites solo; strictly budget-conscious         | Affordable rank tracking, zero-cost audits, keyword discovery     |
+| **SEO Consultant / Agency**         | Manages multi-client portfolios; needs clean reporting    | Project scoping, client-ready data, white-labelable self-hosting  |
+| **AI Agent Power User**             | Drives SEO workflows via Claude Code, OpenClaw, or Hermes | Robust MCP server, structured JSON outputs, reusable Agent Skills |
+| **Self-Hoster / Hacker**            | Desires total data ownership and zero vendor lock-in      | Single-command Docker deployment, local D1/Postgres, BYO API keys |
+| **Hosted Subscriber**               | Prefers managed setup; supports open source at $10/mo     | Turnkey hosted dashboard at openseo.so                            |
 
 ---
 
 ## 3. Core Workflows (Feature Set)
 
-### 3.1 Projects
+### 3.1 Projects & Scoping
 
-The unit of organization. All SEO data is scoped to a project (a target domain). Projects have settings, including AI agent configuration overrides.
+- All SEO data, settings, tracking configs, and AI memories are strictly scoped to a `Project` (identified by a target domain).
+- Projects support default geographic locations (`location_code`) and language codes (`language_code`).
+- Soft-delete support (`archived_at`) preserves historical keyword and audit data while hiding deactivated projects.
+- Hierarchical configuration cascading: Project-level settings override Organization-level defaults, which in turn override Environment variables.
 
-### 3.2 Keyword Research
+### 3.2 Keyword Research & SERP Exploration
 
-- Keyword discovery with volume, difficulty, intent, and CPC via DataForSEO (with Google Ads free-provider path).
-- SERP results inspection per keyword.
-- **Saved keywords**: persist, tag, and export promising terms; listable via MCP.
+- Keyword discovery powered by DataForSEO and Google Ads API: search volume, keyword difficulty, CPC, competition score, and monthly search trends.
+- Automated search intent classification (informational, commercial, transactional, navigational).
+- Live SERP results inspection per keyword with rich feature detection (featured snippets, local packs, knowledge graphs).
+- **Saved Keywords**: Persist target terms with metadata; tag management with customizable palette colors (`saved_keyword_tags`), and MCP export support.
 
-### 3.3 Rank Tracking
+### 3.3 Rank Tracking & Historical Trend Analytics
 
-- Per-project rank tracking configs (`rank-tracking/$configId`), scheduled snapshots, history, and movement deltas.
-- Seeding utility for demo/dev (`seed:rank-tracking`).
+- Automated and manual rank checks across desktop and mobile devices.
+- Multi-cadence schedules: daily, weekly, monthly, or manual execution.
+- **Position Movement Deltas**: Real-time tracking of current position, previous position (`previousPosition`), delta shift (`+2`, `-5`), and best historic rank.
+- **Interactive Trend Analytics**: Multi-period historical visualizer supporting **7-day**, **30-day**, **90-day**, and **All-Time** performance charts.
+- Non-blocking execution with in-flight concurrency locks (`rank_check_runs_one_active_per_config_idx`) preventing duplicate simultaneous runs.
+- Fallback paths and error capture: failed keyword checks record error reasons without failing the entire run; data persists cleanly across SQLite and Postgres.
 
-### 3.4 Competitor Insights / Domain Analysis
+### 3.4 Competitor Insights & Domain Analysis
 
-- Domain overview: key metrics for any domain.
-- Domain keyword suggestions (what a domain ranks for / could target).
-- Brand lookup workflow.
-- SAM (competitive analysis view, `sam.tsx`).
+- Domain overview: aggregate organic traffic, keyword counts, and ranking distributions.
+- Ranked keywords and keyword gap analysis (identifying terms competitors rank for).
+- Relevant pages and top-performing URLs.
+- SERP competitor snapshot caching (`competitor_snapshots`): repeat competitor analyses serve previous snapshots free of charge.
 
-### 3.5 Backlinks
+### 3.5 Backlink Intelligence
 
-- Backlinks overview and full profile per domain/project.
-- Cost-profiling scripts to keep paid usage predictable (`billing:backlinks`).
+- Domain-level backlink summaries, referring domains, broken backlinks, and anchor text breakdowns.
+- Historical backlink snapshots (`backlink_snapshots`) tracking new vs. lost backlinks and referring domains over time.
+- Integrated billing and cost-profiling utilities (`billing:backlinks`, `billing:brand-lookup`) to safeguard against runaway API consumption.
 
-### 3.6 Site Audits
+### 3.6 Free Technical Site Audits
 
-- Local crawler performs free technical SEO checks: title, meta description, canonical, headings, links, JSON-LD, hreflang — no DataForSEO needed.
-- Crawl results with per-issue drill-down (`audit/issues/$resultId`).
-- Lighthouse integration (PageSpeed/CWV data path).
+- **Built-in Local Crawler**: Comprehensive technical SEO audit executed directly by the server runtime with zero third-party API spend:
+  - Title tag and meta description validation (presence, length, duplication)
+  - Canonical URL verification and robots indexing directives
+  - H1-H6 heading hierarchy and structure
+  - Internal and external link checks with status resolution
+  - JSON-LD structured data syntax and hreflang tag validation
+- Per-issue drill-down and filtered issue views (`audit/issues/$resultId`).
+- Optional Lighthouse integration for Core Web Vitals and PageSpeed performance diagnostics.
+- Strict SSRF protection preventing crawler execution against private, internal, or loopback IPs.
 
-### 3.7 Search Performance (GSC / Bing)
+### 3.7 Search Performance (Google Search Console & Bing)
 
-- Google Search Console integration: free first-party search performance data (clicks, impressions, CTR, position).
-- Bing Webmaster as an additional free provider.
-- Search tabs UI for cross-source exploration.
+- Native OAuth integration with Google Search Console for free, first-party organic performance data.
+- **Persistent Ingestion Service (`GscSyncService`)**:
+  - Background synchronization of clicks, impressions, CTR, and average position.
+  - Dedicated storage schema (`gsc_search_performance`) preserving dimensional data across dates, queries, pages, countries, and devices.
+  - Coverage testing and sync verification (`GscSyncCoverage.test.ts`).
+- Rich Search Performance dashboard featuring custom date ranges, multi-metric comparison, and filter toolbars.
+- Bing Webmaster integration as an additional first-party search performance provider.
 
-### 3.8 AI Visibility / AI Search
+### 3.8 AI Search Visibility & Brand Lookup
 
-- AI search visibility workflows: track how the project domain appears in AI-driven search surfaces.
-- Prompt explorer for AI visibility queries.
+- Track brand and domain visibility across AI-driven search engines and conversational LLM responses.
+- Brand Lookup workflow analyzing cross-aggregated mentions, top cited pages, and sentiment.
+- Prompt Explorer for testing and reviewing AI answers to queries in your domain niche.
 
 ### 3.9 In-App AI Agent (SAM)
 
-- SEO agent running in a Cloudflare Durable Object via `@cloudflare/think`.
-- Calls the same shared MCP tool handlers in-process (never over HTTP, never directly against DataForSEO).
-- Multi-provider model support: openrouter, openai, gemini, anthropic, and OpenAI-compatible endpoints (incl. Ollama Cloud).
-- Configuration cascade: Project row → Organization row → Environment → Built-in defaults.
-- Encrypted per-provider credentials (AES-GCM, key never exposed to browser; masked UI with Change/Remove).
-- Bounded agent loops, tool-call deduplication, workflow presets.
-- Onboarding chat agent for first-run guidance.
+- Stateful, turn-based SEO agent running in a Cloudflare Durable Object via `@cloudflare/think`.
+- Direct in-process execution of MCP tool handlers (never making recursive HTTP hops or bypassing business safeguards).
+- **Multi-Provider LLM Architecture**:
+  - **OpenRouter** (curated Zero Data Retention / ZDR stability matrix)
+  - **OpenAI** (native `gpt-5`, `gpt-4o`)
+  - **Google Gemini** (`gemini-2.5-flash`, `gemini-1.5-pro`)
+  - **Anthropic Claude** (`claude-sonnet-4-5`, `claude-3-5-sonnet`)
+  - **OpenAI-Compatible Endpoints** (local vLLM, LM Studio, Ollama)
+  - **Ollama Cloud** endpoints
+- **Zero-Trust Scoped Credentials**:
+  - Encrypted at rest via AES-GCM (`better-auth` symmetric encryption) using domain-separated keying (`:ai-credentials-v1`).
+  - Plaintext credentials are never returned over the network, never logged, and never exposed in the UI.
+  - UI provides masked preview, connection test round-trips, and explicit Change/Remove operations.
+- **Persistent Project Memory**: Cross-session memory blocks (`sam_project_memory`) storing context, goals, and research logs.
+- Guardrails: Loop limits, tool deduplication, sanitized transcripts, and streaming render storm protection.
 
-### 3.10 MCP Server & Agent Skills
+### 3.10 Model Context Protocol (MCP) Server & Agent Skills
 
-- OAuth-protected MCP server exposing all major workflows as tools (see `src/server/mcp/tools/`): projects, domain overview, keyword research, SERP, rank tracker, backlinks overview/profile, saved keywords, Search Console, site audit, whoami.
-- Pre-built Agent Skills published for external agents; users can build their own.
-- Tool outputs are structured and validated (Zod output schemas + text output formatting).
+- OAuth 2.0-protected MCP server compliant with standard Model Context Protocol specifications.
+- Complete suite of specialized MCP tools (`research_keywords`, `get_serp_results`, `get_rank_tracker`, `start_site_audit`, `query_search_console_performance`, `get_backlinks_overview`, `list_projects`, etc.).
+- Validated Zod input/output schemas with deterministic text formatting.
+- 15+ curated Agent Skills in `.agents/skills/` empowering tools like Claude Code, OpenClaw, Cursor, and Hermes to conduct end-to-end SEO campaigns.
 
-### 3.11 Billing / Usage
+### 3.11 Provider Health & Budget Safeguards
 
-- Budget guards: `DATAFORSEO_DAILY_BUDGET`, `DATAFORSEO_MONTHLY_BUDGET` block paid calls past limits.
-- Usage scripts: `billing:usage`, `billing:backlinks`, `billing:brand-lookup`.
-- Hosted billing via autumn-js with a $10/mo support subscription.
+- **Real-Time DataForSEO Health Diagnostics**: In-dashboard health status card checking endpoint availability, response latency, and account balance.
+- **Scoped Provider Settings (`seo_provider_settings`)**: Project and Organization overrides for DataForSEO credentials, encrypted via AES-GCM.
+- **Budget Guardrails**: `DATAFORSEO_DAILY_BUDGET` and `DATAFORSEO_MONTHLY_BUDGET` prevent runaway spending with structured over-budget responses.
+- Request coalescing to deduplicate concurrent identical queries.
+
+### 3.12 Observability & Global Trace
+
+- In-browser Global Trace system (`globalTraceStore`) capturing real-time operations across client features, server actions, and MCP executions.
+- Live diagnostics drawer providing status filtering (pending, running, success, error), provider breakdown, latency measurements, and payload inspection.
 
 ---
 
-## 4. Free-First Data Architecture (Key Requirement)
+## 4. Free-First Data Architecture
 
-All data requests MUST route through, in order:
+OpenSEO enforces a deterministic, 4-tier data routing resolution order for all SEO queries:
 
 ```
-Request → Cache → Free/First-party provider → Internal data → DataForSEO (paid fallback)
+┌─────────────────┐
+│ Inbound Request │
+└────────┬────────┘
+         ▼
+┌─────────────────┐      Hit
+│ 1. R2 Cache     ├──────────────► [ Return Cached Result (TTL: 24h - 14d) ]
+└────────┬────────┘
+         │ Miss
+         ▼
+┌─────────────────┐     Available
+│ 2. Free Provider├──────────────► [ Google Search Console / Ads / Bing / Local Crawler ]
+└────────┬────────┘
+         │ Unavailable / Not Applicable
+         ▼
+┌─────────────────┐     Available
+│ 3. Internal DB  ├──────────────► [ Stored D1 / Postgres Snapshots & Metrics ]
+└────────┬────────┘
+         │ Missing / Expired
+         ▼
+┌─────────────────┐
+│ 4. DataForSEO   ├──────────────► [ Paid Fallback (Subject to Budget Caps) ]
+└─────────────────┘
 ```
 
-Requirements:
+### Routing Rules & TTL Standards
 
-- **Cache**: every result cached in R2 with per-data-type TTLs (24h–14d).
-- **Free providers**: Google Search Console, Google Ads keyword ideas, Bing Webmaster.
-- **Local crawler**: free technical audit checks (title, meta, canonical, headings, links, JSON-LD, hreflang).
-- **Internal**: previously-fetched data in D1/Postgres (keyword metrics, backlink snapshots, rank snapshots).
-- **DataForSEO**: paid fallback ONLY when cache misses and no free provider satisfies the request.
-- The app MUST remain usable with `DATAFORSEO_ENABLED=false` for any workflow with a free/internal provider.
-- Request coalescing deduplicates concurrent identical requests.
-- SSRF protection blocks the local crawler from private/internal IPs.
-
-Reference: `docs/free-first-architecture-audit.md`, `docs/free-first-implementation-report.md`.
+- **Keyword Research**: R2 cached for 24 hours; Google Ads used for free ideas when enabled.
+- **SERP Analysis**: R2 cached for 12 hours.
+- **Domain Overview & Pages**: R2 cached for 12 hours.
+- **Backlink Overview**: R2 cached for 6 hours; snapshots stored permanently in internal DB.
+- **AI Search Queries**: R2 cached for 7 days.
+- **Offline / Zero-Paid Operation**: When `DATAFORSEO_ENABLED=false`, the application operates smoothly on free providers and internal data.
 
 ---
 
 ## 5. Platform & Deployment
 
-### 5.1 Stack
+### 5.1 Technology Stack
 
-| Layer | Technology |
-| --- | --- |
-| App framework | TanStack Start (React 19, TanStack Router, Query, Form, Table) |
-| Runtime | Cloudflare Workers (workerd) via `@cloudflare/vite-plugin` |
-| Databases | D1/SQLite (self-host default) **and** Postgres (hosted), Drizzle ORM, dual-compatible migrations |
-| Auth | better-auth (Cloudflare Access mode or local no-auth for self-host) |
-| Caching | Cloudflare R2 |
-| Agent runtime | Durable Objects, `@cloudflare/think`, AI SDK multi-provider |
-| MCP | `@modelcontextprotocol/sdk`, `@cloudflare/workers-oauth-provider` |
-| UI | Tailwind v4, DaisyUI, Recharts, lucide-react, sonner |
-| Validation | Zod at all trust boundaries |
-| IaC/deploy | alchemy (preview, selfhost, hosted-prod stages), wrangler, Docker |
-| Testing | Vitest (unit), Playwright (E2E) |
-| Quality | oxlint (type-aware), prettier, knip, `tsc --noEmit` |
+| Layer                        | Technology                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| **Application Framework**    | TanStack Start (React 19, TanStack Router, TanStack Query, React Form, React Table)  |
+| **Runtime Environment**      | Cloudflare Workers (`workerd`) via `@cloudflare/vite-plugin`                         |
+| **Agent Execution**          | Cloudflare Durable Objects, `@cloudflare/think`, Vercel AI SDK                       |
+| **Databases**                | Cloudflare D1 (SQLite) and PostgreSQL (Hosted), unified via Drizzle ORM              |
+| **Object Storage & Caching** | Cloudflare R2                                                                        |
+| **Authentication**           | Cloudflare Access JWT validation, Better Auth, local trusted `noauth`                |
+| **External Agent Protocol**  | `@modelcontextprotocol/sdk`, `@cloudflare/workers-oauth-provider`                    |
+| **Styling & UI**             | Tailwind CSS v4, DaisyUI, Recharts, Lucide Icons, Sonner                             |
+| **Validation & Security**    | Zod validation at trust boundaries, AES-GCM credential encryption                    |
+| **Quality & CI**             | oxlint (type-aware), Prettier, Knip, TypeScript (`tsc --noEmit`), Vitest, Playwright |
 
-### 5.2 Deployment Paths
+### 5.2 Deployment Modes
 
-1. **Docker (simple self-host)** — personal use; see `docs/SELF_HOSTING_DOCKER.md`.
-2. **Cloudflare (advanced self-host)** — internet-facing, multi-device/team, free plan friendly; see `docs/SELF_HOSTING_CLOUDFLARE.md`.
-3. **Hosted** — openseo.so (Postgres stage).
-
-### 5.3 Auth Modes
-
-- `cloudflare_access` — secured deployments behind Cloudflare Access (JWT validation against team domain + AUD).
-- `local_noauth` — trusted local self-host only.
+1. **Docker Self-Hosting (Simple)**:
+   - Standalone single-container deployment via Docker Compose (`compose.yaml`).
+   - Uses `AUTH_MODE=local_noauth` for local private networks or reverse-proxy setups.
+   - Live development support via `compose.dev.yaml` and `Dockerfile.dev`.
+2. **Cloudflare Workers (Advanced Self-Hosting)**:
+   - Edge-native serverless deployment across Cloudflare D1, R2, KV, and Durable Objects.
+   - Zero-cost tier compatible; automated provisioning with Alchemy IaC (`pnpm deploy:selfhost`).
+   - Secured via Cloudflare Access JWT validation (`AUTH_MODE=cloudflare_access`).
+3. **Hosted Production**:
+   - Managed cloud at `openseo.so` running on PostgreSQL (`AUTH_MODE=hosted`).
 
 ---
 
 ## 6. UX Principles
 
-- Modern, simple UI; focused workflows instead of a bloated SEO suite.
-- Each project page is a focused workspace: Overview, Keywords, Rank Tracking, Backlinks, Audit, AI Search, Saved, Search Performance, Brand Lookup, Prompt Explorer, Settings.
-- AI agent surfaces (in-app chat) share the same tool contract as external MCP agents.
-- Plain-language, actionable output — reports a non-SEO can act on.
+- **Clarity Over Bloat**: Deliver focused, purpose-built tools instead of overwhelming enterprise menus.
+- **Actionable Outputs**: Surface plain-language conclusions and immediate next steps rather than raw metric dumps.
+- **Uniform Experience**: In-app AI chat (SAM) operates on the identical tool contracts and datasets as external MCP agents.
+- **Real-Time Transparency**: Make background data fetching, cache statuses, and provider latencies visible via Global Trace.
 
 ---
 
 ## 7. Success Metrics
 
-| Metric | Signal |
-| --- | --- |
-| Self-host installs (Docker + Cloudflare) | Community adoption |
-| Hosted subscription conversions ($10/mo) | Willingness to support the project |
-| MCP tool invocations by external agents | AI-first thesis validation |
-| DataForSEO spend per active project | Free-first routing effectiveness (lower = better) |
-| Cache hit rate / paid-call avoidance rate | Architecture health |
-| Contributor activity (PRs, skills published) | Open-source health |
+| Metric                    | Target / Signal                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| **Self-Host Adoption**    | Steady growth in Docker downloads, GHCR pulls, and Cloudflare deployments.           |
+| **Free-First Efficiency** | High cache hit rate (>70%) and minimal DataForSEO spend per active project.          |
+| **Agent Usage**           | Frequent MCP tool calls by external coding assistants (Claude Code, Cursor, Hermes). |
+| **System Reliability**    | Zero runtime crashes during crawler executions or long-running agent steps.          |
+| **Hosted Conversion**     | Sustained growth of $10/month support subscriptions on openseo.so.                   |
 
 ---
 
 ## 8. Requirements Summary
 
-### 8.1 Functional requirements
+### 8.1 Functional Requirements
 
-- FR-1: Users can create projects scoped to a domain and manage per-project settings.
-- FR-2: Keyword research, SERP inspection, and saved-keyword workflows operate end-to-end.
-- FR-3: Rank tracking creates configs, stores snapshots, and reports rank movement over time.
-- FR-4: Backlinks overview and profile views are available per project/domain.
-- FR-5: Site audit crawls and reports technical issues with per-issue drill-down, without requiring DataForSEO.
-- FR-6: GSC (and Bing) search performance data is ingestible and viewable.
-- FR-7: All major workflows are exposed as MCP tools with structured, validated output.
-- FR-8: The in-app agent (SAM) uses the same MCP handlers in-process, with configurable multi-provider models and encrypted credentials.
-- FR-9: Every data request follows the cache → free → internal → paid routing order.
-- FR-10: Budget guards and usage reporting keep paid API spend visible and bounded.
+- **FR-1**: Users can create, update, and archive domain-scoped projects with location and language preferences.
+- **FR-2**: Keyword research retrieves volume, difficulty, intent, and CPC, with saved-keyword tagging and export.
+- **FR-3**: Rank tracking executes scheduled or manual checks, reporting position deltas and multi-period trend visualizations (7d, 30d, 90d, all-time).
+- **FR-4**: Backlinks profile and referring domain insights are viewable with strict cost-profiling guardrails.
+- **FR-5**: Local crawler executes free technical SEO site audits without consuming paid API credits.
+- **FR-6**: Google Search Console integration ingests, aggregates, and visualizes clicks, impressions, CTR, and position.
+- **FR-7**: In-app AI agent (SAM) supports multi-provider model selection (OpenRouter, OpenAI, Gemini, Anthropic, Ollama Cloud, OpenAI-compatible).
+- **FR-8**: Provider credentials (AI keys, DataForSEO credentials) are stored using AES-GCM encryption with project/org scoping and UI masking.
+- **FR-9**: Data requests adhere strictly to the free-first pipeline (`Cache → Free → Internal → Paid Fallback`).
+- **FR-10**: Budget guards enforce daily and monthly caps on DataForSEO API spend.
+- **FR-11**: Real-time DataForSEO API health check cards verify connection, latency, and balance.
+- **FR-12**: Global debug trace panel captures and surfaces client, server, and MCP operations in real time.
+- **FR-13**: Complete MCP server exposes SEO workflows to external agents with validated Zod schemas.
+- **FR-14**: Project activation checklist guides users through site connection, GSC linking, and MCP authorization.
 
-### 8.2 Non-functional requirements
+### 8.2 Non-Functional Requirements
 
-- NFR-1: Dual SQLite/Postgres compatibility for all schema changes, queries, and mutations.
-- NFR-2: Secrets are never logged, returned in plaintext, or sent to the browser; AI credentials are AES-GCM encrypted with domain separation.
-- NFR-3: SSRF protection on all user-supplied URL fetching (local crawler, Lighthouse).
-- NFR-4: Type safety end-to-end (`tsc --noEmit`, oxlint type-aware, Zod at boundaries).
-- NFR-5: New backend functionality follows TanStack server function → service → repository layering.
-- NFR-6: Product data is normalized; relational data is not stored in JSON blobs.
+- **NFR-1**: Full schema, query, and migration compatibility across SQLite (D1) and PostgreSQL.
+- **NFR-2**: AES-GCM encryption with unique domain separation (`:ai-credentials-v1`) for all stored API secrets.
+- **NFR-3**: SSRF prevention blocking crawler and audit requests to internal, private, or loopback IP ranges.
+- **NFR-4**: Strict end-to-end type safety validated by `tsc --noEmit`, oxlint type-aware linting, and Zod boundaries.
+- **NFR-5**: Architecture adheres to TanStack Server Function → Feature Service → Repository layering.
+- **NFR-6**: Normalized relational database design avoiding untyped JSON blobs for relational data.
+- **NFR-7**: UI protection preventing streaming render storms and excessive re-renders during agent turns.
+- **NFR-8**: Idempotent migration scripts and automated schema parity tests (`schema-parity.test.ts`).
 
 ---
 
 ## 9. Out of Scope
 
-- Building a proprietary search index.
-- Native mobile apps.
-- Team seats/roles beyond what Cloudflare Access provides.
-- Deep historical databases (e.g., 10-year keyword archives) — we surface what providers give us.
+- Crawling the entire public web to build an in-house search index.
+- Native mobile applications (iOS/Android) — responsive web application suffices.
+- Complex multi-tiered enterprise access control lists beyond Cloudflare Access and Better Auth.
+- Permanent archival of multi-gigabyte raw SERP HTML payloads.
 
 ---
 
-## 10. Related Docs
+## 10. Related Documentation
 
-- `README.md` — product overview
-- `docs/free-first-architecture-audit.md` — data routing architecture
-- `docs/in-app-ai-agent.md` — SAM configuration surface
-- `docs/ai-credentials-storage-audit.md` — credential encryption design
-- `docs/SELF_HOSTING_DOCKER.md` / `docs/SELF_HOSTING_CLOUDFLARE.md` — deployment guides
-- `docs/DATAFORSEO_API_KEY.md` — paid data setup
-- `docs/CONTRIBUTING.md` — how to contribute
+- [`README.md`](../README.md) — Main repository overview and quickstart
+- [`docs/free-first-architecture-audit.md`](./free-first-architecture-audit.md) — Deep dive into cache & free provider routing
+- [`docs/free-first-implementation-report.md`](./free-first-implementation-report.md) — Implementation audit and provider matrix
+- [`docs/in-app-ai-agent.md`](./in-app-ai-agent.md) — In-app agent (SAM) configuration & architecture
+- [`docs/openrouter-zdr-model-matrix.md`](./openrouter-zdr-model-matrix.md) — Zero Data Retention model matrix
+- [`docs/ai-credentials-storage-audit.md`](./ai-credentials-storage-audit.md) — Credential encryption design
+- [`docs/local-docker-development.md`](./local-docker-development.md) — Docker Compose dev environment guide
+- [`docs/LOCAL_POSTGRES.md`](./LOCAL_POSTGRES.md) — Local Postgres setup and migration guide
+- [`docs/SELF_HOSTING_DOCKER.md`](./SELF_HOSTING_DOCKER.md) — Production Docker self-hosting
+- [`docs/SELF_HOSTING_CLOUDFLARE.md`](./SELF_HOSTING_CLOUDFLARE.md) — Production Cloudflare Workers self-hosting
+- [`docs/DATAFORSEO_API_KEY.md`](./DATAFORSEO_API_KEY.md) — DataForSEO API credential setup
+- [`docs/CONTRIBUTING.md`](./CONTRIBUTING.md) — Contribution guidelines and development workflow

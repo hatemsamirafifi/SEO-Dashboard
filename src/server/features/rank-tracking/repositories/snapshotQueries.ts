@@ -6,9 +6,13 @@ import {
   eq,
   gte,
   inArray,
+  isNull,
+  lt,
   lte,
   max,
   min,
+  ne,
+  or,
   sql,
 } from "drizzle-orm";
 import { db } from "@/db";
@@ -33,6 +37,95 @@ function cutoffTimestamp(sinceDays: number): string {
   );
 }
 
+export interface LatestPositionsOptions {
+  excludeRunId?: string;
+  beforeDate?: string;
+}
+
+/**
+ * Map latest known positions for a list of (keywordId, device) pairs in a config.
+ * Used to resolve previousPosition before inserting new snapshots.
+ *
+ * Strict resolution semantics:
+ * - Scoped to config and completed runs
+ * - Excludes currentRunId (both from runs and snapshots)
+ * - Excludes CHECK_FAILED snapshots so vendor errors do not corrupt prior rank
+ * - If beforeDate is provided, strictly before that date
+ * - Returns position as integer or null (NO_RESULT preserved as null, never 0)
+ * - Deterministic regardless of batch/insertion order
+ */
+export async function getLatestPositionsMap(
+  configId: string,
+  pairs: Array<{ keywordId: string; device: "desktop" | "mobile" }>,
+  options?: LatestPositionsOptions,
+): Promise<Map<string, number | null>> {
+  const map = new Map<string, number | null>();
+  if (pairs.length === 0) return map;
+
+  const keywordIds = Array.from(new Set(pairs.map((p) => p.keywordId)));
+
+  const runConditions = [
+    eq(rankCheckRuns.configId, configId),
+    eq(rankCheckRuns.status, "completed"),
+  ];
+  if (options?.excludeRunId) {
+    runConditions.push(ne(rankCheckRuns.id, options.excludeRunId));
+  }
+
+  const completedRunIds = db
+    .select({ id: rankCheckRuns.id })
+    .from(rankCheckRuns)
+    .where(and(...runConditions));
+
+  const validSnapshotConditions = [
+    inArray(rankSnapshots.runId, completedRunIds),
+    inArray(rankSnapshots.trackingKeywordId, keywordIds),
+    or(
+      isNull(rankSnapshots.rankingStatus),
+      ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+    ),
+  ];
+  if (options?.excludeRunId) {
+    validSnapshotConditions.push(ne(rankSnapshots.runId, options.excludeRunId));
+  }
+  if (options?.beforeDate) {
+    validSnapshotConditions.push(lt(rankSnapshots.checkedAt, options.beforeDate));
+  }
+
+  const grouped = db
+    .select({
+      trackingKeywordId: rankSnapshots.trackingKeywordId,
+      device: rankSnapshots.device,
+      targetCheckedAt: max(rankSnapshots.checkedAt).as("target_checked_at"),
+    })
+    .from(rankSnapshots)
+    .where(and(...validSnapshotConditions))
+    .groupBy(rankSnapshots.trackingKeywordId, rankSnapshots.device)
+    .as("grouped");
+
+  const rows = await db
+    .select({
+      trackingKeywordId: rankSnapshots.trackingKeywordId,
+      device: rankSnapshots.device,
+      position: rankSnapshots.position,
+    })
+    .from(rankSnapshots)
+    .innerJoin(
+      grouped,
+      and(
+        eq(rankSnapshots.trackingKeywordId, grouped.trackingKeywordId),
+        eq(rankSnapshots.device, grouped.device),
+        eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
+      ),
+    )
+    .where(and(...validSnapshotConditions));
+
+  for (const row of rows) {
+    map.set(`${row.trackingKeywordId}:${row.device}`, row.position);
+  }
+  return map;
+}
+
 /**
  * Flat per-keyword position series across completed runs, ordered oldest first.
  * `null` position = checked but not found within serpDepth (a real event, not a
@@ -45,9 +138,16 @@ export async function getKeywordHistory(
 ) {
   return db
     .select({
+      id: rankSnapshots.id,
       device: rankSnapshots.device,
       checkedAt: rankSnapshots.checkedAt,
+      checkedDate: rankSnapshots.checkedDate,
       position: rankSnapshots.position,
+      previousPosition: rankSnapshots.previousPosition,
+      rankingStatus: rankSnapshots.rankingStatus,
+      url: rankSnapshots.url,
+      providerStatus: rankSnapshots.providerStatus,
+      errorMessage: rankSnapshots.errorMessage,
     })
     .from(rankSnapshots)
     .where(

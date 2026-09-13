@@ -25,9 +25,16 @@ import {
 } from "@/types/schemas/rank-tracking";
 
 export interface RankKeywordHistoryPoint {
+  id?: number;
   device: "desktop" | "mobile";
   checkedAt: string;
+  checkedDate?: string | null;
   position: number | null;
+  previousPosition?: number | null;
+  rankingStatus?: "RANKED" | "NO_RESULT" | "CHECK_FAILED" | "NOT_CHECKED" | null;
+  url?: string | null;
+  providerStatus?: string | null;
+  errorMessage?: string | null;
 }
 
 interface RankConfigTrendPoint {

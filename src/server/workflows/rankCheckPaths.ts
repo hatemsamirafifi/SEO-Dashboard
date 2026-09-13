@@ -1,4 +1,7 @@
+/* eslint-disable max-lines */
 import type { WorkflowStep } from "cloudflare:workers";
+import type { InferInsertModel } from "drizzle-orm";
+import type { rankSnapshots } from "@/db/schema";
 import { sanitizeDataforseoMessage } from "@/server/lib/dataforseo/shared";
 import { scrubGlobalTraceText } from "@/shared/globalTraceTypes";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
@@ -26,22 +29,6 @@ type RankCheckResultWithDevice = RankCheckResult & {
   device: "desktop" | "mobile";
 };
 
-function mapResultsToSnapshotRows(
-  runId: string,
-  results: RankCheckResultWithDevice[],
-) {
-  return results.map((r) => ({
-    runId,
-    trackingKeywordId: r.keywordId,
-    keyword: r.keyword,
-    device: r.device,
-    position: r.position,
-    url: r.url,
-    serpFeatures:
-      r.serpFeatures.length > 0 ? JSON.stringify(r.serpFeatures) : null,
-  }));
-}
-
 interface CheckContext {
   client: ReturnType<typeof createDataforseoClient>;
   keywords: KeywordEntry[];
@@ -52,6 +39,44 @@ interface CheckContext {
   languageCode: string;
   locationName?: string;
   runId: string;
+  projectId: string;
+  configId: string;
+}
+
+function mapResultsToSnapshotRows(
+  ctx: CheckContext,
+  results: RankCheckResultWithDevice[],
+  previousPositions: Map<string, number | null>,
+): Array<Omit<InferInsertModel<typeof rankSnapshots>, "id" | "checkedAt">> {
+  const today = new Date().toISOString().slice(0, 10);
+  return results.map((r) => {
+    const isRanked = r.position !== null;
+    const prevPos =
+      previousPositions.get(`${r.keywordId}:${r.device}`) ?? null;
+    return {
+      runId: ctx.runId,
+      projectId: ctx.projectId,
+      configId: ctx.configId,
+      trackingKeywordId: r.keywordId,
+      keyword: r.keyword,
+      device: r.device,
+      searchEngine: "google",
+      searchType: "organic",
+      location: ctx.locationName ?? String(ctx.locationCode),
+      language: ctx.languageCode,
+      checkedDate: today,
+      position: r.position,
+      previousPosition: prevPos,
+      rankingStatus: isRanked ? "RANKED" : "NO_RESULT",
+      url: r.url ?? null,
+      serpFeatures:
+        r.serpFeatures.length > 0 ? JSON.stringify(r.serpFeatures) : null,
+      provider: "dataforseo",
+      providerStatus: isRanked ? "Ok" : "No ranking found",
+      providerStatusCode: 20000,
+      errorMessage: null,
+    };
+  });
 }
 
 /** Expand keywords into one task input per keyword/device pair. */
@@ -98,19 +123,41 @@ function safeProviderReason(reason: unknown): string {
     : scrubbed;
 }
 
+function parseDataforseoStatusCode(reason: unknown): number | null {
+  if (typeof reason === "object" && reason !== null) {
+    const statusCode: unknown = Reflect.get(reason, "statusCode");
+    if (typeof statusCode === "number") {
+      return statusCode;
+    }
+    const statusCodeSnake: unknown = Reflect.get(reason, "status_code");
+    if (typeof statusCodeSnake === "number") {
+      return statusCodeSnake;
+    }
+  }
+  const raw = reason instanceof Error ? reason.message : String(reason);
+  const match = raw.match(/\((\d{5})\)/);
+  if (match) {
+    return parseInt(match[1], 10);
+  }
+  return null;
+}
+
 /**
  * Check keyword/device pairs against the live endpoint and persist snapshots.
- * Per-call failures are logged and skipped (the metered client already charged
- * or refused each call individually). Returns the snapshot count written plus
- * the first sanitized provider failure reason (null when every call
- * succeeded) so the run record can name the actual underlying error instead
- * of a collapsed label. Observability only: same calls, same skips, same
- * writes — no retry, scope, or billing change.
+ * Per-call failures are logged and recorded as CHECK_FAILED snapshots with diagnostics.
+ * Returns the snapshot count written plus the first sanitized provider failure reason
+ * (null when every call succeeded).
  */
 async function checkBatchLive(
   ctx: CheckContext,
   tasks: RankCheckTaskInput[],
 ): Promise<{ written: number; firstError: string | null }> {
+  const previousPositions = await RankTrackingRepository.getLatestPositionsMap(
+    ctx.configId,
+    tasks.map((t) => ({ keywordId: t.keywordId, device: t.device })),
+    { excludeRunId: ctx.runId },
+  );
+
   const settled = await Promise.allSettled(
     tasks.map((task) =>
       ctx.client.serp
@@ -127,25 +174,81 @@ async function checkBatchLive(
         .then((r) => ({ ...r, device: task.device })),
     ),
   );
-  const results: RankCheckResultWithDevice[] = [];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const snapshotRows: Array<
+    Omit<InferInsertModel<typeof rankSnapshots>, "id" | "checkedAt">
+  > = [];
   let firstError: string | null = null;
-  for (const outcome of settled) {
+
+  settled.forEach((outcome, index) => {
+    const task = tasks[index];
+    const prevPos =
+      previousPositions.get(`${task.keywordId}:${task.device}`) ?? null;
+
     if (outcome.status === "fulfilled") {
-      results.push(outcome.value);
+      const r = outcome.value;
+      const isRanked = r.position !== null;
+      snapshotRows.push({
+        runId: ctx.runId,
+        projectId: ctx.projectId,
+        configId: ctx.configId,
+        trackingKeywordId: task.keywordId,
+        keyword: task.keyword,
+        device: task.device,
+        searchEngine: "google",
+        searchType: "organic",
+        location: ctx.locationName ?? String(ctx.locationCode),
+        language: ctx.languageCode,
+        checkedDate: today,
+        position: r.position,
+        previousPosition: prevPos,
+        rankingStatus: isRanked ? "RANKED" : "NO_RESULT",
+        url: r.url ?? null,
+        serpFeatures:
+          r.serpFeatures.length > 0 ? JSON.stringify(r.serpFeatures) : null,
+        provider: "dataforseo",
+        providerStatus: isRanked ? "Ok" : "No ranking found",
+        providerStatusCode: 20000,
+        errorMessage: null,
+      });
     } else {
       console.error(
         `[rank-check] ${ctx.runId} live call failed:`,
         outcome.reason,
       );
-      firstError ??= safeProviderReason(outcome.reason);
+      const reason = safeProviderReason(outcome.reason);
+      firstError ??= reason;
+      const statusCode = parseDataforseoStatusCode(outcome.reason);
+      snapshotRows.push({
+        runId: ctx.runId,
+        projectId: ctx.projectId,
+        configId: ctx.configId,
+        trackingKeywordId: task.keywordId,
+        keyword: task.keyword,
+        device: task.device,
+        searchEngine: "google",
+        searchType: "organic",
+        location: ctx.locationName ?? String(ctx.locationCode),
+        language: ctx.languageCode,
+        checkedDate: today,
+        position: null,
+        previousPosition: prevPos,
+        rankingStatus: "CHECK_FAILED",
+        url: null,
+        serpFeatures: null,
+        provider: "dataforseo",
+        providerStatus: reason,
+        providerStatusCode: statusCode,
+        errorMessage: reason,
+      });
     }
+  });
+
+  if (snapshotRows.length > 0) {
+    await RankTrackingRepository.insertSnapshots(snapshotRows);
   }
-  if (results.length > 0) {
-    await RankTrackingRepository.insertSnapshots(
-      mapResultsToSnapshotRows(ctx.runId, results),
-    );
-  }
-  return { written: results.length, firstError };
+  return { written: snapshotRows.length, firstError };
 }
 
 /**
@@ -273,8 +376,13 @@ async function collectQueuedRound(
   }
 
   if (completed.length > 0) {
+    const previousPositions = await RankTrackingRepository.getLatestPositionsMap(
+      ctx.configId,
+      completed.map((t) => ({ keywordId: t.keywordId, device: t.device })),
+      { excludeRunId: ctx.runId },
+    );
     await RankTrackingRepository.insertSnapshots(
-      mapResultsToSnapshotRows(ctx.runId, completed),
+      mapResultsToSnapshotRows(ctx, completed, previousPositions),
     );
     // Progress for the UI; finalize recounts from the DB anyway.
     const snapshots = await RankTrackingRepository.getSnapshotsForRun(

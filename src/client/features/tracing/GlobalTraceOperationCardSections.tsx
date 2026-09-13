@@ -268,14 +268,18 @@ export function ChildrenSection({
 
               <span
                 className={`font-semibold uppercase text-[11px] ${
-                  child.status === "success"
+                  (child.rankingStatus === "RANKED" || child.status === "success")
                     ? "text-success"
-                    : child.status === "blocked"
-                      ? "text-warning"
-                      : "text-error"
+                    : (child.rankingStatus === "NO_RESULT" || child.status === "no_result")
+                      ? "text-base-content/60"
+                      : child.rankingStatus === "NOT_CHECKED"
+                        ? "text-base-content/40"
+                        : child.status === "blocked"
+                          ? "text-warning"
+                          : "text-error"
                 }`}
               >
-                {child.status}
+                {child.rankingStatus ?? child.status}
               </span>
 
               {child.durationMs !== undefined && (

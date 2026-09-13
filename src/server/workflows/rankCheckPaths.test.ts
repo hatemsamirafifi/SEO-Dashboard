@@ -11,6 +11,7 @@ import { runLiveCheck } from "@/server/workflows/rankCheckPaths";
 const repoMocks = vi.hoisted(() => ({
   updateRun: vi.fn<() => Promise<void>>(),
   insertSnapshots: vi.fn<() => Promise<void>>(),
+  getLatestPositionsMap: vi.fn<() => Promise<Map<string, number | null>>>(),
 }));
 
 vi.mock(
@@ -50,6 +51,8 @@ function makeCtx(
     locationCode: 784,
     languageCode: "ar",
     runId: "run_1",
+    projectId: "proj_1",
+    configId: "cfg_1",
   };
 }
 
@@ -70,6 +73,7 @@ describe("runLiveCheck provider-reason capture", () => {
   beforeEach(() => {
     repoMocks.updateRun.mockResolvedValue(undefined);
     repoMocks.insertSnapshots.mockResolvedValue(undefined);
+    repoMocks.getLatestPositionsMap.mockResolvedValue(new Map());
   });
 
   it("returns null and persists snapshots when every call succeeds", async () => {
@@ -84,7 +88,7 @@ describe("runLiveCheck provider-reason capture", () => {
     expect(repoMocks.insertSnapshots).toHaveBeenCalledTimes(1);
   });
 
-  it("captures the canonical HTTP 500 reason without changing execution", async () => {
+  it("captures the canonical HTTP 500 reason and persists CHECK_FAILED snapshot", async () => {
     const rankCheck = vi.fn(async () => {
       throw new Error(
         "DataForSEO HTTP 500 on /v3/serp/google/organic/live/advanced: Internal Server Error (50000)",
@@ -94,9 +98,17 @@ describe("runLiveCheck provider-reason capture", () => {
 
     expect(firstError).toContain("DataForSEO HTTP 500");
     expect(firstError).toContain("Internal Server Error");
-    // Same behavior as before: exactly one attempt, no snapshots, progress kept.
     expect(rankCheck).toHaveBeenCalledTimes(1);
-    expect(repoMocks.insertSnapshots).not.toHaveBeenCalled();
+    expect(repoMocks.insertSnapshots).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rankingStatus: "CHECK_FAILED",
+          position: null,
+        }),
+      ]),
+    );
+    const firstInsertedSnapshot = repoMocks.insertSnapshots.mock.calls[0]?.[0]?.[0];
+    expect(firstInsertedSnapshot?.providerStatus).toContain("DataForSEO HTTP 500");
     expect(repoMocks.updateRun).toHaveBeenCalledWith("run_1", {
       keywordsChecked: 1,
     });

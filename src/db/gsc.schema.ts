@@ -1,4 +1,11 @@
-import { sqliteTable, text, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { organization } from "./better-auth-schema";
 import { projects } from "./app.schema";
@@ -35,5 +42,129 @@ export const gscConnections = sqliteTable(
     // One selected property per project in v1; switching replaces the row.
     uniqueIndex("gsc_connections_project_idx").on(table.projectId),
     index("gsc_connections_organization_idx").on(table.organizationId),
+  ],
+);
+
+export const gscSearchPerformance = sqliteTable(
+  "gsc_search_performance",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    gscConnectionId: text("gsc_connection_id").references(
+      () => gscConnections.id,
+      { onDelete: "set null" },
+    ),
+    property: text("property").notNull(),
+    date: text("date").notNull(),
+    grain: text("grain").notNull(),
+    grainKey: text("grain_key").notNull(),
+    query: text("query"),
+    page: text("page"),
+    country: text("country"),
+    device: text("device"),
+    searchAppearance: text("search_appearance"),
+    searchType: text("search_type").notNull().default("web"),
+    clicks: integer("clicks").notNull().default(0),
+    impressions: integer("impressions").notNull().default(0),
+    ctr: real("ctr").notNull().default(0),
+    position: real("position").notNull().default(0),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    uniqueIndex("gsc_search_perf_upsert_idx").on(
+      table.projectId,
+      table.property,
+      table.searchType,
+      table.date,
+      table.grain,
+      table.grainKey,
+    ),
+    index("gsc_search_perf_project_date_idx").on(
+      table.projectId,
+      table.date,
+    ),
+    index("gsc_search_perf_project_property_date_idx").on(
+      table.projectId,
+      table.property,
+      table.date,
+    ),
+    index("gsc_search_perf_project_query_date_idx").on(
+      table.projectId,
+      table.query,
+      table.date,
+    ),
+    index("gsc_search_perf_project_page_date_idx").on(
+      table.projectId,
+      table.page,
+      table.date,
+    ),
+    index("gsc_search_perf_project_country_date_idx").on(
+      table.projectId,
+      table.country,
+      table.date,
+    ),
+    index("gsc_search_perf_project_device_date_idx").on(
+      table.projectId,
+      table.device,
+      table.date,
+    ),
+    index("gsc_search_perf_project_grain_date_idx").on(
+      table.projectId,
+      table.grain,
+      table.date,
+    ),
+  ],
+);
+
+export const gscSearchPerformanceSyncs = sqliteTable(
+  "gsc_search_performance_syncs",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    gscConnectionId: text("gsc_connection_id").references(
+      () => gscConnections.id,
+      { onDelete: "set null" },
+    ),
+    property: text("property").notNull(),
+    syncType: text("sync_type").notNull(),
+    requestedStartDate: text("requested_start_date").notNull(),
+    requestedEndDate: text("requested_end_date").notNull(),
+    actualLastSuccessfulDate: text("actual_last_successful_date"),
+    status: text("status").notNull().default("pending"),
+    startedAt: text("started_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    completedAt: text("completed_at"),
+    rowsFetched: integer("rows_fetched").notNull().default(0),
+    rowsInserted: integer("rows_inserted").notNull().default(0),
+    rowsUpdated: integer("rows_updated").notNull().default(0),
+    rowsFailed: integer("rows_failed").notNull().default(0),
+    error: text("error"),
+    checkpoint: text("checkpoint"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    uniqueIndex("gsc_sync_one_active_per_project_idx")
+      .on(table.projectId, table.property)
+      .where(sql`${table.status} IN ('pending', 'running')`),
+    index("gsc_sync_project_status_idx").on(
+      table.projectId,
+      table.status,
+      table.startedAt,
+    ),
   ],
 );

@@ -12,6 +12,7 @@ import {
 
 const MAX_OPERATIONS = 500;
 const DIAGNOSTICS_STORAGE_KEY = "openseo_global_diagnostics_enabled";
+export const OPERATIONS_STORAGE_KEY = "openseo_global_trace_operations";
 
 type Listener = () => void;
 
@@ -57,18 +58,79 @@ function getInitialDiagnosticsEnabled(): boolean {
   return true;
 }
 
+function isOperationArray(val: unknown): val is GlobalTraceOperation[] {
+  return Array.isArray(val);
+}
+
+function getInitialOperations(): GlobalTraceOperation[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(OPERATIONS_STORAGE_KEY);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (isOperationArray(parsed)) {
+        return parsed.slice(0, MAX_OPERATIONS);
+      }
+    }
+  } catch {
+    // Ignore localStorage access errors
+  }
+  return [];
+}
+
 class GlobalTraceStore {
   private state: GlobalTraceStoreState;
   private listeners = new Set<Listener>();
 
   constructor() {
     this.state = {
-      operations: [],
+      operations: getInitialOperations(),
       diagnosticsEnabled: getInitialDiagnosticsEnabled(),
       activeFilter: "all",
       panelOpen: false,
     };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", this.handleStorageEvent);
+      Reflect.set(window, "__GLOBAL_TRACE_STORE__", this);
+    }
   }
+
+  private saveOperations(ops: GlobalTraceOperation[]) {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(OPERATIONS_STORAGE_KEY, JSON.stringify(ops));
+    } catch {
+      // Ignore localStorage access errors
+    }
+  }
+
+  private handleStorageEvent = (event: StorageEvent) => {
+    if (event.key === OPERATIONS_STORAGE_KEY) {
+      try {
+        const raw = event.newValue;
+        const parsed: unknown = raw ? JSON.parse(raw) : [];
+        if (isOperationArray(parsed)) {
+          this.state = {
+            ...this.state,
+            operations: parsed.slice(0, MAX_OPERATIONS),
+          };
+          this.notify();
+        }
+      } catch {
+        // Ignore
+      }
+    } else if (event.key === DIAGNOSTICS_STORAGE_KEY) {
+      const enabled = event.newValue !== "false";
+      if (this.state.diagnosticsEnabled !== enabled) {
+        this.state = {
+          ...this.state,
+          diagnosticsEnabled: enabled,
+        };
+        this.notify();
+      }
+    }
+  };
 
   private notify() {
     for (const listener of this.listeners) {
@@ -173,6 +235,7 @@ class GlobalTraceStore {
         ...this.state,
         operations: newOps,
       };
+      this.saveOperations(newOps);
       this.notify();
       return operationId;
     } catch {
@@ -218,6 +281,7 @@ class GlobalTraceStore {
         ...this.state,
         operations: newOps,
       };
+      this.saveOperations(newOps);
       this.notify();
     } catch {
       // Diagnostic operations must never throw
@@ -271,6 +335,7 @@ class GlobalTraceStore {
         ...this.state,
         operations: newOps,
       };
+      this.saveOperations(newOps);
       this.notify();
     } catch {
       // Diagnostic operations must never throw
@@ -319,6 +384,7 @@ class GlobalTraceStore {
         ...this.state,
         operations: newOps,
       };
+      this.saveOperations(newOps);
       this.notify();
     } catch {
       // Diagnostic operations must never throw
@@ -344,6 +410,7 @@ class GlobalTraceStore {
         ...this.state,
         operations: newOps,
       };
+      this.saveOperations(newOps);
       this.notify();
     } catch {
       // Diagnostic operations must never throw

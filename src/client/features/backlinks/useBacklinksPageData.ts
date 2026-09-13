@@ -136,7 +136,7 @@ export function useBacklinksPageData({
       } catch (err) {
         globalTraceStore.completeOperation(opId, {
           status: "failed",
-          httpStatus: 500,
+          errorClass: getErrorCode(err) ?? "OPERATION_FAILED",
           errorMessage:
             err instanceof Error
               ? err.message

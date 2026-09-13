@@ -59,6 +59,7 @@ export type GlobalTraceKeywordChild = {
   keywordId: string;
   keyword?: string; // safe display label
   status: "success" | "failed" | "blocked" | "no_result";
+  rankingStatus?: "RANKED" | "NO_RESULT" | "CHECK_FAILED" | "NOT_CHECKED";
   provider?: string;
   durationMs?: number;
   positionBefore?: number | null;

@@ -323,16 +323,41 @@ export const rankSnapshots = sqliteTable(
     runId: text("run_id")
       .notNull()
       .references(() => rankCheckRuns.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "cascade",
+    }),
+    configId: text("config_id").references(() => rankTrackingConfigs.id, {
+      onDelete: "cascade",
+    }),
     // No FK to rankTrackingKeywords — intentional. Historical snapshots are
     // preserved after a keyword is removed from tracking so users can still
     // see past position data for deleted keywords.
     trackingKeywordId: text("tracking_keyword_id").notNull(),
     keyword: text("keyword").notNull(),
+    searchEngine: text("search_engine").notNull().default("google"),
+    searchType: text("search_type").notNull().default("organic"),
+    location: text("location"),
+    language: text("language"),
     device: text("device", { enum: ["desktop", "mobile"] }).notNull(),
-    position: integer("position"), // null = not found in top 20
+    position: integer("position"), // null = not found in top 20 or failed
+    previousPosition: integer("previous_position"),
+    rankingStatus: text("ranking_status", {
+      enum: ["RANKED", "NO_RESULT", "CHECK_FAILED", "NOT_CHECKED"],
+    }),
     url: text("url"),
     serpFeatures: text("serp_features"), // JSON array of feature type strings
+    provider: text("provider").notNull().default("dataforseo"),
+    providerStatus: text("provider_status"),
+    providerStatusCode: integer("provider_status_code"),
+    errorMessage: text("error_message"),
     checkedAt: text("checked_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    checkedDate: text("checked_date"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
       .notNull()
       .default(sql`(current_timestamp)`),
   },
@@ -348,6 +373,19 @@ export const rankSnapshots = sqliteTable(
       table.runId,
       table.trackingKeywordId,
       table.device,
+    ),
+    index("rank_snapshots_project_kw_checked_idx").on(
+      table.projectId,
+      table.trackingKeywordId,
+      table.checkedAt,
+    ),
+    index("rank_snapshots_config_checked_idx").on(
+      table.configId,
+      table.checkedAt,
+    ),
+    index("rank_snapshots_project_date_idx").on(
+      table.projectId,
+      table.checkedDate,
     ),
   ],
 );

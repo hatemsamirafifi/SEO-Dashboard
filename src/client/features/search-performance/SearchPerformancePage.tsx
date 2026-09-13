@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link } from "@tanstack/react-router";
 import {
   keepPreviousData,
   queryOptions,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Download, Loader2, Sheet } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { TableExportMenu } from "@/client/components/table/TableBulkActionBar";
 import { TablePagination } from "@/client/components/table/TablePagination";
 import { SearchConsoleConnectionCard } from "@/client/features/gsc/SearchConsoleConnectionCard";
 import { SearchPerformanceLoadingState } from "@/client/features/search-performance/SearchPerformanceLoadingState";
@@ -17,58 +15,30 @@ import {
   exportDimensionRows,
   exportStriking,
   StrikingDistanceTable,
-  TabButton,
   TotalsCards,
   type ExportTarget,
-  type Tab,
 } from "@/client/features/search-performance/SearchPerformanceParts";
+import {
+  SearchPerformanceFilterToolbar,
+  ALL,
+  type Tab,
+} from "@/client/features/search-performance/SearchPerformanceFilterToolbar";
+import { SearchPerformanceHeader } from "@/client/features/search-performance/SearchPerformanceHeader";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   exportSearchPerformanceTable,
   getSearchPerformanceReport,
   getSearchPerformanceTable,
+  triggerSearchPerformanceSync,
 } from "@/serverFunctions/searchPerformance";
 import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
 import {
-  GSC_DEVICES,
   SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE,
   SEARCH_PERFORMANCE_PAGE_SIZES,
-  SEARCH_PERFORMANCE_RANGES,
   type SearchPerformanceDateRange,
   type SearchPerformanceDevice,
   type SearchPerformanceTableDimension,
 } from "@/types/schemas/search-performance";
-
-const RANGE_LABELS: Record<SearchPerformanceDateRange, string> = {
-  last_7_days: "Last 7 days",
-  last_28_days: "Last 28 days",
-  last_3_months: "Last 3 months",
-};
-const RANGE_OPTIONS = SEARCH_PERFORMANCE_RANGES.map((value) => ({
-  value,
-  label: RANGE_LABELS[value],
-}));
-
-const DEVICE_LABELS: Record<SearchPerformanceDevice, string> = {
-  DESKTOP: "Desktop",
-  MOBILE: "Mobile",
-  TABLET: "Tablet",
-};
-const DEVICE_OPTIONS = GSC_DEVICES.map((value) => ({
-  value,
-  label: DEVICE_LABELS[value],
-}));
-
-// Sentinel for "no filter" in the selects; never sent to the server.
-const ALL = "ALL";
-
-function isDateRange(value: string): value is SearchPerformanceDateRange {
-  return SEARCH_PERFORMANCE_RANGES.some((option) => option === value);
-}
-
-function isDevice(value: string): value is SearchPerformanceDevice {
-  return GSC_DEVICES.some((option) => option === value);
-}
 
 function tabDimension(tab: Tab): SearchPerformanceTableDimension {
   return tab === "pages" ? "page" : "query";
@@ -80,7 +50,6 @@ type FilterInput = {
   country?: string;
 };
 
-// The server filter payload: drop device/country when set to the "ALL" sentinel.
 function buildFilterInput(
   range: SearchPerformanceDateRange,
   device: SearchPerformanceDevice | typeof ALL,
@@ -93,8 +62,6 @@ function buildFilterInput(
   };
 }
 
-// Single source for the paginated table query, shared by the live query and the
-// warm-on-connect prefetch so their key + fn can never drift apart.
 function tableQueryOptions(
   projectId: string,
   dimension: SearchPerformanceTableDimension,
@@ -131,8 +98,8 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
   const [pageSize, setPageSize] = useState<number>(
     SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE,
   );
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  // Any change to the query set (tab, filters, page size) restarts at page 1.
   useEffect(() => {
     setPage(1);
   }, [tab, range, device, country, pageSize]);
@@ -196,6 +163,73 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
   });
   const report = reportQuery.data;
 
+  const handleSyncNow = async () => {
+    if (!report?.connected || isSyncing) return;
+    setIsSyncing(true);
+
+    const opId = globalTraceStore.startOperation({
+      feature: "search_console",
+      operation: "gsc.search_performance.manual",
+      source: "Search Performance page",
+      projectId,
+      status: "running",
+      billing: "Free",
+      metered: false,
+      budget: "PASS",
+      provider: "GSC",
+      metadata: { range, device, country },
+    });
+
+    try {
+      toast.info("Starting Search Console synchronization…");
+      const result = await triggerSearchPerformanceSync({
+        data: {
+          projectId,
+          syncType: "manual",
+          dateRange: range,
+        },
+      });
+
+      if (result.alreadyRunning) {
+        toast.info("A sync is already in progress for this property.");
+      } else if (result.ok) {
+        toast.success(
+          `Sync completed: ${result.rowsInserted} facts updated across ${result.chunksCompleted} chunks.`,
+        );
+      } else {
+        toast.error(
+          `Sync finished with status ${result.status}: ${result.error ?? "Failed"}`,
+        );
+      }
+
+      globalTraceStore.completeOperation(opId, {
+        status: result.ok ? "success" : "failed",
+        httpStatus: result.ok ? 200 : 500,
+        providerCalls: result.chunksCompleted * 7,
+        providerBreakdown: [
+          { provider: "Google Search Console", count: result.chunksCompleted * 7 },
+        ],
+        errorMessage: result.error,
+        metadata: {
+          rowsFetched: result.rowsFetched,
+          rowsInserted: result.rowsInserted,
+          chunksCompleted: result.chunksCompleted,
+        },
+      });
+
+      await reportQuery.refetch();
+    } catch (error) {
+      const message = getStandardErrorMessage(error, "Sync failed");
+      toast.error(message);
+      globalTraceStore.completeOperation(opId, {
+        status: "failed",
+        errorMessage: message,
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const isTableTab = tab === "queries" || tab === "pages";
   const dimension = tabDimension(tab);
   const tableQuery = useQuery({
@@ -207,8 +241,6 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
   const tableRows = tableData?.connected ? tableData.rows : [];
   const hasNextPage = tableData?.connected ? tableData.hasNextPage : false;
 
-  // Warm the Queries tab (first page) as soon as the report connects so the tab
-  // opens instantly instead of showing a spinner. Free first-party GSC data.
   useEffect(() => {
     if (report?.connected !== true) return;
     void queryClient.prefetchQuery(
@@ -241,25 +273,12 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
   return (
     <div className="px-4 py-4 pb-24 overflow-auto md:px-6 md:py-6 md:pb-8">
       <div className="mx-auto max-w-7xl space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">Search Performance</h1>
-            <p className="text-sm text-base-content/70">
-              See your site&apos;s clicks, impressions, CTR, and position from
-              Google Search Console.
-            </p>
-          </div>
-          {report?.connected ? (
-            <Link
-              to="/p/$projectId/settings"
-              params={{ projectId }}
-              hash="search-console"
-              className="link link-hover shrink-0 self-start text-sm font-medium text-base-content/60 transition-colors hover:text-base-content sm:mt-1"
-            >
-              Change property
-            </Link>
-          ) : null}
-        </div>
+        <SearchPerformanceHeader
+          projectId={projectId}
+          report={report}
+          isSyncing={isSyncing}
+          onSyncNow={() => void handleSyncNow()}
+        />
 
         {reportQuery.isPending ? (
           <SearchPerformanceLoadingState />
@@ -277,91 +296,20 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
           <>
             <TotalsCards report={report} />
             <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100">
-              <div className="flex flex-col gap-3 border-b border-base-300 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-                <div role="tablist" className="tabs tabs-border w-fit">
-                  <TabButton
-                    active={tab === "striking"}
-                    onClick={() => setTab("striking")}
-                    label={`Striking distance (${report.strikingDistance.length})`}
-                  />
-                  <TabButton
-                    active={tab === "queries"}
-                    onClick={() => setTab("queries")}
-                    label="Queries"
-                  />
-                  <TabButton
-                    active={tab === "pages"}
-                    onClick={() => setTab("pages")}
-                    label="Pages"
-                  />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {reportQuery.isFetching && !reportQuery.isPending ? (
-                    <Loader2 className="size-4 animate-spin text-base-content/40" />
-                  ) : null}
-                  <select
-                    className="select select-bordered select-sm w-36"
-                    value={device}
-                    onChange={(event) => {
-                      setDevice(
-                        isDevice(event.target.value) ? event.target.value : ALL,
-                      );
-                    }}
-                    aria-label="Device filter"
-                  >
-                    <option value={ALL}>All devices</option>
-                    {DEVICE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="select select-bordered select-sm w-36"
-                    value={country}
-                    onChange={(event) => setCountry(event.target.value)}
-                    aria-label="Country filter"
-                  >
-                    <option value={ALL}>All countries</option>
-                    {report.countries.map((row) => (
-                      <option key={row.key} value={row.key}>
-                        {row.key.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="select select-bordered select-sm w-36"
-                    value={range}
-                    onChange={(event) => {
-                      if (isDateRange(event.target.value)) {
-                        setRange(event.target.value);
-                      }
-                    }}
-                    aria-label="Date range"
-                  >
-                    {RANGE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <TableExportMenu
-                    buttonClassName="btn btn-ghost btn-sm gap-1"
-                    actions={[
-                      {
-                        label: "Export to Sheets",
-                        icon: <Sheet className="size-4" />,
-                        onClick: () => void handleExport("sheets"),
-                      },
-                      {
-                        label: "Download CSV",
-                        icon: <Download className="size-4" />,
-                        onClick: () => void handleExport("csv"),
-                      },
-                    ]}
-                  />
-                </div>
-              </div>
+              <SearchPerformanceFilterToolbar
+                tab={tab}
+                setTab={setTab}
+                strikingCount={report.strikingDistance.length}
+                isFetching={reportQuery.isFetching && !reportQuery.isPending}
+                device={device}
+                setDevice={setDevice}
+                country={country}
+                setCountry={setCountry}
+                countryOptions={report.countries}
+                range={range}
+                setRange={setRange}
+                onExport={(target) => void handleExport(target)}
+              />
 
               {tab === "striking" ? (
                 <StrikingDistanceTable

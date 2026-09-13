@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FileDown, Loader2, Play, Sheet, Trash2 } from "lucide-react";
 import { Modal } from "@/client/components/Modal";
@@ -77,9 +77,19 @@ export function RankTrackingTable({
     [],
   );
 
+  const [inFlightKeywordIds, setInFlightKeywordIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  useEffect(() => {
+    if (!checkSelectedBusy) {
+      setInFlightKeywordIds(new Set());
+    }
+  }, [checkSelectedBusy]);
+
   const isChecking = useCallback(
-    (id: string) => checkSelectedBusy && Boolean(rowSelectionRef.current[id]),
-    [checkSelectedBusy],
+    (id: string) => checkSelectedBusy && inFlightKeywordIds.has(id),
+    [checkSelectedBusy, inFlightKeywordIds],
   );
 
   const columns = useRankTrackingColumns({
@@ -198,7 +208,10 @@ export function RankTrackingTable({
                   <Play className="size-3.5" />
                 )
               }
-              onClick={() => onCheckSelected(selectedKeywordIds)}
+              onClick={() => {
+                setInFlightKeywordIds(new Set(selectedKeywordIds));
+                onCheckSelected(selectedKeywordIds);
+              }}
               disabled={
                 checkSelectedBusy ||
                 checkSelectedDisabled ||

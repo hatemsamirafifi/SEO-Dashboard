@@ -1,5 +1,6 @@
 /* oxlint-disable eslint/complexity */
 /* eslint-disable complexity */
+/* eslint-disable max-lines */
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));

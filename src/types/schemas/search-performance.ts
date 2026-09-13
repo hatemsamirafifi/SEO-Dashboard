@@ -7,6 +7,9 @@ export const SEARCH_PERFORMANCE_RANGES = [
   "last_7_days",
   "last_28_days",
   "last_3_months",
+  "last_6_months",
+  "last_12_months",
+  "last_16_months",
 ] as const;
 
 /** Device values exactly as the GSC `device` dimension returns/accepts them. */
@@ -61,3 +64,38 @@ export const searchPerformanceTableExportInputSchema = z.object({
   ...searchPerformanceFilterShape,
   dimension: z.enum(SEARCH_PERFORMANCE_TABLE_DIMENSIONS),
 });
+
+export const searchPerformanceSyncInputSchema = z.object({
+  projectId: z.string().min(1),
+  syncType: z.enum(["initial_backfill", "incremental", "manual"]).default("manual"),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateRange: z.enum(SEARCH_PERFORMANCE_RANGES).optional(),
+});
+
+export const searchPerformanceSyncStatusInputSchema = z.object({
+  projectId: z.string().min(1),
+});
+
+export type SearchPerformanceTotalsResult = {
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+export type SearchPerformanceStrikingRow = {
+  query: string;
+  page: string;
+  clicks: number;
+  impressions: number;
+  position: number;
+};
+
+export type SearchPerformanceDimensionRowResult = {
+  key: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { useMemo, useState } from "react";
 import { Copy, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -116,19 +117,35 @@ export function KeywordTrendModal({
     historyRows.map((r) => [
       new Date(r.checkedAt).toISOString(),
       DEVICE_STYLE[r.device].label,
+      r.rankingStatus ?? (r.position !== null ? "RANKED" : ""),
       r.position ?? "",
       csvChange(r.position, r.previousPosition),
+      r.url ?? "",
     ]);
 
   const handleCopy = () => {
-    const headers = ["Date", "Device", "Position", "Change vs previous"];
+    const headers = [
+      "Date",
+      "Device",
+      "Status",
+      "Position",
+      "Change vs previous",
+      "Ranking URL",
+    ];
     void navigator.clipboard.writeText(buildCsv(headers, exportRows()));
     toast.success("Copied to clipboard");
     captureClientEvent("rank_tracking:keyword_trend_copy");
   };
 
   const handleExport = () => {
-    const headers = ["Date", "Device", "Position", "Change vs previous"];
+    const headers = [
+      "Date",
+      "Device",
+      "Status",
+      "Position",
+      "Change vs previous",
+      "Ranking URL",
+    ];
     downloadCsv(
       `rank-history-${slugify(target.keyword)}.csv`,
       buildCsv(headers, exportRows()),
@@ -201,8 +218,10 @@ export function KeywordTrendModal({
                 <tr>
                   <th>Date</th>
                   {devices.length > 1 && <th>Device</th>}
+                  <th>Status</th>
                   <th>Position</th>
                   <th>Δ vs previous check</th>
+                  <th>Ranking URL</th>
                 </tr>
               </thead>
               <tbody>
@@ -224,13 +243,37 @@ export function KeywordTrendModal({
                         </td>
                       )}
                       <td>
-                        {r.position === null ? (
+                        <span
+                          className={`badge badge-sm font-mono text-[11px] ${
+                            r.rankingStatus === "RANKED" || (r.position !== null && !r.rankingStatus)
+                              ? "badge-success text-success-content"
+                              : r.rankingStatus === "CHECK_FAILED"
+                                ? "badge-error text-error-content"
+                                : r.rankingStatus === "NO_RESULT"
+                                  ? "badge-ghost text-base-content/60"
+                                  : "badge-ghost text-base-content/40"
+                          }`}
+                        >
+                          {r.rankingStatus ?? (r.position !== null ? "RANKED" : "—")}
+                        </span>
+                      </td>
+                      <td>
+                        {r.rankingStatus === "CHECK_FAILED" ? (
+                          <span
+                            className="text-error text-xs"
+                            title={r.errorMessage ?? r.providerStatus ?? undefined}
+                          >
+                            Failed
+                          </span>
+                        ) : r.position === null ? (
                           <span className="text-base-content/40 text-xs">
-                            Not in top {serpDepth}
+                            {r.rankingStatus === "NO_RESULT"
+                              ? `Not in top ${serpDepth}`
+                              : "No position recorded"}
                           </span>
                         ) : (
                           <span className="font-mono text-sm">
-                            {r.position}
+                            #{r.position}
                           </span>
                         )}
                       </td>
@@ -253,10 +296,25 @@ export function KeywordTrendModal({
                             result={{
                               position: r.position,
                               previousPosition: r.previousPosition,
-                              rankingUrl: null,
+                              rankingUrl: r.url ?? null,
                               serpFeatures: [],
                             }}
                           />
+                        )}
+                      </td>
+                      <td className="max-w-xs truncate text-xs">
+                        {r.url ? (
+                          <a
+                            href={r.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="link link-hover font-mono text-[11px] text-base-content/70"
+                            title={r.url}
+                          >
+                            {r.url.replace(/^https?:\/\//, "")}
+                          </a>
+                        ) : (
+                          <span className="text-base-content/30">—</span>
                         )}
                       </td>
                     </tr>
@@ -367,10 +425,15 @@ function buildChartData(
 }
 
 interface HistoryRow {
+  id?: number;
   device: "desktop" | "mobile";
   checkedAt: string;
   position: number | null;
   previousPosition: number | null;
+  rankingStatus?: string | null;
+  url?: string | null;
+  providerStatus?: string | null;
+  errorMessage?: string | null;
 }
 
 /**
@@ -383,13 +446,22 @@ function buildHistoryRows(points: RankKeywordHistoryPoint[]): HistoryRow[] {
   // points are oldest-first; walk forward to capture the prior position.
   for (const p of points) {
     const hadPrevious = prevByDevice.has(p.device);
+    const resolvedPrev =
+      p.previousPosition !== undefined
+        ? p.previousPosition
+        : hadPrevious
+          ? (prevByDevice.get(p.device) ?? null)
+          : null;
     rows.push({
+      id: p.id,
       device: p.device,
       checkedAt: p.checkedAt,
       position: p.position,
-      previousPosition: hadPrevious
-        ? (prevByDevice.get(p.device) ?? null)
-        : null,
+      previousPosition: resolvedPrev,
+      rankingStatus: p.rankingStatus,
+      url: p.url,
+      providerStatus: p.providerStatus,
+      errorMessage: p.errorMessage,
     });
     prevByDevice.set(p.device, p.position);
   }
