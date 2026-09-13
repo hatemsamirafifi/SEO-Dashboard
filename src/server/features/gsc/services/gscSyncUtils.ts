@@ -1,7 +1,4 @@
-import {
-  GscApiError,
-  GscTokenError,
-} from "@/server/lib/gscClient";
+import { GscApiError, GscTokenError } from "@/server/lib/gscClient";
 import { GscNotConnectedError } from "@/server/features/gsc/services/GscService";
 import { scrubGlobalTraceText } from "@/shared/globalTraceTypes";
 
@@ -59,6 +56,94 @@ export function splitDateRangeIntoChunks(
   return chunks;
 }
 
+export type DateInterval = {
+  startDate: string;
+  endDate: string;
+};
+
+export function addDaysUtc(dateStr: string, days: number): string {
+  const ms = Date.parse(`${dateStr}T00:00:00Z`);
+  if (Number.isNaN(ms)) return dateStr;
+  return new Date(ms + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+export function mergeDateIntervals(intervals: DateInterval[]): DateInterval[] {
+  const valid = intervals.filter(
+    (inv) => inv.startDate && inv.endDate && inv.startDate <= inv.endDate,
+  );
+  if (valid.length === 0) return [];
+
+  valid.sort((a, b) => {
+    if (a.startDate !== b.startDate) {
+      return a.startDate.localeCompare(b.startDate);
+    }
+    return b.endDate.localeCompare(a.endDate);
+  });
+
+  const merged: DateInterval[] = [{ ...valid[0] }];
+
+  for (let i = 1; i < valid.length; i++) {
+    const current = valid[i];
+    const prev = merged[merged.length - 1];
+    const contiguousThreshold = addDaysUtc(prev.endDate, 1);
+
+    if (current.startDate <= contiguousThreshold) {
+      if (current.endDate > prev.endDate) {
+        prev.endDate = current.endDate;
+      }
+    } else {
+      merged.push({ ...current });
+    }
+  }
+
+  return merged;
+}
+
+export function isRangeCoveredByIntervals(
+  mergedIntervals: DateInterval[],
+  range: DateInterval,
+): boolean {
+  if (!range.startDate || !range.endDate || range.startDate > range.endDate) {
+    return false;
+  }
+
+  return mergedIntervals.some(
+    (inv) => inv.startDate <= range.startDate && inv.endDate >= range.endDate,
+  );
+}
+
+export function syncRunsToIntervals(
+  runs: Array<{
+    status: string;
+    requestedStartDate: string;
+    requestedEndDate: string;
+    actualLastSuccessfulDate?: string | null;
+  }>,
+): DateInterval[] {
+  const intervals: DateInterval[] = [];
+
+  for (const run of runs) {
+    if (run.status === "completed") {
+      if (run.requestedStartDate <= run.requestedEndDate) {
+        intervals.push({
+          startDate: run.requestedStartDate,
+          endDate: run.requestedEndDate,
+        });
+      }
+    } else if (run.status === "partial") {
+      const end = run.actualLastSuccessfulDate;
+      if (end && run.requestedStartDate <= end) {
+        intervals.push({
+          startDate: run.requestedStartDate,
+          endDate: end,
+        });
+      }
+    }
+  }
+
+  return intervals;
+}
+
 export function classifyGscSyncError(error: unknown): {
   errorClass: string;
   message: string;
@@ -66,7 +151,8 @@ export function classifyGscSyncError(error: unknown): {
   if (error instanceof GscTokenError) {
     return {
       errorClass: "OAUTH_TOKEN_FAILURE",
-      message: error.message || "Search Console OAuth grant expired or revoked.",
+      message:
+        error.message || "Search Console OAuth grant expired or revoked.",
     };
   }
   if (error instanceof GscApiError) {

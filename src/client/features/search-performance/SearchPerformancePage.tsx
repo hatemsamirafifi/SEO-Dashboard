@@ -163,13 +163,15 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
   });
   const report = reportQuery.data;
 
-  const handleSyncNow = async () => {
+  const executeSync = async (syncRangeOption?: SearchPerformanceDateRange) => {
     if (!report?.connected || isSyncing) return;
     setIsSyncing(true);
 
     const opId = globalTraceStore.startOperation({
       feature: "search_console",
-      operation: "gsc.search_performance.manual",
+      operation: syncRangeOption
+        ? "gsc.search_performance.sync_range"
+        : "gsc.search_performance.manual",
       source: "Search Performance page",
       projectId,
       status: "running",
@@ -177,7 +179,7 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
       metered: false,
       budget: "PASS",
       provider: "GSC",
-      metadata: { range, device, country },
+      metadata: { range: syncRangeOption ?? "missing_dates", device, country },
     });
 
     try {
@@ -186,15 +188,19 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
         data: {
           projectId,
           syncType: "manual",
-          dateRange: range,
+          ...(syncRangeOption ? { dateRange: syncRangeOption } : {}),
         },
       });
 
       if (result.alreadyRunning) {
         toast.info("A sync is already in progress for this property.");
-      } else if (result.ok) {
+      } else if (result.status === "completed") {
         toast.success(
           `Sync completed: ${result.rowsInserted} facts updated across ${result.chunksCompleted} chunks.`,
+        );
+      } else if (result.status === "partial" && !result.error) {
+        toast.info(
+          `Sync partially completed: ${result.rowsInserted} facts stored through ${result.lastSuccessfulDate ?? "latest available date"}. Recent data is still being finalized by Google.`,
         );
       } else {
         toast.error(
@@ -202,18 +208,27 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
         );
       }
 
+      const isSuccessOrPending =
+        result.status === "completed" ||
+        (result.status === "partial" && !result.error);
+
       globalTraceStore.completeOperation(opId, {
-        status: result.ok ? "success" : "failed",
-        httpStatus: result.ok ? 200 : 500,
+        status: isSuccessOrPending ? "success" : "failed",
+        httpStatus: isSuccessOrPending ? 200 : 500,
         providerCalls: result.chunksCompleted * 7,
         providerBreakdown: [
-          { provider: "Google Search Console", count: result.chunksCompleted * 7 },
+          {
+            provider: "Google Search Console",
+            count: result.chunksCompleted * 7,
+          },
         ],
         errorMessage: result.error,
         metadata: {
+          syncStatus: result.status,
           rowsFetched: result.rowsFetched,
           rowsInserted: result.rowsInserted,
           chunksCompleted: result.chunksCompleted,
+          lastSuccessfulDate: result.lastSuccessfulDate,
         },
       });
 
@@ -223,12 +238,16 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
       toast.error(message);
       globalTraceStore.completeOperation(opId, {
         status: "failed",
+        httpStatus: 500,
         errorMessage: message,
       });
     } finally {
       setIsSyncing(false);
     }
   };
+
+  const handleSyncNow = () => executeSync();
+  const handleSyncRange = () => executeSync(range);
 
   const isTableTab = tab === "queries" || tab === "pages";
   const dimension = tabDimension(tab);
@@ -278,6 +297,7 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
           report={report}
           isSyncing={isSyncing}
           onSyncNow={() => void handleSyncNow()}
+          onSyncRange={() => void handleSyncRange()}
         />
 
         {reportQuery.isPending ? (

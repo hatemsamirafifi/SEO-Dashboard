@@ -1,3 +1,4 @@
+/* eslint-disable max-lines, max-depth, complexity */
 import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
 import {
   deterministicGscFactId,
@@ -17,6 +18,7 @@ import {
   GSC_GRAIN_CONFIGS,
   splitDateRangeIntoChunks,
   classifyGscSyncError,
+  addDaysUtc,
 } from "@/server/features/gsc/services/gscSyncUtils";
 
 export type { DateChunk, GscSyncGrain };
@@ -118,6 +120,10 @@ export type GscSyncOptions = {
   chunkDays?: number;
   searchType?: string;
   resume?: boolean;
+  /** Configurable lag baseline in days (default: 3 days). Treated as a heuristic. */
+  dataLagDays?: number;
+  /** Configurable extended safety window in days (default: 7 days) for delayed availability / backlog. */
+  extendedLagSafetyDays?: number;
 };
 
 export type GscSyncResult = {
@@ -139,37 +145,65 @@ export type GscSyncResult = {
   error?: string;
   errorClass?: string;
   status: "completed" | "partial" | "failed" | "running";
+  lastSuccessfulDate?: string | null;
 };
 
-const GSC_DATA_LAG_DAYS = 3;
+export const GSC_DATA_LAG_DAYS = 3;
+export const GSC_EXTENDED_LAG_SAFETY_DAYS = 7;
 const DEFAULT_CHUNK_DAYS = 7;
 const GSC_SYNC_FETCH_LIMIT = 5000;
 
-function resolveSyncWindow(
+async function resolveSyncWindow(
   options: GscSyncOptions,
   today: Date = new Date(),
-): { startDate: string; endDate: string; syncType: "initial_backfill" | "incremental" | "manual" } {
+): Promise<{
+  startDate: string;
+  endDate: string;
+  syncType: "initial_backfill" | "incremental" | "manual";
+}> {
   const syncType = options.syncType ?? "manual";
+  const todayUtc = today.toISOString().slice(0, 10);
 
   if (options.startDate && options.endDate) {
+    const clampedEnd = options.endDate > todayUtc ? todayUtc : options.endDate;
+    const clampedStart =
+      options.startDate > clampedEnd ? clampedEnd : options.startDate;
     return {
-      startDate: options.startDate,
-      endDate: options.endDate,
+      startDate: clampedStart,
+      endDate: clampedEnd,
       syncType,
     };
   }
 
-  const lagDate = new Date(today.getTime() - GSC_DATA_LAG_DAYS * 24 * 60 * 60 * 1000);
-  const endDate = lagDate.toISOString().slice(0, 10);
-
-  if (syncType === "initial_backfill") {
-    const floor = sixteenMonthFloor(today);
-    return { startDate: floor, endDate, syncType };
+  // Check stored coverage for incremental or auto-determined sync
+  let storedCoverage: { startDate: string; endDate: string } | null = null;
+  try {
+    storedCoverage =
+      await GscSearchPerformanceRepository.getStoredCoverageRange(
+        options.projectId,
+        options.searchType ?? "web",
+      );
+  } catch {
+    // If DB check fails, fallback to lag-based calculation
   }
 
-  const defaultStartMs = lagDate.getTime() - 7 * 24 * 60 * 60 * 1000;
-  const startDate = new Date(defaultStartMs).toISOString().slice(0, 10);
-  return { startDate, endDate, syncType };
+  if (syncType === "initial_backfill" || !storedCoverage) {
+    const floor = sixteenMonthFloor(today);
+    return {
+      startDate: floor,
+      endDate: todayUtc,
+      syncType: syncType === "initial_backfill" ? "initial_backfill" : "manual",
+    };
+  }
+
+  // Incremental: advance from the day after stored coverage
+  const nextStartMs =
+    Date.parse(`${storedCoverage.endDate}T00:00:00Z`) + 24 * 60 * 60 * 1000;
+  const nextStartDate = new Date(nextStartMs).toISOString().slice(0, 10);
+  const startDate =
+    nextStartDate > todayUtc ? storedCoverage.endDate : nextStartDate;
+
+  return { startDate, endDate: todayUtc, syncType };
 }
 
 async function syncGrainForChunk(params: {
@@ -179,8 +213,13 @@ async function syncGrainForChunk(params: {
   chunk: DateChunk;
   projectId: string;
   searchType: string;
-}): Promise<{ facts: GscSearchPerformanceInsert[]; fetched: number; failed: number }> {
-  const { client, connection, grainConfig, chunk, projectId, searchType } = params;
+}): Promise<{
+  facts: GscSearchPerformanceInsert[];
+  fetched: number;
+  failed: number;
+}> {
+  const { client, connection, grainConfig, chunk, projectId, searchType } =
+    params;
   const facts: GscSearchPerformanceInsert[] = [];
   let fetched = 0;
   let failed = 0;
@@ -198,7 +237,10 @@ async function syncGrainForChunk(params: {
       ...(startRow > 0 ? { startRow } : {}),
     };
 
-    const rawRows = await client.querySearchAnalytics(connection.siteUrl, request);
+    const rawRows = await client.querySearchAnalytics(
+      connection.siteUrl,
+      request,
+    );
     fetched += rawRows.length;
 
     for (const rawRow of rawRows) {
@@ -228,12 +270,14 @@ async function syncGrainForChunk(params: {
 
 async function runSync(options: GscSyncOptions): Promise<GscSyncResult> {
   const startTime = Date.now();
-  const connection = await GscConnectionRepository.getByProjectId(options.projectId);
+  const connection = await GscConnectionRepository.getByProjectId(
+    options.projectId,
+  );
   if (!connection || !connection.siteUrl) {
     throw new GscNotConnectedError(options.projectId);
   }
 
-  const { startDate, endDate, syncType } = resolveSyncWindow(options);
+  const { startDate, endDate, syncType } = await resolveSyncWindow(options);
   const searchType = options.searchType ?? "web";
   const chunkDays = options.chunkDays ?? DEFAULT_CHUNK_DAYS;
   let chunks = splitDateRangeIntoChunks(startDate, endDate, chunkDays);
@@ -326,11 +370,24 @@ async function runSync(options: GscSyncOptions): Promise<GscSyncResult> {
   let rowsFailed = 0;
   let chunksCompleted = 0;
   let lastSuccessfulDate: string | null = sync.actualLastSuccessfulDate;
+  let _hasPendingRecentDates = false;
+  let encounteredError: { errorClass: string; message: string } | null = null;
 
-  try {
-    for (const chunk of chunks) {
-      const chunkFacts: GscSearchPerformanceInsert[] = [];
+  const dataLagDays = options.dataLagDays ?? GSC_DATA_LAG_DAYS;
+  const extendedSafetyDays =
+    options.extendedLagSafetyDays ?? GSC_EXTENDED_LAG_SAFETY_DAYS;
 
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  const lagThreshold = addDaysUtc(todayUtc, -dataLagDays);
+  const safeFinalizedThreshold = addDaysUtc(todayUtc, -extendedSafetyDays);
+
+  let latestDateWithData: string | null = null;
+
+  for (const chunk of chunks) {
+    const chunkFacts: GscSearchPerformanceInsert[] = [];
+    const isSafeHistoricalChunk = chunk.endDate < safeFinalizedThreshold;
+
+    try {
       for (const grainConfig of GSC_GRAIN_CONFIGS) {
         const res = await syncGrainForChunk({
           client,
@@ -344,82 +401,140 @@ async function runSync(options: GscSyncOptions): Promise<GscSyncResult> {
         rowsFetched += res.fetched;
         rowsFailed += res.failed;
       }
-
-      if (chunkFacts.length > 0) {
-        const result = await GscSearchPerformanceRepository.upsertFacts(chunkFacts);
-        rowsInserted += result.inserted;
-      }
-
-      lastSuccessfulDate = chunk.endDate;
-      chunksCompleted++;
-
-      await GscSearchPerformanceRepository.updateSyncRun(sync.id, {
-        actualLastSuccessfulDate: lastSuccessfulDate,
-        rowsFetched,
-        rowsInserted,
-        rowsFailed,
-        checkpoint: JSON.stringify({ lastCompletedDate: chunk.endDate }),
-      });
+    } catch (err) {
+      encounteredError = classifyGscSyncError(err);
+      break;
     }
 
+    if (chunkFacts.length > 0) {
+      try {
+        const result =
+          await GscSearchPerformanceRepository.upsertFacts(chunkFacts);
+        rowsInserted += result.inserted;
+      } catch (err) {
+        encounteredError = classifyGscSyncError(err);
+        break;
+      }
+
+      let maxDateInChunk: string | null = null;
+      for (const fact of chunkFacts) {
+        if (!maxDateInChunk || fact.date > maxDateInChunk) {
+          maxDateInChunk = fact.date;
+        }
+      }
+
+      if (maxDateInChunk) {
+        if (!latestDateWithData || maxDateInChunk > latestDateWithData) {
+          latestDateWithData = maxDateInChunk;
+        }
+        if (!lastSuccessfulDate || maxDateInChunk > lastSuccessfulDate) {
+          lastSuccessfulDate = maxDateInChunk;
+        }
+
+        // If data stopped before chunk.endDate:
+        if (maxDateInChunk < chunk.endDate) {
+          if (chunk.endDate >= lagThreshold) {
+            // Reached recent unfinalized lag window
+            _hasPendingRecentDates = true;
+          } else if (isSafeHistoricalChunk) {
+            // Trailing days are older than extended safety window (e.g. 2 months ago):
+            // Confirmed finalized zero-traffic days
+            lastSuccessfulDate = chunk.endDate;
+          } else {
+            // Ambiguity window (between safeFinalizedThreshold and lagThreshold):
+            // Delayed availability could be occurring; do not advance past maxDateInChunk without corroboration
+            _hasPendingRecentDates = true;
+          }
+        }
+      }
+    } else {
+      // 0 rows returned from GSC with no error
+      if (isSafeHistoricalChunk) {
+        // Confirmed historical finalized chunk (older than extended safety window):
+        // Legitimate zero-traffic historical chunk: successfully synchronized
+        if (!lastSuccessfulDate || chunk.endDate > lastSuccessfulDate) {
+          lastSuccessfulDate = chunk.endDate;
+        }
+      } else {
+        // Within recent/extended delay window: cannot guarantee finalized without provider corroboration
+        _hasPendingRecentDates = true;
+      }
+    }
+
+    chunksCompleted++;
+
     await GscSearchPerformanceRepository.updateSyncRun(sync.id, {
-      status: "completed",
-      completedAt: new Date().toISOString(),
+      actualLastSuccessfulDate: lastSuccessfulDate,
       rowsFetched,
       rowsInserted,
       rowsFailed,
+      checkpoint: JSON.stringify({
+        lastCompletedChunk: chunk.endDate,
+        lastSuccessfulDate,
+      }),
     });
-
-    return {
-      ok: true,
-      syncId: sync.id,
-      projectId: options.projectId,
-      property: connection.siteUrl,
-      syncType,
-      startDate,
-      endDate,
-      chunksTotal: chunks.length,
-      chunksCompleted,
-      rowsFetched,
-      rowsInserted,
-      rowsUpdated: 0,
-      rowsFailed,
-      durationMs: Date.now() - startTime,
-      status: "completed",
-    };
-  } catch (err) {
-    const classified = classifyGscSyncError(err);
-    const finalStatus = chunksCompleted > 0 ? "partial" : "failed";
-
-    await GscSearchPerformanceRepository.updateSyncRun(sync.id, {
-      status: finalStatus,
-      completedAt: new Date().toISOString(),
-      rowsFetched,
-      rowsInserted,
-      rowsFailed,
-      error: `${classified.errorClass}: ${classified.message}`,
-    });
-
-    return {
-      ok: false,
-      syncId: sync.id,
-      projectId: options.projectId,
-      property: connection.siteUrl,
-      syncType,
-      startDate,
-      endDate,
-      chunksTotal: chunks.length,
-      chunksCompleted,
-      rowsFetched,
-      rowsInserted,
-      rowsUpdated: 0,
-      rowsFailed,
-      durationMs: Date.now() - startTime,
-      error: classified.message,
-      errorClass: classified.errorClass,
-      status: finalStatus,
-    };
   }
+
+  const isRequestedRangeCovered =
+    lastSuccessfulDate !== null && lastSuccessfulDate >= endDate;
+
+  let finalStatus: "completed" | "partial" | "failed";
+  let ok: boolean;
+  let errorMessage: string | undefined;
+  let errorClass: string | undefined;
+
+  if (encounteredError) {
+    errorMessage = encounteredError.message;
+    errorClass = encounteredError.errorClass;
+    if (chunksCompleted === 0 && rowsInserted === 0) {
+      finalStatus = "failed";
+      ok = false;
+    } else {
+      finalStatus = "partial";
+      ok = false;
+    }
+  } else {
+    if (isRequestedRangeCovered) {
+      finalStatus = "completed";
+      ok = true;
+    } else {
+      finalStatus = "partial";
+      ok = true;
+    }
+  }
+
+  await GscSearchPerformanceRepository.updateSyncRun(sync.id, {
+    status: finalStatus,
+    actualLastSuccessfulDate: lastSuccessfulDate,
+    completedAt: new Date().toISOString(),
+    rowsFetched,
+    rowsInserted,
+    rowsFailed,
+    error: encounteredError
+      ? `${encounteredError.errorClass}: ${encounteredError.message}`
+      : null,
+  });
+
+  return {
+    ok,
+    syncId: sync.id,
+    projectId: options.projectId,
+    property: connection.siteUrl,
+    syncType,
+    startDate,
+    endDate,
+    chunksTotal: chunks.length,
+    chunksCompleted,
+    rowsFetched,
+    rowsInserted,
+    rowsUpdated: 0,
+    rowsFailed,
+    durationMs: Date.now() - startTime,
+    error: errorMessage,
+    errorClass,
+    status: finalStatus,
+    lastSuccessfulDate,
+  };
 }
 
 export const GscSyncService = {

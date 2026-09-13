@@ -9,8 +9,10 @@ import { runLiveCheck } from "@/server/workflows/rankCheckPaths";
 // first sanitized provider reason so the run record names the actual error.
 
 const repoMocks = vi.hoisted(() => ({
-  updateRun: vi.fn<() => Promise<void>>(),
-  insertSnapshots: vi.fn<() => Promise<void>>(),
+  updateRun:
+    vi.fn<(runId: string, patch: Record<string, unknown>) => Promise<void>>(),
+  insertSnapshots:
+    vi.fn<(snapshots: Array<Record<string, unknown>>) => Promise<void>>(),
   getLatestPositionsMap: vi.fn<() => Promise<Map<string, number | null>>>(),
 }));
 
@@ -107,8 +109,11 @@ describe("runLiveCheck provider-reason capture", () => {
         }),
       ]),
     );
-    const firstInsertedSnapshot = repoMocks.insertSnapshots.mock.calls[0]?.[0]?.[0];
-    expect(firstInsertedSnapshot?.providerStatus).toContain("DataForSEO HTTP 500");
+    const firstInsertedSnapshot =
+      repoMocks.insertSnapshots.mock.calls[0]?.[0]?.[0];
+    expect(firstInsertedSnapshot?.providerStatus).toContain(
+      "DataForSEO HTTP 500",
+    );
     expect(repoMocks.updateRun).toHaveBeenCalledWith("run_1", {
       keywordsChecked: 1,
     });

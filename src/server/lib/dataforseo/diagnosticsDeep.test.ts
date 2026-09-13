@@ -101,9 +101,7 @@ describe("DataForSEO HTTP 500 Deep Diagnostics", () => {
       const taskMessage =
         "We noticed some unusual activity in your DataForSEO account, so we've temporarily paused access as a precaution.";
       const formatted = formatDataforseoTaskErrorMessage(40201, taskMessage);
-      expect(formatted).toBe(
-        `DataForSEO task error (40201): ${taskMessage}`,
-      );
+      expect(formatted).toBe(`DataForSEO task error (40201): ${taskMessage}`);
 
       const parsed = parseDataforseoDiagnosticsFromErrorMessage(
         `Completed 0 of 1 keyword(s). Error: ${formatted}`,
@@ -112,7 +110,7 @@ describe("DataForSEO HTTP 500 Deep Diagnostics", () => {
       expect(parsed.httpStatus).toBe(200);
       expect(parsed.dataforseoStatusCode).toBe(40201);
       expect(parsed.dataforseoStatusMessage).toBe(taskMessage);
-      expect(parsed.errorClass).toBe("CREDITS_UNAVAILABLE");
+      expect(parsed.errorClass).toBe("DATAFORSEO_ACCOUNT_PAUSED");
     });
 
     it("handles non-credit task error inside HTTP 200", () => {
@@ -223,7 +221,8 @@ describe("DataForSEO HTTP 500 Deep Diagnostics", () => {
       expect(safe.statusMessage).not.toContain("super_secret_password");
       expect(safe.statusMessage).not.toContain("dXNlcjpwYXNzMTIzNDU2");
 
-      const parsed = parseDataforseoDiagnosticsFromErrorMessage(sensitiveString);
+      const parsed =
+        parseDataforseoDiagnosticsFromErrorMessage(sensitiveString);
       expect(parsed.dataforseoStatusMessage).not.toContain(
         "super_secret_password",
       );
