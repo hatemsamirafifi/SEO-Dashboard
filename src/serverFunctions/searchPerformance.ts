@@ -79,40 +79,94 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
     const hasPrevious = prev.endDate > floor;
 
     // Check DB coverage and sync state
-    const [hasCoverage, latestSync, activeSync] = await Promise.all([
-      GscSearchPerformanceRepository.hasCoverage(projectId, startDate, endDate),
-      GscSearchPerformanceRepository.getLatestSyncRun(projectId),
-      GscSearchPerformanceRepository.getActiveSyncRun(projectId),
-    ]);
+    const [hasCoverage, latestSync, activeSync, storedCoverage] =
+      await Promise.all([
+        GscSearchPerformanceRepository.hasCoverage(
+          projectId,
+          startDate,
+          endDate,
+        ),
+        GscSearchPerformanceRepository.getLatestSyncRun(projectId),
+        GscSearchPerformanceRepository.getActiveSyncRun(projectId),
+        GscSearchPerformanceRepository.getStoredCoverageRange(projectId),
+      ]);
+
+    const syncCoverage = (() => {
+      if (!latestSync && !storedCoverage) return null;
+
+      const covStartDate =
+        storedCoverage?.startDate ??
+        latestSync?.requestedStartDate ??
+        startDate;
+      const covEndDate =
+        storedCoverage?.endDate ??
+        latestSync?.actualLastSuccessfulDate ??
+        latestSync?.requestedEndDate ??
+        null;
+
+      let status: "completed" | "partial" | "failed" | "running" = "completed";
+      if (activeSync !== null) {
+        status = "running";
+      } else if (latestSync?.status === "failed") {
+        status = "failed";
+      } else if (storedCoverage && storedCoverage.endDate < endDate) {
+        status = "partial";
+      } else if (latestSync?.status === "partial") {
+        status = "partial";
+      } else if (latestSync?.status === "completed") {
+        status = "completed";
+      }
+
+      return {
+        status,
+        startDate: covStartDate,
+        endDate: covEndDate,
+        rowsFetched: latestSync?.rowsFetched ?? 0,
+        rowsInserted: latestSync?.rowsInserted ?? 0,
+        isPartialRecent:
+          storedCoverage !== null && storedCoverage.endDate < endDate,
+      };
+    })();
 
     if (hasCoverage) {
-      const [totals, prevTotals, strikingDistance, countries] = await Promise.all([
-        GscSearchPerformanceRepository.getTotals(projectId, startDate, endDate, {
-          device: data.device,
-          country: data.country,
-        }),
-        hasPrevious
-          ? GscSearchPerformanceRepository.getTotals(
-              projectId,
-              prev.startDate,
-              prev.endDate,
-              {
-                device: data.device,
-                country: data.country,
-              },
-            )
-          : Promise.resolve({ clicks: 0, impressions: 0, ctr: 0, position: 0 }),
-        GscSearchPerformanceRepository.getStrikingDistance(
-          projectId,
-          startDate,
-          endDate,
-        ),
-        GscSearchPerformanceRepository.getCountries(
-          projectId,
-          startDate,
-          endDate,
-        ),
-      ]);
+      const [totals, prevTotals, strikingDistance, countries] =
+        await Promise.all([
+          GscSearchPerformanceRepository.getTotals(
+            projectId,
+            startDate,
+            endDate,
+            {
+              device: data.device,
+              country: data.country,
+            },
+          ),
+          hasPrevious
+            ? GscSearchPerformanceRepository.getTotals(
+                projectId,
+                prev.startDate,
+                prev.endDate,
+                {
+                  device: data.device,
+                  country: data.country,
+                },
+              )
+            : Promise.resolve({
+                clicks: 0,
+                impressions: 0,
+                ctr: 0,
+                position: 0,
+              }),
+          GscSearchPerformanceRepository.getStrikingDistance(
+            projectId,
+            startDate,
+            endDate,
+          ),
+          GscSearchPerformanceRepository.getCountries(
+            projectId,
+            startDate,
+            endDate,
+          ),
+        ]);
 
       return {
         connected: true as const,
@@ -120,17 +174,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         coverage: true as const,
         lastSyncedAt: latestSync?.completedAt ?? null,
         isSyncRunning: activeSync !== null,
-        syncCoverage: latestSync
-          ? {
-              status: latestSync.status,
-              startDate: latestSync.requestedStartDate,
-              endDate:
-                latestSync.actualLastSuccessfulDate ??
-                latestSync.requestedEndDate,
-              rowsFetched: latestSync.rowsFetched,
-              rowsInserted: latestSync.rowsInserted,
-            }
-          : null,
+        syncCoverage,
         range: {
           startDate,
           endDate,
@@ -189,17 +233,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         coverage: false as const,
         lastSyncedAt: latestSync?.completedAt ?? null,
         isSyncRunning: activeSync !== null,
-        syncCoverage: latestSync
-          ? {
-              status: latestSync.status,
-              startDate: latestSync.requestedStartDate,
-              endDate:
-                latestSync.actualLastSuccessfulDate ??
-                latestSync.requestedEndDate,
-              rowsFetched: latestSync.rowsFetched,
-              rowsInserted: latestSync.rowsInserted,
-            }
-          : null,
+        syncCoverage,
         range: {
           startDate,
           endDate,
@@ -278,7 +312,9 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
 
       return {
         connected: true as const,
-        source: hasCoverage ? ("database" as const) : ("live_fallback" as const),
+        source: hasCoverage
+          ? ("database" as const)
+          : ("live_fallback" as const),
         dimension: data.dimension,
         page: data.page,
         pageSize: data.pageSize,

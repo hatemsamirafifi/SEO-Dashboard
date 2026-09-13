@@ -3,8 +3,10 @@ import { z } from "zod";
 import {
   assertOk,
   DataforseoChargedTaskError,
+  isDataforseoAccountPaused,
   parseTaskItems,
 } from "@/server/lib/dataforseo/envelope";
+import { readDataforseoDiagnostics } from "@/server/lib/dataforseo/shared";
 import { AppError } from "@/server/lib/errors";
 
 const itemSchema = z.object({ keyword: z.string().optional() }).passthrough();
@@ -172,6 +174,89 @@ describe("assertOk", () => {
       expect(error).toBeInstanceOf(DataforseoChargedTaskError);
       if (error instanceof DataforseoChargedTaskError) {
         expect(error.billing).toEqual({ path: task.path, costUsd: 0.02 });
+      }
+    }
+  });
+
+  it("detects 40201 account paused task and throws canonical DATAFORSEO_ACCOUNT_PAUSED error with truthful HTTP 200", () => {
+    const pauseMessage =
+      "We noticed some unusual activity in your DataForSEO account, so we've temporarily paused access as a precaution. Please contact our support team at support@dataforseo.com to resume access.";
+    const task = {
+      status_code: 40201,
+      status_message: pauseMessage,
+      path: ["v3", "dataforseo_labs", "google", "keyword_suggestions", "live"],
+      cost: 0.05,
+      result_count: 0,
+      data: { target: "seo tools" },
+    };
+
+    expect(isDataforseoAccountPaused(task)).toBe(true);
+
+    try {
+      assertOk({ status_code: 20000, tasks: [task] });
+      throw new Error("expected assertOk to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect(error).not.toBeInstanceOf(DataforseoChargedTaskError);
+      if (!(error instanceof AppError)) throw error;
+
+      expect(error.code).toBe("DATAFORSEO_ACCOUNT_PAUSED");
+      expect(error.message).toBe(pauseMessage);
+      expect(error.details).toMatchObject({
+        provider: "DataForSEO",
+        providerStatusCode: "40201",
+        providerStatusMessage: pauseMessage,
+        errorClass: "DATAFORSEO_ACCOUNT_PAUSED",
+      });
+
+      const diagnostics = readDataforseoDiagnostics(error);
+      expect(diagnostics).toBeDefined();
+      expect(diagnostics?.httpStatus).toBe(200);
+      expect(diagnostics?.httpStatus).not.toBe(500);
+      expect(diagnostics?.dataforseoStatus).toBe(40201);
+      expect(diagnostics?.dataforseoMessage).toBe(pauseMessage);
+      expect(diagnostics?.request).toMatchObject({
+        target: "seo tools",
+      });
+    }
+  });
+
+  it("handles 40201 at top-level response.status_code", () => {
+    const pauseMessage =
+      "We noticed some unusual activity in your DataForSEO account, so we've temporarily paused access as a precaution.";
+    try {
+      assertOk({
+        status_code: 40201,
+        status_message: pauseMessage,
+      });
+      throw new Error("expected assertOk to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      if (!(error instanceof AppError)) throw error;
+      expect(error.code).toBe("DATAFORSEO_ACCOUNT_PAUSED");
+      expect(error.details).toMatchObject({
+        providerStatusCode: "40201",
+      });
+      const diagnostics = readDataforseoDiagnostics(error);
+      expect(diagnostics?.httpStatus).toBe(200);
+      expect(diagnostics?.dataforseoStatus).toBe(40201);
+    }
+  });
+
+  it("does not classify non-40201 errors as DATAFORSEO_ACCOUNT_PAUSED", () => {
+    const task = {
+      status_code: 40000,
+      status_message: "Some other error",
+    };
+    expect(isDataforseoAccountPaused(task)).toBe(false);
+
+    try {
+      assertOk({ status_code: 20000, tasks: [task] });
+      throw new Error("expected assertOk to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      if (error instanceof AppError) {
+        expect(error.code).not.toBe("DATAFORSEO_ACCOUNT_PAUSED");
       }
     }
   });

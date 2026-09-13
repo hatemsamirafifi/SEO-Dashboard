@@ -15,16 +15,35 @@ function formatLastUpdated(isoString: string): string {
   }
 }
 
+function formatDateHuman(dateString?: string | null): string {
+  if (!dateString) return "";
+  try {
+    const [y, m, d] = dateString.split("-").map(Number);
+    if (!y || !m || !d) return dateString;
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  } catch {
+    return dateString;
+  }
+}
+
 export function SearchPerformanceHeader({
   projectId,
   report,
   isSyncing,
   onSyncNow,
+  onSyncRange,
 }: {
   projectId: string;
   report?: SearchPerformanceReportResult;
   isSyncing: boolean;
   onSyncNow: () => void;
+  onSyncRange?: () => void;
 }) {
   return (
     <>
@@ -50,13 +69,18 @@ export function SearchPerformanceHeader({
                 ) : (
                   <Cloud className="size-3" />
                 )}
-                {report.source === "database" ? "Synchronized Dataset" : "Live GSC"}
+                {report.source === "database"
+                  ? "Synchronized Dataset"
+                  : "Live GSC"}
               </span>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-base-content/70 mt-1">
             <span>
-              Dataset: <span className="font-medium text-base-content">Synchronized Search Console data</span>
+              Dataset:{" "}
+              <span className="font-medium text-base-content">
+                Synchronized Search Console data
+              </span>
             </span>
             {report?.connected && report.syncCoverage ? (
               <>
@@ -64,7 +88,8 @@ export function SearchPerformanceHeader({
                 <span>
                   Coverage:{" "}
                   <span className="font-mono text-xs">
-                    {report.syncCoverage.startDate} → {report.syncCoverage.endDate}
+                    {report.syncCoverage.startDate} →{" "}
+                    {report.syncCoverage.endDate}
                   </span>
                 </span>
                 <span>·</span>
@@ -83,9 +108,21 @@ export function SearchPerformanceHeader({
                       ? "Complete"
                       : report.syncCoverage.status === "partial"
                         ? "Partial"
-                        : report.syncCoverage.status}
+                        : "Failed"}
                   </span>
                 </span>
+                {report.syncCoverage.status === "partial" &&
+                report.syncCoverage.endDate ? (
+                  <>
+                    <span>·</span>
+                    <span className="text-base-content/70">
+                      Synchronized through{" "}
+                      {formatDateHuman(report.syncCoverage.endDate)} (recent
+                      Google Search Console data is still being finalized by
+                      Google)
+                    </span>
+                  </>
+                ) : null}
               </>
             ) : null}
             {report?.connected && report.lastSyncedAt ? (
@@ -125,12 +162,14 @@ export function SearchPerformanceHeader({
         <div className="alert alert-info py-2.5">
           <Cloud className="size-4 shrink-0" />
           <span className="text-xs sm:text-sm">
-            This date range is not synchronized in the database yet. Currently showing live Google Search Console data.
+            {report.syncCoverage?.endDate
+              ? `Recent data is being shown live from Google Search Console. Stored data is synchronized through ${formatDateHuman(report.syncCoverage.endDate)}. Newer dates will be added when they become available.`
+              : "This date range is not synchronized in the database yet. Currently showing live Google Search Console data."}
           </span>
           <button
             className="btn btn-xs btn-primary gap-1 ml-auto shrink-0"
             disabled={isSyncing || report.isSyncRunning}
-            onClick={onSyncNow}
+            onClick={onSyncRange ?? onSyncNow}
           >
             <RefreshCw
               className={`size-3 ${isSyncing || report.isSyncRunning ? "animate-spin" : ""}`}

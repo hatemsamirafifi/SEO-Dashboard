@@ -153,7 +153,7 @@ function appFailureDiagnostics(
   const endpoint =
     path !== undefined && path.startsWith("/")
       ? path.slice(1)
-      : (path || undefined);
+      : path || undefined;
   const api = endpoint?.split("/");
   const diagnostics: DataforseoCallDiagnostics = {
     endpoint,
@@ -187,6 +187,24 @@ function appFailurePath(
  * status_code/status_message, safe request metadata) so the SAM Debug Trace
  * shows the exact application error instead of a collapsed label.
  */
+/**
+ * Detects DataForSEO account pause (status code 40201 or security precaution message).
+ * Live validation confirmed DataForSEO returns HTTP 200 with task status_code 40201
+ * when access is temporarily paused for security precautions.
+ */
+export function isDataforseoAccountPaused(
+  item: { status_code?: number; status_message?: string } | null | undefined,
+): boolean {
+  if (!item) return false;
+  // Deterministically classified primarily from provider task status code 40201
+  if (item.status_code === 40201) return true;
+  // If a status_code is present and not 40201, do not classify as paused
+  if (typeof item.status_code === "number") return false;
+  // Safe fallback only when status_code is completely absent from payload
+  const msg = item.status_message?.toLowerCase() ?? "";
+  return msg.includes("unusual activity") && msg.includes("paused access");
+}
+
 export function assertOk<T extends DataforseoTaskLike>(
   response: DataforseoResponseLike<T> | null,
   options: AssertOkOptions = {},
@@ -202,12 +220,37 @@ export function assertOk<T extends DataforseoTaskLike>(
   if (response.status_code !== 20000) {
     const message = response.status_message || "DataForSEO request failed";
     const path = classifyPath ?? "";
+
+    if (isDataforseoAccountPaused(response)) {
+      const pausedError = new AppError("DATAFORSEO_ACCOUNT_PAUSED", message, {
+        provider: "DataForSEO",
+        providerStatusCode: String(response.status_code ?? 40201),
+        providerStatusMessage: message,
+        errorClass: "DATAFORSEO_ACCOUNT_PAUSED",
+      });
+      attachDataforseoDiagnostics(
+        pausedError,
+        appFailureDiagnostics(
+          path,
+          response.status_code,
+          response.status_message,
+          null,
+        ),
+      );
+      throw pausedError;
+    }
+
     const error =
       classify?.(response.status_code, message, path) ??
       new AppError("INTERNAL_ERROR", message);
     attachDataforseoDiagnostics(
       error,
-      appFailureDiagnostics(path, response.status_code, response.status_message, null),
+      appFailureDiagnostics(
+        path,
+        response.status_code,
+        response.status_message,
+        null,
+      ),
     );
     throw error;
   }
@@ -225,11 +268,36 @@ export function assertOk<T extends DataforseoTaskLike>(
       classifyPath,
       task.path ? `/${task.path.join("/")}` : undefined,
     );
+
+    if (isDataforseoAccountPaused(task)) {
+      const pausedError = new AppError("DATAFORSEO_ACCOUNT_PAUSED", message, {
+        provider: "DataForSEO",
+        providerStatusCode: String(task.status_code ?? 40201),
+        providerStatusMessage: message,
+        errorClass: "DATAFORSEO_ACCOUNT_PAUSED",
+      });
+      attachDataforseoDiagnostics(
+        pausedError,
+        appFailureDiagnostics(
+          path,
+          task.status_code,
+          task.status_message,
+          task,
+        ),
+      );
+      throw pausedError;
+    }
+
     const error = classify?.(task.status_code, message, path ?? "");
     if (error) {
       attachDataforseoDiagnostics(
         error,
-        appFailureDiagnostics(path, task.status_code, task.status_message, task),
+        appFailureDiagnostics(
+          path,
+          task.status_code,
+          task.status_message,
+          task,
+        ),
       );
       throw error;
     }

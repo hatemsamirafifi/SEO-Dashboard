@@ -105,12 +105,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 /** Safe shape counters read from the first task of a DataForSEO response. */
-function taskShapeOf(task: Record<string, unknown>): Pick<DataforseoAppStatus, "statusCode" | "statusMessage" | "resultCount" | "itemsCount"> {
-  const out: Pick<DataforseoAppStatus, "statusCode" | "statusMessage" | "resultCount" | "itemsCount"> = {};
+function taskShapeOf(
+  task: Record<string, unknown>,
+): Pick<
+  DataforseoAppStatus,
+  "statusCode" | "statusMessage" | "resultCount" | "itemsCount"
+> {
+  const out: Pick<
+    DataforseoAppStatus,
+    "statusCode" | "statusMessage" | "resultCount" | "itemsCount"
+  > = {};
   if (typeof task.status_code === "number") out.statusCode = task.status_code;
-  if (typeof task.status_message === "string") out.statusMessage = task.status_message;
-  if (typeof task.result_count === "number") out.resultCount = task.result_count;
-  const results: unknown = Array.isArray(task.result) ? task.result[0] : undefined;
+  if (typeof task.status_message === "string")
+    out.statusMessage = task.status_message;
+  if (typeof task.result_count === "number")
+    out.resultCount = task.result_count;
+  const results: unknown = Array.isArray(task.result)
+    ? task.result[0]
+    : undefined;
   const resultRecord = asRecord(results);
   if (resultRecord && Array.isArray(resultRecord.items)) {
     out.itemsCount = resultRecord.items.length;
@@ -135,17 +147,22 @@ async function readDataforseoAppStatus(
     const record = asRecord(parsed);
     if (!record) return {};
     const out: DataforseoAppStatus = {};
-    if (typeof record.status_code === "number") out.statusCode = record.status_code;
-    if (typeof record.status_message === "string") out.statusMessage = record.status_message;
-    if (typeof record.tasks_count === "number") out.tasksCount = record.tasks_count;
-    if (typeof record.result_count === "number") out.resultCount = record.result_count;
+    if (typeof record.status_code === "number")
+      out.statusCode = record.status_code;
+    if (typeof record.status_message === "string")
+      out.statusMessage = record.status_message;
+    if (typeof record.tasks_count === "number")
+      out.tasksCount = record.tasks_count;
+    if (typeof record.result_count === "number")
+      out.resultCount = record.result_count;
     if (Array.isArray(record.tasks)) {
       const shape = taskShapeOf(asRecord(record.tasks[0]) ?? {});
       // The first task's status is authoritative for the call outcome (e.g.
       // HTTP 402 with a 40200 "Payment Required." task); the envelope's
       // top-level "Ok." only describes the transport layer.
       if (shape.statusCode !== undefined) out.statusCode = shape.statusCode;
-      if (shape.statusMessage !== undefined) out.statusMessage = shape.statusMessage;
+      if (shape.statusMessage !== undefined)
+        out.statusMessage = shape.statusMessage;
       out.resultCount ??= shape.resultCount;
       out.itemsCount ??= shape.itemsCount;
     }
@@ -158,7 +175,9 @@ async function readDataforseoAppStatus(
 async function resolveAuthenticatedDataforseoBasicAuth(): Promise<string> {
   const context = getDataforseoContext();
   if (context?.login && context?.password) {
-    return Buffer.from(`${context.login}:${context.password}`).toString("base64");
+    return Buffer.from(`${context.login}:${context.password}`).toString(
+      "base64",
+    );
   }
 
   // Check legacy environment API key or login/password first
@@ -174,20 +193,23 @@ async function resolveAuthenticatedDataforseoBasicAuth(): Promise<string> {
   const envLogin = process.env.DATAFORSEO_LOGIN;
   const envPassword = process.env.DATAFORSEO_PASSWORD;
   if (envLogin?.trim() && envPassword?.trim()) {
-    return Buffer.from(`${envLogin.trim()}:${envPassword.trim()}`).toString("base64");
+    return Buffer.from(`${envLogin.trim()}:${envPassword.trim()}`).toString(
+      "base64",
+    );
   }
 
   // Dynamic fallback: resolve effective settings from DB if not in context
   try {
-    const { resolveEffectiveDataforseoConfig } = await import(
-      "@/server/features/settings/services/DataforseoSettingsService"
-    );
+    const { resolveEffectiveDataforseoConfig } =
+      await import("@/server/features/settings/services/DataforseoSettingsService");
     const effective = await resolveEffectiveDataforseoConfig({
       organizationId: context?.organizationId,
       projectId: context?.projectId,
     });
     if (effective.login && effective.password) {
-      return Buffer.from(`${effective.login}:${effective.password}`).toString("base64");
+      return Buffer.from(`${effective.login}:${effective.password}`).toString(
+        "base64",
+      );
     }
   } catch {
     // If DB is unavailable in pure endpoint unit test environments, fall through to error
@@ -325,8 +347,9 @@ function createAuthenticatedFetch(classify?: DataforseoErrorClassifier) {
             const diagnostics = baseDiagnostics();
             diagnostics.httpStatus = response.status;
             diagnostics.dataforseoStatus = shape.statusCode ?? null;
-            diagnostics.dataforseoMessage =
-              sanitizeDataforseoMessage(shape.statusMessage);
+            diagnostics.dataforseoMessage = sanitizeDataforseoMessage(
+              shape.statusMessage,
+            );
             if (
               shape.tasksCount !== undefined ||
               shape.resultCount !== undefined ||
@@ -374,8 +397,12 @@ function createAuthenticatedFetch(classify?: DataforseoErrorClassifier) {
         throw classified;
       }
 
-      const code: ErrorCode =
-        response.status >= 500
+      const isAccountPaused =
+        safeInfo.statusCode === 40201 ||
+        safeInfo.errorClass === "DATAFORSEO_ACCOUNT_PAUSED";
+      const code: ErrorCode = isAccountPaused
+        ? "DATAFORSEO_ACCOUNT_PAUSED"
+        : response.status >= 500
           ? "UPSTREAM_UNAVAILABLE"
           : response.status === 429
             ? "RATE_LIMITED"
@@ -390,16 +417,16 @@ function createAuthenticatedFetch(classify?: DataforseoErrorClassifier) {
         safeInfo.statusMessage,
         safeInfo.statusCode,
       );
-      const error = new AppError(
-        code,
-        formattedMessage,
-        {
-          provider: "dataforseo",
-          providerStatus: String(response.status),
-          providerPath: path,
-          responseBody: formatDataforseoErrorPayload(rawText),
-        },
-      );
+      const error = new AppError(code, formattedMessage, {
+        provider: "DataForSEO",
+        providerStatus: String(response.status),
+        providerStatusCode:
+          safeInfo.statusCode !== null ? String(safeInfo.statusCode) : "",
+        providerStatusMessage: safeInfo.statusMessage,
+        providerPath: path,
+        responseBody: formatDataforseoErrorPayload(rawText),
+        errorClass: code,
+      });
       error.name = "DataForSEOHttpError";
       attachDataforseoDiagnostics(error, diagnostics);
       throw error;

@@ -1,4 +1,5 @@
 import { globalTraceStore } from "./globalTraceStore";
+import { getErrorCode } from "@/client/lib/error-messages";
 import {
   scrubGlobalTraceText,
   type GlobalTraceFeature,
@@ -83,6 +84,8 @@ function sanitizeTracePatch(
 }
 
 function errorCode(error: unknown): string | undefined {
+  const canonical = getErrorCode(error);
+  if (canonical) return canonical;
   if (typeof error === "object" && error !== null && "code" in error) {
     const code: unknown = (error as { code?: unknown }).code;
     if (typeof code === "string" && /^[A-Z0-9_]{2,64}$/.test(code)) {

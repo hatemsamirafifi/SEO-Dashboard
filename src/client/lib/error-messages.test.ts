@@ -11,6 +11,15 @@ describe("getStandardErrorMessage", () => {
     );
   });
 
+  it("maps DATAFORSEO_ACCOUNT_PAUSED to actionable user-facing copy", () => {
+    const error = new Error("DATAFORSEO_ACCOUNT_PAUSED");
+    expect(getErrorCode(error)).toBe("DATAFORSEO_ACCOUNT_PAUSED");
+    const message = getStandardErrorMessage(error);
+    expect(message).toContain("DataForSEO access is temporarily paused");
+    expect(message).toContain("support@dataforseo.com");
+    expect(message).toContain("security precaution");
+  });
+
   it("returns custom messages when the error is not a shared code", () => {
     expect(
       getStandardErrorMessage(

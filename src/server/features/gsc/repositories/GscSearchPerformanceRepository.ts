@@ -1,13 +1,17 @@
+/* eslint-disable max-lines */
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import {
-  gscSearchPerformance,
-  gscSearchPerformanceSyncs,
-} from "@/db/schema";
+import { gscSearchPerformance, gscSearchPerformanceSyncs } from "@/db/schema";
 import { executeInBatches } from "@/db/runBatch";
+import {
+  isRangeCoveredByIntervals,
+  mergeDateIntervals,
+  syncRunsToIntervals,
+} from "../services/gscSyncUtils";
 
 export type GscSearchPerformanceRow = typeof gscSearchPerformance.$inferSelect;
-export type GscSearchPerformanceInsert = typeof gscSearchPerformance.$inferInsert;
+export type GscSearchPerformanceInsert =
+  typeof gscSearchPerformance.$inferInsert;
 export type GscSyncRow = typeof gscSearchPerformanceSyncs.$inferSelect;
 
 export async function sha256Hex(text: string): Promise<string> {
@@ -130,7 +134,8 @@ async function createSyncRun(input: {
   requestedStartDate: string;
   requestedEndDate: string;
 }): Promise<
-  { ok: true; sync: GscSyncRow } | { ok: false; sync: GscSyncRow; alreadyRunning: true }
+  | { ok: true; sync: GscSyncRow }
+  | { ok: false; sync: GscSyncRow; alreadyRunning: true }
 > {
   const active = await getActiveSyncRun(input.projectId, input.property);
   if (active) {
@@ -178,12 +183,121 @@ async function updateSyncRun(
     .where(eq(gscSearchPerformanceSyncs.id, id));
 }
 
+export interface StoredCoverageRange {
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+}
+
+async function getStoredCoverageRange(
+  projectId: string,
+  searchType: string = "web",
+): Promise<StoredCoverageRange | null> {
+  const [syncRuns, factRows] = await Promise.all([
+    db
+      .select({
+        status: gscSearchPerformanceSyncs.status,
+        requestedStartDate: gscSearchPerformanceSyncs.requestedStartDate,
+        requestedEndDate: gscSearchPerformanceSyncs.requestedEndDate,
+        actualLastSuccessfulDate:
+          gscSearchPerformanceSyncs.actualLastSuccessfulDate,
+      })
+      .from(gscSearchPerformanceSyncs)
+      .where(
+        and(
+          eq(gscSearchPerformanceSyncs.projectId, projectId),
+          inArray(gscSearchPerformanceSyncs.status, ["completed", "partial"]),
+        ),
+      ),
+    db
+      .select({
+        minDate: sql<string | null>`min(${gscSearchPerformance.date})`,
+        maxDate: sql<string | null>`max(${gscSearchPerformance.date})`,
+        totalDays: sql<number>`count(distinct ${gscSearchPerformance.date})`,
+      })
+      .from(gscSearchPerformance)
+      .where(
+        and(
+          eq(gscSearchPerformance.projectId, projectId),
+          eq(gscSearchPerformance.searchType, searchType),
+          eq(gscSearchPerformance.grain, "summary"),
+        ),
+      ),
+  ]);
+
+  const intervals = syncRunsToIntervals(syncRuns);
+  const merged = mergeDateIntervals(intervals);
+
+  const syncMin = merged.length > 0 ? merged[0].startDate : null;
+  const syncMax = merged.length > 0 ? merged[merged.length - 1].endDate : null;
+  const factStats = factRows[0];
+  const factMin = factStats?.minDate ?? null;
+  const factMax = factStats?.maxDate ?? null;
+
+  const startDate =
+    syncMin && factMin
+      ? syncMin < factMin
+        ? syncMin
+        : factMin
+      : (syncMin ?? factMin);
+  const endDate =
+    syncMax && factMax
+      ? syncMax > factMax
+        ? syncMax
+        : factMax
+      : (syncMax ?? factMax);
+
+  if (!startDate || !endDate) {
+    return null;
+  }
+
+  const startMs = Date.parse(`${startDate}T00:00:00Z`);
+  const endMs = Date.parse(`${endDate}T00:00:00Z`);
+  const spanDays =
+    !Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs >= startMs
+      ? Math.round((endMs - startMs) / (24 * 60 * 60 * 1000)) + 1
+      : Number(factStats?.totalDays ?? 0);
+
+  return {
+    startDate,
+    endDate,
+    totalDays: spanDays,
+  };
+}
+
 async function hasCoverage(
   projectId: string,
   startDate: string,
   endDate: string,
   searchType: string = "web",
 ): Promise<boolean> {
+  // 1. Check sync intervals recorded in gsc_search_performance_syncs
+  const syncRuns = await db
+    .select({
+      status: gscSearchPerformanceSyncs.status,
+      requestedStartDate: gscSearchPerformanceSyncs.requestedStartDate,
+      requestedEndDate: gscSearchPerformanceSyncs.requestedEndDate,
+      actualLastSuccessfulDate:
+        gscSearchPerformanceSyncs.actualLastSuccessfulDate,
+    })
+    .from(gscSearchPerformanceSyncs)
+    .where(
+      and(
+        eq(gscSearchPerformanceSyncs.projectId, projectId),
+        inArray(gscSearchPerformanceSyncs.status, ["completed", "partial"]),
+      ),
+    );
+
+  if (syncRuns.length > 0) {
+    const intervals = syncRunsToIntervals(syncRuns);
+    const merged = mergeDateIntervals(intervals);
+    return isRangeCoveredByIntervals(merged, { startDate, endDate });
+  }
+
+  // 2. Conservative fallback for legacy data without sync runs metadata:
+  // Facts alone cannot distinguish whether missing dates were zero-row days
+  // or never-synchronized missing days. To prevent false-positive continuous
+  // coverage claims across gaps, only return true if facts are present for all expected days.
   const rows = await db
     .select({
       minDate: sql<string | null>`min(${gscSearchPerformance.date})`,
@@ -202,12 +316,22 @@ async function hasCoverage(
     );
 
   const stats = rows[0];
-  if (!stats || !stats.minDate || !stats.maxDate || stats.count === 0) {
+  if (!stats || !stats.minDate || !stats.maxDate || Number(stats.count) === 0) {
     return false;
   }
 
-  // Expect coverage to include startDate and endDate
-  return stats.minDate <= startDate && stats.maxDate >= endDate;
+  const startMs = Date.parse(`${startDate}T00:00:00Z`);
+  const endMs = Date.parse(`${endDate}T00:00:00Z`);
+  const expectedDays =
+    !Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs >= startMs
+      ? Math.round((endMs - startMs) / (24 * 60 * 60 * 1000)) + 1
+      : 0;
+
+  return (
+    stats.minDate <= startDate &&
+    stats.maxDate >= endDate &&
+    (expectedDays === 0 || Number(stats.count) >= expectedDays)
+  );
 }
 
 async function getTotals(
@@ -328,7 +452,10 @@ async function getTableRows({
   endDate,
   page,
   pageSize,
-}: GetTableRowsParams): Promise<{ rows: SearchPerformanceDimensionRowResult[]; hasNextPage: boolean }> {
+}: GetTableRowsParams): Promise<{
+  rows: SearchPerformanceDimensionRowResult[];
+  hasNextPage: boolean;
+}> {
   const column =
     dimension === "page"
       ? gscSearchPerformance.page
@@ -354,7 +481,10 @@ async function getTableRows({
       ),
     )
     .groupBy(column)
-    .orderBy(desc(sql`sum(${gscSearchPerformance.clicks})`), desc(sql`sum(${gscSearchPerformance.impressions})`))
+    .orderBy(
+      desc(sql`sum(${gscSearchPerformance.clicks})`),
+      desc(sql`sum(${gscSearchPerformance.impressions})`),
+    )
     .limit(limit)
     .offset(offset);
 
@@ -426,6 +556,7 @@ export const GscSearchPerformanceRepository = {
   createSyncRun,
   updateSyncRun,
   hasCoverage,
+  getStoredCoverageRange,
   getTotals,
   getStrikingDistance,
   getTableRows,
