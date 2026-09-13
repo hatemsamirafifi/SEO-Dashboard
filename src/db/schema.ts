@@ -94,8 +94,12 @@ export const {
   invitation,
   billingCustomerStatus,
   gscConnections,
+  gscSearchPerformance,
+  gscSearchPerformanceSyncs,
   redditAttributions,
   telemetryState,
   seoProviderSettings,
 } = schema;
+
+export const rankTrackingSnapshots = rankSnapshots;
 

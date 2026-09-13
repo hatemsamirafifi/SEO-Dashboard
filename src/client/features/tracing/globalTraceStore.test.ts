@@ -1,3 +1,4 @@
+/* eslint-disable max-lines, max-lines-per-function, @typescript-eslint/no-unsafe-type-assertion */
 import { beforeEach, describe, expect, it } from "vitest";
 import { globalTraceStore } from "./globalTraceStore";
 import { filterOperations } from "./globalTraceFormat";
@@ -341,5 +342,127 @@ describe("GlobalTraceStore", () => {
     expect(filterOperations(sampleOps, "rank_tracking")).toHaveLength(1);
     expect(filterOperations(sampleOps, "seo")).toHaveLength(2);
     expect(filterOperations(sampleOps, "settings")).toHaveLength(1);
+  });
+
+  it("persists operations into localStorage so they survive navigation/reloads", () => {
+    const storage: Record<string, string> = {};
+    const mockLocalStorage = {
+      getItem: (key: string) => storage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        storage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete storage[key];
+      },
+      clear: () => {
+        for (const k of Object.keys(storage)) delete storage[k];
+      },
+    };
+
+    const globalObj = globalThis as Record<string, unknown>;
+    const originalWindow = globalObj.window;
+    globalObj.window = {
+      localStorage: mockLocalStorage,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    };
+
+    try {
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "Rank Tracking page",
+        selectedCount: 1,
+      });
+
+      const storedRaw = mockLocalStorage.getItem("openseo_global_trace_operations");
+      expect(storedRaw).toBeTruthy();
+      const stored = (storedRaw ? JSON.parse(storedRaw) : []) as GlobalTraceOperation[];
+      expect(stored).toHaveLength(1);
+      expect(stored[0]?.operationId).toBe(opId);
+      expect(stored[0]?.status).toBe("running");
+
+      globalTraceStore.completeOperation(opId, {
+        status: "success",
+        rankChecksSucceeded: 1,
+      });
+
+      const updatedRaw = mockLocalStorage.getItem("openseo_global_trace_operations");
+      const updated = (updatedRaw ? JSON.parse(updatedRaw) : []) as GlobalTraceOperation[];
+      expect(updated[0]?.status).toBe("success");
+      expect(updated[0]?.rankChecksSucceeded).toBe(1);
+    } finally {
+      if (originalWindow === undefined) {
+        delete globalObj.window;
+      } else {
+        globalObj.window = originalWindow;
+      }
+    }
+  });
+
+  it("synchronizes operations across tabs when a storage event is received", () => {
+    let storageListener: ((event: unknown) => void) | undefined;
+    const globalObj = globalThis as Record<string, unknown>;
+    const originalWindow = globalObj.window;
+
+    globalObj.window = {
+      localStorage: {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {},
+        clear: () => {},
+      },
+      addEventListener: (type: string, listener: (event: unknown) => void) => {
+        if (type === "storage") {
+          storageListener = listener;
+        }
+      },
+      removeEventListener: () => {},
+    };
+
+    try {
+      let notified = false;
+      const unsubscribe = globalTraceStore.subscribe(() => {
+        notified = true;
+      });
+
+      const externalOp: GlobalTraceOperation = {
+        traceId: "ext-1",
+        operationId: "ext-op-1",
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "Tab A",
+        status: "running",
+        startedAt: Date.now(),
+        selectedCount: 2,
+      };
+
+      const storeWithListener = globalTraceStore as unknown as {
+        handleStorageEvent?: (event: { key: string; newValue: string }) => void;
+      };
+      if (typeof storeWithListener.handleStorageEvent === "function") {
+        storeWithListener.handleStorageEvent({
+          key: "openseo_global_trace_operations",
+          newValue: JSON.stringify([externalOp]),
+        });
+      } else if (storageListener) {
+        storageListener({
+          key: "openseo_global_trace_operations",
+          newValue: JSON.stringify([externalOp]),
+        });
+      }
+
+      expect(notified).toBe(true);
+      expect(globalTraceStore.getState().operations).toHaveLength(1);
+      expect(globalTraceStore.getState().operations[0]?.operationId).toBe("ext-op-1");
+
+      unsubscribe();
+    } finally {
+      if (originalWindow === undefined) {
+        delete globalObj.window;
+      } else {
+        globalObj.window = originalWindow;
+      }
+    }
   });
 });

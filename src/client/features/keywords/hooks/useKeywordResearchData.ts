@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getStandardErrorMessage } from "@/client/lib/error-messages";
+import {
+  getErrorCode,
+  getStandardErrorMessage,
+} from "@/client/lib/error-messages";
 import { captureClientEvent } from "@/client/lib/posthog";
 import { LOCATIONS } from "@/client/features/keywords/utils";
 import { parseKeywordInput } from "@/client/features/keywords/state/keywordControllerActions";
@@ -134,7 +137,7 @@ export async function keywordResearchQueryFn(request: KeywordResearchRequest) {
   } catch (error) {
     globalTraceStore.completeOperation(opId, {
       status: "failed",
-      httpStatus: 500,
+      errorClass: getErrorCode(error) ?? "OPERATION_FAILED",
       errorMessage:
         error instanceof Error ? error.message : "Keyword research failed",
     });

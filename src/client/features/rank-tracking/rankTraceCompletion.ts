@@ -151,6 +151,7 @@ export function buildRankCompletionPatch(input: {
         keywordId: id,
         keyword: row?.keyword,
         status: "failed" as const,
+        rankingStatus: "CHECK_FAILED" as const,
         provider: "DataForSEO",
         // Scrubbed: the run message crosses into a visible trace record.
         error: run.errorMessage
@@ -168,6 +169,8 @@ export function buildRankCompletionPatch(input: {
       keyword: row?.keyword,
       status:
         positionAfter != null ? ("success" as const) : ("no_result" as const),
+      rankingStatus:
+        positionAfter != null ? ("RANKED" as const) : ("NO_RESULT" as const),
       provider: "DataForSEO",
       positionBefore,
       positionAfter,

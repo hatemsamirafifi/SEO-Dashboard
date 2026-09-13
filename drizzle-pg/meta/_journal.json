@@ -141,6 +141,20 @@
       "when": 1788736900634,
       "tag": "0019_futuristic_proudstar",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789246442435,
+      "tag": "0020_complex_maximus",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789249541209,
+      "tag": "0021_slimy_exodus",
+      "breakpoints": true
     }
   ]
 }

@@ -295,6 +295,20 @@
       "when": 1788736885775,
       "tag": "0041_yielding_gauntlet",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1789246429153,
+      "tag": "0042_fat_blizzard",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1789249537393,
+      "tag": "0043_tidy_dorian_gray",
+      "breakpoints": true
     }
   ]
 }

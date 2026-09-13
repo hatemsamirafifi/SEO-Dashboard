@@ -6,6 +6,7 @@ import {
 } from "@/server/features/gsc/services/GscService";
 import {
   resolveDateRange,
+  sixteenMonthFloor,
   type GscPerformanceFilter,
 } from "@/server/features/gsc/searchAnalytics";
 import {
@@ -17,14 +18,18 @@ import {
 import { requireProjectContext } from "@/serverFunctions/middleware";
 import {
   searchPerformanceInputSchema,
+  searchPerformanceSyncInputSchema,
+  searchPerformanceSyncStatusInputSchema,
   searchPerformanceTableExportInputSchema,
   searchPerformanceTableInputSchema,
 } from "@/types/schemas/search-performance";
+import { GscSearchPerformanceRepository } from "@/server/features/gsc/repositories/GscSearchPerformanceRepository";
+import { GscSyncService } from "@/server/features/gsc/services/GscSyncService";
 
 // query x page fan-out needs more rows to find the 5..20 band.
 const STRIKING_DISTANCE_FETCH_LIMIT = 1000;
-// dimensions:["date"] returns one row per day; the longest range is ~92 days.
-const DAILY_ROW_LIMIT = 200;
+// dimensions:["date"] returns one row per day; 16 months is ~488 days.
+const DAILY_ROW_LIMIT = 1000;
 const COUNTRY_ROW_LIMIT = 25;
 // Export pulls the whole dimension in one shot, capped at GSC's per-call max
 // (GSC_MAX_ROW_LIMIT). Large stores get everything up to this ceiling.
@@ -56,11 +61,9 @@ function isExpectedConnectionFailure(error: unknown): boolean {
 }
 
 /**
- * The Search Performance overview: current + previous-period totals, the
- * striking-distance rows, and the country list that powers the filter dropdown.
- * The queries/pages tables paginate separately (getSearchPerformanceTable) so
- * page-flips never re-run the striking-distance scan. All first-party GSC data,
- * free.
+ * The Search Performance overview:
+ * 1. Database-first: reads stored normalized facts when available.
+ * 2. Controlled fallback: queries live GSC when date range is not yet stored.
  */
 export const getSearchPerformanceReport = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
@@ -72,7 +75,76 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
     const prev = previousPeriod(startDate, endDate);
     const projectId = context.projectId;
     const { deviceFilters, filters } = buildGscFilters(data);
+    const floor = sixteenMonthFloor();
+    const hasPrevious = prev.endDate > floor;
 
+    // Check DB coverage and sync state
+    const [hasCoverage, latestSync, activeSync] = await Promise.all([
+      GscSearchPerformanceRepository.hasCoverage(projectId, startDate, endDate),
+      GscSearchPerformanceRepository.getLatestSyncRun(projectId),
+      GscSearchPerformanceRepository.getActiveSyncRun(projectId),
+    ]);
+
+    if (hasCoverage) {
+      const [totals, prevTotals, strikingDistance, countries] = await Promise.all([
+        GscSearchPerformanceRepository.getTotals(projectId, startDate, endDate, {
+          device: data.device,
+          country: data.country,
+        }),
+        hasPrevious
+          ? GscSearchPerformanceRepository.getTotals(
+              projectId,
+              prev.startDate,
+              prev.endDate,
+              {
+                device: data.device,
+                country: data.country,
+              },
+            )
+          : Promise.resolve({ clicks: 0, impressions: 0, ctr: 0, position: 0 }),
+        GscSearchPerformanceRepository.getStrikingDistance(
+          projectId,
+          startDate,
+          endDate,
+        ),
+        GscSearchPerformanceRepository.getCountries(
+          projectId,
+          startDate,
+          endDate,
+        ),
+      ]);
+
+      return {
+        connected: true as const,
+        source: "database" as const,
+        coverage: true as const,
+        lastSyncedAt: latestSync?.completedAt ?? null,
+        isSyncRunning: activeSync !== null,
+        syncCoverage: latestSync
+          ? {
+              status: latestSync.status,
+              startDate: latestSync.requestedStartDate,
+              endDate:
+                latestSync.actualLastSuccessfulDate ??
+                latestSync.requestedEndDate,
+              rowsFetched: latestSync.rowsFetched,
+              rowsInserted: latestSync.rowsInserted,
+            }
+          : null,
+        range: {
+          startDate,
+          endDate,
+          prevStartDate: prev.startDate,
+          prevEndDate: prev.endDate,
+        },
+        totals,
+        prevTotals,
+        strikingDistance,
+        countries,
+      };
+    }
+
+    // Controlled live GSC fallback when database is not yet synchronized
     try {
       const [current, previous, queryPages, countries] = await Promise.all([
         GscService.getPerformance({
@@ -83,14 +155,16 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
           filters,
           rowLimit: DAILY_ROW_LIMIT,
         }),
-        GscService.getPerformance({
-          projectId,
-          startDate: prev.startDate,
-          endDate: prev.endDate,
-          dimensions: ["date"],
-          filters,
-          rowLimit: DAILY_ROW_LIMIT,
-        }),
+        hasPrevious
+          ? GscService.getPerformance({
+              projectId,
+              startDate: prev.startDate,
+              endDate: prev.endDate,
+              dimensions: ["date"],
+              filters,
+              rowLimit: DAILY_ROW_LIMIT,
+            })
+          : Promise.resolve({ rows: [] }),
         GscService.getPerformance({
           projectId,
           startDate,
@@ -111,6 +185,21 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
 
       return {
         connected: true as const,
+        source: "live_fallback" as const,
+        coverage: false as const,
+        lastSyncedAt: latestSync?.completedAt ?? null,
+        isSyncRunning: activeSync !== null,
+        syncCoverage: latestSync
+          ? {
+              status: latestSync.status,
+              startDate: latestSync.requestedStartDate,
+              endDate:
+                latestSync.actualLastSuccessfulDate ??
+                latestSync.requestedEndDate,
+              rowsFetched: latestSync.rowsFetched,
+              rowsInserted: latestSync.rowsInserted,
+            }
+          : null,
         range: {
           startDate,
           endDate,
@@ -131,9 +220,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
   });
 
 /**
- * One page of the queries or pages table, paginated server-side against GSC via
- * `startRow` so it scales to large properties. GSC returns no total count, so we
- * fetch one extra row to detect a next page. All first-party GSC data, free.
+ * One page of the queries or pages table. Reads from DB first when available.
  */
 export const getSearchPerformanceTable = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
@@ -142,6 +229,35 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
     const { startDate, endDate } = resolveDateRange({
       dateRange: data.dateRange,
     });
+    const projectId = context.projectId;
+
+    const hasCoverage = await GscSearchPerformanceRepository.hasCoverage(
+      projectId,
+      startDate,
+      endDate,
+    );
+
+    if (hasCoverage && !data.device && !data.country) {
+      const result = await GscSearchPerformanceRepository.getTableRows({
+        projectId,
+        dimension: data.dimension,
+        startDate,
+        endDate,
+        page: data.page,
+        pageSize: data.pageSize,
+      });
+
+      return {
+        connected: true as const,
+        source: "database" as const,
+        dimension: data.dimension,
+        page: data.page,
+        pageSize: data.pageSize,
+        hasNextPage: result.hasNextPage,
+        rows: result.rows,
+      };
+    }
+
     const { filters } = buildGscFilters(data);
     const offset = (data.page - 1) * data.pageSize;
 
@@ -152,7 +268,6 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
         endDate,
         dimensions: [data.dimension],
         filters,
-        // One extra row tells us whether a further page exists.
         rowLimit: data.pageSize + 1,
         startRow: offset,
       });
@@ -163,6 +278,7 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
 
       return {
         connected: true as const,
+        source: hasCoverage ? ("database" as const) : ("live_fallback" as const),
         dimension: data.dimension,
         page: data.page,
         pageSize: data.pageSize,
@@ -178,8 +294,7 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
   });
 
 /**
- * The full queries/pages dataset for CSV/Sheets export (capped at
- * EXPORT_ROW_LIMIT), rather than only the visible page.
+ * Full queries/pages dataset for CSV/Sheets export (capped at EXPORT_ROW_LIMIT).
  */
 export const exportSearchPerformanceTable = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
@@ -188,6 +303,30 @@ export const exportSearchPerformanceTable = createServerFn({ method: "POST" })
     const { startDate, endDate } = resolveDateRange({
       dateRange: data.dateRange,
     });
+    const projectId = context.projectId;
+
+    const hasCoverage = await GscSearchPerformanceRepository.hasCoverage(
+      projectId,
+      startDate,
+      endDate,
+    );
+
+    if (hasCoverage && !data.device && !data.country) {
+      const result = await GscSearchPerformanceRepository.getTableRows({
+        projectId,
+        dimension: data.dimension,
+        startDate,
+        endDate,
+        page: 1,
+        pageSize: EXPORT_ROW_LIMIT,
+      });
+
+      return {
+        dimension: data.dimension,
+        rows: result.rows,
+      };
+    }
+
     const { filters } = buildGscFilters(data);
 
     const result = await GscService.getPerformance({
@@ -202,5 +341,48 @@ export const exportSearchPerformanceTable = createServerFn({ method: "POST" })
     return {
       dimension: data.dimension,
       rows: toDimensionRows(result.rows),
+    };
+  });
+
+/**
+ * Trigger an on-demand sync for a project and date window.
+ */
+export const triggerSearchPerformanceSync = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(searchPerformanceSyncInputSchema)
+  .handler(async ({ data, context }) => {
+    let startDate = data.startDate;
+    let endDate = data.endDate;
+
+    if (data.dateRange) {
+      const resolved = resolveDateRange({ dateRange: data.dateRange });
+      startDate = resolved.startDate;
+      endDate = resolved.endDate;
+    }
+
+    return GscSyncService.runSync({
+      projectId: context.projectId,
+      syncType: data.syncType,
+      startDate,
+      endDate,
+    });
+  });
+
+/**
+ * Get current sync status and latest completed sync metadata for a project.
+ */
+export const getSearchPerformanceSyncStatus = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(searchPerformanceSyncStatusInputSchema)
+  .handler(async ({ data }) => {
+    const [latest, active] = await Promise.all([
+      GscSearchPerformanceRepository.getLatestSyncRun(data.projectId),
+      GscSearchPerformanceRepository.getActiveSyncRun(data.projectId),
+    ]);
+
+    return {
+      latestSync: latest,
+      activeSync: active,
+      isRunning: active !== null,
     };
   });

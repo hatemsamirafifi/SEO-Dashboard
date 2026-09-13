@@ -106,7 +106,7 @@ function subtractRange(end: Date, range: GscDateRange): Date {
   return d;
 }
 
-function sixteenMonthFloor(today: Date): string {
+export function sixteenMonthFloor(today: Date = new Date()): string {
   return formatDate(subtractUtcMonths(today, 16));
 }
 
@@ -119,8 +119,10 @@ export function resolveDateRange(
   const floor = sixteenMonthFloor(today);
 
   if (input.startDate && input.endDate) {
-    // Clamp the start to GSC's 16-month lower bound.
-    const startDate = input.startDate < floor ? floor : input.startDate;
+    // Clamp the start to GSC's 16-month lower bound, but keep startDate <= endDate.
+    const clampedStart = input.startDate < floor ? floor : input.startDate;
+    const startDate =
+      clampedStart > input.endDate ? input.startDate : clampedStart;
     return { startDate, endDate: input.endDate };
   }
 

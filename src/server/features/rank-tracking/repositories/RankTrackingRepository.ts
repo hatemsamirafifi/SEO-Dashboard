@@ -16,6 +16,7 @@ import {
   getKeywordHistory,
   getConfigTrend,
   getPositionMatrix,
+  getLatestPositionsMap,
 } from "./snapshotQueries";
 
 // ---------------------------------------------------------------------------
@@ -396,4 +397,5 @@ export const RankTrackingRepository = {
   getKeywordHistory,
   getConfigTrend,
   getPositionMatrix,
+  getLatestPositionsMap,
 };

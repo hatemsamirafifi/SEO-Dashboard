@@ -56,6 +56,33 @@ describe("resolveDateRange", () => {
     expect(endDate).toBe("2026-05-31");
   });
 
+  it("computes a 6-month window from the lagged end", () => {
+    const { startDate, endDate } = resolveDateRange(
+      { dateRange: "last_6_months" },
+      TODAY,
+    );
+    expect(startDate).toBe("2025-11-25");
+    expect(endDate).toBe("2026-05-25");
+  });
+
+  it("computes a 12-month window from the lagged end", () => {
+    const { startDate, endDate } = resolveDateRange(
+      { dateRange: "last_12_months" },
+      TODAY,
+    );
+    expect(startDate).toBe("2025-05-25");
+    expect(endDate).toBe("2026-05-25");
+  });
+
+  it("does not clamp start beyond end if end is before floor", () => {
+    const { startDate, endDate } = resolveDateRange(
+      { startDate: "2020-01-01", endDate: "2020-02-01" },
+      TODAY,
+    );
+    expect(startDate).toBe("2020-01-01");
+    expect(endDate).toBe("2020-02-01");
+  });
+
   it("clamps the 16-month floor to the last valid day of a short month", () => {
     const { startDate } = resolveDateRange(
       { dateRange: "last_16_months" },
