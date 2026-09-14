@@ -57,7 +57,12 @@ async function prepareRankCheckKeywords(input: {
   // If stale-cleanup marked our run failed before we got here, bail out
   // rather than resurrecting a superseded run.
   const run = await RankTrackingRepository.getRunById(input.runId);
-  if (!run || run.status === "failed" || run.status === "completed") {
+  if (
+    !run ||
+    run.status === "failed" ||
+    run.status === "completed" ||
+    run.status === "partial"
+  ) {
     throw new NonRetryableError(
       `Run ${input.runId} is no longer active (status=${run?.status ?? "missing"})`,
     );
@@ -136,7 +141,12 @@ async function finalizeRankCheckRun(input: {
   // decision with a completed status — a replacement run may already be
   // underway.
   const run = await RankTrackingRepository.getRunById(input.runId);
-  if (!run || run.status === "failed" || run.status === "completed") {
+  if (
+    !run ||
+    run.status === "failed" ||
+    run.status === "completed" ||
+    run.status === "partial"
+  ) {
     console.warn(
       `[rank-check] ${input.runId} no longer active (status=${run?.status ?? "missing"}), skipping finalization`,
     );
@@ -146,39 +156,71 @@ async function finalizeRankCheckRun(input: {
   const nowIso = new Date().toISOString();
 
   // Snapshots were written incrementally by each batch step.
-  // Count from DB to get the authoritative keyword count.
+  // Derive authoritative counts strictly from per-keyword snapshot outcomes.
   const snapshots = await RankTrackingRepository.getSnapshotsForRun(
     input.runId,
   );
-  const keywordsChecked = new Set(snapshots.map((s) => s.trackingKeywordId))
-    .size;
+  const successfulSnapshots = snapshots.filter(
+    (s) => s.rankingStatus === "RANKED" || s.rankingStatus === "NO_RESULT",
+  );
+  const failedSnapshots = snapshots.filter(
+    (s) => s.rankingStatus === "CHECK_FAILED",
+  );
+  const successfulKeywords = new Set(
+    successfulSnapshots.map((s) => s.trackingKeywordId),
+  ).size;
+  const failedKeywords = new Set(
+    failedSnapshots.map((s) => s.trackingKeywordId),
+  ).size;
+  const allAttemptedKeywords = new Set(
+    snapshots.map((s) => s.trackingKeywordId),
+  ).size;
 
-  const keywordsTotal = run.keywordsTotal || keywordsChecked;
-  const incompleteCount = keywordsTotal - keywordsChecked;
+  const keywordsTotal = run.keywordsTotal || allAttemptedKeywords;
+  const unattemptedCount = Math.max(0, keywordsTotal - allAttemptedKeywords);
 
+  let status: "completed" | "partial" | "failed" = "completed";
   let errorMessage: string | undefined;
-  if (input.batchError) {
-    errorMessage = `Completed ${keywordsChecked} of ${keywordsTotal} keyword(s). Error: ${input.batchError}`;
-  } else if (incompleteCount > 0) {
-    errorMessage = `${incompleteCount} keyword(s) could not be checked`;
+
+  if (
+    successfulKeywords === 0 &&
+    (failedKeywords > 0 || unattemptedCount > 0 || input.batchError)
+  ) {
+    status = "failed";
+    errorMessage = input.batchError
+      ? `Completed 0 of ${keywordsTotal} keyword(s). Error: ${input.batchError}`
+      : `${keywordsTotal} keyword(s) could not be checked`;
+  } else if (
+    failedKeywords > 0 ||
+    unattemptedCount > 0 ||
+    input.batchError
+  ) {
+    status = "partial";
+    errorMessage = input.batchError
+      ? `Completed ${successfulKeywords} of ${keywordsTotal} keyword(s). Error: ${input.batchError}`
+      : `${failedKeywords + unattemptedCount} keyword(s) could not be checked`;
+  } else {
+    status = "completed";
   }
 
   // Flipping status away from 'pending'/'running' is what releases the
   // partial-index slot for the next run.
   await RankTrackingRepository.updateRun(input.runId, {
-    status: "completed",
-    keywordsChecked,
+    status,
+    keywordsChecked: successfulKeywords,
     completedAt: nowIso,
     ...(errorMessage ? { errorMessage } : {}),
   });
 
-  // Clear any previous skip reason on success.
+  // Clear any previous skip reason on success or partial success.
   // Note: nextCheckAt is NOT set here — the cron handler advances it eagerly
   // before starting the workflow to prevent retry storms.
-  await RankTrackingRepository.updateConfig(input.configId, input.projectId, {
-    lastCheckedAt: nowIso,
-    lastSkipReason: null,
-  });
+  if (status !== "failed") {
+    await RankTrackingRepository.updateConfig(input.configId, input.projectId, {
+      lastCheckedAt: nowIso,
+      lastSkipReason: null,
+    });
+  }
 
   // One-line summary per run so fallback rates are visible in Workers Logs.
   // Keys match the PostHog event properties for log/event correlation.
@@ -190,7 +232,7 @@ async function finalizeRankCheckRun(input: {
     ? ` error="${errorMessage.replace(/\s+/g, " ").slice(0, 200)}"`
     : "";
   console.log(
-    `[rank-check] ${input.runId} completed org=${input.billingCustomer.organizationId} project=${input.projectId} trigger=${input.trigger} keywords=${keywordsChecked}/${keywordsTotal}${queueSummary}${errorSummary}`,
+    `[rank-check] ${input.runId} completed org=${input.billingCustomer.organizationId} project=${input.projectId} trigger=${input.trigger} keywords=${successfulKeywords}/${keywordsTotal}${queueSummary}${errorSummary}`,
   );
 
   await captureServerEvent({
@@ -199,9 +241,9 @@ async function finalizeRankCheckRun(input: {
     organizationId: input.billingCustomer.organizationId,
     properties: {
       project_id: input.projectId,
-      status: "completed",
+      status,
       trigger: input.trigger,
-      keywords_checked: keywordsChecked,
+      keywords_checked: successfulKeywords,
       ...(input.queueStats
         ? {
             queue_tasks: input.queueStats.queueTasks,

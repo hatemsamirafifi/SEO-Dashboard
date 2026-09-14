@@ -2,6 +2,7 @@ import { LOCATIONS } from "@/client/features/keywords/locations";
 import { devicesLabel } from "@/shared/rank-tracking";
 import type {
   RankTrackingConfig,
+  RankTrackingDeviceResult,
   RankTrackingRow,
 } from "@/types/schemas/rank-tracking";
 
@@ -146,6 +147,7 @@ export function applyFilters(
         row.desktop.position,
         filters.minDesktopPos,
         filters.maxDesktopPos,
+        row.desktop.status,
       )
     )
       return false;
@@ -155,6 +157,7 @@ export function applyFilters(
         row.mobile.position,
         filters.minMobilePos,
         filters.maxMobilePos,
+        row.mobile.status,
       )
     )
       return false;
@@ -188,11 +191,14 @@ export function matchesPositionFilter(
   position: number | null,
   minValue: string,
   maxValue: string,
+  status?: RankTrackingDeviceResult["status"],
 ): boolean {
   if (!minValue && !maxValue) return true;
 
   const max = maxValue === "" ? Infinity : Number(maxValue);
-  if (max === 0) return position === null;
+  if (max === 0) {
+    return position === null && status !== "failed";
+  }
 
   if (position === null) return false;
 

@@ -55,7 +55,10 @@ export function busyBlockedReason(state: CheckBusyState): string {
 }
 
 export interface ClassifiedRunError {
-  errorClass: "CREDITS_UNAVAILABLE" | "OPERATION_FAILED";
+  errorClass:
+    | "CREDITS_UNAVAILABLE"
+    | "OPERATION_FAILED"
+    | "DATAFORSEO_ACCOUNT_PAUSED";
   budget: "BLOCKED" | "PASS";
   blockedReason?: string;
 }
@@ -63,11 +66,15 @@ export interface ClassifiedRunError {
 /**
  * Classifies a rank-run failure message using only its text evidence.
  * Credit/budget wording → CREDITS_UNAVAILABLE + BLOCKED; everything else
- * stays a generic OPERATION_FAILED with budget PASS (unknown ≠ blocked).
+ * stays a generic OPERATION_FAILED or specific DATAFORSEO_ACCOUNT_PAUSED with budget PASS.
  */
 export function classifyRunError(message: string): ClassifiedRunError {
+  const isPaused = /40201|paused access|unusual activity/i.test(message);
+  if (isPaused) {
+    return { errorClass: "DATAFORSEO_ACCOUNT_PAUSED", budget: "PASS" };
+  }
   const isBudget =
-    /credit|budget|payment|402|insufficient|upgrade|top up|topup/i.test(
+    /credit|budget|payment|\b402\b|40200|insufficient|upgrade|top up|topup/i.test(
       message,
     );
   if (isBudget) {
@@ -96,11 +103,19 @@ export interface RankRowForTrace {
     position?: number | null;
     previousPosition?: number | null;
     checkedAt?: string | null;
+    status?: string | null;
+    rankingStatus?: string | null;
+    errorMessage?: string | null;
+    providerStatusCode?: number | null;
   } | null;
   mobile?: {
     position?: number | null;
     previousPosition?: number | null;
     checkedAt?: string | null;
+    status?: string | null;
+    rankingStatus?: string | null;
+    errorMessage?: string | null;
+    providerStatusCode?: number | null;
   } | null;
 }
 
@@ -147,16 +162,56 @@ export function buildRankCompletionPatch(input: {
     );
 
     if (fresh.length === 0) {
+      const hasProviderMarker = run.errorMessage
+        ? PROVIDER_MARKER_RE.test(run.errorMessage)
+        : false;
+      const diag = hasProviderMarker
+        ? parseDataforseoDiagnosticsFromErrorMessage(run.errorMessage)
+        : null;
       return {
         keywordId: id,
         keyword: row?.keyword,
         status: "failed" as const,
         rankingStatus: "CHECK_FAILED" as const,
         provider: "DataForSEO",
+        httpStatus: diag?.httpStatus ?? undefined,
+        taskStatus: diag?.dataforseoStatusCode ?? undefined,
         // Scrubbed: the run message crosses into a visible trace record.
         error: run.errorMessage
           ? scrubGlobalTraceText(run.errorMessage)
           : "No snapshot recorded for this run",
+      };
+    }
+
+    const failedDevice = fresh.find(
+      (d) => d.status === "failed" || d.rankingStatus === "CHECK_FAILED",
+    );
+
+    if (failedDevice) {
+      const childErrMsg = failedDevice.errorMessage || run.errorMessage;
+      const hasProviderMarker = childErrMsg
+        ? PROVIDER_MARKER_RE.test(childErrMsg)
+        : false;
+      const diag = hasProviderMarker
+        ? parseDataforseoDiagnosticsFromErrorMessage(childErrMsg)
+        : null;
+      const taskStatus =
+        failedDevice.providerStatusCode ??
+        diag?.dataforseoStatusCode ??
+        undefined;
+      const httpStatus = diag?.httpStatus ?? undefined;
+
+      return {
+        keywordId: id,
+        keyword: row?.keyword,
+        status: "failed" as const,
+        rankingStatus: "CHECK_FAILED" as const,
+        provider: "DataForSEO",
+        httpStatus,
+        taskStatus,
+        error: childErrMsg
+          ? scrubGlobalTraceText(childErrMsg)
+          : "Rank check attempt failed",
       };
     }
 
@@ -243,10 +298,11 @@ export function buildRankCompletionPatch(input: {
  * caller keeps its generic classification and nothing is fabricated.
  *
  * Distinguishes: HTTP 5xx (TRANSIENT_UPSTREAM) ≠ task error inside HTTP 200
- * (TASK_ERROR / CREDITS_UNAVAILABLE) ≠ 402 ≠ 429. Returns true when applied.
+ * (TASK_ERROR / CREDITS_UNAVAILABLE / DATAFORSEO_ACCOUNT_PAUSED) ≠ 402 ≠ 429.
+ * Returns true when applied.
  */
 const PROVIDER_MARKER_RE =
-  /DataForSEO HTTP \d{3}|DataForSEO task error \(\d+\)/;
+  /DataForSEO HTTP \d{3}|DataForSEO task error \(\d+\)|DATAFORSEO_ACCOUNT_PAUSED|paused access|unusual activity/i;
 
 function applyProviderDiagnostics(
   patch: RankCompletionPatch,
@@ -255,6 +311,7 @@ function applyProviderDiagnostics(
 ): boolean {
   if (!PROVIDER_MARKER_RE.test(rawMessage)) return false;
   const d = parseDataforseoDiagnosticsFromErrorMessage(rawMessage);
+  const isCreditBlocked = d.errorClass === "CREDITS_UNAVAILABLE";
   const providerCall: GlobalTraceProviderCall = {
     provider: d.provider,
     endpoint: d.endpoint,
@@ -264,15 +321,15 @@ function applyProviderDiagnostics(
     transport: d.transport,
     billing: "Paid",
     metered: true,
-    budgetGuard: d.errorClass === "CREDITS_UNAVAILABLE" ? "BLOCKED" : "PASS",
+    budgetGuard: isCreditBlocked ? "BLOCKED" : "PASS",
   };
   patch.providers = [providerCall];
   patch.httpStatus = d.httpStatus ?? undefined;
   patch.errorClass = d.errorClass;
-  if (d.errorClass === "CREDITS_UNAVAILABLE") {
-    patch.budget = "BLOCKED";
+  patch.budget = isCreditBlocked ? "BLOCKED" : "PASS";
+  if (isCreditBlocked) {
     patch.blockedReason = scrubGlobalTraceText(rawMessage);
-    // A credit block with no snapshot means no billable call completed.
+    // A credit block before any snapshot means no billable call completed.
     // Never zero the count when snapshots prove calls happened.
     if (succeeded === 0) {
       patch.providerCalls = 0;

@@ -197,8 +197,9 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
       status: "failed",
       rankChecksSucceeded: 0,
       rankChecksFailed: 1,
-      httpStatus: 402,
-      errorClass: "CREDITS_UNAVAILABLE",
+      httpStatus: 200,
+      errorClass: "DATAFORSEO_ACCOUNT_PAUSED",
+      budget: "PASS",
       errorMessage: "1 keyword(s) could not be checked: We noticed some unusual activity in your DataForSEO account",
       provider: "DataForSEO ×1",
       providerCalls: 1,
@@ -206,12 +207,12 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
         {
           provider: "DataForSEO",
           endpoint: "v3/serp/google/organic/live/advanced",
-          httpStatus: 402,
+          httpStatus: 200,
           taskStatus: 40201,
           transport: "HTTP",
           billing: "Paid",
           metered: true,
-          budgetGuard: "BLOCKED",
+          budgetGuard: "PASS",
         },
       ],
       children: [
@@ -219,7 +220,7 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
           keywordId: "kw_1",
           status: "failed",
           provider: "DataForSEO",
-          httpStatus: 402,
+          httpStatus: 200,
           taskStatus: 40201,
         },
       ],
@@ -229,9 +230,53 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
     expect(op?.status).toBe("failed");
     expect(op?.rankChecksSucceeded).toBe(0);
     expect(op?.rankChecksFailed).toBe(1);
-    expect(op?.httpStatus).toBe(402);
-    expect(op?.errorClass).toBe("CREDITS_UNAVAILABLE");
+    expect(op?.httpStatus).toBe(200);
+    expect(op?.errorClass).toBe("DATAFORSEO_ACCOUNT_PAUSED");
+    expect(op?.budget).toBe("PASS");
+    expect(op?.providers?.[0]?.budgetGuard).toBe("PASS");
     expect(op?.children?.[0].status).toBe("failed");
+  });
+
+  it("trace correctly reports BLOCKED budgetGuard when budget guard blocks provider request", () => {
+    const opId = globalTraceStore.startOperation({
+      feature: "rank_tracking",
+      operation: "rank_tracking.check_selected",
+      source: "Rank Tracking page",
+      scope: "selected",
+      selectedCount: 1,
+    });
+
+    globalTraceStore.completeOperation(opId, {
+      status: "blocked",
+      rankChecksSucceeded: 0,
+      rankChecksFailed: 1,
+      httpStatus: 402,
+      errorClass: "CREDITS_UNAVAILABLE",
+      budget: "BLOCKED",
+      blockedReason: "DataForSEO daily budget exceeded",
+      errorMessage: "DataForSEO daily budget exceeded",
+      provider: "DataForSEO ×1",
+      providerCalls: 0,
+      providers: [
+        {
+          provider: "DataForSEO",
+          endpoint: "v3/serp/google/organic/live/advanced",
+          httpStatus: 402,
+          transport: "HTTP",
+          billing: "Paid",
+          metered: true,
+          budgetGuard: "BLOCKED",
+        },
+      ],
+      children: [],
+    });
+
+    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    expect(op?.status).toBe("blocked");
+    expect(op?.budget).toBe("BLOCKED");
+    expect(op?.errorClass).toBe("CREDITS_UNAVAILABLE");
+    expect(op?.providers?.[0]?.budgetGuard).toBe("BLOCKED");
+    expect(op?.providerCalls).toBe(0);
   });
 
   it("trace correctly handles successful DataForSEO run when domain has no ranking in top 100", () => {

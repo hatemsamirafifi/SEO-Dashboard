@@ -4,6 +4,8 @@ import type { InferInsertModel } from "drizzle-orm";
 import type { rankSnapshots } from "@/db/schema";
 import { sanitizeDataforseoMessage } from "@/server/lib/dataforseo/shared";
 import { scrubGlobalTraceText } from "@/shared/globalTraceTypes";
+import { formatDataforseoTaskErrorMessage } from "@/shared/dataforseoDiagnosticsParser";
+import { asAppError } from "@/server/lib/errors";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import {
   fetchRankCheckTaskResult,
@@ -110,7 +112,9 @@ const MAX_PROVIDER_REASON_LENGTH = 500;
  * message ("DataForSEO HTTP <status> on <path>: <message> (<code>)");
  * anything else is scrubbed and truncated here. Never credentials.
  */
-function safeProviderReason(reason: unknown): string {
+export function safeProviderReason(reason: unknown): string {
+  const appError = asAppError(reason);
+  const statusCode = parseDataforseoStatusCode(reason);
   const raw = reason instanceof Error ? reason.message : String(reason);
   const sanitized =
     sanitizeDataforseoMessage(raw) ?? "DataForSEO request failed";
@@ -118,12 +122,32 @@ function safeProviderReason(reason: unknown): string {
   // pairs the SAM scrubber leaves alone). The SAM scrubber itself is
   // untouched.
   const scrubbed = scrubGlobalTraceText(sanitized);
-  return scrubbed.length > MAX_PROVIDER_REASON_LENGTH
-    ? `${scrubbed.slice(0, MAX_PROVIDER_REASON_LENGTH)}…`
-    : scrubbed;
+
+  let formatted = scrubbed;
+  if (
+    (statusCode === 40201 || appError?.code === "DATAFORSEO_ACCOUNT_PAUSED") &&
+    !scrubbed.startsWith("DataForSEO")
+  ) {
+    formatted = formatDataforseoTaskErrorMessage(40201, scrubbed);
+  }
+
+  return formatted.length > MAX_PROVIDER_REASON_LENGTH
+    ? `${formatted.slice(0, MAX_PROVIDER_REASON_LENGTH)}…`
+    : formatted;
 }
 
-function parseDataforseoStatusCode(reason: unknown): number | null {
+export function parseDataforseoStatusCode(reason: unknown): number | null {
+  const appError = asAppError(reason);
+  if (appError) {
+    if (appError.code === "DATAFORSEO_ACCOUNT_PAUSED") {
+      return 40201;
+    }
+    const detailCode = appError.details?.providerStatusCode;
+    if (detailCode) {
+      const num = parseInt(detailCode, 10);
+      if (!Number.isNaN(num)) return num;
+    }
+  }
   if (typeof reason === "object" && reason !== null) {
     const statusCode: unknown = Reflect.get(reason, "statusCode");
     if (typeof statusCode === "number") {

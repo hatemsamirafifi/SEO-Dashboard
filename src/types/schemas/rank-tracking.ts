@@ -39,6 +39,12 @@ export interface RankTrackingDeviceResult {
   serpFeatures: string[];
   checkedAt?: string | null;
   status?: "not_checked" | "ranked" | "not_ranking" | "failed" | "checking";
+  rankingStatus?: "RANKED" | "NO_RESULT" | "CHECK_FAILED" | "NOT_CHECKED" | null;
+  latestValidPosition?: number | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  providerStatus?: string | null;
+  providerStatusCode?: number | null;
 }
 
 export interface RankTrackingRow {

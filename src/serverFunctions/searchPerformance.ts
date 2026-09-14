@@ -96,13 +96,14 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
 
       const covStartDate =
         storedCoverage?.startDate ??
-        latestSync?.requestedStartDate ??
-        startDate;
+        (latestSync?.status === "completed"
+          ? latestSync.requestedStartDate
+          : latestSync?.actualLastSuccessfulDate ?? null);
       const covEndDate =
         storedCoverage?.endDate ??
-        latestSync?.actualLastSuccessfulDate ??
-        latestSync?.requestedEndDate ??
-        null;
+        (latestSync?.status === "completed"
+          ? latestSync.requestedEndDate
+          : latestSync?.actualLastSuccessfulDate ?? null);
 
       let status: "completed" | "partial" | "failed" | "running" = "completed";
       if (activeSync !== null) {
