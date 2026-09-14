@@ -155,6 +155,13 @@
       "when": 1789249541209,
       "tag": "0021_slimy_exodus",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789396025297,
+      "tag": "0022_rich_mauler",
+      "breakpoints": true
     }
   ]
 }

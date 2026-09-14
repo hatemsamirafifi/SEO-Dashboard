@@ -291,7 +291,7 @@ export const rankCheckRuns = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     status: text("status", {
-      enum: ["pending", "running", "completed", "failed"],
+      enum: ["pending", "running", "completed", "failed", "partial"],
     })
       .notNull()
       .default("pending"),

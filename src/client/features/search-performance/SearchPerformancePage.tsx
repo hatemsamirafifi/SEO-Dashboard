@@ -212,14 +212,15 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
         result.status === "completed" ||
         (result.status === "partial" && !result.error);
 
+      const callsPerChunk = 6;
       globalTraceStore.completeOperation(opId, {
         status: isSuccessOrPending ? "success" : "failed",
         httpStatus: isSuccessOrPending ? 200 : 500,
-        providerCalls: result.chunksCompleted * 7,
+        providerCalls: result.chunksCompleted * callsPerChunk,
         providerBreakdown: [
           {
             provider: "Google Search Console",
-            count: result.chunksCompleted * 7,
+            count: result.chunksCompleted * callsPerChunk,
           },
         ],
         errorMessage: result.error,

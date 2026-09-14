@@ -247,7 +247,7 @@ async function getStoredCoverageRange(
         : factMax
       : (syncMax ?? factMax);
 
-  if (!startDate || !endDate) {
+  if (!startDate || !endDate || startDate > endDate) {
     return null;
   }
 
@@ -271,6 +271,10 @@ async function hasCoverage(
   endDate: string,
   searchType: string = "web",
 ): Promise<boolean> {
+  if (!startDate || !endDate || startDate > endDate) {
+    return false;
+  }
+
   // 1. Check sync intervals recorded in gsc_search_performance_syncs
   const syncRuns = await db
     .select({
@@ -291,7 +295,9 @@ async function hasCoverage(
   if (syncRuns.length > 0) {
     const intervals = syncRunsToIntervals(syncRuns);
     const merged = mergeDateIntervals(intervals);
-    return isRangeCoveredByIntervals(merged, { startDate, endDate });
+    if (isRangeCoveredByIntervals(merged, { startDate, endDate })) {
+      return true;
+    }
   }
 
   // 2. Conservative fallback for legacy data without sync runs metadata:

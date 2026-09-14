@@ -64,3 +64,11 @@ export function getErrorCode(error: unknown): ErrorCode | null {
   if (isErrorCode(error.message)) return error.message;
   return splitCodedMessage(error.message)?.code ?? null;
 }
+
+export function getErrorMessage(
+  code: string | null | undefined,
+): string | null {
+  if (!code) return null;
+  if (isErrorCode(code)) return STANDARD_MESSAGES[code];
+  return null;
+}

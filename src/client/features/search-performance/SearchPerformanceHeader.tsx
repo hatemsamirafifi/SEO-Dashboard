@@ -84,14 +84,19 @@ export function SearchPerformanceHeader({
             </span>
             {report?.connected && report.syncCoverage ? (
               <>
-                <span>·</span>
-                <span>
-                  Coverage:{" "}
-                  <span className="font-mono text-xs">
-                    {report.syncCoverage.startDate} →{" "}
-                    {report.syncCoverage.endDate}
-                  </span>
-                </span>
+                {report.syncCoverage.startDate &&
+                report.syncCoverage.endDate ? (
+                  <>
+                    <span>·</span>
+                    <span>
+                      Coverage:{" "}
+                      <span className="font-mono text-xs">
+                        {report.syncCoverage.startDate} →{" "}
+                        {report.syncCoverage.endDate}
+                      </span>
+                    </span>
+                  </>
+                ) : null}
                 <span>·</span>
                 <span>
                   Sync status:{" "}

@@ -1,6 +1,7 @@
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import { toSqliteTimestamp } from "@/server/features/rank-tracking/rankTrackingTimestamps";
 import { AppError } from "@/server/lib/errors";
+import { isErrorCode } from "@/shared/error-codes";
 import type { ComparePeriod } from "@/types/schemas/rank-tracking";
 import type {
   RankTrackingDeviceResult,
@@ -31,22 +32,34 @@ export async function getLatestResults(
     new Date(Date.now() - days * 24 * 60 * 60 * 1000),
   );
 
-  // All four reads key off the inputs alone, so run them in one parallel round
-  // trip instead of four sequential ones — this endpoint is hot and the DB may
-  // be a continent away. The project-scoped config lookup doubles as the
-  // authorization gate for the configId-keyed reads racing alongside it: when
-  // config is null, throw without returning anything from the other reads.
-  const [config, activeKeywords, currentSnapshots, comparisonSnapshots] =
-    await Promise.all([
-      RankTrackingRepository.getConfigById({ configId, projectId }),
-      RankTrackingRepository.getKeywordsForConfig(configId),
-      // Latest snapshot per keyword per device (across all completed runs)
-      RankTrackingRepository.getLatestSnapshotsForKeywords(configId),
-      // Comparison snapshots from before the target date
-      RankTrackingRepository.getSnapshotsBeforeDate(configId, targetDate),
-    ]);
+  // All reads key off the inputs alone, run in parallel.
+  // Project-scoped config lookup doubles as the authorization gate.
+  const [
+    config,
+    activeKeywords,
+    currentSnapshots,
+    latestValidSnapshots,
+    comparisonSnapshots,
+  ] = await Promise.all([
+    RankTrackingRepository.getConfigById({ configId, projectId }),
+    RankTrackingRepository.getKeywordsForConfig(configId),
+    // Latest snapshot attempt per keyword per device (including terminal failed/partial runs)
+    RankTrackingRepository.getLatestSnapshotsForKeywords(configId),
+    // Latest valid observation per keyword per device (RANKED or NO_RESULT only)
+    RankTrackingRepository.getLatestValidSnapshotsForKeywords(configId),
+    // Comparison snapshots from before the target date (excluding failed attempts)
+    RankTrackingRepository.getSnapshotsBeforeDate(configId, targetDate),
+  ]);
   if (!config) {
     throw new AppError("INTERNAL_ERROR", "Rank tracking config not found");
+  }
+
+  const latestValidPositions = new Map<string, number | null>();
+  for (const snap of latestValidSnapshots) {
+    latestValidPositions.set(
+      `${snap.trackingKeywordId}:${snap.device}`,
+      snap.position,
+    );
   }
 
   const previousPositions = new Map<string, number | null>();
@@ -58,7 +71,7 @@ export async function getLatestResults(
   }
 
   // Fallback: for keyword+device combos with no comparison snapshot before
-  // the target date, use the earliest available snapshot as a baseline.
+  // the target date, use the earliest available valid snapshot as a baseline.
   const missingKeywordIds: string[] = [];
   for (const snap of currentSnapshots) {
     const key = `${snap.trackingKeywordId}:${snap.device}`;
@@ -109,11 +122,11 @@ export async function getLatestResults(
   for (const snapshot of currentSnapshots) {
     const row = rows.get(snapshot.trackingKeywordId);
     if (!row) continue;
+    const key = `${snapshot.trackingKeywordId}:${snapshot.device}`;
     row[snapshot.device] = toDeviceResult(
       snapshot,
-      previousPositions.get(
-        `${snapshot.trackingKeywordId}:${snapshot.device}`,
-      ) ?? null,
+      previousPositions.get(key) ?? null,
+      latestValidPositions.get(key) ?? null,
     );
 
     // Track the most recent run for the header display
@@ -158,16 +171,41 @@ function createEmptyDeviceResult(
   };
 }
 
-function toDeviceResult(
+export function toDeviceResult(
   snapshot: SnapshotRow,
   previousPosition: number | null,
+  latestValidPosition?: number | null,
 ): RankTrackingDeviceResult {
+  const isFailed = snapshot.rankingStatus === "CHECK_FAILED";
+  const isRanked = snapshot.position !== null;
+  const status: RankTrackingDeviceResult["status"] = isFailed
+    ? "failed"
+    : isRanked
+      ? "ranked"
+      : "not_ranking";
+
+  let errorCode: string | null = null;
+  if (snapshot.providerStatusCode === 40201) {
+    errorCode = "DATAFORSEO_ACCOUNT_PAUSED";
+  } else if (snapshot.errorMessage && isErrorCode(snapshot.errorMessage)) {
+    errorCode = snapshot.errorMessage;
+  }
+
   return {
     position: snapshot.position,
     previousPosition,
-    rankingUrl: snapshot.url,
+    rankingUrl: isFailed ? null : snapshot.url,
     serpFeatures: parseSerpFeatures(snapshot.serpFeatures),
     checkedAt: snapshot.checkedAt,
-    status: snapshot.position !== null ? "ranked" : "not_ranking",
+    status,
+    rankingStatus:
+      snapshot.rankingStatus ?? (isRanked ? "RANKED" : "NO_RESULT"),
+    latestValidPosition: isFailed
+      ? (latestValidPosition ?? null)
+      : snapshot.position,
+    errorCode,
+    errorMessage: snapshot.errorMessage,
+    providerStatus: snapshot.providerStatus,
+    providerStatusCode: snapshot.providerStatusCode,
   };
 }

@@ -38,7 +38,7 @@ const repoMocks = vi.hoisted(() => ({
 
 const pathsMocks = vi.hoisted(() => ({
   runLiveCheck: vi.fn<
-    (step: unknown, ctx: CheckContextCall) => Promise<void>
+    (step: unknown, ctx: CheckContextCall) => Promise<string | null>
   >(),
   runQueuedCheck: vi.fn(),
 }));
@@ -194,7 +194,7 @@ describe("RankCheckWorkflow scope enforcement", () => {
     repoMocks.getSnapshotsForRun.mockResolvedValue([]);
     repoMocks.updateRun.mockResolvedValue(undefined);
     repoMocks.updateConfig.mockResolvedValue(undefined);
-    pathsMocks.runLiveCheck.mockResolvedValue(undefined);
+    pathsMocks.runLiveCheck.mockResolvedValue(null);
     pathsMocks.runQueuedCheck.mockResolvedValue({
       queueTasks: 0,
       queueCollected: 0,
@@ -233,5 +233,89 @@ describe("RankCheckWorkflow scope enforcement", () => {
     ).rejects.toThrow("No keywords to track");
     expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
     expect(guardModule.failRunIfActive).toHaveBeenCalled();
+  });
+
+  it("finalizes as 'failed' when all snapshots are CHECK_FAILED", async () => {
+    const selected = ["keyword_1", "keyword_2"];
+    repoMocks.getSnapshotsForRun.mockResolvedValue([
+      {
+        trackingKeywordId: "keyword_1",
+        rankingStatus: "CHECK_FAILED",
+        position: null,
+      },
+      {
+        trackingKeywordId: "keyword_2",
+        rankingStatus: "CHECK_FAILED",
+        position: null,
+      },
+    ]);
+    pathsMocks.runLiveCheck.mockResolvedValue(
+      "DataForSEO task error (40201): temporarily paused access",
+    );
+
+    await runWorkflow({ keywordIds: selected });
+
+    expect(repoMocks.updateRun).toHaveBeenCalledWith(
+      "run_1",
+      expect.objectContaining({
+        status: "failed",
+        keywordsChecked: 0,
+      }),
+    );
+  });
+
+  it("finalizes as 'partial' when snapshots contain a mixture of valid and CHECK_FAILED", async () => {
+    const selected = ["keyword_1", "keyword_2"];
+    repoMocks.getSnapshotsForRun.mockResolvedValue([
+      {
+        trackingKeywordId: "keyword_1",
+        rankingStatus: "RANKED",
+        position: 4,
+      },
+      {
+        trackingKeywordId: "keyword_2",
+        rankingStatus: "CHECK_FAILED",
+        position: null,
+      },
+    ]);
+    pathsMocks.runLiveCheck.mockResolvedValue(
+      "DataForSEO task error (40201): temporarily paused access",
+    );
+
+    await runWorkflow({ keywordIds: selected });
+
+    expect(repoMocks.updateRun).toHaveBeenCalledWith(
+      "run_1",
+      expect.objectContaining({
+        status: "partial",
+        keywordsChecked: 1,
+      }),
+    );
+  });
+
+  it("finalizes as 'completed' when all snapshots are valid (RANKED or NO_RESULT)", async () => {
+    const selected = ["keyword_1", "keyword_2"];
+    repoMocks.getSnapshotsForRun.mockResolvedValue([
+      {
+        trackingKeywordId: "keyword_1",
+        rankingStatus: "RANKED",
+        position: 4,
+      },
+      {
+        trackingKeywordId: "keyword_2",
+        rankingStatus: "NO_RESULT",
+        position: null,
+      },
+    ]);
+
+    await runWorkflow({ keywordIds: selected });
+
+    expect(repoMocks.updateRun).toHaveBeenCalledWith(
+      "run_1",
+      expect.objectContaining({
+        status: "completed",
+        keywordsChecked: 2,
+      }),
+    );
   });
 });

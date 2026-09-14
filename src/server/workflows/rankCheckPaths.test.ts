@@ -150,4 +150,29 @@ describe("runLiveCheck provider-reason capture", () => {
     expect(firstError).not.toContain("secret_oauth_token_12345xyz");
     expect(firstError).not.toContain("hunter2");
   });
+
+  it("captures 40201 paused account error and formats canonically", async () => {
+    const errorWithDetails = Object.assign(
+      new Error(
+        "We noticed some unusual activity in your DataForSEO account, so we've temporarily paused access",
+      ),
+      { statusCode: 40201 },
+    );
+    const rankCheck = vi.fn(async () => {
+      throw errorWithDetails;
+    });
+    const firstError = await runLiveCheck(step, makeCtx(rankCheck));
+
+    expect(firstError).toContain("DataForSEO task error (40201)");
+    expect(firstError).toContain("temporarily paused access");
+    expect(repoMocks.insertSnapshots).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          rankingStatus: "CHECK_FAILED",
+          providerStatusCode: 40201,
+          position: null,
+        }),
+      ]),
+    );
+  });
 });

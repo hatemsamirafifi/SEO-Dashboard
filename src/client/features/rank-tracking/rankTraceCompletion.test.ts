@@ -244,6 +244,100 @@ describe("buildRankCompletionPatch — snapshot-evidence completion", () => {
 
     expect(patch.counters).toEqual({ checked: 3, total: 4 });
   });
+
+  it("marks a fresh CHECK_FAILED snapshot as failed with task and HTTP diagnostics", () => {
+    const patch = buildRankCompletionPatch({
+      run: run({
+        status: "failed",
+        keywordsChecked: 0,
+        errorMessage:
+          "Completed 0 of 1 keyword(s). Error: DataForSEO task error (40201): We noticed some unusual activity in your DataForSEO account",
+      }),
+      rows: [
+        row({
+          desktop: {
+            position: null,
+            previousPosition: 8,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+            status: "failed",
+            rankingStatus: "CHECK_FAILED",
+            providerStatusCode: 40201,
+            errorMessage:
+              "DataForSEO task error (40201): We noticed some unusual activity in your DataForSEO account",
+          },
+        }),
+      ],
+      targetIds: ["kw_1"],
+    });
+
+    expect(patch.status).toBe("failed");
+    expect(patch.rankChecksSucceeded).toBe(0);
+    expect(patch.rankChecksFailed).toBe(1);
+    expect(patch.children[0]).toMatchObject({
+      keywordId: "kw_1",
+      status: "failed",
+      rankingStatus: "CHECK_FAILED",
+      provider: "DataForSEO",
+      httpStatus: 200,
+      taskStatus: 40201,
+    });
+    expect(patch.children[0].positionAfter).toBeUndefined();
+  });
+
+  it("correctly handles mixed runs (ranked, no_result, and failed)", () => {
+    const patch = buildRankCompletionPatch({
+      run: run({
+        status: "partial",
+        keywordsChecked: 2,
+        keywordsTotal: 3,
+        errorMessage: "1 keyword(s) could not be checked",
+      }),
+      rows: [
+        row({
+          trackingKeywordId: "kw_1",
+          desktop: {
+            position: 5,
+            previousPosition: 10,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+            status: "ranked",
+            rankingStatus: "RANKED",
+          },
+        }),
+        row({
+          trackingKeywordId: "kw_2",
+          desktop: {
+            position: null,
+            previousPosition: null,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+            status: "not_ranking",
+            rankingStatus: "NO_RESULT",
+          },
+        }),
+        row({
+          trackingKeywordId: "kw_3",
+          desktop: {
+            position: null,
+            previousPosition: 12,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+            status: "failed",
+            rankingStatus: "CHECK_FAILED",
+            providerStatusCode: 40201,
+          },
+        }),
+      ],
+      targetIds: ["kw_1", "kw_2", "kw_3"],
+    });
+
+    expect(patch.status).toBe("failed");
+    expect(patch.rankChecksSucceeded).toBe(2);
+    expect(patch.rankChecksFailed).toBe(1);
+    expect(patch.children[0].status).toBe("success");
+    expect(patch.children[0].rankingStatus).toBe("RANKED");
+    expect(patch.children[1].status).toBe("no_result");
+    expect(patch.children[1].rankingStatus).toBe("NO_RESULT");
+    expect(patch.children[2].status).toBe("failed");
+    expect(patch.children[2].rankingStatus).toBe("CHECK_FAILED");
+  });
 });
 
 const LIVE_ENDPOINT = "v3/serp/google/organic/live/advanced";
@@ -354,6 +448,30 @@ describe("buildRankCompletionPatch — DataForSEO deep diagnostics", () => {
       httpStatus: 402,
       taskStatus: 40200,
       budgetGuard: "BLOCKED",
+    });
+  });
+
+  it("4b. DataForSEO task error 40201 maps to DATAFORSEO_ACCOUNT_PAUSED with budgetGuard PASS (not BLOCKED)", () => {
+    const message = formatDataforseoTaskErrorMessage(
+      40201,
+      "We noticed some unusual activity in your DataForSEO account, so we've temporarily paused access",
+    );
+    const patch = buildRankCompletionPatch({
+      run: run({ keywordsChecked: 0, errorMessage: message }),
+      rows: [uncheckedRow()],
+      targetIds: ["kw_1"],
+    });
+
+    expect(patch.status).toBe("failed");
+    expect(patch.httpStatus).toBe(200);
+    expect(patch.errorClass).toBe("DATAFORSEO_ACCOUNT_PAUSED");
+    expect(patch.budget).not.toBe("BLOCKED");
+    expect(patch.blockedReason).toBeUndefined();
+    expect(patch.providers?.[0]).toMatchObject({
+      provider: "DataForSEO",
+      httpStatus: 200,
+      taskStatus: 40201,
+      budgetGuard: "PASS",
     });
   });
 

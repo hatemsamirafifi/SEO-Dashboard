@@ -21,13 +21,14 @@ export const GSC_GRAIN_CONFIGS: Array<{
   { grain: "query_page", dimensions: ["date", "query", "page"] },
   { grain: "country", dimensions: ["date", "country"] },
   { grain: "device", dimensions: ["date", "device"] },
-  { grain: "search_appearance", dimensions: ["date", "searchAppearance"] },
 ];
 
 export type DateChunk = {
   startDate: string;
   endDate: string;
 };
+
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 export function splitDateRangeIntoChunks(
   startDate: string,
@@ -62,14 +63,27 @@ export type DateInterval = {
 };
 
 export function addDaysUtc(dateStr: string, days: number): string {
+  if (!dateStr || typeof dateStr !== "string" || !DATE_REGEX.test(dateStr)) {
+    return dateStr;
+  }
   const ms = Date.parse(`${dateStr}T00:00:00Z`);
   if (Number.isNaN(ms)) return dateStr;
   return new Date(ms + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 export function mergeDateIntervals(intervals: DateInterval[]): DateInterval[] {
+  if (!Array.isArray(intervals)) return [];
+
   const valid = intervals.filter(
-    (inv) => inv.startDate && inv.endDate && inv.startDate <= inv.endDate,
+    (inv): inv is DateInterval =>
+      Boolean(
+        inv &&
+          typeof inv.startDate === "string" &&
+          typeof inv.endDate === "string" &&
+          DATE_REGEX.test(inv.startDate) &&
+          DATE_REGEX.test(inv.endDate) &&
+          inv.startDate <= inv.endDate,
+      ),
   );
   if (valid.length === 0) return [];
 
@@ -103,7 +117,15 @@ export function isRangeCoveredByIntervals(
   mergedIntervals: DateInterval[],
   range: DateInterval,
 ): boolean {
-  if (!range.startDate || !range.endDate || range.startDate > range.endDate) {
+  if (
+    !Array.isArray(mergedIntervals) ||
+    !range ||
+    typeof range.startDate !== "string" ||
+    typeof range.endDate !== "string" ||
+    !DATE_REGEX.test(range.startDate) ||
+    !DATE_REGEX.test(range.endDate) ||
+    range.startDate > range.endDate
+  ) {
     return false;
   }
 
@@ -114,27 +136,48 @@ export function isRangeCoveredByIntervals(
 
 export function syncRunsToIntervals(
   runs: Array<{
-    status: string;
-    requestedStartDate: string;
-    requestedEndDate: string;
+    status?: string | null;
+    requestedStartDate?: string | null;
+    requestedEndDate?: string | null;
     actualLastSuccessfulDate?: string | null;
   }>,
 ): DateInterval[] {
   const intervals: DateInterval[] = [];
+  if (!Array.isArray(runs)) return intervals;
 
   for (const run of runs) {
+    if (!run || typeof run !== "object") continue;
+    const reqStart = run.requestedStartDate;
+    const reqEnd = run.requestedEndDate;
+
     if (run.status === "completed") {
-      if (run.requestedStartDate <= run.requestedEndDate) {
+      if (
+        reqStart &&
+        reqEnd &&
+        typeof reqStart === "string" &&
+        typeof reqEnd === "string" &&
+        DATE_REGEX.test(reqStart) &&
+        DATE_REGEX.test(reqEnd) &&
+        reqStart <= reqEnd
+      ) {
         intervals.push({
-          startDate: run.requestedStartDate,
-          endDate: run.requestedEndDate,
+          startDate: reqStart,
+          endDate: reqEnd,
         });
       }
     } else if (run.status === "partial") {
       const end = run.actualLastSuccessfulDate;
-      if (end && run.requestedStartDate <= end) {
+      if (
+        reqStart &&
+        end &&
+        typeof reqStart === "string" &&
+        typeof end === "string" &&
+        DATE_REGEX.test(reqStart) &&
+        DATE_REGEX.test(end) &&
+        reqStart <= end
+      ) {
         intervals.push({
-          startDate: run.requestedStartDate,
+          startDate: reqStart,
           endDate: end,
         });
       }

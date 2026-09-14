@@ -11,6 +11,7 @@ import {
 import { executeInBatches } from "@/db/runBatch";
 import {
   getLatestSnapshotsForKeywords,
+  getLatestValidSnapshotsForKeywords,
   getSnapshotsBeforeDate,
   getEarliestSnapshotsForKeywords,
   getKeywordHistory,
@@ -392,6 +393,7 @@ export const RankTrackingRepository = {
   getKeywordCountForConfig,
   getConfigSummaries,
   getLatestSnapshotsForKeywords,
+  getLatestValidSnapshotsForKeywords,
   getSnapshotsBeforeDate,
   getEarliestSnapshotsForKeywords,
   getKeywordHistory,

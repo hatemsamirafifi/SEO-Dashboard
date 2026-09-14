@@ -138,6 +138,7 @@ function makeKeywordColumn(
 function makeDeviceColumn(
   device: "desktop" | "mobile",
   isChecking?: (keywordId: string) => boolean,
+  serpDepth?: number,
 ): ColumnDef<RankTrackingRow> {
   const id = device === "desktop" ? "desktopPosition" : "mobilePosition";
   return {
@@ -152,6 +153,7 @@ function makeDeviceColumn(
       <DeviceRankCell
         result={row.original[device]}
         isChecking={isChecking?.(row.original.trackingKeywordId)}
+        serpDepth={serpDepth}
       />
     ),
     sortUndefined: "last",
@@ -161,6 +163,7 @@ function makeDeviceColumn(
 function makeUrlColumn(
   device: "desktop" | "mobile",
   domain: string,
+  serpDepth?: number,
 ): ColumnDef<RankTrackingRow> {
   return {
     id: device === "desktop" ? "desktopUrl" : "mobileUrl",
@@ -175,7 +178,11 @@ function makeUrlColumn(
     ),
     size: 240,
     cell: ({ row }) => (
-      <DeviceUrlCell result={row.original[device]} domain={domain} />
+      <DeviceUrlCell
+        result={row.original[device]}
+        domain={domain}
+        serpDepth={serpDepth}
+      />
     ),
   };
 }
@@ -210,6 +217,7 @@ export function useRankTrackingColumns(options: {
   onKeywordClick: (row: RankTrackingRow) => void;
   locationName?: string | null;
   isChecking?: (keywordId: string) => boolean;
+  serpDepth?: number;
 }): ColumnDef<RankTrackingRow>[] {
   const {
     showDesktop,
@@ -219,6 +227,7 @@ export function useRankTrackingColumns(options: {
     onKeywordClick,
     locationName,
     isChecking,
+    serpDepth,
   } = options;
   const locationLabel = locationName
     ? formatLocationLabel(locationName, 2)
@@ -229,12 +238,12 @@ export function useRankTrackingColumns(options: {
       makeKeywordColumn(onKeywordClick),
     ];
     if (showDesktop) {
-      cols.push(makeDeviceColumn("desktop", isChecking));
-      cols.push(makeUrlColumn("desktop", domain));
+      cols.push(makeDeviceColumn("desktop", isChecking, serpDepth));
+      cols.push(makeUrlColumn("desktop", domain, serpDepth));
     }
     if (showMobile) {
-      cols.push(makeDeviceColumn("mobile", isChecking));
-      cols.push(makeUrlColumn("mobile", domain));
+      cols.push(makeDeviceColumn("mobile", isChecking, serpDepth));
+      cols.push(makeUrlColumn("mobile", domain, serpDepth));
     }
     cols.push(makeVolumeColumn(locationLabel), kdColumn, cpcColumn);
     if (showDesktop) {
@@ -252,5 +261,6 @@ export function useRankTrackingColumns(options: {
     onKeywordClick,
     locationLabel,
     isChecking,
+    serpDepth,
   ]);
 }

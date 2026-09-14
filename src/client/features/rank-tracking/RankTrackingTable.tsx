@@ -100,6 +100,7 @@ export function RankTrackingTable({
     onKeywordClick: handleKeywordClick,
     locationName,
     isChecking,
+    serpDepth,
   });
 
   const table = useAppTable({
