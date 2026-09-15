@@ -20,6 +20,12 @@ import type {
 import type { RankTrackingConfig } from "@/types/schemas/rank-tracking";
 import { KEYWORDS_PER_BATCH } from "@/shared/rank-tracking";
 import { pgStep } from "@/server/workflows/pgStep";
+import type { RankSerpResolver } from "@/server/features/serp/providerResolver";
+import { SerpProvidersUnavailableError } from "@/server/features/serp/resolverCore";
+import {
+  getIsoCountryCode,
+  LOCATION_OPTIONS,
+} from "@/shared/keyword-locations";
 
 const SINGLE_ATTEMPT_STEP_CONFIG = {
   retries: { limit: 0, delay: "1 second" as const },
@@ -33,6 +39,7 @@ type RankCheckResultWithDevice = RankCheckResult & {
 
 interface CheckContext {
   client: ReturnType<typeof createDataforseoClient>;
+  rankSerp?: RankSerpResolver;
   keywords: KeywordEntry[];
   devices: RankTrackingConfig["devices"];
   serpDepth: number;
@@ -53,8 +60,7 @@ function mapResultsToSnapshotRows(
   const today = new Date().toISOString().slice(0, 10);
   return results.map((r) => {
     const isRanked = r.position !== null;
-    const prevPos =
-      previousPositions.get(`${r.keywordId}:${r.device}`) ?? null;
+    const prevPos = previousPositions.get(`${r.keywordId}:${r.device}`) ?? null;
     return {
       runId: ctx.runId,
       projectId: ctx.projectId,
@@ -166,8 +172,20 @@ export function parseDataforseoStatusCode(reason: unknown): number | null {
   return null;
 }
 
+export const DEFAULT_LIVE_CONCURRENCY = 2;
+
+export function getLiveCheckConcurrency(): number {
+  if (typeof process !== "undefined" && process.env.RANK_CHECK_CONCURRENCY) {
+    const val = parseInt(process.env.RANK_CHECK_CONCURRENCY, 10);
+    if (!isNaN(val) && val > 0) return val;
+  }
+  return DEFAULT_LIVE_CONCURRENCY;
+}
+
 /**
  * Check keyword/device pairs against the live endpoint and persist snapshots.
+ * Processes tasks through a bounded queue to allow responsive cancellation.
+ * Immediately before dispatching each provider call, checks run cancellation.
  * Per-call failures are logged and recorded as CHECK_FAILED snapshots with diagnostics.
  * Returns the snapshot count written plus the first sanitized provider failure reason
  * (null when every call succeeded).
@@ -175,104 +193,247 @@ export function parseDataforseoStatusCode(reason: unknown): number | null {
 async function checkBatchLive(
   ctx: CheckContext,
   tasks: RankCheckTaskInput[],
-): Promise<{ written: number; firstError: string | null }> {
+  concurrency = getLiveCheckConcurrency(),
+): Promise<{
+  written: number;
+  distinctKeywordsChecked: number;
+  firstError: string | null;
+}> {
+  // Guard: if run was already cancelled before this batch, do not start
+  const initialRun = await RankTrackingRepository.getRunById(ctx.runId);
+  if (initialRun?.status === "cancelled") {
+    return { written: 0, distinctKeywordsChecked: 0, firstError: null };
+  }
+
   const previousPositions = await RankTrackingRepository.getLatestPositionsMap(
     ctx.configId,
     tasks.map((t) => ({ keywordId: t.keywordId, device: t.device })),
     { excludeRunId: ctx.runId },
   );
 
-  const settled = await Promise.allSettled(
-    tasks.map((task) =>
-      ctx.client.serp
-        .rankCheck({
-          keyword: task.keyword,
-          keywordId: task.keywordId,
-          locationCode: ctx.locationCode,
-          languageCode: ctx.languageCode,
-          locationName: ctx.locationName,
-          device: task.device,
-          targetDomain: ctx.domain,
-          depth: ctx.serpDepth,
-        })
-        .then((r) => ({ ...r, device: task.device })),
-    ),
-  );
-
   const today = new Date().toISOString().slice(0, 10);
-  const snapshotRows: Array<
-    Omit<InferInsertModel<typeof rankSnapshots>, "id" | "checkedAt">
-  > = [];
   let firstError: string | null = null;
+  let totalWritten = 0;
+  const distinctKeywordsCheckedSet = new Set<string>();
 
-  settled.forEach((outcome, index) => {
-    const task = tasks[index];
-    const prevPos =
-      previousPositions.get(`${task.keywordId}:${task.device}`) ?? null;
-
-    if (outcome.status === "fulfilled") {
-      const r = outcome.value;
-      const isRanked = r.position !== null;
-      snapshotRows.push({
-        runId: ctx.runId,
-        projectId: ctx.projectId,
-        configId: ctx.configId,
-        trackingKeywordId: task.keywordId,
-        keyword: task.keyword,
-        device: task.device,
-        searchEngine: "google",
-        searchType: "organic",
-        location: ctx.locationName ?? String(ctx.locationCode),
-        language: ctx.languageCode,
-        checkedDate: today,
-        position: r.position,
-        previousPosition: prevPos,
-        rankingStatus: isRanked ? "RANKED" : "NO_RESULT",
-        url: r.url ?? null,
-        serpFeatures:
-          r.serpFeatures.length > 0 ? JSON.stringify(r.serpFeatures) : null,
-        provider: "dataforseo",
-        providerStatus: isRanked ? "Ok" : "No ranking found",
-        providerStatusCode: 20000,
-        errorMessage: null,
-      });
-    } else {
-      console.error(
-        `[rank-check] ${ctx.runId} live call failed:`,
-        outcome.reason,
+  for (let i = 0; i < tasks.length; i += concurrency) {
+    // 1. Check cancellation before pulling the next chunk from queue (Requirement 11)
+    const chunkRun = await RankTrackingRepository.getRunById(ctx.runId);
+    if (chunkRun?.status === "cancelled") {
+      console.log(
+        `[rank-check] ${ctx.runId} cancellation observed before task index ${i}; stopping`,
       );
-      const reason = safeProviderReason(outcome.reason);
-      firstError ??= reason;
-      const statusCode = parseDataforseoStatusCode(outcome.reason);
-      snapshotRows.push({
-        runId: ctx.runId,
-        projectId: ctx.projectId,
-        configId: ctx.configId,
-        trackingKeywordId: task.keywordId,
-        keyword: task.keyword,
-        device: task.device,
-        searchEngine: "google",
-        searchType: "organic",
-        location: ctx.locationName ?? String(ctx.locationCode),
-        language: ctx.languageCode,
-        checkedDate: today,
-        position: null,
-        previousPosition: prevPos,
-        rankingStatus: "CHECK_FAILED",
-        url: null,
-        serpFeatures: null,
-        provider: "dataforseo",
-        providerStatus: reason,
-        providerStatusCode: statusCode,
-        errorMessage: reason,
+      break;
+    }
+
+    const chunk = tasks.slice(i, i + concurrency);
+
+    // 2. Execute at most `concurrency` tasks concurrently (Requirement 3)
+    const chunkResults = await Promise.all(
+      chunk.map(async (task) => {
+        // Requirement 10: Check cancellation immediately before dispatching DataForSEO request
+        const beforeDispatchRun = await RankTrackingRepository.getRunById(
+          ctx.runId,
+        );
+        if (beforeDispatchRun?.status === "cancelled") {
+          console.log(
+            `[rank-check] ${ctx.runId} cancellation observed immediately before dispatch for ${task.keywordId}:${task.device}`,
+          );
+          return { task, dispatched: false, outcome: null };
+        }
+
+        try {
+          if (
+            process.env.NODE_ENV !== "production" &&
+            process.env.RANK_CHECK_TEST_DELAY_MS
+          ) {
+            const delayMs = parseInt(process.env.RANK_CHECK_TEST_DELAY_MS, 10);
+            if (!isNaN(delayMs) && delayMs > 0) {
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
+          }
+
+          const countryCode = getIsoCountryCode(ctx.locationCode).toUpperCase();
+          const countryName =
+            LOCATION_OPTIONS.find((option) => option.code === ctx.locationCode)
+              ?.label ?? countryCode;
+          const normalizedInput = {
+            keyword: task.keyword,
+            keywordId: task.keywordId,
+            location: {
+              countryCode,
+              languageCode: ctx.languageCode,
+              locationName: ctx.locationName ?? countryName,
+            },
+            device: task.device,
+            targetDomain: ctx.domain,
+            depth: ctx.serpDepth,
+            isCancelled: async () =>
+              (await RankTrackingRepository.getRunById(ctx.runId))?.status ===
+              "cancelled",
+          };
+          const res = ctx.rankSerp
+            ? await ctx.rankSerp.search(normalizedInput)
+            : await ctx.client.serp
+                .rankCheck({
+                  keyword: task.keyword,
+                  keywordId: task.keywordId,
+                  locationCode: ctx.locationCode,
+                  languageCode: ctx.languageCode,
+                  locationName: ctx.locationName,
+                  device: task.device,
+                  targetDomain: ctx.domain,
+                  depth: ctx.serpDepth,
+                })
+                .then((legacy) => ({
+                  ...legacy,
+                  title: null,
+                  domain: null,
+                  provider: "dataforseo" as const,
+                  inspectedDepth: ctx.serpDepth,
+                  calls: [],
+                }));
+          return {
+            task,
+            dispatched: true,
+            outcome: {
+              status: "fulfilled" as const,
+              value: { ...res, device: task.device },
+            },
+          };
+        } catch (reason) {
+          return {
+            task,
+            dispatched: true,
+            outcome: {
+              status: "rejected" as const,
+              reason,
+            },
+          };
+        }
+      }),
+    );
+
+    const chunkSnapshotRows: Array<
+      Omit<InferInsertModel<typeof rankSnapshots>, "id" | "checkedAt">
+    > = [];
+
+    for (const res of chunkResults) {
+      if (!res.dispatched || !res.outcome) continue;
+      const { task, outcome } = res;
+      distinctKeywordsCheckedSet.add(task.keywordId);
+      const prevPos =
+        previousPositions.get(`${task.keywordId}:${task.device}`) ?? null;
+
+      if (outcome.status === "fulfilled") {
+        const r = outcome.value;
+        if (r.calls.length > 0) {
+          await RankTrackingRepository.insertProviderCalls(
+            r.calls.map((call) => ({
+              runId: ctx.runId,
+              trackingKeywordId: task.keywordId,
+              device: task.device,
+              ...call,
+            })),
+          );
+        }
+        const isRanked = r.position !== null;
+        chunkSnapshotRows.push({
+          runId: ctx.runId,
+          projectId: ctx.projectId,
+          configId: ctx.configId,
+          trackingKeywordId: task.keywordId,
+          keyword: task.keyword,
+          device: task.device,
+          searchEngine: "google",
+          searchType: "organic",
+          location: ctx.locationName ?? String(ctx.locationCode),
+          language: ctx.languageCode,
+          checkedDate: today,
+          position: r.position,
+          previousPosition: prevPos,
+          rankingStatus: isRanked ? "RANKED" : "NO_RESULT",
+          url: r.url ?? null,
+          serpFeatures:
+            r.serpFeatures.length > 0 ? JSON.stringify(r.serpFeatures) : null,
+          provider: r.provider,
+          providerStatus: isRanked
+            ? "Ok"
+            : `No ranking found in top ${r.inspectedDepth}`,
+          providerStatusCode: r.calls.at(-1)?.httpStatus ?? null,
+          errorMessage: null,
+        });
+      } else {
+        console.error(
+          `[rank-check] ${ctx.runId} live call failed:`,
+          outcome.reason,
+        );
+        const reason = safeProviderReason(outcome.reason);
+        const calls =
+          outcome.reason instanceof SerpProvidersUnavailableError
+            ? outcome.reason.calls
+            : [];
+        if (calls.length > 0) {
+          await RankTrackingRepository.insertProviderCalls(
+            calls.map((call) => ({
+              runId: ctx.runId,
+              trackingKeywordId: task.keywordId,
+              device: task.device,
+              ...call,
+            })),
+          );
+        }
+        firstError ??= reason;
+        const statusCode = parseDataforseoStatusCode(outcome.reason);
+        chunkSnapshotRows.push({
+          runId: ctx.runId,
+          projectId: ctx.projectId,
+          configId: ctx.configId,
+          trackingKeywordId: task.keywordId,
+          keyword: task.keyword,
+          device: task.device,
+          searchEngine: "google",
+          searchType: "organic",
+          location: ctx.locationName ?? String(ctx.locationCode),
+          language: ctx.languageCode,
+          checkedDate: today,
+          position: null,
+          previousPosition: prevPos,
+          rankingStatus: "CHECK_FAILED",
+          url: null,
+          serpFeatures: null,
+          provider: calls.at(-1)?.provider ?? "dataforseo",
+          providerStatus: reason,
+          providerStatusCode: calls.at(-1)?.httpStatus ?? statusCode,
+          errorMessage: reason,
+        });
+      }
+    }
+
+    if (chunkSnapshotRows.length > 0) {
+      await RankTrackingRepository.insertSnapshots(chunkSnapshotRows);
+      totalWritten += chunkSnapshotRows.length;
+      // Incrementally update run progress in DB so polling UI sees real-time increments
+      await RankTrackingRepository.updateRun(ctx.runId, {
+        keywordsChecked: distinctKeywordsCheckedSet.size,
       });
     }
-  });
 
-  if (snapshotRows.length > 0) {
-    await RankTrackingRepository.insertSnapshots(snapshotRows);
+    // Check if cancellation was requested while chunk was executing
+    const postChunkRun = await RankTrackingRepository.getRunById(ctx.runId);
+    if (postChunkRun?.status === "cancelled") {
+      console.log(
+        `[rank-check] ${ctx.runId} cancellation observed after task chunk ${i}; halting further processing`,
+      );
+      break;
+    }
   }
-  return { written: snapshotRows.length, firstError };
+
+  return {
+    written: totalWritten,
+    distinctKeywordsChecked: distinctKeywordsCheckedSet.size,
+    firstError,
+  };
 }
 
 /**
@@ -291,26 +452,42 @@ export async function runLiveCheck(
   ctx: CheckContext,
 ): Promise<string | null> {
   let firstError: string | null = null;
+  let totalKeywordsChecked = 0;
   for (let i = 0; i < ctx.keywords.length; i += KEYWORDS_PER_BATCH) {
+    const runCheck = await RankTrackingRepository.getRunById(ctx.runId);
+    if (runCheck?.status === "cancelled") {
+      console.log(
+        `[rank-check] ${ctx.runId} cancellation observed before batch ${Math.floor(i / KEYWORDS_PER_BATCH)}`,
+      );
+      break;
+    }
+
     const keywordBatch = ctx.keywords.slice(i, i + KEYWORDS_PER_BATCH);
     const batchTasks = expandToTaskInputs(keywordBatch, ctx.devices);
     const batchIndex = Math.floor(i / KEYWORDS_PER_BATCH);
-    const keywordsChecked = i + keywordBatch.length;
 
-    await pgStep(
+    const written = await pgStep(
       step,
       `live-batch-${batchIndex}`,
       SINGLE_ATTEMPT_STEP_CONFIG,
       async () => {
         const batch = await checkBatchLive(ctx, batchTasks);
         firstError ??= batch.firstError;
+        totalKeywordsChecked += batch.distinctKeywordsChecked;
         // Progress for the UI; finalize recounts from the DB anyway.
         await RankTrackingRepository.updateRun(ctx.runId, {
-          keywordsChecked,
+          keywordsChecked: totalKeywordsChecked,
         });
         return batch.written;
       },
     );
+
+    if (written < batchTasks.length) {
+      const activeRun = await RankTrackingRepository.getRunById(ctx.runId);
+      if (activeRun?.status === "cancelled") {
+        break;
+      }
+    }
   }
   return firstError;
 }
@@ -400,11 +577,12 @@ async function collectQueuedRound(
   }
 
   if (completed.length > 0) {
-    const previousPositions = await RankTrackingRepository.getLatestPositionsMap(
-      ctx.configId,
-      completed.map((t) => ({ keywordId: t.keywordId, device: t.device })),
-      { excludeRunId: ctx.runId },
-    );
+    const previousPositions =
+      await RankTrackingRepository.getLatestPositionsMap(
+        ctx.configId,
+        completed.map((t) => ({ keywordId: t.keywordId, device: t.device })),
+        { excludeRunId: ctx.runId },
+      );
     await RankTrackingRepository.insertSnapshots(
       mapResultsToSnapshotRows(ctx, completed, previousPositions),
     );
@@ -506,6 +684,11 @@ export async function runQueuedCheck(
     round < QUEUED_POLL_INTERVALS.length && pending.length > 0;
     round++
   ) {
+    const runCheck = await RankTrackingRepository.getRunById(ctx.runId);
+    if (runCheck?.status === "cancelled") {
+      break;
+    }
+
     await step.sleep(`wait-${round}`, QUEUED_POLL_INTERVALS[round]);
 
     // Cap task_gets per round so one collect step stays well inside the
@@ -539,6 +722,9 @@ export async function runQueuedCheck(
   const stragglers: RankCheckTaskInput[] = [...fallback, ...pending];
   stats.fallbackTasks = stragglers.length;
   if (stragglers.length === 0) return stats;
+
+  const runBeforeFallback = await RankTrackingRepository.getRunById(ctx.runId);
+  if (runBeforeFallback?.status === "cancelled") return stats;
 
   console.log(
     `[rank-check] ${ctx.runId} live fallback for ${stragglers.length} task(s)`,

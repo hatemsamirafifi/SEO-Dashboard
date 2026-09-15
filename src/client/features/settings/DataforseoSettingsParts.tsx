@@ -171,6 +171,8 @@ export function DataforseoCredentialsForm({
   onEnabledChange,
   loginMasked,
   passwordConfigured,
+  priority,
+  onPriorityChange,
 }: {
   loginInput: string;
   onLoginChange: (val: string) => void;
@@ -180,6 +182,8 @@ export function DataforseoCredentialsForm({
   onEnabledChange: (val: boolean) => void;
   loginMasked?: string | null;
   passwordConfigured?: boolean;
+  priority: number;
+  onPriorityChange: (value: number) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -235,6 +239,22 @@ export function DataforseoCredentialsForm({
             : "Required for first-time configuration. Encrypted at rest."}
         </p>
       </div>
+
+      {/* Enabled Toggle */}
+      <label className="flex items-center justify-between gap-4">
+        <span className="text-xs font-medium text-base-content/80">
+          Priority
+        </span>
+        <input
+          type="number"
+          min={1}
+          max={3}
+          value={priority}
+          onChange={(event) => onPriorityChange(Number(event.target.value))}
+          className="input input-bordered input-sm w-20"
+          aria-label="DataForSEO priority"
+        />
+      </label>
 
       {/* Enabled Toggle */}
       <div className="flex items-center justify-between pt-1">

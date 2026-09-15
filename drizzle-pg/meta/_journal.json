@@ -162,6 +162,20 @@
       "when": 1789396025297,
       "tag": "0022_rich_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789431906870,
+      "tag": "0023_awesome_franklin_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789496461810,
+      "tag": "0024_late_daredevil",
+      "breakpoints": true
     }
   ]
 }

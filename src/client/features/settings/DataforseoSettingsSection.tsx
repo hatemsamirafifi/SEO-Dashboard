@@ -47,6 +47,7 @@ export function DataforseoSettingsSection({
   const [loginInput, setLoginInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
   const [enabledInput, setEnabledInput] = useState<boolean | null>(null);
+  const [priorityInput, setPriorityInput] = useState<number | null>(null);
   const [testResult, setTestResult] =
     useState<DataforseoConnectionTestResult | null>(null);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
@@ -61,6 +62,7 @@ export function DataforseoSettingsSection({
       setEnabledInput(data.override ? data.override.enabled : data.enabled);
       setLoginInput("");
       setPasswordInput("");
+      setPriorityInput(data.override?.priority ?? data.priority);
     }
   }, [data]);
 
@@ -71,16 +73,23 @@ export function DataforseoSettingsSection({
   const isDirty =
     loginInput.trim().length > 0 ||
     passwordInput.length > 0 ||
+    (priorityInput !== null &&
+      priorityInput !== (override?.priority ?? data?.priority ?? 1)) ||
     (enabledInput !== null &&
       enabledInput !== (override?.enabled ?? data?.enabled ?? true));
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const patch: { login?: string; password?: string; enabled?: boolean } =
-        {};
+      const patch: {
+        login?: string;
+        password?: string;
+        enabled?: boolean;
+        priority?: number;
+      } = {};
       if (loginInput.trim()) patch.login = loginInput.trim();
       if (passwordInput) patch.password = passwordInput;
       if (enabledInput !== null) patch.enabled = enabledInput;
+      if (priorityInput !== null) patch.priority = priorityInput;
       // Trace is observational: single server call, no credentials in trace —
       // only safe presence flags.
       const hasLoginInput = loginInput.trim().length > 0;
@@ -284,6 +293,8 @@ export function DataforseoSettingsSection({
         onEnabledChange={setEnabledInput}
         loginMasked={data?.loginMasked}
         passwordConfigured={data?.passwordConfigured}
+        priority={priorityInput ?? data?.priority ?? 1}
+        onPriorityChange={setPriorityInput}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-base-200 pt-4">

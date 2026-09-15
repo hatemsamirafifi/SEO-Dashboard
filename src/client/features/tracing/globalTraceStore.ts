@@ -9,6 +9,7 @@ import {
   computeProviderBreakdown,
   filterOperations,
 } from "./globalTraceFormat";
+import { cancellationRegistry } from "./cancellationRegistry";
 
 const MAX_OPERATIONS = 500;
 const DIAGNOSTICS_STORAGE_KEY = "openseo_global_diagnostics_enabled";
@@ -307,10 +308,17 @@ class GlobalTraceStore {
       const durationMs =
         patch.durationMs ?? Math.max(0, completedAt - existing.startedAt);
 
+      // Once an operation reaches terminal status 'cancelled', a later completion
+      // (e.g. from an out-of-order poll or delayed promise) must not overwrite 'cancelled'.
+      const targetStatus =
+        existing.status === "cancelled"
+          ? "cancelled"
+          : (patch.status ?? "success");
+
       const updated: GlobalTraceOperation = {
         ...existing,
         ...patch,
-        status: patch.status ?? "success",
+        status: targetStatus,
         completedAt,
         durationMs,
       };
@@ -392,6 +400,126 @@ class GlobalTraceStore {
   };
 
   /**
+   * Explicitly removes a single operation from the trace log.
+   * Does NOT affect or cancel the underlying task.
+   * Returns true if found and removed, false otherwise.
+   */
+  removeOperation = (operationId: string): boolean => {
+    try {
+      const index = this.state.operations.findIndex(
+        (op) => op.operationId === operationId,
+      );
+      if (index === -1) return false;
+
+      const newOps = [
+        ...this.state.operations.slice(0, index),
+        ...this.state.operations.slice(index + 1),
+      ];
+
+      this.state = {
+        ...this.state,
+        operations: newOps,
+      };
+      this.saveOperations(newOps);
+      this.notify();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * Cancels a currently running or pending operation.
+   * Invokes the registered cancellation handler if available.
+   * Required transition: running/pending -> cancelling -> cancelled.
+   * Idempotent: safe to call multiple times; ignores terminal operations.
+   */
+  cancelOperation = async (
+    operationId: string,
+    patch?: Partial<GlobalTraceOperation>,
+  ): Promise<boolean> => {
+    try {
+      const op = this.state.operations.find(
+        (item) => item.operationId === operationId,
+      );
+      if (!op) return false;
+
+      // Only pending or running operations can be cancelled
+      if (op.status !== "running" && op.status !== "pending") {
+        return false;
+      }
+
+      const cancelRequestedAt = Date.now();
+      this.updateOperation(operationId, {
+        status: "cancelling",
+        cancelRequestedAt,
+        ...(patch?.completedBeforeCancellation !== undefined && {
+          completedBeforeCancellation: patch.completedBeforeCancellation,
+        }),
+        ...(patch?.remainingItems !== undefined && {
+          remainingItems: patch.remainingItems,
+        }),
+      });
+
+      // Invoke registered cancellation handler, if any
+      try {
+        await cancellationRegistry.invoke(operationId);
+      } catch (err) {
+        console.error(
+          `Cancellation handler for ${operationId} encountered an error:`,
+          err,
+        );
+      }
+
+      // If this is a rank_tracking operation with a runId, dispatch real server cancellation directly
+      const runId =
+        op.rankCheckRunId ||
+        (op.metadata as { runId?: string } | undefined)?.runId;
+      if (op.feature === "rank_tracking" && runId && op.projectId) {
+        try {
+          const { cancelRankCheckRun } =
+            await import("@/serverFunctions/rank-tracking");
+          await cancelRankCheckRun({
+            data: {
+              projectId: op.projectId,
+              configId: (op.metadata as { configId?: string } | undefined)
+                ?.configId,
+              runId,
+            },
+          });
+        } catch (err) {
+          console.error(`Direct server cancel for run ${runId} failed:`, err);
+        }
+      }
+
+      // Check current state after invocation to respect races with natural completion
+      const current = this.state.operations.find(
+        (item) => item.operationId === operationId,
+      );
+      if (!current) return true;
+
+      // If the operation already reached success or failed in the meantime, keep it
+      if (current.status === "success" || current.status === "failed") {
+        return true;
+      }
+
+      const cancelledAt = Math.max(Date.now(), cancelRequestedAt);
+      this.completeOperation(operationId, {
+        ...patch,
+        status: "cancelled",
+        cancelledAt,
+        completedAt: cancelledAt,
+        errorMessage:
+          patch?.errorMessage ?? current.errorMessage ?? "Cancelled by user",
+      });
+
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /**
    * Explicitly clears the trace.
    * If a projectId is provided, clears only operations belonging to that project.
    * If not provided, clears all operations.
@@ -432,7 +560,9 @@ class GlobalTraceStore {
     return this.state.operations.find(
       (op) =>
         op.feature === feature &&
-        op.status === "running" &&
+        (op.status === "running" ||
+          op.status === "cancelling" ||
+          op.status === "pending") &&
         (!projectId || !op.projectId || op.projectId === projectId),
     );
   };
@@ -463,6 +593,14 @@ export function useGlobalTrace(projectId?: string) {
     globalTraceStore.clearTrace(projectId);
   }, [projectId]);
 
+  const removeOperation = useCallback((operationId: string) => {
+    return globalTraceStore.removeOperation(operationId);
+  }, []);
+
+  const cancelOperation = useCallback(async (operationId: string) => {
+    return globalTraceStore.cancelOperation(operationId);
+  }, []);
+
   return {
     operations: filteredOperations,
     allOperations: scopedOperations,
@@ -474,5 +612,7 @@ export function useGlobalTrace(projectId?: string) {
     setActiveFilter: globalTraceStore.setActiveFilter,
     setPanelOpen: globalTraceStore.setPanelOpen,
     clearTrace,
+    removeOperation,
+    cancelOperation,
   };
 }

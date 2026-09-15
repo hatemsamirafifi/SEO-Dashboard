@@ -4,26 +4,33 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
-import { getLatestRankRun } from "@/serverFunctions/rank-tracking";
+import {
+  getLatestRankRun,
+  cancelRankCheckRun,
+} from "@/serverFunctions/rank-tracking";
 import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
+import { registerCancellation } from "@/client/features/tracing/cancellationRegistry";
 import type { GlobalTraceOperation } from "@/shared/globalTraceTypes";
 import type { RankTrackingRow } from "@/types/schemas/rank-tracking";
 import { buildRankCompletionPatch } from "./rankTraceCompletion";
 
 type LatestRun = Awaited<ReturnType<typeof getLatestRankRun>>;
 
-function findTraceForRun(
+function findActiveTraces(
   runId: string,
   projectId: string,
-): GlobalTraceOperation | undefined {
-  return globalTraceStore
-    .getOperations(projectId)
-    .find(
-      (op) =>
-        op.feature === "rank_tracking" &&
-        op.status === "running" &&
-        (op.metadata as { runId?: unknown } | undefined)?.runId === runId,
-    );
+): GlobalTraceOperation[] {
+  const ops = globalTraceStore.getOperations(projectId);
+  return ops.filter(
+    (op) =>
+      op.feature === "rank_tracking" &&
+      (op.status === "running" ||
+        op.status === "cancelling" ||
+        op.status === "pending") &&
+      (op.rankCheckRunId === runId ||
+        (op.metadata as { runId?: unknown } | undefined)?.runId === runId ||
+        !op.rankCheckRunId),
+  );
 }
 
 /**
@@ -49,9 +56,28 @@ export function useRankRunPolling(projectId: string, configId: string) {
       prevStatusRef.current = run?.status;
 
       if (run && (run.status === "running" || run.status === "pending")) {
-        const activeOp = findTraceForRun(run.id, projectId);
-        if (activeOp) {
+        const activeOps = findActiveTraces(run.id, projectId);
+        for (const activeOp of activeOps) {
+          // Register cancellation handler so cancellation works even after reload/navigation
+          registerCancellation(activeOp.operationId, async () => {
+            try {
+              await cancelRankCheckRun({
+                data: {
+                  projectId,
+                  configId,
+                  runId: run.id,
+                },
+              });
+            } catch (err) {
+              console.error("Failed to cancel server rank check run:", err);
+            }
+          });
+
           globalTraceStore.updateOperation(activeOp.operationId, {
+            supportsCancellation: true,
+            rankCheckRunId: run.id,
+            rankChecksStarted: run.keywordsChecked,
+            providerCalls: run.providerCalls.length,
             rankChecksSucceeded: run.keywordsChecked,
             counters: {
               checked: run.keywordsChecked,
@@ -68,15 +94,25 @@ export function useRankRunPolling(projectId: string, configId: string) {
       // finished still completes its trace instead of leaving it RUNNING
       // forever.
       const isTerminal =
-        run?.status === "completed" || run?.status === "failed";
+        run?.status === "completed" ||
+        run?.status === "failed" ||
+        run?.status === "cancelled";
       if (run && isTerminal && !finalizedRunIdsRef.current.has(run.id)) {
         finalizedRunIdsRef.current.add(run.id);
-        void finalizeTraceForRun(run, queryClient, projectId, configId);
+        const activeOps = findActiveTraces(run.id, projectId);
+        for (const activeOp of activeOps) {
+          void finalizeTraceForRun(
+            run,
+            queryClient,
+            projectId,
+            configId,
+            activeOp,
+          );
+        }
       }
 
-      // Keep polling active runs, including stale ones (they'll be cleaned up
-      // by the cron handler and we want to show the transition).
-      if (run?.status === "pending" || run?.status === "running") return 3000;
+      // Fast 1s polling for active runs so progress increments and cancellation are responsive
+      if (run?.status === "pending" || run?.status === "running") return 1000;
       return false;
     },
   });
@@ -89,10 +125,8 @@ async function finalizeTraceForRun(
   queryClient: QueryClient,
   projectId: string,
   configId: string,
+  activeOp: GlobalTraceOperation,
 ): Promise<void> {
-  const activeOp = findTraceForRun(run.id, projectId);
-  if (!activeOp) return;
-
   try {
     // Refresh the table's own results queries (prefix-matched, so every
     // compare-period variant) and await them: children must be built from
@@ -131,6 +165,7 @@ async function finalizeTraceForRun(
         keywordsTotal: run.keywordsTotal,
         errorMessage: run.errorMessage,
         startedAt: run.startedAt,
+        providerCalls: run.providerCalls,
       },
       rows: effectiveRows,
       targetIds,
@@ -151,7 +186,12 @@ async function finalizeTraceForRun(
     // Trace finalization must never throw out of the polling loop.
     try {
       globalTraceStore.completeOperation(activeOp.operationId, {
-        status: run.status === "failed" ? "failed" : "success",
+        status:
+          run.status === "cancelled"
+            ? "cancelled"
+            : run.status === "failed"
+              ? "failed"
+              : "success",
         errorMessage: run.errorMessage || undefined,
       });
     } catch {

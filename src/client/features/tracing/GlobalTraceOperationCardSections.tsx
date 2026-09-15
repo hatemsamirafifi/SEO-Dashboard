@@ -43,7 +43,7 @@ export function ScopeSection({
         <div className="rounded border border-base-200 bg-base-100 p-2">
           <div className="text-base-content/60">Checks Started</div>
           <div className="font-mono font-semibold text-base-content">
-            {operation.rankChecksStarted ?? operation.validatedCount ?? 0}
+            {operation.rankChecksStarted ?? 0}
           </div>
         </div>
       </div>
@@ -108,7 +108,7 @@ export function ProviderSection({
         <div className="rounded border border-base-200 bg-base-100 p-2">
           <div className="text-base-content/60">Provider Calls</div>
           <div className="font-mono font-semibold text-base-content">
-            {operation.providerCalls ?? operation.providers?.length ?? 0}
+            {operation.providerCalls ?? 0}
           </div>
         </div>
         <div className="rounded border border-base-200 bg-base-100 p-2">
@@ -147,6 +147,7 @@ export function ProviderSection({
                 )}
               </div>
               <div className="flex items-center gap-2 text-base-content/70">
+                {p.dispatched === false && <span>SKIPPED</span>}
                 {p.httpStatus && <span>HTTP {p.httpStatus}</span>}
                 {p.taskStatus && <span>Task {p.taskStatus}</span>}
                 {p.transport && <span>[{p.transport}]</span>}
@@ -154,6 +155,25 @@ export function ProviderSection({
                   <span>{formatTraceDuration(p.durationMs)}</span>
                 )}
               </div>
+              {(p.requestedDepth !== undefined ||
+                p.inspectedDepth !== undefined ||
+                p.pagesRequested !== undefined ||
+                p.resultCompleteness) && (
+                <div className="mt-1 flex w-full flex-wrap gap-x-3 text-[11px] text-base-content/60">
+                  {p.requestedDepth !== undefined && (
+                    <span>Requested depth: {p.requestedDepth}</span>
+                  )}
+                  {p.inspectedDepth !== undefined && (
+                    <span>Inspected depth: {p.inspectedDepth ?? "N/A"}</span>
+                  )}
+                  {p.pagesRequested !== undefined && (
+                    <span>Pages: {p.pagesRequested}</span>
+                  )}
+                  {p.resultCompleteness && (
+                    <span>Outcome: {p.resultCompleteness.toUpperCase()}</span>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -268,9 +288,10 @@ export function ChildrenSection({
 
               <span
                 className={`font-semibold uppercase text-[11px] ${
-                  (child.rankingStatus === "RANKED" || child.status === "success")
+                  child.rankingStatus === "RANKED" || child.status === "success"
                     ? "text-success"
-                    : (child.rankingStatus === "NO_RESULT" || child.status === "no_result")
+                    : child.rankingStatus === "NO_RESULT" ||
+                        child.status === "no_result"
                       ? "text-base-content/60"
                       : child.rankingStatus === "NOT_CHECKED"
                         ? "text-base-content/40"

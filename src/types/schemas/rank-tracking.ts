@@ -39,12 +39,18 @@ export interface RankTrackingDeviceResult {
   serpFeatures: string[];
   checkedAt?: string | null;
   status?: "not_checked" | "ranked" | "not_ranking" | "failed" | "checking";
-  rankingStatus?: "RANKED" | "NO_RESULT" | "CHECK_FAILED" | "NOT_CHECKED" | null;
+  rankingStatus?:
+    | "RANKED"
+    | "NO_RESULT"
+    | "CHECK_FAILED"
+    | "NOT_CHECKED"
+    | null;
   latestValidPosition?: number | null;
   errorCode?: string | null;
   errorMessage?: string | null;
   providerStatus?: string | null;
   providerStatusCode?: number | null;
+  provider?: string | null;
 }
 
 export interface RankTrackingRow {
@@ -96,6 +102,12 @@ export const triggerCheckSchema = z.object({
   configId: z.string().uuid(),
   keywordIds: z.array(z.string().uuid()).max(2000).optional(),
   operationId: z.string().optional(),
+});
+
+export const cancelRankCheckSchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid().optional(),
+  runId: z.string().uuid(),
 });
 
 export const comparePeriodSchema = z.enum(["1d", "7d", "30d", "90d"]);

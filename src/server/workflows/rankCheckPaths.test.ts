@@ -14,6 +14,10 @@ const repoMocks = vi.hoisted(() => ({
   insertSnapshots:
     vi.fn<(snapshots: Array<Record<string, unknown>>) => Promise<void>>(),
   getLatestPositionsMap: vi.fn<() => Promise<Map<string, number | null>>>(),
+  getRunById:
+    vi.fn<(runId: string) => Promise<{ id: string; status: string } | null>>(),
+  getSnapshotsForRun:
+    vi.fn<(runId: string) => Promise<Array<{ trackingKeywordId: string }>>>(),
 }));
 
 vi.mock(
@@ -76,6 +80,8 @@ describe("runLiveCheck provider-reason capture", () => {
     repoMocks.updateRun.mockResolvedValue(undefined);
     repoMocks.insertSnapshots.mockResolvedValue(undefined);
     repoMocks.getLatestPositionsMap.mockResolvedValue(new Map());
+    repoMocks.getRunById.mockResolvedValue({ id: "run_1", status: "running" });
+    repoMocks.getSnapshotsForRun.mockResolvedValue([]);
   });
 
   it("returns null and persists snapshots when every call succeeds", async () => {
@@ -174,5 +180,135 @@ describe("runLiveCheck provider-reason capture", () => {
         }),
       ]),
     );
+  });
+
+  it("halts execution and stops scheduling provider calls when run status is cancelled", async () => {
+    // 3 keywords, but run is cancelled after the first keyword or batch
+    let callCount = 0;
+    const rankCheck = vi.fn(
+      async (input: { keywordId: string; keyword: string }) => {
+        callCount++;
+        return okResult(input.keywordId, input.keyword);
+      },
+    );
+
+    // Initial check passes, but inside checkBatchLive or next check it returns cancelled
+    repoMocks.getRunById.mockImplementation(async () => {
+      if (callCount >= 1) {
+        return { id: "run_1", status: "cancelled" };
+      }
+      return { id: "run_1", status: "running" };
+    });
+
+    await runLiveCheck(step, makeCtx(rankCheck, 3));
+
+    // The first keyword executed, but subsequent keywords were aborted
+    expect(callCount).toBeLessThan(3);
+  });
+
+  it("exact 5-keyword case: stops after keyword 1 when cancelled under concurrency 1", async () => {
+    process.env.RANK_CHECK_CONCURRENCY = "1";
+    let callCount = 0;
+    const rankCheck = vi.fn(
+      async (input: { keywordId: string; keyword: string }) => {
+        callCount++;
+        return okResult(input.keywordId, input.keyword);
+      },
+    );
+
+    repoMocks.getRunById.mockImplementation(async () => {
+      // Once keyword 1 runs, run status flips to cancelled
+      if (callCount >= 1) {
+        return { id: "run_1", status: "cancelled" };
+      }
+      return { id: "run_1", status: "running" };
+    });
+
+    try {
+      await runLiveCheck(step, makeCtx(rankCheck, 5));
+      // Keyword 1 was called; keywords 2-5 were never dispatched
+      expect(callCount).toBe(1);
+    } finally {
+      delete process.env.RANK_CHECK_CONCURRENCY;
+    }
+  });
+
+  it("exact 5-keyword case: at most 2 in-flight calls before cancellation is observed under concurrency 2", async () => {
+    process.env.RANK_CHECK_CONCURRENCY = "2";
+    let callCount = 0;
+    const rankCheck = vi.fn(
+      async (input: { keywordId: string; keyword: string }) => {
+        callCount++;
+        return okResult(input.keywordId, input.keyword);
+      },
+    );
+
+    repoMocks.getRunById.mockImplementation(async () => {
+      // Flips to cancelled after the first chunk (2 keywords) starts/completes
+      if (callCount >= 2) {
+        return { id: "run_1", status: "cancelled" };
+      }
+      return { id: "run_1", status: "running" };
+    });
+
+    try {
+      await runLiveCheck(step, makeCtx(rankCheck, 5));
+      // Only first chunk of 2 ran; keywords 3-5 were never dispatched
+      expect(callCount).toBe(2);
+    } finally {
+      delete process.env.RANK_CHECK_CONCURRENCY;
+    }
+  });
+
+  it("50-keyword bounded concurrency scenario: halts immediately when cancelled and does not run to 50", async () => {
+    process.env.RANK_CHECK_CONCURRENCY = "2";
+    let callCount = 0;
+    const rankCheck = vi.fn(
+      async (input: { keywordId: string; keyword: string }) => {
+        callCount++;
+        return okResult(input.keywordId, input.keyword);
+      },
+    );
+
+    repoMocks.getRunById.mockImplementation(async () => {
+      // Cancel after 4 checks (2 chunks)
+      if (callCount >= 4) {
+        return { id: "run_1", status: "cancelled" };
+      }
+      return { id: "run_1", status: "running" };
+    });
+
+    try {
+      await runLiveCheck(step, makeCtx(rankCheck, 50));
+      expect(callCount).toBe(4);
+      expect(callCount).toBeLessThan(50);
+    } finally {
+      delete process.env.RANK_CHECK_CONCURRENCY;
+    }
+  });
+
+  it("checks cancellation immediately before provider dispatch and prevents the call", async () => {
+    process.env.RANK_CHECK_CONCURRENCY = "1";
+    let dispatchAttempt = 0;
+    const rankCheck = vi.fn(async () => {
+      return okResult("kw_1", "test");
+    });
+
+    repoMocks.getRunById.mockImplementation(async () => {
+      dispatchAttempt++;
+      // Return cancelled right at pre-dispatch check (dispatchAttempt === 2)
+      if (dispatchAttempt >= 2) {
+        return { id: "run_1", status: "cancelled" };
+      }
+      return { id: "run_1", status: "running" };
+    });
+
+    try {
+      await runLiveCheck(step, makeCtx(rankCheck, 2));
+      // rankCheck should never have been called because pre-dispatch caught the cancellation
+      expect(rankCheck).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.RANK_CHECK_CONCURRENCY;
+    }
   });
 });

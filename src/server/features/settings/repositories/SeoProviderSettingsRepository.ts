@@ -5,6 +5,7 @@ import { seoProviderSettings } from "@/db/schema";
 export type SeoProviderSettingsRow = {
   provider: string;
   enabled: boolean;
+  priority?: number | null;
   /** AES-GCM encrypted ciphertext { login, password }, or null. */
   credentialsCiphertext: string | null;
   organizationId: string | null;
@@ -14,6 +15,7 @@ export type SeoProviderSettingsRow = {
 
 export type SeoProviderSettingsInput = {
   enabled?: boolean;
+  priority?: number | null;
   /** Encrypted credentials ciphertext. Pass undefined to preserve existing. */
   credentialsCiphertext?: string | null;
 };
@@ -21,6 +23,7 @@ export type SeoProviderSettingsInput = {
 const ROW_COLUMNS = {
   provider: seoProviderSettings.provider,
   enabled: seoProviderSettings.enabled,
+  priority: seoProviderSettings.priority,
   credentialsCiphertext: seoProviderSettings.credentials,
   organizationId: seoProviderSettings.organizationId,
   projectId: seoProviderSettings.projectId,
@@ -30,6 +33,7 @@ const ROW_COLUMNS = {
 type RawRow = {
   provider: string;
   enabled: boolean;
+  priority: number | null;
   credentialsCiphertext: string | null;
   organizationId: string | null;
   projectId: string | null;
@@ -40,6 +44,7 @@ function toRow(raw: RawRow): SeoProviderSettingsRow {
   return {
     provider: raw.provider,
     enabled: Boolean(raw.enabled),
+    priority: raw.priority,
     credentialsCiphertext: raw.credentialsCiphertext,
     organizationId: raw.organizationId,
     projectId: raw.projectId,
@@ -94,6 +99,7 @@ export async function upsertOrganizationProviderSettingsRow(
     projectId: null,
     provider,
     enabled: input.enabled ?? true,
+    priority: input.priority ?? null,
     credentials: input.credentialsCiphertext ?? null,
     updatedAt: now,
   };
@@ -104,6 +110,9 @@ export async function upsertOrganizationProviderSettingsRow(
   if (input.enabled !== undefined) {
     setUpdate.enabled = input.enabled;
   }
+  if (input.priority !== undefined) {
+    setUpdate.priority = input.priority;
+  }
   if (input.credentialsCiphertext !== undefined) {
     setUpdate.credentials = input.credentialsCiphertext;
   }
@@ -112,7 +121,10 @@ export async function upsertOrganizationProviderSettingsRow(
     .insert(seoProviderSettings)
     .values(values)
     .onConflictDoUpdate({
-      target: [seoProviderSettings.provider, seoProviderSettings.organizationId],
+      target: [
+        seoProviderSettings.provider,
+        seoProviderSettings.organizationId,
+      ],
       targetWhere: sql`${seoProviderSettings.projectId} is null`,
       set: setUpdate,
     });
@@ -129,6 +141,7 @@ export async function upsertProjectProviderSettingsRow(
     organizationId: null,
     provider,
     enabled: input.enabled ?? true,
+    priority: input.priority ?? null,
     credentials: input.credentialsCiphertext ?? null,
     updatedAt: now,
   };
@@ -138,6 +151,9 @@ export async function upsertProjectProviderSettingsRow(
   };
   if (input.enabled !== undefined) {
     setUpdate.enabled = input.enabled;
+  }
+  if (input.priority !== undefined) {
+    setUpdate.priority = input.priority;
   }
   if (input.credentialsCiphertext !== undefined) {
     setUpdate.credentials = input.credentialsCiphertext;

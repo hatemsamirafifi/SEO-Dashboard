@@ -101,9 +101,35 @@ function errorText(error: unknown): string {
   return "Operation failed";
 }
 
+export function isAbortError(error: unknown): boolean {
+  if (error instanceof Error) {
+    if (error.name === "AbortError") return true;
+    if (error.message.toLowerCase().includes("aborted")) return true;
+    if ("code" in error && (error as { code?: unknown }).code === "ABORT_ERR") {
+      return true;
+    }
+  }
+  if (typeof error === "object" && error !== null) {
+    if (
+      "name" in error &&
+      (error as { name?: unknown }).name === "AbortError"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function defaultTraceErrorPatch(
   error: unknown,
 ): Partial<GlobalTraceOperation> {
+  if (isAbortError(error)) {
+    return {
+      status: "cancelled",
+      errorClass: "CANCELLED",
+      errorMessage: "Operation cancelled by user",
+    };
+  }
   return {
     status: "failed",
     errorClass: errorCode(error) ?? "OPERATION_FAILED",
@@ -142,11 +168,13 @@ export async function traceServerCall<T>(
     });
     return result;
   } catch (error) {
+    const isCancelled = isAbortError(error);
     const patch = sanitizeTracePatch(
       input.mapError?.(error) ?? defaultTraceErrorPatch(error),
     );
+    const targetStatus = patch.status ?? (isCancelled ? "cancelled" : "failed");
     globalTraceStore.completeOperation(operationId, {
-      status: "failed",
+      status: targetStatus,
       ...patch,
     });
     throw error;

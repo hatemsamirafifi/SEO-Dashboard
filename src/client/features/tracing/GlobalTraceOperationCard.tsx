@@ -1,17 +1,24 @@
 import { useState } from "react";
 import {
   AlertTriangle,
+  Ban,
   Check,
   ChevronDown,
   ChevronRight,
+  Clock,
   Database,
   DollarSign,
   Loader2,
   Server,
   ShieldAlert,
+  Square,
+  Trash2,
 } from "lucide-react";
 import type { GlobalTraceOperation } from "@/shared/globalTraceTypes";
 import { formatTraceDuration } from "./globalTraceFormat";
+import { isOperationCancellable } from "./cancellationRegistry";
+import { globalTraceStore } from "./globalTraceStore";
+import { CancelConfirmationModal } from "./CancelConfirmationModal";
 import {
   BillingSection,
   ChildrenSection,
@@ -20,16 +27,19 @@ import {
 } from "./GlobalTraceOperationCardSections";
 
 function StatusBadge({ status }: { status: GlobalTraceOperation["status"] }) {
-  const badgeClasses = {
+  const badgeClasses: Record<GlobalTraceOperation["status"], string> = {
+    pending: "bg-base-content/10 text-base-content/70",
     running: "bg-primary/15 text-primary",
+    cancelling: "bg-warning/20 text-warning animate-pulse",
     success: "bg-success/15 text-success",
     failed: "bg-error/15 text-error",
+    cancelled: "bg-warning/15 text-warning",
     blocked: "bg-warning/15 text-warning",
-  }[status];
+  };
 
   return (
     <span
-      className={`rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${badgeClasses}`}
+      className={`rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${badgeClasses[status] ?? "bg-base-content/10 text-base-content/70"}`}
     >
       {status}
     </span>
@@ -37,8 +47,17 @@ function StatusBadge({ status }: { status: GlobalTraceOperation["status"] }) {
 }
 
 function StatusIcon({ status }: { status: GlobalTraceOperation["status"] }) {
+  if (status === "pending") {
+    return <Clock className="size-4 text-base-content/50" />;
+  }
   if (status === "running") {
     return <Loader2 className="size-4 animate-spin text-primary" />;
+  }
+  if (status === "cancelling") {
+    return <Loader2 className="size-4 animate-spin text-warning" />;
+  }
+  if (status === "cancelled") {
+    return <Ban className="size-4 text-warning" />;
   }
   if (status === "success") {
     return <Check className="size-4 text-success" />;
@@ -147,25 +166,52 @@ export function GlobalTraceOperationCard({
   operation: GlobalTraceOperation;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const isRunning = operation.status === "running";
+  const isPending = operation.status === "pending";
+  const isCancelling = operation.status === "cancelling";
   const isBlocked = operation.status === "blocked";
   const isFailed = operation.status === "failed";
+  const isCancelled = operation.status === "cancelled";
+
+  const hasRankRunId = Boolean(
+    operation.rankCheckRunId ||
+    (operation.metadata as { runId?: string } | undefined)?.runId,
+  );
+  const isRankTracking = operation.feature === "rank_tracking";
+  const cancellable = Boolean(
+    operation.supportsCancellation ||
+    isOperationCancellable(operation.operationId) ||
+    isRankTracking ||
+    hasRankRunId,
+  );
 
   const cardBorder = isFailed
     ? "border-error/40"
-    : isBlocked
+    : isBlocked || isCancelled
       ? "border-warning/40"
-      : isRunning
-        ? "border-primary/40 shadow-sm"
-        : "border-base-300 hover:border-base-content/20";
+      : isCancelling
+        ? "border-warning/60 shadow-sm"
+        : isRunning
+          ? "border-primary/40 shadow-sm"
+          : "border-base-300 hover:border-base-content/20";
 
   return (
-    <div className={`rounded-lg border bg-base-100 text-sm transition-colors ${cardBorder}`}>
-      <button
-        type="button"
+    <div
+      className={`rounded-lg border bg-base-100 text-sm transition-colors ${cardBorder}`}
+    >
+      <div
         onClick={() => setExpanded(!expanded)}
         className="flex w-full cursor-pointer items-start justify-between gap-3 p-3 text-left"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded(!expanded);
+          }
+        }}
         aria-expanded={expanded}
       >
         <div className="flex items-start gap-2.5">
@@ -187,20 +233,109 @@ export function GlobalTraceOperationCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-base-content/60">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-xs text-base-content/60 mr-1">
             {formatTraceDuration(operation.durationMs)}
           </span>
-          {expanded ? (
-            <ChevronDown className="size-4 text-base-content/40" />
-          ) : (
-            <ChevronRight className="size-4 text-base-content/40" />
+
+          {/* Action: Cancel for running / pending operations */}
+          {(isRunning || isPending || isCancelling) &&
+            (cancellable ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (operation.feature === "rank_tracking") {
+                    setShowCancelModal(true);
+                  } else {
+                    void globalTraceStore.cancelOperation(
+                      operation.operationId,
+                    );
+                  }
+                }}
+                disabled={isCancelling}
+                className="btn btn-xs btn-outline btn-warning gap-1 px-2 py-0.5 h-6 min-h-0 text-[11px] font-medium"
+                title={
+                  isCancelling ? "Cancelling operation..." : "Cancel operation"
+                }
+                aria-label="Cancel operation"
+              >
+                <Square className="size-2.5 fill-current" />
+                <span>{isCancelling ? "Cancelling..." : "Cancel"}</span>
+              </button>
+            ) : (
+              <span
+                className="text-[10px] text-base-content/40 cursor-not-allowed select-none px-1"
+                title="Cancellation not supported for this operation"
+              >
+                No cancel
+              </span>
+            ))}
+
+          {/* Action: Remove from trace for terminal operations */}
+          {(operation.status === "success" ||
+            operation.status === "failed" ||
+            operation.status === "cancelled" ||
+            operation.status === "blocked") && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                globalTraceStore.removeOperation(operation.operationId);
+              }}
+              className="btn btn-ghost btn-xs text-base-content/50 hover:text-error hover:bg-error/10 p-1"
+              title="Remove from trace"
+              aria-label="Remove from trace"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
           )}
+
+          <div className="p-1 text-base-content/40">
+            {expanded ? (
+              <ChevronDown className="size-4" />
+            ) : (
+              <ChevronRight className="size-4" />
+            )}
+          </div>
         </div>
-      </button>
+      </div>
 
       {expanded && (
         <div className="space-y-4 border-t border-base-200 bg-base-200/30 p-3.5">
+          {/* Cancelled Banner */}
+          {operation.status === "cancelled" && (
+            <div className="space-y-1 rounded border border-warning/30 bg-warning/10 p-2.5 text-xs text-warning">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <Ban className="size-3.5" />
+                Cancelled by user
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-base-content/70 mt-1">
+                {operation.cancelRequestedAt && (
+                  <span>
+                    Requested:{" "}
+                    {new Date(operation.cancelRequestedAt).toLocaleTimeString()}
+                  </span>
+                )}
+                {operation.cancelledAt && (
+                  <span>
+                    Cancelled:{" "}
+                    {new Date(operation.cancelledAt).toLocaleTimeString()}
+                  </span>
+                )}
+                {operation.completedBeforeCancellation !== undefined && (
+                  <span>
+                    Completed before cancel:{" "}
+                    {operation.completedBeforeCancellation}
+                  </span>
+                )}
+                {operation.remainingItems !== undefined && (
+                  <span>Remaining items: {operation.remainingItems}</span>
+                )}
+              </div>
+            </div>
+          )}
+
           <ScopeSection operation={operation} />
           <ProviderSection operation={operation} />
           <BillingSection operation={operation} />
@@ -222,8 +357,34 @@ export function GlobalTraceOperationCard({
           {operation.children && operation.children.length > 0 && (
             <ChildrenSection items={operation.children} />
           )}
+
+          {/* Contextual remove for running tasks with explicit disclaimer */}
+          {(isRunning || isPending) && (
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  globalTraceStore.removeOperation(operation.operationId)
+                }
+                className="btn btn-ghost btn-xs text-base-content/50 hover:text-error"
+                title="Removing the trace does not cancel the underlying background task"
+              >
+                <Trash2 className="size-3 mr-1" />
+                Remove from trace (does not cancel operation)
+              </button>
+            </div>
+          )}
         </div>
       )}
+
+      <CancelConfirmationModal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        onConfirm={() =>
+          void globalTraceStore.cancelOperation(operation.operationId)
+        }
+        operationName={operation.operation}
+      />
     </div>
   );
 }

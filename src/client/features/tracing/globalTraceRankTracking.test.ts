@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { globalTraceStore } from "./globalTraceStore";
+
+vi.mock("@/serverFunctions/rank-tracking", () => ({
+  cancelRankCheckRun: vi.fn(async () => ({ ok: true, status: "cancelled" })),
+}));
 
 describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () => {
   beforeEach(() => {
@@ -28,7 +32,9 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
       retry: { attempted: false, count: 0 },
     });
 
-    const runningOp = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const runningOp = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(runningOp?.status).toBe("running");
     expect(runningOp?.scope).toBe("selected");
     expect(runningOp?.selectedCount).toBe(4);
@@ -81,7 +87,9 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
     });
 
     // 4. Verify exact runtime-derived numbers in trace
-    const finalOp = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const finalOp = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(finalOp).toBeDefined();
     expect(finalOp?.status).toBe("success");
     expect(finalOp?.scope).toBe("selected");
@@ -124,7 +132,9 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
       rankChecksStarted: 0,
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.status).toBe("blocked");
     expect(op?.budget).toBe("BLOCKED");
     expect(op?.providerCalls).toBe(0);
@@ -153,7 +163,9 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
       providerCalls: 0,
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op).toBeDefined();
     expect(op?.status).toBe("failed");
     expect(op?.errorClass).toBe("VALIDATION_ERROR");
@@ -177,7 +189,9 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
       providerCalls: 0,
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.status).toBe("failed");
     expect(op?.errorClass).toBe("WORKFLOW_CREATION_FAILED");
     expect(op?.providerCalls).toBe(0);
@@ -200,7 +214,8 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
       httpStatus: 200,
       errorClass: "DATAFORSEO_ACCOUNT_PAUSED",
       budget: "PASS",
-      errorMessage: "1 keyword(s) could not be checked: We noticed some unusual activity in your DataForSEO account",
+      errorMessage:
+        "1 keyword(s) could not be checked: We noticed some unusual activity in your DataForSEO account",
       provider: "DataForSEO ×1",
       providerCalls: 1,
       providers: [
@@ -226,7 +241,9 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
       ],
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.status).toBe("failed");
     expect(op?.rankChecksSucceeded).toBe(0);
     expect(op?.rankChecksFailed).toBe(1);
@@ -271,7 +288,9 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
       children: [],
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.status).toBe("blocked");
     expect(op?.budget).toBe("BLOCKED");
     expect(op?.errorClass).toBe("CREDITS_UNAVAILABLE");
@@ -309,7 +328,9 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
       ],
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.status).toBe("success");
     expect(op?.rankChecksSucceeded).toBe(1);
     expect(op?.children?.[0].status).toBe("no_result");
@@ -340,5 +361,76 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
     expect(opsB).toHaveLength(1);
     expect(opsB[0].projectId).toBe("project_B");
     expect(allOps).toHaveLength(2);
+  });
+
+  it("cancellation lifecycle: starts at 0 checks started, updates incrementally, and finalizes as cancelled with truthful counts", async () => {
+    const selectedKeywordIds = ["kw_1", "kw_2", "kw_3", "kw_4", "kw_5"];
+    const projectId = "project_lifecycle";
+
+    // 1. Trigger check selected: initial state starts at 0 checks started & 0 provider calls
+    const opId = globalTraceStore.startOperation({
+      feature: "rank_tracking",
+      operation: "rank_tracking.check_selected",
+      source: "Rank Tracking page",
+      projectId,
+      scope: "selected",
+      selectedCount: 5,
+      selectedKeywordIds,
+      supportsCancellation: true,
+      rankChecksStarted: 0,
+      providerCalls: 0,
+      billing: "Paid",
+      metered: true,
+      budget: "PASS",
+      cache: "Not applicable",
+      retry: { attempted: false, count: 0 },
+    });
+
+    let op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
+    expect(op?.status).toBe("running");
+    expect(op?.supportsCancellation).toBe(true);
+    expect(op?.rankChecksStarted).toBe(0);
+    expect(op?.providerCalls).toBe(0);
+
+    // 2. Server creates run and client updates with runId
+    const runId = "run_life_123";
+    globalTraceStore.updateOperation(opId, {
+      supportsCancellation: true,
+      rankCheckRunId: runId,
+      metadata: { runId, configId: "cfg_1" },
+    });
+
+    // 3. Worker executes first 2 keywords: progress increments
+    globalTraceStore.updateOperation(opId, {
+      rankChecksStarted: 2,
+      providerCalls: 2,
+      rankChecksSucceeded: 2,
+      counters: { checked: 2, total: 5 },
+    });
+
+    op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
+    expect(op?.rankChecksStarted).toBe(2);
+    expect(op?.providerCalls).toBe(2);
+
+    // 4. User cancels
+    await globalTraceStore.cancelOperation(opId, {
+      completedBeforeCancellation: 2,
+      remainingItems: 3,
+      errorMessage: "Cancelled by user",
+    });
+
+    op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
+    expect(op?.status).toBe("cancelled");
+    expect(op?.completedBeforeCancellation).toBe(2);
+    expect(op?.remainingItems).toBe(3);
+    // Provider calls and checks started must remain at actual 2, never reset to 0 or inflated to 5
+    expect(op?.providerCalls).toBe(2);
+    expect(op?.rankChecksStarted).toBe(2);
   });
 });

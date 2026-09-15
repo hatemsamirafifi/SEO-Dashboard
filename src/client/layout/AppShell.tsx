@@ -13,6 +13,8 @@ import { BILLING_ROUTE } from "@/shared/billing";
 import { getSeoApiKeyStatus } from "@/serverFunctions/config";
 import { getProjects } from "@/serverFunctions/projects";
 import { getLastProjectId } from "@/client/lib/active-project";
+import { GlobalDebugTracePanel } from "@/client/features/tracing/GlobalDebugTracePanel";
+import { useGlobalTrace } from "@/client/features/tracing/globalTraceStore";
 
 const DATAFORSEO_HELP_PATH = "/help/dataforseo-api-key";
 
@@ -56,6 +58,9 @@ export function AuthenticatedAppLayout({
   // builds links that self-correct via the route guard once data arrives.
   const sidebarProjectId =
     projectId ?? fallbackProjectId ?? rememberedProjectId;
+  const { panelOpen, setPanelOpen } = useGlobalTrace(
+    sidebarProjectId ?? undefined,
+  );
   const shouldCheckSeoApiKeyStatus = location.pathname !== BILLING_ROUTE;
   const seoApiKeyStatusQuery = useQuery({
     queryKey: ["seoApiKeyStatus"],
@@ -158,6 +163,13 @@ export function AuthenticatedAppLayout({
         projectId={sidebarProjectId}
         suppressed={shouldShowMissingSeoApiKeyModal}
       />
+
+      {panelOpen && (
+        <GlobalDebugTracePanel
+          projectId={sidebarProjectId ?? undefined}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
     </div>
   );
 }
