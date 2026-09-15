@@ -260,14 +260,19 @@ async function removeKeywordsFromConfig(
   keywordIds: string[],
   configId: string,
 ) {
-  await db
-    .delete(rankTrackingKeywords)
-    .where(
-      and(
-        inArray(rankTrackingKeywords.id, keywordIds),
-        eq(rankTrackingKeywords.configId, configId),
-      ),
-    );
+  if (keywordIds.length === 0) return;
+  const CHUNK_SIZE = 90;
+  for (let i = 0; i < keywordIds.length; i += CHUNK_SIZE) {
+    const chunk = keywordIds.slice(i, i + CHUNK_SIZE);
+    await db
+      .delete(rankTrackingKeywords)
+      .where(
+        and(
+          inArray(rankTrackingKeywords.id, chunk),
+          eq(rankTrackingKeywords.configId, configId),
+        ),
+      );
+  }
 }
 
 async function getConfigSummaries(projectId: string) {

@@ -77,51 +77,60 @@ export async function getLatestPositionsMap(
     .from(rankCheckRuns)
     .where(and(...runConditions));
 
-  const validSnapshotConditions = [
-    inArray(rankSnapshots.runId, completedRunIds),
-    inArray(rankSnapshots.trackingKeywordId, keywordIds),
-    or(
-      isNull(rankSnapshots.rankingStatus),
-      ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
-    ),
-  ];
-  if (options?.excludeRunId) {
-    validSnapshotConditions.push(ne(rankSnapshots.runId, options.excludeRunId));
-  }
-  if (options?.beforeDate) {
-    validSnapshotConditions.push(lt(rankSnapshots.checkedAt, options.beforeDate));
-  }
+  // D1 caps bound parameters at 100 per statement.
+  // The query references validSnapshotConditions twice (grouped subquery + outer where),
+  // each containing chunk keyword IDs plus completedRunIds and other filter params.
+  // Chunking by 40 keeps total parameters <= 90.
+  const CHUNK_SIZE = 40;
+  for (let i = 0; i < keywordIds.length; i += CHUNK_SIZE) {
+    const chunk = keywordIds.slice(i, i + CHUNK_SIZE);
 
-  const grouped = db
-    .select({
-      trackingKeywordId: rankSnapshots.trackingKeywordId,
-      device: rankSnapshots.device,
-      targetCheckedAt: max(rankSnapshots.checkedAt).as("target_checked_at"),
-    })
-    .from(rankSnapshots)
-    .where(and(...validSnapshotConditions))
-    .groupBy(rankSnapshots.trackingKeywordId, rankSnapshots.device)
-    .as("grouped");
-
-  const rows = await db
-    .select({
-      trackingKeywordId: rankSnapshots.trackingKeywordId,
-      device: rankSnapshots.device,
-      position: rankSnapshots.position,
-    })
-    .from(rankSnapshots)
-    .innerJoin(
-      grouped,
-      and(
-        eq(rankSnapshots.trackingKeywordId, grouped.trackingKeywordId),
-        eq(rankSnapshots.device, grouped.device),
-        eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
+    const validSnapshotConditions = [
+      inArray(rankSnapshots.runId, completedRunIds),
+      inArray(rankSnapshots.trackingKeywordId, chunk),
+      or(
+        isNull(rankSnapshots.rankingStatus),
+        ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
       ),
-    )
-    .where(and(...validSnapshotConditions));
+    ];
+    if (options?.excludeRunId) {
+      validSnapshotConditions.push(ne(rankSnapshots.runId, options.excludeRunId));
+    }
+    if (options?.beforeDate) {
+      validSnapshotConditions.push(lt(rankSnapshots.checkedAt, options.beforeDate));
+    }
 
-  for (const row of rows) {
-    map.set(`${row.trackingKeywordId}:${row.device}`, row.position);
+    const grouped = db
+      .select({
+        trackingKeywordId: rankSnapshots.trackingKeywordId,
+        device: rankSnapshots.device,
+        targetCheckedAt: max(rankSnapshots.checkedAt).as("target_checked_at"),
+      })
+      .from(rankSnapshots)
+      .where(and(...validSnapshotConditions))
+      .groupBy(rankSnapshots.trackingKeywordId, rankSnapshots.device)
+      .as("grouped");
+
+    const rows = await db
+      .select({
+        trackingKeywordId: rankSnapshots.trackingKeywordId,
+        device: rankSnapshots.device,
+        position: rankSnapshots.position,
+      })
+      .from(rankSnapshots)
+      .innerJoin(
+        grouped,
+        and(
+          eq(rankSnapshots.trackingKeywordId, grouped.trackingKeywordId),
+          eq(rankSnapshots.device, grouped.device),
+          eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
+        ),
+      )
+      .where(and(...validSnapshotConditions));
+
+    for (const row of rows) {
+      map.set(`${row.trackingKeywordId}:${row.device}`, row.position);
+    }
   }
   return map;
 }
@@ -376,9 +385,10 @@ export async function getEarliestSnapshotsForKeywords(
     );
 
   // D1 caps bound parameters at 100 per statement. The query binds N keyword
-  // IDs plus 4 params from the completedRunIds subquery (referenced twice).
-  // (Postgres allows far more, but the chunking is harmless there.)
-  const CHUNK_SIZE = 90;
+  // IDs plus 5 params from completedRunIds and rankingStatus, referenced TWICE
+  // (both in the `grouped` subquery and the outer `where`).
+  // With CHUNK_SIZE = 40: (5 + 40) * 2 = 90 params <= 100 limit.
+  const CHUNK_SIZE = 40;
   const allResults: Awaited<ReturnType<typeof getSnapshotsForConfig>> = [];
 
   for (let i = 0; i < keywordIds.length; i += CHUNK_SIZE) {
