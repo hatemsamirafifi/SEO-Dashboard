@@ -521,7 +521,8 @@ class GlobalTraceStore {
 
   /**
    * Explicitly clears the trace.
-   * If a projectId is provided, clears only operations belonging to that project.
+   * If a projectId is provided, clears all operations visible in that scope
+   * (both project-specific operations and global/settings operations).
    * If not provided, clears all operations.
    */
   clearTrace = (projectId?: string) => {
@@ -529,7 +530,7 @@ class GlobalTraceStore {
       let newOps: GlobalTraceOperation[];
       if (projectId) {
         newOps = this.state.operations.filter(
-          (op) => op.projectId !== projectId,
+          (op) => Boolean(op.projectId && op.projectId !== projectId),
         );
       } else {
         newOps = [];
