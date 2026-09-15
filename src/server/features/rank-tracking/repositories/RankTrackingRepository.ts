@@ -5,6 +5,7 @@ import {
   rankTrackingConfigs,
   rankCheckRuns,
   rankSnapshots,
+  rankProviderCalls,
   rankTrackingKeywords,
   projects,
 } from "@/db/schema";
@@ -236,6 +237,25 @@ async function getSnapshotsForRun(runId: string) {
   return db.select().from(rankSnapshots).where(eq(rankSnapshots.runId, runId));
 }
 
+async function insertProviderCalls(
+  calls: Array<
+    Omit<InferInsertModel<typeof rankProviderCalls>, "id" | "createdAt">
+  >,
+) {
+  if (calls.length === 0) return;
+  await executeInBatches(calls, (tx, call) =>
+    tx.insert(rankProviderCalls).values(call),
+  );
+}
+
+async function getProviderCallsForRun(runId: string) {
+  return db
+    .select()
+    .from(rankProviderCalls)
+    .where(eq(rankProviderCalls.runId, runId))
+    .orderBy(rankProviderCalls.id);
+}
+
 // ---------------------------------------------------------------------------
 // Tracking keywords per config
 // ---------------------------------------------------------------------------
@@ -391,6 +411,8 @@ export const RankTrackingRepository = {
   getActiveRunForConfig,
   insertSnapshots,
   getSnapshotsForRun,
+  insertProviderCalls,
+  getProviderCallsForRun,
   getKeywordsForConfig,
   addKeywordsToConfig,
   removeKeywordsFromConfig,

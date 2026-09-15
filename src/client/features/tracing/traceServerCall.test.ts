@@ -39,9 +39,12 @@ describe("traceServerCall", () => {
   });
 
   it("records a sanitized failure and rethrows the original error", async () => {
-    const failure = Object.assign(new Error("Connection failed: password=hunter2"), {
-      code: "CONNECTION_FAILED",
-    });
+    const failure = Object.assign(
+      new Error("Connection failed: password=hunter2"),
+      {
+        code: "CONNECTION_FAILED",
+      },
+    );
     const call = vi.fn(async (): Promise<never> => {
       throw failure;
     });
@@ -60,6 +63,30 @@ describe("traceServerCall", () => {
     expect(operation?.errorClass).toBe("CONNECTION_FAILED");
     expect(operation?.errorMessage).not.toContain("hunter2");
     expect(operation?.errorMessage).toContain("[redacted]");
+  });
+
+  it("records status: cancelled when an operation throws an AbortError", async () => {
+    const abortError = new DOMException(
+      "The user aborted a request.",
+      "AbortError",
+    );
+    const call = vi.fn(async (): Promise<never> => {
+      throw abortError;
+    });
+
+    await expect(
+      traceServerCall({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "Rank Tracking page",
+        call,
+      }),
+    ).rejects.toBe(abortError);
+
+    const operation = globalTraceStore.getState().operations[0];
+    expect(operation?.status).toBe("cancelled");
+    expect(operation?.errorClass).toBe("CANCELLED");
+    expect(operation?.errorMessage).toBe("Operation cancelled by user");
   });
 
   it("does not record operations while diagnostics are disabled", async () => {

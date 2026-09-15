@@ -24,6 +24,13 @@ import { parseDataforseoDiagnosticsFromErrorMessage } from "@/shared/dataforseoD
 
 export type RankCheckDevices = "both" | "desktop" | "mobile";
 
+function providerLabel(provider: string | null | undefined): string {
+  if (provider === "dataforseo") return "DataForSEO";
+  if (provider === "serper") return "Serper.dev";
+  if (provider === "zenserp") return "Zenserp";
+  return provider ?? "DataForSEO";
+}
+
 /** Number of DataForSEO live tasks the manual workflow issues per keyword. */
 export function providerTaskCount(
   validatedCount: number,
@@ -94,6 +101,22 @@ export interface RankRunForTrace {
   keywordsTotal: number;
   errorMessage?: string | null;
   startedAt?: string | null;
+  providerCalls?: Array<{
+    provider: string;
+    endpoint: string;
+    status: "success" | "failed" | "insufficient_depth" | "skipped";
+    httpStatus?: number | null;
+    errorCode?: string | null;
+    durationMs: number;
+    resultCount?: number | null;
+    requestedDepth?: number;
+    inspectedDepth?: number | null;
+    pagesRequested?: number;
+    resultCompleteness?: string;
+    dispatched?: boolean;
+    trackingKeywordId?: string;
+    device?: string;
+  }>;
 }
 
 export interface RankRowForTrace {
@@ -107,6 +130,7 @@ export interface RankRowForTrace {
     rankingStatus?: string | null;
     errorMessage?: string | null;
     providerStatusCode?: number | null;
+    provider?: string | null;
   } | null;
   mobile?: {
     position?: number | null;
@@ -116,6 +140,7 @@ export interface RankRowForTrace {
     rankingStatus?: string | null;
     errorMessage?: string | null;
     providerStatusCode?: number | null;
+    provider?: string | null;
   } | null;
 }
 
@@ -134,7 +159,7 @@ function isFreshSnapshot(
 }
 
 export type RankCompletionPatch = Partial<GlobalTraceOperation> & {
-  status: "success" | "failed";
+  status: "success" | "failed" | "cancelled";
   children: GlobalTraceKeywordChild[];
 };
 
@@ -162,6 +187,16 @@ export function buildRankCompletionPatch(input: {
     );
 
     if (fresh.length === 0) {
+      if (run.status === "cancelled") {
+        return {
+          keywordId: id,
+          keyword: row?.keyword,
+          status: "cancelled" as const,
+          rankingStatus: "NOT_CHECKED" as const,
+          error: "Cancelled before check",
+        };
+      }
+
       const hasProviderMarker = run.errorMessage
         ? PROVIDER_MARKER_RE.test(run.errorMessage)
         : false;
@@ -173,7 +208,9 @@ export function buildRankCompletionPatch(input: {
         keyword: row?.keyword,
         status: "failed" as const,
         rankingStatus: "CHECK_FAILED" as const,
-        provider: "DataForSEO",
+        provider: providerLabel(
+          row?.desktop?.provider ?? row?.mobile?.provider,
+        ),
         httpStatus: diag?.httpStatus ?? undefined,
         taskStatus: diag?.dataforseoStatusCode ?? undefined,
         // Scrubbed: the run message crosses into a visible trace record.
@@ -226,7 +263,10 @@ export function buildRankCompletionPatch(input: {
         positionAfter != null ? ("success" as const) : ("no_result" as const),
       rankingStatus:
         positionAfter != null ? ("RANKED" as const) : ("NO_RESULT" as const),
-      provider: "DataForSEO",
+      provider: providerLabel(
+        fresh.find((device) => device.position != null)?.provider ??
+          fresh[0]?.provider,
+      ),
       positionBefore,
       positionAfter,
     };
@@ -235,22 +275,104 @@ export function buildRankCompletionPatch(input: {
   const succeeded = children.filter(
     (c) => c.status === "success" || c.status === "no_result",
   ).length;
-  const failed = children.length - succeeded;
+  const cancelled = children.filter((c) => c.status === "cancelled").length;
+  const failed = children.length - succeeded - cancelled;
 
+  const isCancelledRun = run.status === "cancelled";
   const runFailed = run.status === "failed";
-  const status: "success" | "failed" =
-    runFailed || failed > 0 ? "failed" : "success";
+  const status: "success" | "failed" | "cancelled" = isCancelledRun
+    ? "cancelled"
+    : runFailed || failed > 0
+      ? "failed"
+      : "success";
 
   const patch: RankCompletionPatch = {
     status,
     rankChecksSucceeded: succeeded,
     rankChecksFailed: failed,
+    rankChecksSkipped: cancelled,
+    completedBeforeCancellation: isCancelledRun
+      ? succeeded + failed
+      : undefined,
+    remainingItems: isCancelledRun ? cancelled : undefined,
     children,
     counters: {
       checked: run.keywordsChecked,
       total: run.keywordsTotal,
     },
   };
+
+  if (run.providerCalls) {
+    const dispatchedCalls = run.providerCalls.filter(
+      (call) => call.dispatched !== false,
+    );
+    patch.providerCalls = dispatchedCalls.length;
+    const breakdown = new Map<string, number>();
+    for (const call of dispatchedCalls) {
+      const label = providerLabel(call.provider);
+      breakdown.set(label, (breakdown.get(label) ?? 0) + 1);
+    }
+    patch.providerBreakdown = [...breakdown].map(([provider, count]) => ({
+      provider,
+      count,
+    }));
+    patch.providers = run.providerCalls.map((call) => ({
+      provider: providerLabel(call.provider),
+      endpoint: call.endpoint,
+      httpStatus: call.httpStatus,
+      statusMessage: call.errorCode ?? call.status,
+      durationMs: call.durationMs,
+      billing: "Paid",
+      metered: true,
+      cost: call.provider === "dataforseo" ? undefined : "Not available",
+      resultCount: call.resultCount ?? undefined,
+      requestedDepth: call.requestedDepth,
+      inspectedDepth: call.inspectedDepth,
+      pagesRequested: call.pagesRequested,
+      resultCompleteness: call.resultCompleteness,
+      dispatched: call.dispatched,
+    }));
+    const attemptsByTarget = new Map<string, number>();
+    const retryDetails = dispatchedCalls.flatMap((call) => {
+      const target = `${call.trackingKeywordId ?? "unknown"}:${call.device ?? "unknown"}`;
+      const attempt = (attemptsByTarget.get(target) ?? 0) + 1;
+      attemptsByTarget.set(target, attempt);
+      return attempt > 1
+        ? [
+            {
+              attempt,
+              provider: providerLabel(call.provider),
+              httpStatus: call.httpStatus,
+              durationMs: call.durationMs,
+              error: call.errorCode ?? undefined,
+            },
+          ]
+        : [];
+    });
+    patch.retry = {
+      attempted: retryDetails.length > 0,
+      count: retryDetails.length,
+      details: retryDetails,
+    };
+  }
+
+  if (isCancelledRun) {
+    const executedKeywordCount = succeeded + failed;
+    const completedTasksCount = rows
+      .filter((r) => targetIds.includes(r.trackingKeywordId))
+      .reduce((acc, r) => {
+        const dCount = [r.desktop, r.mobile].filter((d) =>
+          isFreshSnapshot(d?.checkedAt, run.startedAt),
+        ).length;
+        return acc + dCount;
+      }, 0);
+
+    patch.providerCalls = Math.max(executedKeywordCount, completedTasksCount);
+    patch.billing = "Paid";
+    patch.errorMessage = run.errorMessage
+      ? scrubGlobalTraceText(run.errorMessage)
+      : "Operation cancelled by user";
+  }
 
   // Defense in depth: the run message crosses from the server record into a
   // developer-visible trace — scrub credential-shaped substrings even though

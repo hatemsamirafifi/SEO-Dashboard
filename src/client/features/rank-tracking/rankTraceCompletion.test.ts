@@ -563,6 +563,172 @@ describe("buildRankCompletionPatch — DataForSEO deep diagnostics", () => {
   });
 });
 
+describe("buildRankCompletionPatch — cancelled run handling", () => {
+  it("preserves completed keywords and marks unexecuted keywords as NOT_CHECKED / cancelled", () => {
+    const patch = buildRankCompletionPatch({
+      run: run({
+        status: "cancelled",
+        keywordsChecked: 1,
+        keywordsTotal: 3,
+        errorMessage: "Cancelled by user",
+      }),
+      rows: [
+        // kw_1 completed before cancellation
+        row({
+          trackingKeywordId: "kw_1",
+          keyword: "keyword 1",
+          desktop: {
+            position: 3,
+            previousPosition: 5,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+            status: "ranked",
+            rankingStatus: "RANKED",
+          },
+        }),
+        // kw_2 was not checked before cancellation
+        {
+          trackingKeywordId: "kw_2",
+          keyword: "keyword 2",
+          desktop: { position: null, previousPosition: null, checkedAt: null },
+          mobile: null,
+        },
+        // kw_3 was not checked before cancellation
+        {
+          trackingKeywordId: "kw_3",
+          keyword: "keyword 3",
+          desktop: { position: null, previousPosition: null, checkedAt: null },
+          mobile: null,
+        },
+      ],
+      targetIds: ["kw_1", "kw_2", "kw_3"],
+    });
+
+    expect(patch.status).toBe("cancelled");
+    expect(patch.rankChecksSucceeded).toBe(1);
+    expect(patch.rankChecksFailed).toBe(0);
+    expect(patch.rankChecksSkipped).toBe(2);
+    expect(patch.completedBeforeCancellation).toBe(1);
+    expect(patch.remainingItems).toBe(2);
+    expect(patch.providerCalls).toBe(1);
+    expect(patch.billing).toBe("Paid");
+
+    expect(patch.children).toHaveLength(3);
+
+    // First keyword: succeeded and ranked
+    expect(patch.children[0]).toMatchObject({
+      keywordId: "kw_1",
+      status: "success",
+      rankingStatus: "RANKED",
+      positionAfter: 3,
+    });
+
+    // Second keyword: unexecuted -> NOT_CHECKED, cancelled
+    expect(patch.children[1]).toMatchObject({
+      keywordId: "kw_2",
+      status: "cancelled",
+      rankingStatus: "NOT_CHECKED",
+      error: "Cancelled before check",
+    });
+
+    // Third keyword: unexecuted -> NOT_CHECKED, cancelled
+    expect(patch.children[2]).toMatchObject({
+      keywordId: "kw_3",
+      status: "cancelled",
+      rankingStatus: "NOT_CHECKED",
+      error: "Cancelled before check",
+    });
+  });
+
+  it("preserves failed keywords that occurred before cancellation", () => {
+    const patch = buildRankCompletionPatch({
+      run: run({
+        status: "cancelled",
+        keywordsChecked: 2,
+        keywordsTotal: 3,
+        errorMessage: "Cancelled by user",
+      }),
+      rows: [
+        // kw_1 ranked before cancellation
+        row({
+          trackingKeywordId: "kw_1",
+          desktop: {
+            position: 4,
+            previousPosition: 4,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+            status: "ranked",
+            rankingStatus: "RANKED",
+          },
+        }),
+        // kw_2 failed before cancellation
+        row({
+          trackingKeywordId: "kw_2",
+          desktop: {
+            position: null,
+            previousPosition: 10,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+            status: "failed",
+            rankingStatus: "CHECK_FAILED",
+            errorMessage: "DataForSEO error 500",
+          },
+        }),
+        // kw_3 unexecuted
+        {
+          trackingKeywordId: "kw_3",
+          keyword: "keyword 3",
+          desktop: { position: null, previousPosition: null, checkedAt: null },
+          mobile: null,
+        },
+      ],
+      targetIds: ["kw_1", "kw_2", "kw_3"],
+    });
+
+    expect(patch.status).toBe("cancelled");
+    expect(patch.rankChecksSucceeded).toBe(1);
+    expect(patch.rankChecksFailed).toBe(1);
+    expect(patch.rankChecksSkipped).toBe(1);
+    expect(patch.completedBeforeCancellation).toBe(2);
+    expect(patch.remainingItems).toBe(1);
+    expect(patch.providerCalls).toBe(2);
+
+    expect(patch.children[1].status).toBe("failed");
+    expect(patch.children[1].rankingStatus).toBe("CHECK_FAILED");
+    expect(patch.children[2].status).toBe("cancelled");
+    expect(patch.children[2].rankingStatus).toBe("NOT_CHECKED");
+  });
+
+  it("handles cancellation when 0 keywords were checked", () => {
+    const patch = buildRankCompletionPatch({
+      run: run({
+        status: "cancelled",
+        keywordsChecked: 0,
+        keywordsTotal: 2,
+        errorMessage: "Cancelled immediately",
+      }),
+      rows: [
+        {
+          trackingKeywordId: "kw_1",
+          desktop: { position: null, previousPosition: null, checkedAt: null },
+          mobile: null,
+        },
+        {
+          trackingKeywordId: "kw_2",
+          desktop: { position: null, previousPosition: null, checkedAt: null },
+          mobile: null,
+        },
+      ],
+      targetIds: ["kw_1", "kw_2"],
+    });
+
+    expect(patch.status).toBe("cancelled");
+    expect(patch.rankChecksSucceeded).toBe(0);
+    expect(patch.rankChecksFailed).toBe(0);
+    expect(patch.rankChecksSkipped).toBe(2);
+    expect(patch.completedBeforeCancellation).toBe(0);
+    expect(patch.remainingItems).toBe(2);
+    expect(patch.providerCalls).toBe(0);
+  });
+});
+
 describe("safeTraceId — trace failures never break the check", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -576,5 +742,143 @@ describe("safeTraceId — trace failures never break the check", () => {
     vi.stubGlobal("crypto", undefined);
     expect(() => safeTraceId()).not.toThrow();
     expect(safeTraceId()).toMatch(/^trace_/);
+  });
+});
+
+describe("multi-provider trace accounting", () => {
+  it("uses the successful fallback provider and counts actual dispatched calls", () => {
+    const patch = buildRankCompletionPatch({
+      run: run({
+        providerCalls: [
+          {
+            provider: "dataforseo",
+            endpoint: "/v3/serp/google/organic/live/advanced",
+            status: "failed",
+            httpStatus: null,
+            errorCode: "DATAFORSEO_ACCOUNT_PAUSED",
+            durationMs: 10,
+            requestedDepth: 100,
+            inspectedDepth: null,
+            pagesRequested: 1,
+            resultCompleteness: "not_applicable",
+            dispatched: true,
+          },
+          {
+            provider: "serper",
+            endpoint: "/search",
+            status: "success",
+            httpStatus: 200,
+            errorCode: null,
+            durationMs: 20,
+            resultCount: 8,
+            requestedDepth: 100,
+            inspectedDepth: 8,
+            pagesRequested: 1,
+            resultCompleteness: "target_found",
+            dispatched: true,
+          },
+        ],
+      }),
+      rows: [
+        row({
+          desktop: {
+            position: 9,
+            previousPosition: 12,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+            provider: "serper",
+          },
+        }),
+      ],
+      targetIds: ["kw_1"],
+    });
+
+    expect(patch.children[0].provider).toBe("Serper.dev");
+    expect(patch.providerCalls).toBe(2);
+    expect(patch.providerBreakdown).toEqual([
+      { provider: "DataForSEO", count: 1 },
+      { provider: "Serper.dev", count: 1 },
+    ]);
+    expect(patch.providers?.[1].cost).toBe("Not available");
+    expect(patch.providers?.[1]).toMatchObject({
+      requestedDepth: 100,
+      inspectedDepth: 8,
+      pagesRequested: 1,
+      resultCompleteness: "target_found",
+    });
+  });
+
+  it("counts pagination HTTP calls but excludes unsupported-device skips", () => {
+    const patch = buildRankCompletionPatch({
+      run: run({
+        providerCalls: [
+          {
+            provider: "serper",
+            endpoint: "/search",
+            status: "skipped",
+            httpStatus: null,
+            errorCode: "UNSUPPORTED_DEVICE",
+            durationMs: 0,
+            requestedDepth: 30,
+            inspectedDepth: null,
+            pagesRequested: 0,
+            resultCompleteness: "not_applicable",
+            dispatched: false,
+          },
+          ...[1, 2, 3].map((pagesRequested) => ({
+            provider: "zenserp",
+            endpoint: "/api/v2/search",
+            status: "success" as const,
+            httpStatus: 200,
+            errorCode: null,
+            durationMs: 10,
+            resultCount: 10,
+            requestedDepth: 30,
+            inspectedDepth: pagesRequested * 10,
+            pagesRequested,
+            resultCompleteness: pagesRequested === 3 ? "complete" : "partial",
+            dispatched: true,
+          })),
+        ],
+      }),
+      rows: [row()],
+      targetIds: ["kw_1"],
+    });
+
+    expect(patch.providerCalls).toBe(3);
+    expect(patch.providerBreakdown).toEqual([
+      { provider: "Zenserp", count: 3 },
+    ]);
+    expect(patch.providers?.[0]).toMatchObject({
+      provider: "Serper.dev",
+      dispatched: false,
+      pagesRequested: 0,
+    });
+    expect(patch.providers?.at(-1)).toMatchObject({
+      requestedDepth: 30,
+      inspectedDepth: 30,
+      pagesRequested: 3,
+      resultCompleteness: "complete",
+    });
+  });
+
+  it("does not classify independent keyword calls as retries", () => {
+    const providerCalls = ["kw_1", "kw_2"].map((trackingKeywordId) => ({
+      provider: "dataforseo",
+      endpoint: "/v3/serp/google/organic/live/advanced",
+      status: "success" as const,
+      httpStatus: 200,
+      errorCode: null,
+      durationMs: 10,
+      trackingKeywordId,
+      device: "desktop",
+    }));
+    const patch = buildRankCompletionPatch({
+      run: run({ providerCalls }),
+      rows: [row(), { ...row(), trackingKeywordId: "kw_2" }],
+      targetIds: ["kw_1", "kw_2"],
+    });
+
+    expect(patch.providerCalls).toBe(2);
+    expect(patch.retry).toMatchObject({ attempted: false, count: 0 });
   });
 });

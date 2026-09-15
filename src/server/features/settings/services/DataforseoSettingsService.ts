@@ -27,12 +27,14 @@ export type DataForSeoConfig = {
   password?: string;
   source: DataForSeoConfigSource;
   configured: boolean;
+  priority: number;
 };
 
 export type DataforseoSettingsView = {
   provider: "dataforseo";
   configured: boolean;
   enabled: boolean;
+  priority: number;
   source: DataForSeoConfigSource;
   loginMasked: string | null;
   passwordConfigured: boolean;
@@ -40,6 +42,7 @@ export type DataforseoSettingsView = {
   override: {
     configured: boolean;
     enabled: boolean;
+    priority: number;
     loginMasked: string | null;
     passwordConfigured: boolean;
   } | null;
@@ -52,6 +55,7 @@ export type SaveDataforseoSettingsInput = {
     login?: string;
     password?: string;
     enabled?: boolean;
+    priority?: number;
   };
 };
 
@@ -113,51 +117,52 @@ export async function resolveEffectiveDataforseoConfig(params?: {
 }): Promise<DataForSeoConfig> {
   const projectId = params?.projectId ?? null;
   const organizationId = params?.organizationId ?? null;
-
-  // 1. Project-level override
-  if (projectId) {
-    const projectRow =
-      await SeoProviderSettingsRepository.getProjectProviderSettingsRow(
+  const projectRow = projectId
+    ? await SeoProviderSettingsRepository.getProjectProviderSettingsRow(
         projectId,
         "dataforseo",
-      );
-    if (projectRow) {
-      const creds = await decryptDataforseoCredentials(
-        projectRow.credentialsCiphertext,
-      );
-      if (creds) {
-        return {
-          enabled: projectRow.enabled,
-          login: creds.login,
-          password: creds.password,
-          source: "project",
-          configured: true,
-        };
-      }
-      // If row exists with enabled toggle but no credentials, inherit credentials below
+      )
+    : null;
+  const orgRow = organizationId
+    ? await SeoProviderSettingsRepository.getOrganizationProviderSettingsRow(
+        organizationId,
+        "dataforseo",
+      )
+    : null;
+  const settingsRow = projectRow ?? orgRow;
+
+  // 1. Project-level override
+  if (projectRow) {
+    const creds = await decryptDataforseoCredentials(
+      projectRow.credentialsCiphertext,
+    );
+    if (creds) {
+      return {
+        enabled: projectRow.enabled,
+        login: creds.login,
+        password: creds.password,
+        source: "project",
+        configured: true,
+        priority: projectRow.priority ?? 1,
+      };
     }
+    // If row exists with enabled toggle but no credentials, inherit credentials below
   }
 
   // 2. Organization-level configuration
-  if (organizationId) {
-    const orgRow =
-      await SeoProviderSettingsRepository.getOrganizationProviderSettingsRow(
-        organizationId,
-        "dataforseo",
-      );
-    if (orgRow) {
-      const creds = await decryptDataforseoCredentials(
-        orgRow.credentialsCiphertext,
-      );
-      if (creds) {
-        return {
-          enabled: orgRow.enabled,
-          login: creds.login,
-          password: creds.password,
-          source: "organization",
-          configured: true,
-        };
-      }
+  if (orgRow) {
+    const creds = await decryptDataforseoCredentials(
+      orgRow.credentialsCiphertext,
+    );
+    if (creds) {
+      return {
+        enabled: settingsRow?.enabled ?? orgRow.enabled,
+        login: creds.login,
+        password: creds.password,
+        source: "organization",
+        configured: true,
+        priority: settingsRow?.priority ?? orgRow.priority ?? 1,
+      };
     }
   }
 
@@ -169,11 +174,12 @@ export async function resolveEffectiveDataforseoConfig(params?: {
 
   if (envLogin && envPassword) {
     return {
-      enabled: envEnabled,
+      enabled: settingsRow?.enabled ?? envEnabled,
       login: envLogin.trim(),
       password: envPassword.trim(),
       source: "environment",
       configured: true,
+      priority: projectRow?.priority ?? orgRow?.priority ?? 1,
     };
   }
 
@@ -182,20 +188,22 @@ export async function resolveEffectiveDataforseoConfig(params?: {
     const parsed = parseLegacyDataforseoApiKey(envApiKey);
     if (parsed) {
       return {
-        enabled: envEnabled,
+        enabled: settingsRow?.enabled ?? envEnabled,
         login: parsed.login,
         password: parsed.password,
         source: "environment",
         configured: true,
+        priority: projectRow?.priority ?? orgRow?.priority ?? 1,
       };
     }
   }
 
   // 4. Not configured
   return {
-    enabled: false,
+    enabled: settingsRow?.enabled ?? false,
     source: "none",
     configured: false,
+    priority: projectRow?.priority ?? orgRow?.priority ?? 1,
   };
 }
 
@@ -237,6 +245,7 @@ export async function getDataforseoSettingsView(input: {
     override = {
       configured: Boolean(creds),
       enabled: targetRow.enabled,
+      priority: targetRow.priority ?? 1,
       loginMasked: creds ? maskDataforseoLogin(creds.login) : null,
       passwordConfigured: Boolean(creds?.password),
     };
@@ -246,6 +255,7 @@ export async function getDataforseoSettingsView(input: {
     provider: "dataforseo",
     configured: effective.configured,
     enabled: effective.enabled,
+    priority: effective.priority,
     source: effective.source,
     loginMasked: maskDataforseoLogin(effective.login),
     passwordConfigured: Boolean(effective.password),
@@ -325,6 +335,7 @@ export async function saveDataforseoSettings(
     patch.enabled !== undefined
       ? patch.enabled
       : (existingRow?.enabled ?? true);
+  const priority = patch.priority ?? existingRow?.priority ?? 1;
 
   if (isProject && projectId) {
     await SeoProviderSettingsRepository.upsertProjectProviderSettingsRow(
@@ -332,6 +343,7 @@ export async function saveDataforseoSettings(
       "dataforseo",
       {
         enabled,
+        priority,
         credentialsCiphertext,
       },
     );
@@ -341,6 +353,7 @@ export async function saveDataforseoSettings(
       "dataforseo",
       {
         enabled,
+        priority,
         credentialsCiphertext,
       },
     );

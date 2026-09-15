@@ -290,7 +290,14 @@ export const rankCheckRuns = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     status: text("status", {
-      enum: ["pending", "running", "completed", "failed", "partial"],
+      enum: [
+        "pending",
+        "running",
+        "completed",
+        "failed",
+        "partial",
+        "cancelled",
+      ],
     })
       .notNull()
       .default("pending"),
@@ -513,6 +520,7 @@ export const seoProviderSettings = pgTable(
       onDelete: "cascade",
     }),
     enabled: boolean("enabled").notNull().default(true),
+    priority: integer("priority"),
     // Encrypted JSON { login: string, password: string }
     credentials: text("credentials"),
     updatedAt: text("updated_at").notNull().default(isoNow),
@@ -527,3 +535,47 @@ export const seoProviderSettings = pgTable(
   ],
 );
 
+export const rankProviderCalls = pgTable(
+  "rank_provider_calls",
+  {
+    id: serial("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => rankCheckRuns.id, { onDelete: "cascade" }),
+    trackingKeywordId: text("tracking_keyword_id").notNull(),
+    device: text("device", { enum: ["desktop", "mobile"] }).notNull(),
+    provider: text("provider").notNull(),
+    endpoint: text("endpoint").notNull(),
+    status: text("status", {
+      enum: ["success", "failed", "insufficient_depth", "skipped"],
+    }).notNull(),
+    httpStatus: integer("http_status"),
+    errorCode: text("error_code"),
+    durationMs: integer("duration_ms").notNull(),
+    resultCount: integer("result_count"),
+    requestedDepth: integer("requested_depth").notNull().default(0),
+    inspectedDepth: integer("inspected_depth"),
+    pagesRequested: integer("pages_requested").notNull().default(0),
+    resultCompleteness: text("result_completeness", {
+      enum: [
+        "partial",
+        "complete",
+        "target_found",
+        "insufficient_depth",
+        "not_applicable",
+      ],
+    })
+      .notNull()
+      .default("not_applicable"),
+    dispatched: boolean("dispatched").notNull().default(true),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (table) => [
+    index("rank_provider_calls_run_idx").on(table.runId, table.createdAt),
+    index("rank_provider_calls_keyword_idx").on(
+      table.runId,
+      table.trackingKeywordId,
+      table.device,
+    ),
+  ],
+);

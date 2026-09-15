@@ -23,7 +23,14 @@ export type GlobalTraceFeature =
   | "prompt_explorer"
   | "settings";
 
-export type GlobalTraceStatus = "running" | "success" | "failed" | "blocked";
+export type GlobalTraceStatus =
+  | "pending"
+  | "running"
+  | "cancelling"
+  | "success"
+  | "failed"
+  | "cancelled"
+  | "blocked";
 
 export type GlobalTraceFilter =
   | "all"
@@ -53,13 +60,23 @@ export type GlobalTraceProviderCall = {
   resultCount?: number;
   itemsCount?: number;
   tasksError?: number;
+  requestedDepth?: number;
+  inspectedDepth?: number | null;
+  pagesRequested?: number;
+  resultCompleteness?: string;
+  dispatched?: boolean;
 };
 
 export type GlobalTraceKeywordChild = {
   keywordId: string;
   keyword?: string; // safe display label
-  status: "success" | "failed" | "blocked" | "no_result";
-  rankingStatus?: "RANKED" | "NO_RESULT" | "CHECK_FAILED" | "NOT_CHECKED";
+  status: "success" | "failed" | "blocked" | "no_result" | "cancelled";
+  rankingStatus?:
+    | "RANKED"
+    | "NO_RESULT"
+    | "CHECK_FAILED"
+    | "NOT_CHECKED"
+    | "CANCELLED";
   provider?: string;
   durationMs?: number;
   positionBefore?: number | null;
@@ -93,6 +110,14 @@ export type GlobalTraceOperation = {
   startedAt: number;
   completedAt?: number;
   durationMs?: number;
+
+  // Cancellation metadata
+  supportsCancellation?: boolean;
+  rankCheckRunId?: string;
+  cancelRequestedAt?: number;
+  cancelledAt?: number;
+  completedBeforeCancellation?: number;
+  remainingItems?: number;
 
   // Selection scope (Mandatory for rank tracking selected checks)
   scope?: "selected" | "all";

@@ -7,6 +7,7 @@ import { SearchConsoleConnectionCard } from "@/client/features/gsc/SearchConsole
 import { ProjectMarketFields } from "@/client/features/projects/ProjectMarketFields";
 import { ProjectAiSettingsSection } from "@/client/features/ai/ProjectAiSettingsSection";
 import { GlobalDebugTraceSettingsSection } from "@/client/features/tracing/GlobalDebugTraceSettingsSection";
+import { SerpProvidersSettingsSection } from "@/client/features/settings/SerpProvidersSettingsSection";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   traceSettingsMutation,
@@ -86,8 +87,17 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         <ProjectAiSettingsSection projectId={projectId} />
       </section>
 
+      <section id="serp-providers" className="space-y-3 scroll-mt-6">
+        <h2 className="text-sm font-medium text-base-content/50">
+          SERP Providers
+        </h2>
+        <SerpProvidersSettingsSection projectId={projectId} />
+      </section>
+
       <section id="debug-trace" className="space-y-3 scroll-mt-6">
-        <h2 className="text-sm font-medium text-base-content/50">Debug Trace</h2>
+        <h2 className="text-sm font-medium text-base-content/50">
+          Debug Trace
+        </h2>
         <GlobalDebugTraceSettingsSection projectId={projectId} />
       </section>
 

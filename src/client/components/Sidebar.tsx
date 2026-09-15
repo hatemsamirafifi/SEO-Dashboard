@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import type { LinkOptions } from "@tanstack/react-router";
 import { useEffect, useState, type ComponentType } from "react";
 import {
+  Bug,
   CircleHelp,
   CreditCard,
   LayoutGrid,
@@ -22,6 +23,7 @@ import { closeDropdown } from "@/client/lib/dropdown";
 import { signOutAndRedirect, useSession } from "@/lib/auth-client";
 import { isHostedClientAuthMode } from "@/lib/auth-mode";
 import { BILLING_ROUTE } from "@/shared/billing";
+import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
 
 interface SidebarProps {
   projectId: string | null;
@@ -266,6 +268,18 @@ function SidebarFooter({ onNavigate }: { onNavigate?: () => void }) {
                 Settings
               </Link>
             </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => {
+                  closeMenu();
+                  globalTraceStore.setPanelOpen(true);
+                }}
+              >
+                <Bug className="h-4 w-4" />
+                Debug Trace
+              </button>
+            </li>
             {isHostedMode ? (
               <li>
                 <Link to={BILLING_ROUTE} onClick={closeMenu}>
@@ -296,12 +310,23 @@ function SidebarFooter({ onNavigate }: { onNavigate?: () => void }) {
           </ul>
         </div>
       ) : (
-        <SidebarNavLink
-          icon={Settings}
-          label="Settings"
-          onNavigate={onNavigate}
-          linkProps={{ to: "/settings" }}
-        />
+        <div className="space-y-0.5">
+          <button
+            type="button"
+            onClick={() => globalTraceStore.setPanelOpen(true)}
+            className={`${navItemClass} w-full text-left`}
+            title="Open Debug Trace"
+          >
+            <Bug className="h-4 w-4 shrink-0 text-primary" />
+            <span>Debug Trace</span>
+          </button>
+          <SidebarNavLink
+            icon={Settings}
+            label="Settings"
+            onNavigate={onNavigate}
+            linkProps={{ to: "/settings" }}
+          />
+        </div>
       )}
     </div>
   );

@@ -24,6 +24,7 @@ import {
 } from "@/shared/billing";
 import { estimateRankCheckCredits } from "@/shared/rank-tracking";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
+import { createRankSerpResolver } from "@/server/features/serp/providerResolver";
 
 const SINGLE_ATTEMPT_STEP_CONFIG = {
   retries: { limit: 0, delay: "1 second" as const },
@@ -61,7 +62,8 @@ async function prepareRankCheckKeywords(input: {
     !run ||
     run.status === "failed" ||
     run.status === "completed" ||
-    run.status === "partial"
+    run.status === "partial" ||
+    run.status === "cancelled"
   ) {
     throw new NonRetryableError(
       `Run ${input.runId} is no longer active (status=${run?.status ?? "missing"})`,
@@ -176,6 +178,17 @@ async function finalizeRankCheckRun(input: {
     snapshots.map((s) => s.trackingKeywordId),
   ).size;
 
+  // If the run was cancelled by user, preserve 'cancelled' status and update truthful checked count
+  if (run.status === "cancelled") {
+    await RankTrackingRepository.updateRun(input.runId, {
+      status: "cancelled",
+      keywordsChecked: successfulKeywords,
+      completedAt: run.completedAt ?? nowIso,
+      errorMessage: run.errorMessage ?? "Cancelled by user",
+    });
+    return;
+  }
+
   const keywordsTotal = run.keywordsTotal || allAttemptedKeywords;
   const unattemptedCount = Math.max(0, keywordsTotal - allAttemptedKeywords);
 
@@ -190,11 +203,7 @@ async function finalizeRankCheckRun(input: {
     errorMessage = input.batchError
       ? `Completed 0 of ${keywordsTotal} keyword(s). Error: ${input.batchError}`
       : `${keywordsTotal} keyword(s) could not be checked`;
-  } else if (
-    failedKeywords > 0 ||
-    unattemptedCount > 0 ||
-    input.batchError
-  ) {
+  } else if (failedKeywords > 0 || unattemptedCount > 0 || input.batchError) {
     status = "partial";
     errorMessage = input.batchError
       ? `Completed ${successfulKeywords} of ${keywordsTotal} keyword(s). Error: ${input.batchError}`
@@ -320,6 +329,11 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
     } = event.payload;
 
     const client = createDataforseoClient(billingCustomer);
+    const rankSerp = await createRankSerpResolver({
+      client,
+      organizationId: billingCustomer.organizationId,
+      projectId,
+    });
 
     // Guard: skip if config was archived after the workflow was triggered
     const configCheck = await pgStep(
@@ -370,6 +384,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       try {
         const checkContext = {
           client,
+          rankSerp,
           keywords,
           devices,
           serpDepth,

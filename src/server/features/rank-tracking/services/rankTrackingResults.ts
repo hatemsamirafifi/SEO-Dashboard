@@ -207,5 +207,6 @@ export function toDeviceResult(
     errorMessage: snapshot.errorMessage,
     providerStatus: snapshot.providerStatus,
     providerStatusCode: snapshot.providerStatusCode,
+    provider: snapshot.provider,
   };
 }

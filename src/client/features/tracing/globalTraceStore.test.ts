@@ -1,8 +1,14 @@
 /* eslint-disable max-lines, max-lines-per-function, @typescript-eslint/no-unsafe-type-assertion */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { globalTraceStore } from "./globalTraceStore";
 import { filterOperations } from "./globalTraceFormat";
+import { registerCancellation } from "./cancellationRegistry";
 import type { GlobalTraceOperation } from "@/shared/globalTraceTypes";
+import { cancelRankCheckRun } from "@/serverFunctions/rank-tracking";
+
+vi.mock("@/serverFunctions/rank-tracking", () => ({
+  cancelRankCheckRun: vi.fn(async () => ({ ok: true, status: "cancelled" })),
+}));
 
 describe("GlobalTraceStore", () => {
   beforeEach(() => {
@@ -58,7 +64,9 @@ describe("GlobalTraceStore", () => {
       providerCalls: 4,
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.providerCalls).toBe(4);
     expect(op?.providers).toHaveLength(4);
   });
@@ -81,12 +89,17 @@ describe("GlobalTraceStore", () => {
       providerCalls: 4,
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.providerBreakdown).toEqual([
       { provider: "Internal", count: 2 },
       { provider: "DataForSEO", count: 2 },
     ]);
-    const sum = op?.providerBreakdown?.reduce((acc, item) => acc + item.count, 0);
+    const sum = op?.providerBreakdown?.reduce(
+      (acc, item) => acc + item.count,
+      0,
+    );
     expect(sum).toBe(4);
   });
 
@@ -131,7 +144,9 @@ describe("GlobalTraceStore", () => {
     });
     globalTraceStore.completeOperation(opId, { status: "success" });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.billing).toBe("Paid");
     expect(op?.metered).toBe(true);
     expect(op?.budget).toBe("PASS");
@@ -155,7 +170,9 @@ describe("GlobalTraceStore", () => {
       rankChecksStarted: 0,
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.status).toBe("blocked");
     expect(op?.budget).toBe("BLOCKED");
     expect(op?.blockedReason).toBe("DataForSEO budget exceeded");
@@ -176,12 +193,19 @@ describe("GlobalTraceStore", () => {
         attempted: true,
         count: 1,
         details: [
-          { attempt: 1, provider: "DataForSEO", httpStatus: 500, durationMs: 250 },
+          {
+            attempt: 1,
+            provider: "DataForSEO",
+            httpStatus: 500,
+            durationMs: 250,
+          },
         ],
       },
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.retry?.attempted).toBe(true);
     expect(op?.retry?.count).toBe(1);
     expect(op?.retry?.details?.[0].httpStatus).toBe(500);
@@ -201,7 +225,9 @@ describe("GlobalTraceStore", () => {
       errorMessage: "Payment Required",
     });
 
-    const op = globalTraceStore.getState().operations.find((o) => o.operationId === opId);
+    const op = globalTraceStore
+      .getState()
+      .operations.find((o) => o.operationId === opId);
     expect(op?.status).toBe("failed");
     expect(op?.httpStatus).toBe(402);
     expect(op?.errorClass).toBe("CREDITS_UNAVAILABLE");
@@ -375,9 +401,13 @@ describe("GlobalTraceStore", () => {
         selectedCount: 1,
       });
 
-      const storedRaw = mockLocalStorage.getItem("openseo_global_trace_operations");
+      const storedRaw = mockLocalStorage.getItem(
+        "openseo_global_trace_operations",
+      );
       expect(storedRaw).toBeTruthy();
-      const stored = (storedRaw ? JSON.parse(storedRaw) : []) as GlobalTraceOperation[];
+      const stored = (
+        storedRaw ? JSON.parse(storedRaw) : []
+      ) as GlobalTraceOperation[];
       expect(stored).toHaveLength(1);
       expect(stored[0]?.operationId).toBe(opId);
       expect(stored[0]?.status).toBe("running");
@@ -387,8 +417,12 @@ describe("GlobalTraceStore", () => {
         rankChecksSucceeded: 1,
       });
 
-      const updatedRaw = mockLocalStorage.getItem("openseo_global_trace_operations");
-      const updated = (updatedRaw ? JSON.parse(updatedRaw) : []) as GlobalTraceOperation[];
+      const updatedRaw = mockLocalStorage.getItem(
+        "openseo_global_trace_operations",
+      );
+      const updated = (
+        updatedRaw ? JSON.parse(updatedRaw) : []
+      ) as GlobalTraceOperation[];
       expect(updated[0]?.status).toBe("success");
       expect(updated[0]?.rankChecksSucceeded).toBe(1);
     } finally {
@@ -454,7 +488,9 @@ describe("GlobalTraceStore", () => {
 
       expect(notified).toBe(true);
       expect(globalTraceStore.getState().operations).toHaveLength(1);
-      expect(globalTraceStore.getState().operations[0]?.operationId).toBe("ext-op-1");
+      expect(globalTraceStore.getState().operations[0]?.operationId).toBe(
+        "ext-op-1",
+      );
 
       unsubscribe();
     } finally {
@@ -464,5 +500,268 @@ describe("GlobalTraceStore", () => {
         globalObj.window = originalWindow;
       }
     }
+  });
+
+  describe("removeOperation", () => {
+    it("removes a single completed trace without affecting other traces", () => {
+      const op1 = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+      });
+      globalTraceStore.completeOperation(op1, { status: "success" });
+
+      const op2 = globalTraceStore.startOperation({
+        feature: "domain_overview",
+        operation: "domain_overview.get",
+        source: "UI",
+      });
+      globalTraceStore.completeOperation(op2, { status: "success" });
+
+      expect(globalTraceStore.getState().operations).toHaveLength(2);
+
+      globalTraceStore.removeOperation(op1);
+
+      const remaining = globalTraceStore.getState().operations;
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].operationId).toBe(op2);
+    });
+
+    it("removes a single failed trace without affecting other traces", () => {
+      const op1 = globalTraceStore.startOperation({
+        feature: "keyword_research",
+        operation: "keyword_research.research",
+        source: "UI",
+      });
+      globalTraceStore.completeOperation(op1, {
+        status: "failed",
+        errorMessage: "Network timeout",
+      });
+
+      const op2 = globalTraceStore.startOperation({
+        feature: "settings",
+        operation: "settings.dataforseo.connection_test",
+        source: "UI",
+      });
+      globalTraceStore.completeOperation(op2, { status: "success" });
+
+      globalTraceStore.removeOperation(op1);
+
+      const ops = globalTraceStore.getState().operations;
+      expect(ops).toHaveLength(1);
+      expect(ops[0].operationId).toBe(op2);
+    });
+
+    it("removes a single cancelled trace", async () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_all",
+        source: "UI",
+      });
+      await globalTraceStore.cancelOperation(opId);
+      expect(globalTraceStore.getState().operations[0].status).toBe(
+        "cancelled",
+      );
+
+      globalTraceStore.removeOperation(opId);
+      expect(globalTraceStore.getState().operations).toHaveLength(0);
+    });
+
+    it("safely handles removing a non-existent operationId as a no-op", () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+      });
+      globalTraceStore.completeOperation(opId, { status: "success" });
+
+      globalTraceStore.removeOperation("non-existent-id");
+      expect(globalTraceStore.getState().operations).toHaveLength(1);
+    });
+
+    it("removing a running operation from trace does NOT cancel the underlying task", () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+      });
+
+      const cancelFn = vi.fn();
+      registerCancellation(opId, cancelFn);
+
+      // User removes the running trace entry
+      globalTraceStore.removeOperation(opId);
+
+      // Verify trace entry was removed
+      expect(globalTraceStore.getState().operations).toHaveLength(0);
+
+      // Crucial: cancellation handler was NOT invoked!
+      expect(cancelFn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("cancelOperation", () => {
+    it("transitions running to cancelling to cancelled", async () => {
+      let resolveCancel: () => void = () => {};
+      const cancelPromise = new Promise<void>((resolve) => {
+        resolveCancel = resolve;
+      });
+
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+      });
+
+      registerCancellation(opId, () => cancelPromise);
+
+      expect(globalTraceStore.getState().operations[0].status).toBe("running");
+
+      // Start cancellation
+      const cancelFuture = globalTraceStore.cancelOperation(opId);
+
+      // While handler is executing, status is "cancelling"
+      expect(globalTraceStore.getState().operations[0].status).toBe(
+        "cancelling",
+      );
+
+      // Complete handler
+      resolveCancel();
+      await cancelFuture;
+
+      // After handler finishes, status is "cancelled"
+      expect(globalTraceStore.getState().operations[0].status).toBe(
+        "cancelled",
+      );
+    });
+
+    it("cancels a running operation and records cancellation metadata", async () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+        selectedCount: 10,
+      });
+
+      expect(globalTraceStore.getState().operations[0].status).toBe("running");
+
+      await globalTraceStore.cancelOperation(opId, {
+        completedBeforeCancellation: 3,
+        remainingItems: 7,
+      });
+
+      const op = globalTraceStore.getState().operations[0];
+      expect(op.status).toBe("cancelled");
+      expect(op.cancelledAt).toBeDefined();
+      expect(op.cancelRequestedAt).toBeDefined();
+      expect(op.completedBeforeCancellation).toBe(3);
+      expect(op.remainingItems).toBe(7);
+    });
+
+    it("is idempotent: calling cancelOperation multiple times does not corrupt state", async () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+      });
+
+      await globalTraceStore.cancelOperation(opId);
+      const firstCancelledAt =
+        globalTraceStore.getState().operations[0].cancelledAt;
+
+      // Second call
+      await globalTraceStore.cancelOperation(opId);
+      const op = globalTraceStore.getState().operations[0];
+      expect(op.status).toBe("cancelled");
+      expect(op.cancelledAt).toBe(firstCancelledAt);
+    });
+
+    it("cancelling an already completed (success/failed) operation is a no-op", async () => {
+      const opSuccess = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+      });
+      globalTraceStore.completeOperation(opSuccess, { status: "success" });
+
+      await globalTraceStore.cancelOperation(opSuccess);
+      expect(globalTraceStore.getState().operations[0].status).toBe("success");
+
+      const opFailed = globalTraceStore.startOperation({
+        feature: "domain_overview",
+        operation: "domain_overview.get",
+        source: "UI",
+      });
+      globalTraceStore.completeOperation(opFailed, { status: "failed" });
+
+      await globalTraceStore.cancelOperation(opFailed);
+      const failedOp = globalTraceStore
+        .getState()
+        .operations.find((o) => o.operationId === opFailed);
+      expect(failedOp?.status).toBe("failed");
+    });
+
+    it("race condition: completeOperation does not overwrite a cancelled operation", async () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+      });
+
+      // User cancelled before network response completed
+      await globalTraceStore.cancelOperation(opId);
+      expect(globalTraceStore.getState().operations[0].status).toBe(
+        "cancelled",
+      );
+
+      // Network response completes late
+      globalTraceStore.completeOperation(opId, {
+        status: "success",
+        rankChecksSucceeded: 5,
+      });
+
+      const op = globalTraceStore.getState().operations[0];
+      expect(op.status).toBe("cancelled");
+    });
+
+    it("registers supportsCancellation and rankCheckRunId on operation", () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+        supportsCancellation: true,
+        rankCheckRunId: "run_abc_123",
+      });
+
+      const op = globalTraceStore.getState().operations[0];
+      expect(op.supportsCancellation).toBe(true);
+      expect(op.rankCheckRunId).toBe("run_abc_123");
+    });
+
+    it("invokes server cancellation function directly when runId exists even without in-memory handler", async () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "rank_tracking",
+        operation: "rank_tracking.check_selected",
+        source: "UI",
+        projectId: "proj_123",
+        supportsCancellation: true,
+        rankCheckRunId: "run_456",
+        metadata: { configId: "cfg_789" },
+      });
+
+      // User cancels; no in-memory cancellationRegistry handler was registered
+      await globalTraceStore.cancelOperation(opId);
+
+      expect(cancelRankCheckRun).toHaveBeenCalledWith({
+        data: {
+          projectId: "proj_123",
+          configId: "cfg_789",
+          runId: "run_456",
+        },
+      });
+
+      const op = globalTraceStore.getState().operations[0];
+      expect(op.status).toBe("cancelled");
+    });
   });
 });

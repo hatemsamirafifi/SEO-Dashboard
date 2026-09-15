@@ -13,6 +13,7 @@ import {
   createConfigSchema,
   updateConfigSchema,
   triggerCheckSchema,
+  cancelRankCheckSchema,
   getLatestResultsSchema,
   getLatestRunSchema,
   estimateCostSchema,
@@ -31,7 +32,12 @@ export interface RankKeywordHistoryPoint {
   checkedDate?: string | null;
   position: number | null;
   previousPosition?: number | null;
-  rankingStatus?: "RANKED" | "NO_RESULT" | "CHECK_FAILED" | "NOT_CHECKED" | null;
+  rankingStatus?:
+    | "RANKED"
+    | "NO_RESULT"
+    | "CHECK_FAILED"
+    | "NOT_CHECKED"
+    | null;
   url?: string | null;
   providerStatus?: string | null;
   errorMessage?: string | null;
@@ -166,6 +172,17 @@ export const triggerRankCheck = createServerFn({ method: "POST" })
     }
 
     return result;
+  });
+
+export const cancelRankCheckRun = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(cancelRankCheckSchema)
+  .handler(async ({ data, context }) => {
+    return RankTrackingService.cancelRun({
+      configId: data.configId,
+      projectId: context.projectId,
+      runId: data.runId,
+    });
   });
 
 export const getLatestRankResults = createServerFn({ method: "POST" })

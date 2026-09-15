@@ -24,12 +24,8 @@ interface RunUpdateCall {
 
 const repoMocks = vi.hoisted(() => ({
   getRunById: vi.fn(),
-  updateRun: vi.fn<
-    (runId: string, data: RunUpdateCall) => Promise<void>
-  >(),
-  getKeywordsForConfig: vi.fn<
-    (configId: string) => Promise<KeywordEntry[]>
-  >(),
+  updateRun: vi.fn<(runId: string, data: RunUpdateCall) => Promise<void>>(),
+  getKeywordsForConfig: vi.fn<(configId: string) => Promise<KeywordEntry[]>>(),
   insertSnapshots: vi.fn(),
   getSnapshotsForRun: vi.fn(),
   getConfigById: vi.fn(),
@@ -37,9 +33,8 @@ const repoMocks = vi.hoisted(() => ({
 }));
 
 const pathsMocks = vi.hoisted(() => ({
-  runLiveCheck: vi.fn<
-    (step: unknown, ctx: CheckContextCall) => Promise<string | null>
-  >(),
+  runLiveCheck:
+    vi.fn<(step: unknown, ctx: CheckContextCall) => Promise<string | null>>(),
   runQueuedCheck: vi.fn(),
 }));
 
@@ -86,6 +81,9 @@ vi.mock("@/server/workflows/pgStep", () => ({
 }));
 vi.mock("@/server/lib/dataforseo", () => ({
   createDataforseoClient: () => ({}),
+}));
+vi.mock("@/server/features/serp/providerResolver", () => ({
+  createRankSerpResolver: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("@/server/lib/posthog", () => ({
   captureServerEvent: vi.fn(),
@@ -138,7 +136,8 @@ async function runWorkflow(params: {
     // Never invoked by the workflow under test; typed to satisfy the engine's
     // WorkflowStep surface without importing real runtime code.
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- unused stub cast to the engine's step signature
-    waitForEvent: (() => Promise.resolve({} as never)) as unknown as WorkflowStep["waitForEvent"],
+    waitForEvent: (() =>
+      Promise.resolve({} as never)) as unknown as WorkflowStep["waitForEvent"],
   };
   const payload: WorkflowEventPayload = {
     runId: "run_1",

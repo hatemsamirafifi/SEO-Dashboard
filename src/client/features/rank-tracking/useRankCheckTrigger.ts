@@ -3,8 +3,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { captureClientEvent } from "@/client/lib/posthog";
-import { triggerRankCheck } from "@/serverFunctions/rank-tracking";
+import {
+  triggerRankCheck,
+  cancelRankCheckRun,
+} from "@/serverFunctions/rank-tracking";
 import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
+import {
+  registerCancellation,
+  unregisterCancellation,
+} from "@/client/features/tracing/cancellationRegistry";
 import type { GlobalTraceProviderCall } from "@/shared/globalTraceTypes";
 import {
   busyBlockedReason,
@@ -16,6 +23,7 @@ import {
 interface CheckTriggerVariables {
   keywordIds?: string[];
   traceOperationId?: string;
+  signal?: AbortSignal;
 }
 
 export function useRankCheckTrigger({
@@ -35,6 +43,8 @@ export function useRankCheckTrigger({
 }) {
   const queryClient = useQueryClient();
   const currentOpIdRef = useRef<string | null>(null);
+  const currentRunIdRef = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const triggerMutation = useMutation({
     mutationFn: (opts: CheckTriggerVariables) =>
@@ -45,6 +55,7 @@ export function useRankCheckTrigger({
           keywordIds: opts.keywordIds,
           operationId: opts.traceOperationId,
         },
+        signal: opts.signal,
       }),
     onSuccess: (result, opts) => {
       onSuccess();
@@ -63,9 +74,12 @@ export function useRankCheckTrigger({
             blockedReason: "A rank check is already running",
             providerCalls: 0,
           });
+          unregisterCancellation(opId);
         }
         return;
       }
+
+      currentRunIdRef.current = result.runId;
 
       captureClientEvent("rank_tracking:check_trigger", {
         scope: opts.keywordIds ? "selected" : "all",
@@ -82,34 +96,32 @@ export function useRankCheckTrigger({
           result.validatedCount ?? opts.keywordIds?.length ?? 1;
         const validatedIds =
           result.validatedKeywordIds ?? opts.keywordIds ?? [];
-        // Manual checks always run on the DataForSEO live endpoint (one task
-        // per keyword/device pair). HTTP/task outcomes are NOT known yet —
-        // they are attached by the polling completion from snapshot evidence,
-        // never defaulted here.
-        const taskCount = providerTaskCount(validatedCount, devices);
-        const providers: GlobalTraceProviderCall[] = Array.from(
-          { length: taskCount },
-          () => ({
-            provider: "DataForSEO",
-            endpoint: "v3/serp/google/organic/live/advanced",
-            transport: "HTTP",
-            billing: "Paid",
-            metered: true,
-            budgetGuard: "PASS",
-          }),
-        );
+
+        // Re-register cancellation with the confirmed server runId
+        registerCancellation(opId, async () => {
+          try {
+            await cancelRankCheckRun({
+              data: {
+                projectId,
+                configId,
+                runId: result.runId,
+              },
+            });
+          } catch (err) {
+            console.error("Failed to cancel server rank check run:", err);
+          }
+        });
 
         globalTraceStore.updateOperation(opId, {
           scope: result.scope ?? (opts.keywordIds ? "selected" : "all"),
           selectedCount: result.selectedCount ?? opts.keywordIds?.length,
           validatedCount,
-          rankChecksStarted: validatedCount,
+          rankChecksStarted: 0,
+          providerCalls: 0,
           rankChecksSkipped: result.unselectedCount ?? 0,
           selectedKeywordIds: validatedIds,
-          provider: `DataForSEO ×${taskCount}`,
-          providerCalls: taskCount,
-          providerBreakdown: [{ provider: "DataForSEO", count: taskCount }],
-          providers,
+          supportsCancellation: true,
+          rankCheckRunId: result.runId,
           metadata: {
             runId: result.runId,
             configId,
@@ -118,13 +130,31 @@ export function useRankCheckTrigger({
       }
     },
     onError: (error, opts) => {
+      const opId = opts?.traceOperationId ?? currentOpIdRef.current;
+      const isAbort =
+        (error instanceof Error && error.name === "AbortError") ||
+        (error instanceof DOMException && error.name === "AbortError") ||
+        (error instanceof Error &&
+          error.message.toLowerCase().includes("aborted"));
+
+      if (isAbort) {
+        if (opId) {
+          globalTraceStore.completeOperation(opId, {
+            status: "cancelled",
+            errorClass: "CANCELLED",
+            errorMessage: "Operation cancelled by user",
+          });
+          unregisterCancellation(opId);
+        }
+        return;
+      }
+
       const message = getStandardErrorMessage(
         error,
         "Failed to start rank check",
       );
       toast.error(message);
 
-      const opId = opts?.traceOperationId ?? currentOpIdRef.current;
       if (opId) {
         const isBudgetBlocked =
           message.toLowerCase().includes("credit") ||
@@ -143,6 +173,7 @@ export function useRankCheckTrigger({
             : "TRIGGER_CHECK_FAILED",
           errorMessage: message,
         });
+        unregisterCancellation(opId);
       }
     },
   });
@@ -201,6 +232,9 @@ export function useRankCheckTrigger({
         scope: isSelected ? "selected" : "all",
         selectedCount: opts.keywordIds?.length,
         selectedKeywordIds: opts.keywordIds,
+        supportsCancellation: true,
+        rankChecksStarted: 0,
+        providerCalls: 0,
         billing: "Paid",
         metered: true,
         budget: "PASS",
@@ -211,8 +245,37 @@ export function useRankCheckTrigger({
       opId = `trace_${Date.now().toString(36)}`;
     }
     currentOpIdRef.current = opId;
+    currentRunIdRef.current = null;
 
-    triggerMutation.mutate({ ...opts, traceOperationId: opId });
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    registerCancellation(opId, async () => {
+      // 1. Abort in-flight client request
+      controller.abort();
+
+      // 2. Cancel server run if created
+      const runId = currentRunIdRef.current;
+      if (runId) {
+        try {
+          await cancelRankCheckRun({
+            data: {
+              projectId,
+              configId,
+              runId,
+            },
+          });
+        } catch (err) {
+          console.error("Failed to cancel server rank check run:", err);
+        }
+      }
+    });
+
+    triggerMutation.mutate({
+      ...opts,
+      traceOperationId: opId,
+      signal: controller.signal,
+    });
   };
 
   return {

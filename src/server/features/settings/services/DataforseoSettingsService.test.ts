@@ -61,6 +61,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         enabled: false,
         source: "none",
         configured: false,
+        priority: 1,
       });
     });
 
@@ -86,6 +87,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         password: "env-password",
         source: "environment",
         configured: true,
+        priority: 1,
       });
     });
 
@@ -108,6 +110,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         password: "legacy-pass",
         source: "environment",
         configured: true,
+        priority: 1,
       });
     });
 
@@ -145,6 +148,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         password: "org-password",
         source: "organization",
         configured: true,
+        priority: 1,
       });
     });
 
@@ -192,6 +196,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         password: "proj-password",
         source: "project",
         configured: true,
+        priority: 1,
       });
     });
   });

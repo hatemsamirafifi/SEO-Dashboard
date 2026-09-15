@@ -13,14 +13,14 @@ import {
   reconcileActiveRankCheckRun,
 } from "./rankCheckRunGuards";
 import {
-  estimateRankCheckCredits,
   computeNextCheckAt,
-  devicesCount,
   isScheduledRankTrackingInterval,
   MAX_KEYWORDS_PER_CONFIG,
   MAX_CONFIGS_PER_PROJECT,
 } from "@/shared/rank-tracking";
 import { resolveMarket } from "@/shared/keyword-locations";
+import { formatRankTrackingCost } from "./rankTrackingCost";
+import { formatRankTrackingRun } from "./rankTrackingRun";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -224,9 +224,8 @@ async function validateSelectedKeywordIds(
 ): Promise<string[] | null> {
   if (!keywordIds || keywordIds.length === 0) return null;
 
-  const configKeywords = await RankTrackingRepository.getKeywordsForConfig(
-    configId,
-  );
+  const configKeywords =
+    await RankTrackingRepository.getKeywordsForConfig(configId);
   const configKeywordIds = new Set(configKeywords.map((kw) => kw.id));
 
   const seen = new Set<string>();
@@ -313,6 +312,9 @@ async function getLatestRun(configId: string, projectId: string) {
   await getValidatedConfig(configId, projectId);
   const run = await RankTrackingRepository.getLatestRunForConfig(configId);
   if (!run) return null;
+  const providerCalls = await RankTrackingRepository.getProviderCallsForRun(
+    run.id,
+  );
 
   // If the DB says the run is still active, check the workflow instance.
   // We only report staleness here — the next call to beginRankCheckRun will
@@ -321,13 +323,13 @@ async function getLatestRun(configId: string, projectId: string) {
   // while a replacement was started.
   const reconciliation = await reconcileActiveRankCheckRun(run);
   if (reconciliation) {
-    return formatRun(run, {
+    return formatRankTrackingRun(run, providerCalls, {
       maybeStale: true,
       staleReason: reconciliation.errorMessage,
     });
   }
 
-  return formatRun(run);
+  return formatRankTrackingRun(run, providerCalls);
 }
 
 // ---------------------------------------------------------------------------
@@ -392,19 +394,7 @@ async function estimateCost(configId: string, projectId: string) {
   const config = await getValidatedConfig(configId, projectId);
   const keywordCount =
     await RankTrackingRepository.getKeywordCountForConfig(configId);
-  // Estimates the cost of a manual "check now", which always runs live.
-  const { costUsd, costCredits } = estimateRankCheckCredits(
-    keywordCount,
-    config.devices,
-    config.serpDepth,
-    "live",
-  );
-  return {
-    costUsd,
-    costCredits,
-    keywordCount,
-    devicesCount: devicesCount(config.devices),
-  };
+  return formatRankTrackingCost(config, keywordCount);
 }
 
 // ---------------------------------------------------------------------------
@@ -438,26 +428,57 @@ function normalizeDomain(domain: string): string {
   return d;
 }
 
-type RunRow = NonNullable<
-  Awaited<ReturnType<typeof RankTrackingRepository.getLatestRunForConfig>>
->;
+async function cancelRun(input: {
+  configId?: string;
+  projectId: string;
+  runId: string;
+}): Promise<{
+  ok: boolean;
+  runId: string;
+  status: string;
+  alreadyTerminal?: boolean;
+}> {
+  const run = await RankTrackingRepository.getRunById(input.runId);
+  if (
+    !run ||
+    run.projectId !== input.projectId ||
+    (input.configId && run.configId !== input.configId)
+  ) {
+    throw new AppError("NOT_FOUND", "Rank check run not found");
+  }
 
-function formatRun(
-  run: RunRow,
-  stale?: { maybeStale: boolean; staleReason: string },
-) {
-  return {
-    id: run.id,
-    status: run.status,
-    keywordsTotal: run.keywordsTotal,
-    keywordsChecked: run.keywordsChecked,
-    isSubsetRun: run.isSubsetRun,
-    errorMessage: run.errorMessage,
-    startedAt: run.startedAt,
-    completedAt: run.completedAt,
-    maybeStale: stale?.maybeStale ?? false,
-    staleReason: stale?.staleReason ?? null,
-  };
+  await getValidatedConfig(run.configId, input.projectId);
+
+  // Idempotency: if already in a terminal state, return without duplicate side effects
+  if (
+    run.status === "completed" ||
+    run.status === "failed" ||
+    run.status === "partial" ||
+    run.status === "cancelled"
+  ) {
+    return {
+      ok: true,
+      runId: run.id,
+      status: run.status,
+      alreadyTerminal: true,
+    };
+  }
+
+  const nowIso = new Date().toISOString();
+  await RankTrackingRepository.updateRun(run.id, {
+    status: "cancelled",
+    errorMessage: "Cancelled by user",
+    completedAt: nowIso,
+  });
+
+  try {
+    const instance = await env.RANK_CHECK_WORKFLOW.get(run.id);
+    await instance.terminate();
+  } catch {
+    // Workflow instance may not exist or terminate is unsupported in test env
+  }
+
+  return { ok: true, runId: run.id, status: "cancelled" };
 }
 
 export const RankTrackingService = {
@@ -469,4 +490,5 @@ export const RankTrackingService = {
   getLatestRun,
   estimateCost,
   refreshKeywordMetrics,
+  cancelRun,
 };
