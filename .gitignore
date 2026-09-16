@@ -49,3 +49,8 @@ dist-sourcemaps/
 
 # TypeScript incremental build metadata
 tsconfig.tsbuildinfo
+
+# Local IDE and editor MCP configs (skills and rules are shared)
+.gemini/
+.cursor/mcp.json
+.vscode/mcp.json
