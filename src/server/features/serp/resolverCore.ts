@@ -47,6 +47,8 @@ export type SerpResolverEntry = {
   configured: boolean;
   priority: number;
   provider: SerpProvider;
+  /** Per-provider circuit-breaker opt-out; defaults to enabled. */
+  circuitBreakerEnabled?: boolean;
   credentialFingerprint?: string | null;
   circuitProjectId?: string | null;
 };
@@ -92,12 +94,22 @@ function skippedCall(
     resultCompleteness: "not_applicable",
     dispatched: false,
     skipReason: code,
+    circuitBreakerEnabled: entry.circuitBreakerEnabled ?? true,
     circuitReason: circuit?.reason ?? null,
     circuitOpenedAt: circuit ? new Date(circuit.openedAt).toISOString() : null,
     circuitExpiresAt: circuit
       ? new Date(circuit.expiresAt).toISOString()
       : null,
   };
+}
+
+// Provider-emitted calls don't know the per-provider breaker setting; annotate
+// every recorded call so traces can truthfully report the protection state.
+function annotateCalls(
+  calls: SerpProviderCall[],
+  circuitBreakerEnabled: boolean,
+): SerpProviderCall[] {
+  return calls.map((call) => ({ ...call, circuitBreakerEnabled }));
 }
 
 export function createSerpResolverFromEntries(input: {
@@ -138,15 +150,22 @@ export function createSerpResolverFromEntries(input: {
           continue;
         }
         const identity = circuitIdentity(entry, input);
-        const circuit = getProviderCircuitState(identity);
+        const circuitBreakerEnabled = entry.circuitBreakerEnabled ?? true;
+        // A stale OPEN circuit must never bypass a provider whose breaker is
+        // disabled; with protection off, memory state is simply ignored.
+        const circuit = circuitBreakerEnabled
+          ? getProviderCircuitState(identity)
+          : null;
         if (circuit) {
           calls.push(skippedCall(entry, searchInput, "CIRCUIT_OPEN", circuit));
           continue;
         }
         try {
           const result = await entry.provider.search(searchInput);
-          calls.push(...result.calls);
-          closeProviderCircuit(identity);
+          calls.push(...annotateCalls(result.calls, circuitBreakerEnabled));
+          if (circuitBreakerEnabled) {
+            closeProviderCircuit(identity);
+          }
           return { ...result, calls };
         } catch (error) {
           if (
@@ -163,8 +182,12 @@ export function createSerpResolverFromEntries(input: {
                   [],
                   "Provider request failed",
                 );
-          calls.push(...providerError.calls);
-          if (providerError.deterministic) {
+          calls.push(
+            ...annotateCalls(providerError.calls, circuitBreakerEnabled),
+          );
+          // Only a deterministic failure with the breaker enabled trips the
+          // circuit; disabled protection retries on every eligible request.
+          if (circuitBreakerEnabled && providerError.deterministic) {
             openProviderCircuit(identity, providerError.code);
           }
         }

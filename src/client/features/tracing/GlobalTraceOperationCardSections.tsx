@@ -175,6 +175,7 @@ export function ProviderSection({
               {(p.requestedDepth !== undefined ||
                 p.inspectedDepth !== undefined ||
                 p.pagesRequested !== undefined ||
+                p.circuitBreakerEnabled === false ||
                 p.resultCompleteness) && (
                 <div className="mt-1 flex w-full flex-wrap gap-x-3 text-[11px] text-base-content/60">
                   {p.requestedDepth !== undefined && (
@@ -189,11 +190,24 @@ export function ProviderSection({
                   {p.resultCompleteness && (
                     <span>Outcome: {p.resultCompleteness.toUpperCase()}</span>
                   )}
+                  {p.dispatched !== false &&
+                    p.circuitBreakerEnabled === false && (
+                      <span>Circuit protection: Disabled</span>
+                    )}
                 </div>
               )}
               {p.dispatched === false && p.skipReason && (
                 <div className="mt-1 w-full text-[11px] text-base-content/70">
                   <span className="font-semibold">Reason:</span> {p.skipReason}
+                  {p.circuitBreakerEnabled === false && (
+                    <>
+                      {" · "}
+                      <span className="font-semibold">
+                        Circuit protection:
+                      </span>{" "}
+                      Disabled
+                    </>
+                  )}
                   {p.circuitReason && (
                     <>
                       {" · "}

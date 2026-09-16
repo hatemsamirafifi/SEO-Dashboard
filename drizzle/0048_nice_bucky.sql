@@ -1,0 +1,1 @@
+ALTER TABLE `seo_provider_settings` ADD `circuit_breaker_enabled` integer DEFAULT true NOT NULL;

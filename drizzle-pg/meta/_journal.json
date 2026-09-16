@@ -183,6 +183,13 @@
       "when": 1789586562094,
       "tag": "0025_even_callisto",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789593784215,
+      "tag": "0026_fast_captain_cross",
+      "breakpoints": true
     }
   ]
 }

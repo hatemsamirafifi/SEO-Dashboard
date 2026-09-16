@@ -1,6 +1,7 @@
 /* oxlint-disable eslint/complexity */
 /* eslint-disable complexity */
 /* eslint-disable max-lines */
+/* eslint-disable max-lines-per-function */
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -26,6 +27,7 @@ const originalLogin = process.env.DATAFORSEO_LOGIN;
 const originalPassword = process.env.DATAFORSEO_PASSWORD;
 const originalApiKey = process.env.DATAFORSEO_API_KEY;
 const originalEnabled = process.env.DATAFORSEO_ENABLED;
+const originalCircuitBreaker = process.env.DATAFORSEO_CIRCUIT_BREAKER_ENABLED;
 
 beforeEach(() => {
   process.env.AI_CREDENTIALS_ENCRYPTION_KEY =
@@ -34,6 +36,7 @@ beforeEach(() => {
   delete process.env.DATAFORSEO_PASSWORD;
   delete (process.env as Record<string, string | undefined>).DATAFORSEO_API_KEY;
   delete process.env.DATAFORSEO_ENABLED;
+  delete process.env.DATAFORSEO_CIRCUIT_BREAKER_ENABLED;
   resetProviderCircuitsForTests();
   vi.restoreAllMocks();
 });
@@ -47,6 +50,11 @@ afterEach(() => {
     process.env.DATAFORSEO_API_KEY = originalApiKey;
   if (originalEnabled !== undefined)
     process.env.DATAFORSEO_ENABLED = originalEnabled;
+  if (originalCircuitBreaker !== undefined)
+    process.env.DATAFORSEO_CIRCUIT_BREAKER_ENABLED = originalCircuitBreaker;
+  else
+    delete (process.env as Record<string, string | undefined>)
+      .DATAFORSEO_CIRCUIT_BREAKER_ENABLED;
 });
 
 describe("DataforseoSettingsService configuration and persistence", () => {
@@ -66,6 +74,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       });
       expect(config).toEqual({
         enabled: false,
+        circuitBreakerEnabled: true,
         source: "none",
         configured: false,
         priority: 1,
@@ -90,12 +99,32 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       });
       expect(config).toEqual({
         enabled: true,
+        circuitBreakerEnabled: true,
         login: "env-user",
         password: "env-password",
         source: "environment",
         configured: true,
         priority: 1,
       });
+    });
+
+    it("honors DATAFORSEO_CIRCUIT_BREAKER_ENABLED=false env default", async () => {
+      vi.spyOn(
+        SeoProviderSettingsRepository,
+        "getOrganizationProviderSettingsRow",
+      ).mockResolvedValue(null);
+      vi.spyOn(
+        SeoProviderSettingsRepository,
+        "getProjectProviderSettingsRow",
+      ).mockResolvedValue(null);
+      process.env.DATAFORSEO_LOGIN = "env-user";
+      process.env.DATAFORSEO_PASSWORD = "env-password";
+      process.env.DATAFORSEO_CIRCUIT_BREAKER_ENABLED = "false";
+
+      const config = await resolveEffectiveDataforseoConfig({
+        organizationId: "org-1",
+      });
+      expect(config.circuitBreakerEnabled).toBe(false);
     });
 
     it("resolves legacy DATAFORSEO_API_KEY base64 format", async () => {
@@ -113,6 +142,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       });
       expect(config).toEqual({
         enabled: true,
+        circuitBreakerEnabled: true,
         login: "legacy-login",
         password: "legacy-pass",
         source: "environment",
@@ -136,6 +166,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       ).mockResolvedValue({
         provider: "dataforseo",
         enabled: true,
+        circuitBreakerEnabled: true,
         credentialsCiphertext: orgCipher,
         organizationId: "org-1",
         projectId: null,
@@ -151,6 +182,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       });
       expect(config).toEqual({
         enabled: true,
+        circuitBreakerEnabled: true,
         login: "org-user",
         password: "org-password",
         source: "organization",
@@ -175,6 +207,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       ).mockResolvedValue({
         provider: "dataforseo",
         enabled: true,
+        circuitBreakerEnabled: true,
         credentialsCiphertext: orgCipher,
         organizationId: "org-1",
         projectId: null,
@@ -187,6 +220,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       ).mockResolvedValue({
         provider: "dataforseo",
         enabled: true,
+        circuitBreakerEnabled: true,
         credentialsCiphertext: projCipher,
         organizationId: null,
         projectId: "proj-1",
@@ -199,6 +233,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       });
       expect(config).toEqual({
         enabled: true,
+        circuitBreakerEnabled: true,
         login: "proj-user",
         password: "proj-password",
         source: "project",
@@ -221,6 +256,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       ).mockResolvedValue({
         provider: "dataforseo",
         enabled: true,
+        circuitBreakerEnabled: true,
         credentialsCiphertext: orgCipher,
         organizationId: "org-1",
         projectId: null,
@@ -272,6 +308,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
           login: "new-user@domain.com",
           password: "new-password",
           enabled: true,
+          circuitBreakerEnabled: true,
         },
       });
 
@@ -280,8 +317,50 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       expect(orgId).toBe("org-1");
       expect(provider).toBe("dataforseo");
       expect(input.enabled).toBe(true);
+      expect(input.circuitBreakerEnabled).toBe(true);
       expect(input.credentialsCiphertext).toBeTypeOf("string");
       expect(input.credentialsCiphertext).not.toContain("new-password");
+    });
+
+    it("persists circuitBreakerEnabled override and closes a stale circuit on save", async () => {
+      openProviderCircuit(
+        {
+          provider: "dataforseo",
+          organizationId: "org-cb",
+          projectId: null,
+          credentialFingerprint: "fp",
+        },
+        "CREDITS_UNAVAILABLE",
+      );
+      vi.spyOn(
+        SeoProviderSettingsRepository,
+        "getOrganizationProviderSettingsRow",
+      ).mockResolvedValue(null);
+      const upsertSpy = vi
+        .spyOn(
+          SeoProviderSettingsRepository,
+          "upsertOrganizationProviderSettingsRow",
+        )
+        .mockResolvedValue();
+
+      await saveDataforseoSettings({
+        organizationId: "org-cb",
+        patch: {
+          login: "cb-user",
+          password: "cb-password",
+          circuitBreakerEnabled: false,
+        },
+      });
+
+      const input = upsertSpy.mock.calls[0][2];
+      expect(input.circuitBreakerEnabled).toBe(false);
+      expect(
+        getProviderCircuitState({
+          provider: "dataforseo",
+          organizationId: "org-cb",
+          projectId: null,
+        }),
+      ).toBeNull();
     });
 
     it("preserves existing password when updating login only", async () => {
@@ -296,6 +375,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       ).mockResolvedValue({
         provider: "dataforseo",
         enabled: true,
+        circuitBreakerEnabled: true,
         credentialsCiphertext: existingCipher,
         organizationId: "org-1",
         projectId: null,

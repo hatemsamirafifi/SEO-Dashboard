@@ -30,13 +30,22 @@ export const DEFAULT_SERP_PRIORITIES = {
 } as const;
 
 const ENV_NAMES = {
-  serper: { key: "SERPER_API_KEY", enabled: "SERPER_ENABLED" },
-  zenserp: { key: "ZENSERP_API_KEY", enabled: "ZENSERP_ENABLED" },
+  serper: {
+    key: "SERPER_API_KEY",
+    enabled: "SERPER_ENABLED",
+    circuitBreaker: "SERPER_CIRCUIT_BREAKER_ENABLED",
+  },
+  zenserp: {
+    key: "ZENSERP_API_KEY",
+    enabled: "ZENSERP_ENABLED",
+    circuitBreaker: "ZENSERP_CIRCUIT_BREAKER_ENABLED",
+  },
 } as const;
 
 export type EffectiveSerpProviderConfig = {
   provider: AdditionalSerpProviderId;
   enabled: boolean;
+  circuitBreakerEnabled: boolean;
   configured: boolean;
   apiKey?: string;
   source: SerpCredentialSource;
@@ -52,6 +61,7 @@ export type SerpProviderSettingsView = Omit<
   override: {
     configured: boolean;
     enabled: boolean;
+    circuitBreakerEnabled: boolean;
     priority: number;
     apiKeyMasked: string | null;
   } | null;
@@ -74,6 +84,11 @@ export type SerpProviderConnectionTestResult = {
 
 function envEnabled(value: string | null | undefined): boolean {
   return value === "true" || value === "1";
+}
+
+// Circuit breaker defaults to ON; only an explicit "false"/"0" turns it off.
+function envCircuitBreakerEnabled(value: string | null | undefined): boolean {
+  return !["false", "0"].includes(value ?? "");
 }
 
 export async function resolveEffectiveSerpProviderConfig(input: {
@@ -107,6 +122,7 @@ export async function resolveEffectiveSerpProviderConfig(input: {
       return {
         provider,
         enabled: settingsRow?.enabled ?? row.enabled,
+        circuitBreakerEnabled: row.circuitBreakerEnabled,
         configured: true,
         apiKey,
         source,
@@ -119,10 +135,15 @@ export async function resolveEffectiveSerpProviderConfig(input: {
   const enabled = envEnabled(
     await getOptionalEnvValue(ENV_NAMES[provider].enabled),
   );
+  const circuitBreakerEnabled = envCircuitBreakerEnabled(
+    await getOptionalEnvValue(ENV_NAMES[provider].circuitBreaker),
+  );
   if (apiKey?.trim()) {
     return {
       provider,
       enabled: settingsRow?.enabled ?? enabled,
+      circuitBreakerEnabled:
+        settingsRow?.circuitBreakerEnabled ?? circuitBreakerEnabled,
       configured: true,
       apiKey: apiKey.trim(),
       source: "environment",
@@ -132,6 +153,8 @@ export async function resolveEffectiveSerpProviderConfig(input: {
   return {
     provider,
     enabled: settingsRow?.enabled ?? false,
+    circuitBreakerEnabled:
+      settingsRow?.circuitBreakerEnabled ?? circuitBreakerEnabled,
     configured: false,
     source: "none",
     priority: settingsRow?.priority ?? defaults,
@@ -169,6 +192,7 @@ export async function getSerpProviderSettingsView(input: {
       ? {
           configured: Boolean(overrideKey),
           enabled: row.enabled,
+          circuitBreakerEnabled: row.circuitBreakerEnabled,
           priority: row.priority ?? DEFAULT_SERP_PRIORITIES[input.provider],
           apiKeyMasked: maskSerpApiKey(overrideKey),
         }
@@ -186,7 +210,12 @@ export async function saveSerpProviderSettings(input: {
   provider: AdditionalSerpProviderId;
   organizationId: string;
   projectId?: string | null;
-  patch: { apiKey?: string; enabled?: boolean; priority?: number };
+  patch: {
+    apiKey?: string;
+    enabled?: boolean;
+    circuitBreakerEnabled?: boolean;
+    priority?: number;
+  };
 }): Promise<SerpProviderSettingsView> {
   const row = input.projectId
     ? await SeoProviderSettingsRepository.getProjectProviderSettingsRow(
@@ -212,6 +241,8 @@ export async function saveSerpProviderSettings(input: {
   }
   const update = {
     enabled: input.patch.enabled ?? row?.enabled ?? true,
+    circuitBreakerEnabled:
+      input.patch.circuitBreakerEnabled ?? row?.circuitBreakerEnabled ?? true,
     priority:
       input.patch.priority ??
       row?.priority ??
@@ -231,6 +262,24 @@ export async function saveSerpProviderSettings(input: {
       update,
     );
   }
+
+  // Changing the circuit-breaker setting must clear stale runtime memory so a
+  // disabled breaker leaves no OPEN circuit behind and a re-enabled one starts
+  // CLOSED. Mirrors the identity used by getSerpProviderSettingsView.
+  if (input.patch.circuitBreakerEnabled !== undefined) {
+    const effective = await resolveEffectiveSerpProviderConfig(input);
+    const projectId = effective.source === "project" ? input.projectId : null;
+    closeProviderCircuit({
+      provider: input.provider,
+      organizationId: input.organizationId,
+      projectId,
+      credentialFingerprint: await fingerprintProviderCredential(
+        input.provider,
+        [effective.apiKey],
+      ),
+    });
+  }
+
   return getSerpProviderSettingsView(input);
 }
 

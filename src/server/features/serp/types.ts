@@ -45,6 +45,8 @@ export type SerpProviderCall = {
     | "insufficient_depth"
     | "not_applicable";
   dispatched: boolean;
+  /** Whether circuit-breaker protection was active for this provider call. */
+  circuitBreakerEnabled?: boolean;
   skipReason?: SerpProviderSkipReason | null;
   circuitReason?: string | null;
   circuitOpenedAt?: string | null;

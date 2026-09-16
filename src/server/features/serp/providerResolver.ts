@@ -137,6 +137,7 @@ export async function createRankSerpResolver(input: {
         dataforseo.source,
       ),
       provider: dataforseoProvider(input.client),
+      circuitBreakerEnabled: dataforseo.circuitBreakerEnabled,
       credentialFingerprint: dataforseoFingerprint,
       circuitProjectId:
         dataforseo.source === "project" ? input.projectId : null,
@@ -150,6 +151,7 @@ export async function createRankSerpResolver(input: {
         apiKey: serper.apiKey ?? "",
         fetchFn: input.fetchFn,
       }),
+      circuitBreakerEnabled: serper.circuitBreakerEnabled,
       credentialFingerprint: serperFingerprint,
       circuitProjectId: serper.source === "project" ? input.projectId : null,
     },
@@ -162,6 +164,7 @@ export async function createRankSerpResolver(input: {
         apiKey: zenserp.apiKey ?? "",
         fetchFn: input.fetchFn,
       }),
+      circuitBreakerEnabled: zenserp.circuitBreakerEnabled,
       credentialFingerprint: zenserpFingerprint,
       circuitProjectId: zenserp.source === "project" ? input.projectId : null,
     },

@@ -52,6 +52,7 @@ export const saveSerpProviderSettingsFn = createServerFn({ method: "POST" })
       patch: z.object({
         apiKey: z.string().max(500).optional(),
         enabled: z.boolean().optional(),
+        circuitBreakerEnabled: z.boolean().optional(),
         priority: z.number().int().min(1).max(3).optional(),
       }),
     }),

@@ -4,6 +4,7 @@ const state = vi.hoisted(() => ({
   row: null as null | {
     provider: string;
     enabled: boolean;
+    circuitBreakerEnabled: boolean;
     priority: number | null;
     credentialsCiphertext: string | null;
     organizationId: string | null;
@@ -21,7 +22,10 @@ vi.mock(
   "@/server/features/settings/repositories/SeoProviderSettingsRepository",
   () => ({
     SeoProviderSettingsRepository: {
-      getOrganizationProviderSettingsRow: vi.fn(async () => state.row),
+      getOrganizationProviderSettingsRow: vi.fn(
+        async (_organizationId: string, provider: string) =>
+          state.row?.provider === provider ? state.row : null,
+      ),
       getProjectProviderSettingsRow: vi.fn(async () => null),
       upsertOrganizationProviderSettingsRow: vi.fn(
         async (
@@ -29,6 +33,7 @@ vi.mock(
           provider: string,
           input: {
             enabled: boolean;
+            circuitBreakerEnabled: boolean;
             priority: number;
             credentialsCiphertext: string | null;
           },
@@ -58,7 +63,12 @@ import {
   saveSerpProviderSettings,
   testSerpProviderConnection,
 } from "./SerpProviderSettingsService";
-import { resetProviderCircuitsForTests } from "@/server/features/serp/circuitBreaker";
+import {
+  fingerprintProviderCredential,
+  getProviderCircuitState,
+  openProviderCircuit,
+  resetProviderCircuitsForTests,
+} from "@/server/features/serp/circuitBreaker";
 
 describe("additional SERP provider settings", () => {
   beforeEach(() => {
@@ -167,4 +177,68 @@ describe("additional SERP provider settings", () => {
       expect(JSON.stringify(result)).not.toContain("live-key");
     },
   );
+
+  it("persists circuitBreakerEnabled per provider independently", async () => {
+    const serper = await saveSerpProviderSettings({
+      provider: "serper",
+      organizationId: "org-cb",
+      patch: { apiKey: "serper-key-0001", circuitBreakerEnabled: false },
+    });
+    const zenserp = await saveSerpProviderSettings({
+      provider: "zenserp",
+      organizationId: "org-cb",
+      patch: { apiKey: "zenserp-key-0002" },
+    });
+    expect(serper.circuitBreakerEnabled).toBe(false);
+    expect(zenserp.circuitBreakerEnabled).toBe(true);
+    expect(state.row?.provider).toBe("zenserp");
+    expect(state.row?.circuitBreakerEnabled).toBe(true);
+  });
+
+  it("defaults circuitBreakerEnabled to true when unset", async () => {
+    const view = await saveSerpProviderSettings({
+      provider: "serper",
+      organizationId: "org-cb-default",
+      patch: { apiKey: "serper-key-0003" },
+    });
+    expect(view.circuitBreakerEnabled).toBe(true);
+  });
+
+  it("honors SERPER_CIRCUIT_BREAKER_ENABLED=false environment default", async () => {
+    state.env.set("SERPER_API_KEY", "env-serper-key");
+    state.env.set("SERPER_CIRCUIT_BREAKER_ENABLED", "false");
+    const view = await getSerpProviderSettingsView({
+      provider: "serper",
+      organizationId: "org-cb-env",
+    });
+    expect(view.circuitBreakerEnabled).toBe(false);
+
+    state.env.set("ZENSERP_CIRCUIT_BREAKER_ENABLED", "false");
+    const zenserp = await getSerpProviderSettingsView({
+      provider: "zenserp",
+      organizationId: "org-cb-env",
+    });
+    expect(zenserp.circuitBreakerEnabled).toBe(false);
+  });
+
+  it("closes a stale open circuit when the breaker is disabled", async () => {
+    const fingerprint = await fingerprintProviderCredential("serper", [
+      "serper-key-0004",
+    ]);
+    const identity = {
+      provider: "serper" as const,
+      organizationId: "org-cb-close",
+      projectId: null,
+      credentialFingerprint: fingerprint,
+    };
+    openProviderCircuit(identity, "QUOTA_EXHAUSTED");
+    expect(getProviderCircuitState(identity)).not.toBeNull();
+
+    await saveSerpProviderSettings({
+      provider: "serper",
+      organizationId: "org-cb-close",
+      patch: { apiKey: "serper-key-0004", circuitBreakerEnabled: false },
+    });
+    expect(getProviderCircuitState(identity)).toBeNull();
+  });
 });

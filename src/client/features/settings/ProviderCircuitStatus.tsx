@@ -9,6 +9,7 @@ export function DataforseoStatusCard({
   testResult,
   isConfigured,
   isEnabled,
+  circuitBreakerEnabled = true,
   source,
   lastChecked,
   circuit,
@@ -16,6 +17,7 @@ export function DataforseoStatusCard({
   testResult: DataforseoConnectionTestResult | null;
   isConfigured: boolean;
   isEnabled: boolean;
+  circuitBreakerEnabled?: boolean;
   source?: string;
   lastChecked: Date | null;
   circuit?: ProviderCircuitView;
@@ -109,12 +111,13 @@ export function DataforseoStatusCard({
           Runtime status
         </span>
         <div className="mt-1 text-base-content/70">
-          {circuit?.state === "open" ? (
+          {circuitBreakerEnabled === false ? (
+            "Circuit protection disabled"
+          ) : circuit?.state === "open" ? (
             <>
               <div className="font-medium text-warning">
                 Temporarily bypassed
               </div>
-              <div>{formatCircuitReason(circuit.reason)}</div>
               <div>
                 Retry after {formatCircuitRetryAfter(circuit.retryAfterMs)}
               </div>
@@ -145,16 +148,18 @@ export function formatCircuitRetryAfter(retryAfterMs?: number | null): string {
 
 export function ProviderCircuitAlert({
   circuit,
+  circuitBreakerEnabled = true,
 }: {
   circuit?: ProviderCircuitView;
+  circuitBreakerEnabled?: boolean;
 }) {
+  if (circuitBreakerEnabled === false) return null;
   if (circuit?.state !== "open") return null;
   return (
     <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
       <div className="font-semibold">Runtime status: Temporarily bypassed</div>
       <div className="mt-1">
-        Reason: {formatCircuitReason(circuit.reason)} · Retry after:{" "}
-        {formatCircuitRetryAfter(circuit.retryAfterMs)}
+        Retry after: {formatCircuitRetryAfter(circuit.retryAfterMs)}
       </div>
     </div>
   );

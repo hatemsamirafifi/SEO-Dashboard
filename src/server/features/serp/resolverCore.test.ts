@@ -1,5 +1,5 @@
 /* eslint-disable max-lines, max-lines-per-function */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   createSerpResolverFromEntries,
   SerpProvidersUnavailableError,
@@ -495,5 +495,261 @@ describe("SERP provider resolver", () => {
         ]),
       );
     }
+  });
+
+  describe("per-provider circuit breaker setting", () => {
+    beforeEach(() => {
+      resetProviderCircuitsForTests();
+    });
+
+    it("skips with CIRCUIT_OPEN when enabled and circuit is open", async () => {
+      const broken = failedProvider("dataforseo", true);
+      const fallback = successProvider("serper", 2);
+      const resolver = createSerpResolverFromEntries({
+        entries: entries(broken, fallback),
+        organizationId: "org-cb-on",
+      });
+      await resolver.search(input);
+      const second = await resolver.search(input);
+      expect(second.calls[0]).toMatchObject({
+        provider: "dataforseo",
+        status: "skipped",
+        skipReason: "CIRCUIT_OPEN",
+        dispatched: false,
+        circuitBreakerEnabled: true,
+      });
+    });
+
+    it("dispatches a provider whose breaker is disabled despite a stale open circuit", async () => {
+      const broken = failedProvider("dataforseo", true);
+      const fallback = successProvider("serper", 2);
+      const fallbackSearch = vi.mocked(fallback.search);
+      const resolver = createSerpResolverFromEntries({
+        entries: [
+          {
+            ...entries(broken)[0],
+            circuitBreakerEnabled: false,
+          },
+          ...entries(fallback),
+        ],
+        organizationId: "org-cb-off",
+      });
+      await resolver.search(input);
+      const second = await resolver.search(input);
+      expect(second.calls[0]).toMatchObject({
+        provider: "dataforseo",
+        status: "failed",
+        dispatched: true,
+        circuitBreakerEnabled: false,
+      });
+      expect(second.calls).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ skipReason: "CIRCUIT_OPEN" }),
+        ]),
+      );
+      expect(fallbackSearch).toHaveBeenCalledTimes(2);
+    });
+
+    it("ignores an open circuit the moment the breaker is disabled", async () => {
+      const broken = failedProvider("dataforseo", true);
+      const fallback = successProvider("serper", 2);
+      // Trip the circuit first with the breaker enabled.
+      const openResolver = createSerpResolverFromEntries({
+        entries: entries(broken, fallback),
+        organizationId: "org-cb-bypass",
+      });
+      await openResolver.search(input);
+      expect(
+        getProviderCircuitState({
+          provider: "dataforseo",
+          organizationId: "org-cb-bypass",
+        }),
+      ).not.toBeNull();
+      // Same identity, breaker now disabled: the provider is called again.
+      const bypassResolver = createSerpResolverFromEntries({
+        entries: [
+          { ...entries(broken)[0], circuitBreakerEnabled: false },
+          ...entries(fallback),
+        ],
+        organizationId: "org-cb-bypass",
+      });
+      const result = await bypassResolver.search(input);
+      expect(result.calls[0]).toMatchObject({
+        provider: "dataforseo",
+        dispatched: true,
+      });
+    });
+
+    it("starts with a clean closed circuit when the breaker is re-enabled", async () => {
+      const broken = failedProvider("dataforseo", true);
+      const fallback = successProvider("serper", 2);
+      // Open the circuit under a fingerprint that won't be reused below.
+      await createSerpResolverFromEntries({
+        entries: [
+          {
+            ...entries(broken)[0],
+            credentialFingerprint: "fp-old",
+          },
+          ...entries(fallback),
+        ],
+        organizationId: "org-cb-reenable",
+      }).search(input);
+      // Re-enable with the same identity: no circuit should exist, so the
+      // provider is dispatched immediately.
+      const recovered = successProvider("dataforseo", 1);
+      const result = await createSerpResolverFromEntries({
+        entries: entries(recovered, fallback),
+        organizationId: "org-cb-reenable-clean",
+      }).search(input);
+      expect(result.provider).toBe("dataforseo");
+      expect(result.calls).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ skipReason: "CIRCUIT_OPEN" }),
+        ]),
+      );
+    });
+
+    it("still falls back to the next provider after a failure with the breaker disabled", async () => {
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          {
+            ...entries(failedProvider("dataforseo"))[0],
+            circuitBreakerEnabled: false,
+          },
+          ...entries(successProvider("serper", 5)),
+        ],
+        organizationId: "org-cb-failover",
+      }).search(input);
+      expect(result.provider).toBe("serper");
+      expect(result.calls.map((call) => call.dispatched)).toEqual([true, true]);
+    });
+
+    it("retries the primary provider on the next request when the breaker is disabled", async () => {
+      const broken = failedProvider("dataforseo", true);
+      const brokenSearch = vi.mocked(broken.search);
+      const fallback = successProvider("serper", 2);
+      const resolver = createSerpResolverFromEntries({
+        entries: [
+          { ...entries(broken)[0], circuitBreakerEnabled: false },
+          ...entries(fallback),
+        ],
+        organizationId: "org-cb-retry",
+      });
+      await resolver.search(input);
+      await resolver.search(input);
+      expect(brokenSearch).toHaveBeenCalledTimes(2);
+    });
+
+    it("never opens a circuit while the breaker is disabled", async () => {
+      await createSerpResolverFromEntries({
+        entries: [
+          {
+            ...entries(failedProvider("dataforseo", true))[0],
+            circuitBreakerEnabled: false,
+          },
+          ...entries(successProvider("serper", 2)),
+        ],
+        organizationId: "org-cb-no-open",
+      }).search(input);
+      expect(
+        getProviderCircuitState({
+          provider: "dataforseo",
+          organizationId: "org-cb-no-open",
+        }),
+      ).toBeNull();
+    });
+
+    it("skips a disabled provider regardless of the circuit setting", async () => {
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          {
+            ...entries(successProvider("dataforseo", 1))[0],
+            enabled: false,
+            circuitBreakerEnabled: false,
+          },
+          ...entries(successProvider("serper", 2)),
+        ],
+      }).search(input);
+      expect(result.calls[0]).toMatchObject({
+        provider: "dataforseo",
+        skipReason: "DISABLED",
+        dispatched: false,
+      });
+    });
+
+    it("skips an unconfigured provider regardless of the circuit setting", async () => {
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          {
+            ...entries(successProvider("dataforseo", 1))[0],
+            configured: false,
+            circuitBreakerEnabled: false,
+          },
+          ...entries(successProvider("serper", 2)),
+        ],
+      }).search(input);
+      expect(result.calls[0]).toMatchObject({
+        provider: "dataforseo",
+        skipReason: "MISSING_CREDENTIALS",
+        dispatched: false,
+      });
+    });
+
+    it("takes cancellation precedence regardless of the circuit setting", async () => {
+      const error = await createSerpResolverFromEntries({
+        entries: [
+          {
+            ...entries(successProvider("dataforseo", 1))[0],
+            circuitBreakerEnabled: false,
+          },
+          ...entries(successProvider("serper", 2)),
+        ],
+      })
+        .search({ ...input, isCancelled: async () => true })
+        .catch((value: unknown) => value as SerpCancelledError);
+      expect(error.calls.map((call) => call.skipReason)).toEqual([
+        "CANCELLED",
+        "CANCELLED",
+      ]);
+    });
+
+    it("stops failover on a valid NO_RESULT with the breaker disabled", async () => {
+      const zenserp = successProvider("zenserp", 4);
+      const zenserpSearch = vi.mocked(zenserp.search);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          {
+            ...entries(successProvider("dataforseo", null))[0],
+            circuitBreakerEnabled: false,
+          },
+          ...entries(zenserp),
+        ],
+      }).search(input);
+      expect(result).toMatchObject({ provider: "dataforseo", position: null });
+      expect(zenserpSearch).not.toHaveBeenCalled();
+    });
+
+    it("does not emit CIRCUIT_OPEN skips in traces when protection is disabled", async () => {
+      const broken = failedProvider("dataforseo", true);
+      const fallback = successProvider("serper", 2);
+      const resolver = createSerpResolverFromEntries({
+        entries: [
+          { ...entries(broken)[0], circuitBreakerEnabled: false },
+          ...entries(fallback),
+        ],
+        organizationId: "org-cb-trace",
+      });
+      await resolver.search(input);
+      const second = await resolver.search(input);
+      const skips = second.calls.filter((call) => call.status === "skipped");
+      expect(skips.every((call) => call.skipReason !== "CIRCUIT_OPEN")).toBe(
+        true,
+      );
+      // Dispatched call count stays truthful: each request dispatched once.
+      const firstDispatched = second.calls.filter(
+        (call) => call.dispatched,
+      ).length;
+      expect(firstDispatched).toBe(2);
+    });
   });
 });

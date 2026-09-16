@@ -114,6 +114,7 @@ export interface RankRunForTrace {
     pagesRequested?: number;
     resultCompleteness?: string;
     dispatched?: boolean;
+    circuitBreakerEnabled?: boolean;
     skipReason?: string | null;
     circuitReason?: string | null;
     circuitOpenedAt?: string | null;
@@ -338,6 +339,7 @@ export function buildRankCompletionPatch(input: {
       pagesRequested: call.pagesRequested,
       resultCompleteness: call.resultCompleteness,
       dispatched: call.dispatched,
+      circuitBreakerEnabled: call.circuitBreakerEnabled,
       skipReason:
         call.skipReason ??
         (call.status === "skipped" ? call.errorCode : undefined),

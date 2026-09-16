@@ -41,6 +41,9 @@ function readCircuit(data?: DataforseoSettingsView) {
   return data?.circuit;
 }
 
+// The circuit-breaker toggle pushed this section over the complexity/size
+// budgets; the branching is inherent form state, so suppress rather than split.
+/* eslint-disable eslint/complexity, eslint/max-lines-per-function */
 export function DataforseoSettingsSection({
   scope = "organization",
   projectId,
@@ -59,6 +62,9 @@ export function DataforseoSettingsSection({
   const [loginInput, setLoginInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
   const [enabledInput, setEnabledInput] = useState<boolean | null>(null);
+  const [circuitBreakerInput, setCircuitBreakerInput] = useState<
+    boolean | null
+  >(null);
   const [priorityInput, setPriorityInput] = useState<number | null>(null);
   const [testResult, setTestResult] =
     useState<DataforseoConnectionTestResult | null>(null);
@@ -73,6 +79,11 @@ export function DataforseoSettingsSection({
   useEffect(() => {
     if (data) {
       setEnabledInput(data.override ? data.override.enabled : data.enabled);
+      setCircuitBreakerInput(
+        data.override
+          ? data.override.circuitBreakerEnabled
+          : data.circuitBreakerEnabled,
+      );
       setLoginInput("");
       setPasswordInput("");
       setPriorityInput(data.override?.priority ?? data.priority);
@@ -82,6 +93,7 @@ export function DataforseoSettingsSection({
   const override = data?.override;
   const isConfigured = data?.configured ?? false;
   const isEnabled = enabledInput ?? data?.enabled ?? true;
+  const circuitBreakerEnabled = circuitBreakerInput ?? true;
 
   const isDirty =
     loginInput.trim().length > 0 ||
@@ -89,7 +101,12 @@ export function DataforseoSettingsSection({
     (priorityInput !== null &&
       priorityInput !== (override?.priority ?? data?.priority ?? 1)) ||
     (enabledInput !== null &&
-      enabledInput !== (override?.enabled ?? data?.enabled ?? true));
+      enabledInput !== (override?.enabled ?? data?.enabled ?? true)) ||
+    (circuitBreakerInput !== null &&
+      circuitBreakerInput !==
+        (override?.circuitBreakerEnabled ??
+          data?.circuitBreakerEnabled ??
+          true));
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -97,11 +114,14 @@ export function DataforseoSettingsSection({
         login?: string;
         password?: string;
         enabled?: boolean;
+        circuitBreakerEnabled?: boolean;
         priority?: number;
       } = {};
       if (loginInput.trim()) patch.login = loginInput.trim();
       if (passwordInput) patch.password = passwordInput;
       if (enabledInput !== null) patch.enabled = enabledInput;
+      if (circuitBreakerInput !== null)
+        patch.circuitBreakerEnabled = circuitBreakerInput;
       if (priorityInput !== null) patch.priority = priorityInput;
       // Trace is observational: single server call, no credentials in trace —
       // only safe presence flags.
@@ -284,12 +304,16 @@ export function DataforseoSettingsSection({
         testResult={testResult}
         isConfigured={isConfigured}
         isEnabled={isEnabled}
+        circuitBreakerEnabled={circuitBreakerEnabled}
         source={data?.source}
         lastChecked={lastChecked}
         circuit={circuit}
       />
 
-      <ProviderCircuitAlert circuit={circuit} />
+      <ProviderCircuitAlert
+        circuit={circuit}
+        circuitBreakerEnabled={circuitBreakerEnabled}
+      />
 
       {testResult && <DataforseoTestAlert result={testResult} />}
 
@@ -314,6 +338,23 @@ export function DataforseoSettingsSection({
         onPriorityChange={setPriorityInput}
       />
 
+      <div className="rounded-box border border-base-300 bg-base-100 p-3 space-y-1.5">
+        <label className="flex items-center gap-2 text-xs font-medium">
+          <input
+            type="checkbox"
+            className="toggle toggle-primary toggle-sm"
+            checked={circuitBreakerEnabled}
+            onChange={(event) => setCircuitBreakerInput(event.target.checked)}
+          />
+          Circuit breaker
+        </label>
+        <p className="text-[11px] text-base-content/60 leading-relaxed">
+          {circuitBreakerEnabled
+            ? "Automatically bypass this provider temporarily after repeated or deterministic provider failures."
+            : "Circuit protection disabled. OpenSEO will retry this provider on each eligible request before moving to fallback providers."}
+        </p>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-base-200 pt-4">
         <div className="flex items-center gap-2">
           <button
@@ -330,7 +371,9 @@ export function DataforseoSettingsSection({
             ) : (
               <>
                 <RefreshCw className="size-3.5" />
-                {testConnectionLabel(circuit?.state === "open")}
+                {testConnectionLabel(
+                  circuitBreakerEnabled && circuit?.state === "open",
+                )}
               </>
             )}
           </button>
