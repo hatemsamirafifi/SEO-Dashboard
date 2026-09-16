@@ -14,6 +14,15 @@ import {
   type SeoProviderSettingsRow,
 } from "@/server/features/settings/repositories/SeoProviderSettingsRepository";
 import { AppError } from "@/server/lib/errors";
+import {
+  closeProviderCircuit,
+  fingerprintProviderCredential,
+  getProviderCircuitState,
+  getProviderCircuitView,
+  openProviderCircuit,
+  type ProviderCircuitIdentity,
+  type ProviderCircuitView,
+} from "@/server/features/serp/circuitBreaker";
 
 export type DataForSeoConfigSource =
   | "project"
@@ -46,6 +55,7 @@ export type DataforseoSettingsView = {
     loginMasked: string | null;
     passwordConfigured: boolean;
   } | null;
+  circuit: ProviderCircuitView;
 };
 
 export type SaveDataforseoSettingsInput = {
@@ -64,6 +74,7 @@ export type DataforseoConnectionTestResult = {
   status: number;
   reason:
     | "CONNECTED"
+    | "DATAFORSEO_ACCOUNT_PAUSED"
     | "INVALID_CREDENTIALS"
     | "CREDITS_UNAVAILABLE"
     | "RATE_LIMITED"
@@ -105,6 +116,27 @@ export type DataforseoApiStatusResult = {
 
 const DATAFORSEO_API_BASE = "https://api.dataforseo.com";
 const TEST_CONNECTION_TIMEOUT_MS = 15_000;
+
+function inheritedPriority(
+  projectRow: SeoProviderSettingsRow | null,
+  orgRow: SeoProviderSettingsRow | null,
+): number {
+  return projectRow?.priority ?? orgRow?.priority ?? 1;
+}
+
+function recordFailedProbe(
+  identity: ProviderCircuitIdentity,
+  reason: DataforseoConnectionTestResult["reason"],
+) {
+  const deterministic = [
+    "DATAFORSEO_ACCOUNT_PAUSED",
+    "INVALID_CREDENTIALS",
+    "CREDITS_UNAVAILABLE",
+  ].includes(reason);
+  if (deterministic || getProviderCircuitState(identity)) {
+    openProviderCircuit(identity, reason);
+  }
+}
 
 /**
  * Resolve effective DataForSEO configuration according to repository precedence:
@@ -170,7 +202,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
   const envLogin = await getOptionalEnvValue("DATAFORSEO_LOGIN");
   const envPassword = await getOptionalEnvValue("DATAFORSEO_PASSWORD");
   const envEnabledRaw = await getOptionalEnvValue("DATAFORSEO_ENABLED");
-  const envEnabled = envEnabledRaw !== "false" && envEnabledRaw !== "0";
+  const envEnabled = !["false", "0"].includes(envEnabledRaw ?? "");
 
   if (envLogin && envPassword) {
     return {
@@ -179,7 +211,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
       password: envPassword.trim(),
       source: "environment",
       configured: true,
-      priority: projectRow?.priority ?? orgRow?.priority ?? 1,
+      priority: inheritedPriority(projectRow, orgRow),
     };
   }
 
@@ -193,7 +225,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
         password: parsed.password,
         source: "environment",
         configured: true,
-        priority: projectRow?.priority ?? orgRow?.priority ?? 1,
+        priority: inheritedPriority(projectRow, orgRow),
       };
     }
   }
@@ -203,7 +235,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
     enabled: settingsRow?.enabled ?? false,
     source: "none",
     configured: false,
-    priority: projectRow?.priority ?? orgRow?.priority ?? 1,
+    priority: inheritedPriority(projectRow, orgRow),
   };
 }
 
@@ -251,6 +283,11 @@ export async function getDataforseoSettingsView(input: {
     };
   }
 
+  const credentialFingerprint = await fingerprintProviderCredential(
+    "dataforseo",
+    [effective.login, effective.password],
+  );
+
   return {
     provider: "dataforseo",
     configured: effective.configured,
@@ -261,6 +298,12 @@ export async function getDataforseoSettingsView(input: {
     passwordConfigured: Boolean(effective.password),
     scope: projectId ? "project" : "organization",
     override,
+    circuit: getProviderCircuitView({
+      provider: "dataforseo",
+      organizationId,
+      projectId: effective.source === "project" ? projectId : null,
+      credentialFingerprint,
+    }),
   };
 }
 
@@ -403,6 +446,46 @@ export async function removeDataforseoSettings(input: {
   return getDataforseoSettingsView({ organizationId, projectId });
 }
 
+async function resolveProbeCredentials(input: {
+  organizationId: string;
+  projectId?: string | null;
+  login?: string;
+  password?: string;
+}): Promise<{
+  credentials: DataforseoCredentials | null;
+  projectScoped: boolean;
+}> {
+  const login = input.login?.trim();
+  const password = input.password?.trim();
+  if (login && password) {
+    return {
+      credentials: { login, password },
+      projectScoped: Boolean(input.projectId),
+    };
+  }
+
+  const effective = await resolveEffectiveDataforseoConfig({
+    organizationId: input.organizationId,
+    projectId: input.projectId,
+  });
+  if (login && effective.password) {
+    return {
+      credentials: { login, password: effective.password },
+      projectScoped: Boolean(input.projectId),
+    };
+  }
+  if (effective.login && effective.password) {
+    return {
+      credentials: {
+        login: effective.login,
+        password: effective.password,
+      },
+      projectScoped: effective.source === "project",
+    };
+  }
+  return { credentials: null, projectScoped: false };
+}
+
 /**
  * Test DataForSEO connection using the free, non-billable GET /v3/appendix/user_data endpoint.
  *
@@ -420,38 +503,8 @@ export async function testDataforseoConnection(input: {
   fetchFn?: typeof fetch;
 }): Promise<DataforseoConnectionTestResult> {
   const customFetch = input.fetchFn ?? fetch;
-
-  // 1. Resolve credentials: unsaved inputs if provided, else effective config
-  let credsToTest: DataforseoCredentials | null = null;
-  if (input.login?.trim() && input.password?.trim()) {
-    credsToTest = {
-      login: input.login.trim(),
-      password: input.password.trim(),
-    };
-  } else if (input.login?.trim() && !input.password?.trim()) {
-    // User passed login without changing password: merge with existing effective password
-    const effective = await resolveEffectiveDataforseoConfig({
-      organizationId: input.organizationId,
-      projectId: input.projectId,
-    });
-    if (effective.password) {
-      credsToTest = {
-        login: input.login.trim(),
-        password: effective.password,
-      };
-    }
-  } else {
-    const effective = await resolveEffectiveDataforseoConfig({
-      organizationId: input.organizationId,
-      projectId: input.projectId,
-    });
-    if (effective.login && effective.password) {
-      credsToTest = {
-        login: effective.login,
-        password: effective.password,
-      };
-    }
-  }
+  const { credentials: credsToTest, projectScoped } =
+    await resolveProbeCredentials(input);
 
   if (!credsToTest) {
     return {
@@ -461,6 +514,23 @@ export async function testDataforseoConnection(input: {
       billingStatus: "unknown",
     };
   }
+
+  const circuitIdentity: ProviderCircuitIdentity = {
+    provider: "dataforseo",
+    organizationId: input.organizationId,
+    projectId: projectScoped ? input.projectId : null,
+    credentialFingerprint: await fingerprintProviderCredential("dataforseo", [
+      credsToTest.login,
+      credsToTest.password,
+    ]),
+  };
+
+  const failed = (
+    result: DataforseoConnectionTestResult,
+  ): DataforseoConnectionTestResult => {
+    recordFailedProbe(circuitIdentity, result.reason);
+    return result;
+  };
 
   const basicAuth = Buffer.from(
     `${credsToTest.login}:${credsToTest.password}`,
@@ -483,48 +553,48 @@ export async function testDataforseoConnection(input: {
     const durationMs = Date.now() - startedAt;
 
     if (response.status === 401) {
-      return {
+      return failed({
         ok: false,
         status: 401,
         reason: "INVALID_CREDENTIALS",
         billingStatus: "unknown",
-      };
+      });
     }
 
     if (response.status === 402) {
-      return {
+      return failed({
         ok: false,
         status: 402,
         reason: "CREDITS_UNAVAILABLE",
         billingStatus: "credits_unavailable",
-      };
+      });
     }
 
     if (response.status === 429) {
-      return {
+      return failed({
         ok: false,
         status: 429,
         reason: "RATE_LIMITED",
         billingStatus: "unknown",
-      };
+      });
     }
 
     if (response.status >= 500) {
-      return {
+      return failed({
         ok: false,
         status: response.status,
         reason: "TRANSIENT_UPSTREAM",
         billingStatus: "unknown",
-      };
+      });
     }
 
     if (!response.ok) {
-      return {
+      return failed({
         ok: false,
         status: response.status,
         reason: "TRANSIENT_UPSTREAM",
         billingStatus: "unknown",
-      };
+      });
     }
 
     // Success response parsing
@@ -556,21 +626,30 @@ export async function testDataforseoConnection(input: {
     const payload = parsedPayload.success ? parsedPayload.data : {};
 
     if (payload.status_code === 40100) {
-      return {
+      return failed({
         ok: false,
         status: 401,
         reason: "INVALID_CREDENTIALS",
         billingStatus: "unknown",
-      };
+      });
+    }
+
+    if (payload.status_code === 40201) {
+      return failed({
+        ok: false,
+        status: 402,
+        reason: "DATAFORSEO_ACCOUNT_PAUSED",
+        billingStatus: "unknown",
+      });
     }
 
     if (payload.status_code === 40200 || payload.status_code === 40210) {
-      return {
+      return failed({
         ok: false,
         status: 402,
         reason: "CREDITS_UNAVAILABLE",
         billingStatus: "credits_unavailable",
-      };
+      });
     }
 
     const task = payload.tasks?.[0];
@@ -596,6 +675,8 @@ export async function testDataforseoConnection(input: {
       durationMs,
     });
 
+    closeProviderCircuit(circuitIdentity);
+
     return {
       ok: true,
       status: 200,
@@ -604,12 +685,12 @@ export async function testDataforseoConnection(input: {
       billingStatus,
     };
   } catch {
-    return {
+    return failed({
       ok: false,
       status: 503,
       reason: "TRANSIENT_UPSTREAM",
       billingStatus: "unknown",
-    };
+    });
   }
 }
 

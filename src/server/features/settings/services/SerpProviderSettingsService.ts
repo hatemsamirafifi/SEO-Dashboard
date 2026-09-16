@@ -6,7 +6,15 @@ import {
   encryptSerpApiKey,
   maskSerpApiKey,
 } from "@/server/features/settings/serpProviderCrypto";
-import { closeProviderCircuit } from "@/server/features/serp/circuitBreaker";
+import {
+  closeProviderCircuit,
+  fingerprintProviderCredential,
+  getProviderCircuitState,
+  getProviderCircuitView,
+  openProviderCircuit,
+  type ProviderCircuitIdentity,
+  type ProviderCircuitView,
+} from "@/server/features/serp/circuitBreaker";
 
 export type AdditionalSerpProviderId = "serper" | "zenserp";
 export type SerpCredentialSource =
@@ -47,6 +55,7 @@ export type SerpProviderSettingsView = Omit<
     priority: number;
     apiKeyMasked: string | null;
   } | null;
+  circuit: ProviderCircuitView;
 };
 
 export type SerpProviderConnectionTestResult = {
@@ -148,6 +157,10 @@ export async function getSerpProviderSettingsView(input: {
     ? await decryptSerpApiKey(input.provider, row.credentialsCiphertext)
     : null;
   const { apiKey: _apiKey, ...safeEffective } = effective;
+  const credentialFingerprint = await fingerprintProviderCredential(
+    input.provider,
+    [effective.apiKey],
+  );
   return {
     ...safeEffective,
     apiKeyMasked: maskSerpApiKey(effective.apiKey),
@@ -160,6 +173,12 @@ export async function getSerpProviderSettingsView(input: {
           apiKeyMasked: maskSerpApiKey(overrideKey),
         }
       : null,
+    circuit: getProviderCircuitView({
+      provider: input.provider,
+      organizationId: input.organizationId,
+      projectId: effective.source === "project" ? input.projectId : null,
+      credentialFingerprint,
+    }),
   };
 }
 
@@ -263,6 +282,29 @@ export async function testSerpProviderConnection(input: {
       consumesQuery: true,
     };
   }
+  const circuitIdentity: ProviderCircuitIdentity = {
+    provider: input.provider,
+    organizationId: input.organizationId,
+    projectId:
+      input.projectId &&
+      (input.apiKey?.trim() || effective.source === "project")
+        ? input.projectId
+        : null,
+    credentialFingerprint: await fingerprintProviderCredential(input.provider, [
+      apiKey,
+    ]),
+  };
+  const failed = (
+    result: SerpProviderConnectionTestResult,
+  ): SerpProviderConnectionTestResult => {
+    const deterministic = ["INVALID_CREDENTIALS", "QUOTA_EXHAUSTED"].includes(
+      result.reason,
+    );
+    if (deterministic || getProviderCircuitState(circuitIdentity)) {
+      openProviderCircuit(circuitIdentity, result.reason);
+    }
+    return result;
+  };
   const startedAt = Date.now();
   try {
     const response =
@@ -286,26 +328,26 @@ export async function testSerpProviderConnection(input: {
     const body = await response.text();
     const durationMs = Date.now() - startedAt;
     if (!response.ok) {
-      return {
+      return failed({
         ok: false,
         status: response.status,
         reason: classifyStatus(response.status, body),
         durationMs,
         consumesQuery: true,
-      };
+      });
     }
     try {
       JSON.parse(body);
     } catch {
-      return {
+      return failed({
         ok: false,
         status: response.status,
         reason: "UNAVAILABLE",
         durationMs,
         consumesQuery: true,
-      };
+      });
     }
-    closeProviderCircuit(input.provider, input.organizationId, input.projectId);
+    closeProviderCircuit(circuitIdentity);
     return {
       ok: true,
       status: response.status,
@@ -314,12 +356,12 @@ export async function testSerpProviderConnection(input: {
       consumesQuery: true,
     };
   } catch {
-    return {
+    return failed({
       ok: false,
       status: 503,
       reason: "UNAVAILABLE",
       durationMs: Date.now() - startedAt,
       consumesQuery: true,
-    };
+    });
   }
 }

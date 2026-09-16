@@ -1,6 +1,15 @@
 export type SerpProviderId = "dataforseo" | "serper" | "zenserp";
 export type SerpDevice = "desktop" | "mobile";
 
+export type SerpProviderSkipReason =
+  | "DISABLED"
+  | "MISSING_CREDENTIALS"
+  | "CIRCUIT_OPEN"
+  | "UNSUPPORTED_DEVICE"
+  | "UNSUPPORTED_LOCATION"
+  | "CANCELLED"
+  | "INVALID_CONFIGURATION";
+
 export type NormalizedSerpLocation = {
   countryCode: string;
   languageCode: string;
@@ -36,6 +45,10 @@ export type SerpProviderCall = {
     | "insufficient_depth"
     | "not_applicable";
   dispatched: boolean;
+  skipReason?: SerpProviderSkipReason | null;
+  circuitReason?: string | null;
+  circuitOpenedAt?: string | null;
+  circuitExpiresAt?: string | null;
 };
 
 export type NormalizedSerpResult = {
@@ -65,7 +78,7 @@ export class SerpProviderError extends Error {
 }
 
 export class SerpCancelledError extends Error {
-  constructor() {
+  constructor(public readonly calls: SerpProviderCall[] = []) {
     super("Rank check cancelled");
     this.name = "AbortError";
   }

@@ -14,6 +14,12 @@ import {
 } from "./DataforseoSettingsService";
 import { SeoProviderSettingsRepository } from "../repositories/SeoProviderSettingsRepository";
 import { encryptDataforseoCredentials } from "../dataforseoCrypto";
+import {
+  fingerprintProviderCredential,
+  getProviderCircuitState,
+  openProviderCircuit,
+  resetProviderCircuitsForTests,
+} from "@/server/features/serp/circuitBreaker";
 
 const originalKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
 const originalLogin = process.env.DATAFORSEO_LOGIN;
@@ -28,6 +34,7 @@ beforeEach(() => {
   delete process.env.DATAFORSEO_PASSWORD;
   delete (process.env as Record<string, string | undefined>).DATAFORSEO_API_KEY;
   delete process.env.DATAFORSEO_ENABLED;
+  resetProviderCircuitsForTests();
   vi.restoreAllMocks();
 });
 
@@ -350,6 +357,62 @@ describe("DataforseoSettingsService configuration and persistence", () => {
 });
 
 describe("DataforseoSettingsService testDataforseoConnection", () => {
+  it("closes the matching open circuit after a successful probe", async () => {
+    const credentialFingerprint = await fingerprintProviderCredential(
+      "dataforseo",
+      ["test-login", "test-password"],
+    );
+    const identity = {
+      provider: "dataforseo",
+      organizationId: "org-1",
+      credentialFingerprint,
+    };
+    openProviderCircuit(identity, "DATAFORSEO_ACCOUNT_PAUSED");
+
+    await testDataforseoConnection({
+      organizationId: "org-1",
+      login: "test-login",
+      password: "test-password",
+      fetchFn: vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ status_code: 20000 }), {
+            status: 200,
+          }),
+      ),
+    });
+
+    expect(getProviderCircuitState(identity)).toBeNull();
+  });
+
+  it("keeps an open circuit and updates its reason after a failed probe", async () => {
+    const credentialFingerprint = await fingerprintProviderCredential(
+      "dataforseo",
+      ["test-login", "test-password"],
+    );
+    const identity = {
+      provider: "dataforseo",
+      organizationId: "org-1",
+      credentialFingerprint,
+    };
+    openProviderCircuit(identity, "DATAFORSEO_ACCOUNT_PAUSED", 1_000);
+
+    await testDataforseoConnection({
+      organizationId: "org-1",
+      login: "test-login",
+      password: "test-password",
+      fetchFn: vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ status_code: 40100 }), { status: 401 }),
+      ),
+    });
+
+    expect(getProviderCircuitState(identity)).toMatchObject({
+      reason: "INVALID_CREDENTIALS",
+      state: "open",
+    });
+    expect(getProviderCircuitState(identity)?.openedAt).toBeGreaterThan(1_000);
+  });
+
   it("successfully connects and extracts balance from /v3/appendix/user_data", async () => {
     const mockFetch = vi.fn<typeof fetch>(
       async () =>

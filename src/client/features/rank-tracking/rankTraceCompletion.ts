@@ -114,6 +114,10 @@ export interface RankRunForTrace {
     pagesRequested?: number;
     resultCompleteness?: string;
     dispatched?: boolean;
+    skipReason?: string | null;
+    circuitReason?: string | null;
+    circuitOpenedAt?: string | null;
+    circuitExpiresAt?: string | null;
     trackingKeywordId?: string;
     device?: string;
   }>;
@@ -307,6 +311,9 @@ export function buildRankCompletionPatch(input: {
       (call) => call.dispatched !== false,
     );
     patch.providerCalls = dispatchedCalls.length;
+    patch.providersConsidered = new Set(
+      run.providerCalls.map((call) => call.provider),
+    ).size;
     const breakdown = new Map<string, number>();
     for (const call of dispatchedCalls) {
       const label = providerLabel(call.provider);
@@ -331,6 +338,12 @@ export function buildRankCompletionPatch(input: {
       pagesRequested: call.pagesRequested,
       resultCompleteness: call.resultCompleteness,
       dispatched: call.dispatched,
+      skipReason:
+        call.skipReason ??
+        (call.status === "skipped" ? call.errorCode : undefined),
+      circuitReason: call.circuitReason,
+      circuitOpenedAt: call.circuitOpenedAt,
+      circuitExpiresAt: call.circuitExpiresAt,
     }));
     const attemptsByTarget = new Map<string, number>();
     const retryDetails = dispatchedCalls.flatMap((call) => {
@@ -424,7 +437,7 @@ export function buildRankCompletionPatch(input: {
  * Returns true when applied.
  */
 const PROVIDER_MARKER_RE =
-  /DataForSEO HTTP \d{3}|DataForSEO task error \(\d+\)|DATAFORSEO_ACCOUNT_PAUSED|paused access|unusual activity/i;
+  /DataForSEO HTTP \d{3}|DataForSEO task error \(\d+\)/i;
 
 function applyProviderDiagnostics(
   patch: RankCompletionPatch,

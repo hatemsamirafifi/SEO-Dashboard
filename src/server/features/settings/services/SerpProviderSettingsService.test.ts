@@ -52,16 +52,19 @@ vi.mock(
 );
 
 import {
+  DEFAULT_SERP_PRIORITIES,
   getSerpProviderSettingsView,
   removeSerpProviderSettings,
   saveSerpProviderSettings,
   testSerpProviderConnection,
 } from "./SerpProviderSettingsService";
+import { resetProviderCircuitsForTests } from "@/server/features/serp/circuitBreaker";
 
 describe("additional SERP provider settings", () => {
   beforeEach(() => {
     state.row = null;
     state.env.clear();
+    resetProviderCircuitsForTests();
     state.env.set("AI_CREDENTIALS_ENCRYPTION_KEY", "settings-test-key");
   });
 
@@ -115,6 +118,26 @@ describe("additional SERP provider settings", () => {
       enabled: false,
       apiKeyMasked: "••••••••••9876",
     });
+  });
+
+  it("uses the documented fresh default provider priorities", async () => {
+    expect(DEFAULT_SERP_PRIORITIES).toEqual({
+      dataforseo: 1,
+      serper: 2,
+      zenserp: 3,
+    });
+    const [serper, zenserp] = await Promise.all([
+      getSerpProviderSettingsView({
+        provider: "serper",
+        organizationId: "org-1",
+      }),
+      getSerpProviderSettingsView({
+        provider: "zenserp",
+        organizationId: "org-1",
+      }),
+    ]);
+    expect(serper.priority).toBe(2);
+    expect(zenserp.priority).toBe(3);
   });
 
   it.each([

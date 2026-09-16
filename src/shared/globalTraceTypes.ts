@@ -65,6 +65,10 @@ export type GlobalTraceProviderCall = {
   pagesRequested?: number;
   resultCompleteness?: string;
   dispatched?: boolean;
+  skipReason?: string | null;
+  circuitReason?: string | null;
+  circuitOpenedAt?: string | null;
+  circuitExpiresAt?: string | null;
 };
 
 export type GlobalTraceKeywordChild = {
@@ -131,6 +135,7 @@ export type GlobalTraceOperation = {
 
   // Provider summary & breakdown
   provider?: string; // e.g. "DataForSEO ×4"
+  providersConsidered?: number;
   providerCalls?: number;
   providerBreakdown?: Array<{ provider: string; count: number }>;
   providers?: GlobalTraceProviderCall[];

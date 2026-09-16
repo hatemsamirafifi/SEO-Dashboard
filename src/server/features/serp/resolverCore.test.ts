@@ -1,10 +1,14 @@
+/* eslint-disable max-lines, max-lines-per-function */
 import { describe, expect, it, vi } from "vitest";
 import {
   createSerpResolverFromEntries,
   SerpProvidersUnavailableError,
   type SerpResolverEntry,
 } from "./resolverCore";
-import { resetProviderCircuitsForTests } from "./circuitBreaker";
+import {
+  getProviderCircuitState,
+  resetProviderCircuitsForTests,
+} from "./circuitBreaker";
 import {
   SerpCancelledError,
   SerpProviderError,
@@ -219,6 +223,63 @@ describe("SERP provider resolver", () => {
     expect(fallbackSearch).toHaveBeenCalledTimes(2);
   });
 
+  it("records CIRCUIT_OPEN with the underlying reason and retry window", async () => {
+    resetProviderCircuitsForTests();
+    const broken = failedProvider("dataforseo", true);
+    const fallback = successProvider("serper", 2);
+    const resolver = createSerpResolverFromEntries({
+      entries: entries(broken, fallback),
+      organizationId: "org",
+    });
+    await resolver.search(input);
+    const second = await resolver.search(input);
+    expect(second.calls[0]).toMatchObject({
+      provider: "dataforseo",
+      status: "skipped",
+      skipReason: "CIRCUIT_OPEN",
+      errorCode: "CIRCUIT_OPEN",
+      circuitReason: "AUTH_FAILED",
+      dispatched: false,
+    });
+    expect(second.calls[0]?.circuitOpenedAt).toBeTruthy();
+    expect(second.calls[0]?.circuitExpiresAt).toBeTruthy();
+  });
+
+  it("keys a circuit by credential fingerprint", async () => {
+    resetProviderCircuitsForTests();
+    const broken = failedProvider("dataforseo", true);
+    await createSerpResolverFromEntries({
+      entries: [
+        {
+          provider: broken,
+          priority: 1,
+          enabled: true,
+          configured: true,
+          credentialFingerprint: "credential-a",
+        },
+        ...entries(successProvider("serper", 2)),
+      ],
+      organizationId: "org",
+      projectId: "project",
+    }).search(input);
+
+    const recovered = successProvider("dataforseo", 1);
+    await createSerpResolverFromEntries({
+      entries: [
+        {
+          provider: recovered,
+          priority: 1,
+          enabled: true,
+          configured: true,
+          credentialFingerprint: "credential-b",
+        },
+      ],
+      organizationId: "org",
+      projectId: "project",
+    }).search(input);
+    expect(recovered.search).toHaveBeenCalledOnce();
+  });
+
   it("skips disabled and unconfigured providers without dispatching calls", async () => {
     resetProviderCircuitsForTests();
     const serper = successProvider("serper", 2);
@@ -278,20 +339,102 @@ describe("SERP provider resolver", () => {
     });
   });
 
+  it("records canonical reasons when every provider is skipped pre-dispatch", async () => {
+    resetProviderCircuitsForTests();
+    const error = (await createSerpResolverFromEntries({
+      entries: [
+        {
+          provider: successProvider("dataforseo", 1),
+          priority: 1,
+          enabled: true,
+          configured: false,
+        },
+        {
+          provider: successProvider("serper", 2),
+          priority: 2,
+          enabled: false,
+          configured: true,
+        },
+        {
+          provider: successProvider("zenserp", 3),
+          priority: 3,
+          enabled: false,
+          configured: true,
+        },
+      ],
+    })
+      .search(input)
+      .catch((value: unknown) => value)) as SerpProvidersUnavailableError;
+
+    expect(error.calls.filter((call) => call.dispatched)).toHaveLength(0);
+    expect(error.calls.map((call) => call.skipReason)).toEqual([
+      "MISSING_CREDENTIALS",
+      "DISABLED",
+      "DISABLED",
+    ]);
+    expect(error.providerDiagnostics).toEqual([
+      { provider: "DataForSEO", reason: "MISSING_CREDENTIALS" },
+      { provider: "Serper.dev", reason: "DISABLED" },
+      { provider: "Zenserp", reason: "DISABLED" },
+    ]);
+    expect(error.message).toContain("No eligible SERP provider was available");
+    expect(error.message).toContain("DataForSEO: MISSING_CREDENTIALS");
+  });
+
+  it("does not open a circuit for a valid NO_RESULT", async () => {
+    resetProviderCircuitsForTests();
+    await createSerpResolverFromEntries({
+      entries: entries(successProvider("dataforseo", null)),
+      organizationId: "org",
+    }).search(input);
+    expect(
+      getProviderCircuitState({
+        provider: "dataforseo",
+        organizationId: "org",
+      }),
+    ).toBeNull();
+  });
+
   it("checks cancellation again after a provider failure", async () => {
     resetProviderCircuitsForTests();
     const serper = successProvider("serper", 3);
     const serperSearch = vi.mocked(serper.search);
     let checks = 0;
-    await expect(
-      createSerpResolverFromEntries({
-        entries: entries(failedProvider("dataforseo"), serper),
-      }).search({
+    const error = await createSerpResolverFromEntries({
+      entries: entries(failedProvider("dataforseo"), serper),
+    })
+      .search({
         ...input,
         isCancelled: async () => ++checks > 1,
-      }),
-    ).rejects.toHaveProperty("name", "AbortError");
+      })
+      .catch((value: unknown) => value as SerpCancelledError);
+    expect(error).toHaveProperty("name", "AbortError");
+    expect(error.calls.at(-1)).toMatchObject({
+      provider: "serper",
+      status: "skipped",
+      skipReason: "CANCELLED",
+      dispatched: false,
+    });
+    expect(error.calls.filter((call) => call.dispatched)).toHaveLength(1);
     expect(serperSearch).not.toHaveBeenCalled();
+  });
+
+  it("records every provider as CANCELLED when cancelled before resolution", async () => {
+    const error = await createSerpResolverFromEntries({
+      entries: entries(
+        successProvider("dataforseo", 1),
+        successProvider("serper", 2),
+        successProvider("zenserp", 3),
+      ),
+    })
+      .search({ ...input, isCancelled: async () => true })
+      .catch((value: unknown) => value as SerpCancelledError);
+    expect(error.calls.map((call) => call.skipReason)).toEqual([
+      "CANCELLED",
+      "CANCELLED",
+      "CANCELLED",
+    ]);
+    expect(error.calls.filter((call) => call.dispatched)).toHaveLength(0);
   });
 
   it("never falls back after cancellation", async () => {
