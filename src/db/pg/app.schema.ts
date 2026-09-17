@@ -520,6 +520,11 @@ export const seoProviderSettings = pgTable(
       onDelete: "cascade",
     }),
     enabled: boolean("enabled").notNull().default(true),
+    // Per-provider circuit-breaker opt-out. Default on for backward
+    // compatibility; disabled providers are retried on every eligible request.
+    circuitBreakerEnabled: boolean("circuit_breaker_enabled")
+      .notNull()
+      .default(true),
     priority: integer("priority"),
     // Encrypted JSON { login: string, password: string }
     credentials: text("credentials"),

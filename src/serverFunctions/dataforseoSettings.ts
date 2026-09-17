@@ -58,6 +58,7 @@ const savePatchSchema = z.object({
   login: z.string().max(200).optional(),
   password: z.string().max(200).optional(),
   enabled: z.boolean().optional(),
+  circuitBreakerEnabled: z.boolean().optional(),
   priority: z.number().int().min(1).max(3).optional(),
 });
 

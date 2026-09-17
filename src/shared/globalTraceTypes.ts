@@ -65,6 +65,7 @@ export type GlobalTraceProviderCall = {
   pagesRequested?: number;
   resultCompleteness?: string;
   dispatched?: boolean;
+  circuitBreakerEnabled?: boolean;
   skipReason?: string | null;
   circuitReason?: string | null;
   circuitOpenedAt?: string | null;

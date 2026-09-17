@@ -32,6 +32,7 @@ export type DataForSeoConfigSource =
 
 export type DataForSeoConfig = {
   enabled: boolean;
+  circuitBreakerEnabled: boolean;
   login?: string;
   password?: string;
   source: DataForSeoConfigSource;
@@ -43,6 +44,7 @@ export type DataforseoSettingsView = {
   provider: "dataforseo";
   configured: boolean;
   enabled: boolean;
+  circuitBreakerEnabled: boolean;
   priority: number;
   source: DataForSeoConfigSource;
   loginMasked: string | null;
@@ -51,6 +53,7 @@ export type DataforseoSettingsView = {
   override: {
     configured: boolean;
     enabled: boolean;
+    circuitBreakerEnabled: boolean;
     priority: number;
     loginMasked: string | null;
     passwordConfigured: boolean;
@@ -65,6 +68,7 @@ export type SaveDataforseoSettingsInput = {
     login?: string;
     password?: string;
     enabled?: boolean;
+    circuitBreakerEnabled?: boolean;
     priority?: number;
   };
 };
@@ -124,6 +128,15 @@ function inheritedPriority(
   return projectRow?.priority ?? orgRow?.priority ?? 1;
 }
 
+function inheritedCircuitBreakerEnabled(
+  projectRow: SeoProviderSettingsRow | null,
+  orgRow: SeoProviderSettingsRow | null,
+  envDefault: boolean,
+): boolean {
+  const settingsRow = projectRow ?? orgRow;
+  return settingsRow?.circuitBreakerEnabled ?? envDefault;
+}
+
 function recordFailedProbe(
   identity: ProviderCircuitIdentity,
   reason: DataforseoConnectionTestResult["reason"],
@@ -171,6 +184,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
     if (creds) {
       return {
         enabled: projectRow.enabled,
+        circuitBreakerEnabled: projectRow.circuitBreakerEnabled,
         login: creds.login,
         password: creds.password,
         source: "project",
@@ -189,6 +203,8 @@ export async function resolveEffectiveDataforseoConfig(params?: {
     if (creds) {
       return {
         enabled: settingsRow?.enabled ?? orgRow.enabled,
+        circuitBreakerEnabled:
+          settingsRow?.circuitBreakerEnabled ?? orgRow.circuitBreakerEnabled,
         login: creds.login,
         password: creds.password,
         source: "organization",
@@ -203,10 +219,21 @@ export async function resolveEffectiveDataforseoConfig(params?: {
   const envPassword = await getOptionalEnvValue("DATAFORSEO_PASSWORD");
   const envEnabledRaw = await getOptionalEnvValue("DATAFORSEO_ENABLED");
   const envEnabled = !["false", "0"].includes(envEnabledRaw ?? "");
+  const envCircuitBreakerRaw = await getOptionalEnvValue(
+    "DATAFORSEO_CIRCUIT_BREAKER_ENABLED",
+  );
+  const envCircuitBreakerEnabled = !["false", "0"].includes(
+    envCircuitBreakerRaw ?? "",
+  );
 
   if (envLogin && envPassword) {
     return {
       enabled: settingsRow?.enabled ?? envEnabled,
+      circuitBreakerEnabled: inheritedCircuitBreakerEnabled(
+        projectRow,
+        orgRow,
+        envCircuitBreakerEnabled,
+      ),
       login: envLogin.trim(),
       password: envPassword.trim(),
       source: "environment",
@@ -221,6 +248,11 @@ export async function resolveEffectiveDataforseoConfig(params?: {
     if (parsed) {
       return {
         enabled: settingsRow?.enabled ?? envEnabled,
+        circuitBreakerEnabled: inheritedCircuitBreakerEnabled(
+          projectRow,
+          orgRow,
+          envCircuitBreakerEnabled,
+        ),
         login: parsed.login,
         password: parsed.password,
         source: "environment",
@@ -233,6 +265,11 @@ export async function resolveEffectiveDataforseoConfig(params?: {
   // 4. Not configured
   return {
     enabled: settingsRow?.enabled ?? false,
+    circuitBreakerEnabled: inheritedCircuitBreakerEnabled(
+      projectRow,
+      orgRow,
+      envCircuitBreakerEnabled,
+    ),
     source: "none",
     configured: false,
     priority: inheritedPriority(projectRow, orgRow),
@@ -277,6 +314,7 @@ export async function getDataforseoSettingsView(input: {
     override = {
       configured: Boolean(creds),
       enabled: targetRow.enabled,
+      circuitBreakerEnabled: targetRow.circuitBreakerEnabled,
       priority: targetRow.priority ?? 1,
       loginMasked: creds ? maskDataforseoLogin(creds.login) : null,
       passwordConfigured: Boolean(creds?.password),
@@ -292,6 +330,7 @@ export async function getDataforseoSettingsView(input: {
     provider: "dataforseo",
     configured: effective.configured,
     enabled: effective.enabled,
+    circuitBreakerEnabled: effective.circuitBreakerEnabled,
     priority: effective.priority,
     source: effective.source,
     loginMasked: maskDataforseoLogin(effective.login),
@@ -378,6 +417,8 @@ export async function saveDataforseoSettings(
     patch.enabled !== undefined
       ? patch.enabled
       : (existingRow?.enabled ?? true);
+  const circuitBreakerEnabled =
+    patch.circuitBreakerEnabled ?? existingRow?.circuitBreakerEnabled ?? true;
   const priority = patch.priority ?? existingRow?.priority ?? 1;
 
   if (isProject && projectId) {
@@ -386,6 +427,7 @@ export async function saveDataforseoSettings(
       "dataforseo",
       {
         enabled,
+        circuitBreakerEnabled,
         priority,
         credentialsCiphertext,
       },
@@ -396,10 +438,31 @@ export async function saveDataforseoSettings(
       "dataforseo",
       {
         enabled,
+        circuitBreakerEnabled,
         priority,
         credentialsCiphertext,
       },
     );
+  }
+
+  // Changing the circuit-breaker setting must clear stale runtime memory: a
+  // disabled breaker should never leave an old OPEN circuit behind (bypass on
+  // disable), and a re-enabled breaker must start from a clean CLOSED state.
+  // The identity mirrors the one used by getDataforseoSettingsView.
+  if (patch.circuitBreakerEnabled !== undefined) {
+    const effective = await resolveEffectiveDataforseoConfig({
+      organizationId,
+      projectId,
+    });
+    closeProviderCircuit({
+      provider: "dataforseo",
+      organizationId,
+      projectId: effective.source === "project" ? projectId : null,
+      credentialFingerprint: await fingerprintProviderCredential("dataforseo", [
+        effective.login,
+        effective.password,
+      ]),
+    });
   }
 
   console.info("audit", {
@@ -409,6 +472,7 @@ export async function saveDataforseoSettings(
     organizationId,
     projectId: projectId ?? null,
     enabled,
+    circuitBreakerEnabled,
   });
 
   return getDataforseoSettingsView({ organizationId, projectId });

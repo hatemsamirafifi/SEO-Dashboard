@@ -542,6 +542,13 @@ export const seoProviderSettings = sqliteTable(
       onDelete: "cascade",
     }),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    // Per-provider circuit-breaker opt-out. Default on for backward
+    // compatibility; disabled providers are retried on every eligible request.
+    circuitBreakerEnabled: integer("circuit_breaker_enabled", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(true),
     priority: integer("priority"),
     // Encrypted JSON { login: string, password: string }
     credentials: text("credentials"),

@@ -11,10 +11,7 @@ import {
 } from "@/serverFunctions/serpProviderSettings";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { formatSource } from "./DataforseoSettingsParts";
-import {
-  formatCircuitReason,
-  formatCircuitRetryAfter,
-} from "./ProviderCircuitStatus";
+import { formatCircuitRetryAfter } from "./ProviderCircuitStatus";
 
 export function AdditionalSerpProviderCard({
   provider,
@@ -32,6 +29,7 @@ export function AdditionalSerpProviderCard({
   });
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(false);
+  const [circuitBreaker, setCircuitBreaker] = useState(true);
   const [priority, setPriority] = useState(provider === "serper" ? 2 : 3);
   const [test, setTest] = useState<SerpProviderConnectionTestResult | null>(
     null,
@@ -41,6 +39,10 @@ export function AdditionalSerpProviderCard({
   useEffect(() => {
     if (!query.data) return;
     setEnabled(query.data.override?.enabled ?? query.data.enabled);
+    setCircuitBreaker(
+      query.data.override?.circuitBreakerEnabled ??
+        query.data.circuitBreakerEnabled,
+    );
     setPriority(query.data.override?.priority ?? query.data.priority);
     setApiKey("");
   }, [query.data]);
@@ -51,7 +53,12 @@ export function AdditionalSerpProviderCard({
         data: {
           provider,
           projectId,
-          patch: { apiKey: apiKey || undefined, enabled, priority },
+          patch: {
+            apiKey: apiKey || undefined,
+            enabled,
+            circuitBreakerEnabled: circuitBreaker,
+            priority,
+          },
         },
       }),
     onSuccess: async () => {
@@ -133,9 +140,11 @@ export function AdditionalSerpProviderCard({
         </div>
         <div>
           <span className="block text-base-content/50">Runtime status</span>
-          {data?.circuit.state === "open" ? (
+          {circuitBreaker === false ? (
+            <span>Circuit protection disabled</span>
+          ) : data?.circuit.state === "open" ? (
             <span className="text-warning">
-              {formatCircuitReason(data.circuit.reason)} ·{" "}
+              Temporarily bypassed ·{" "}
               {formatCircuitRetryAfter(data.circuit.retryAfterMs)}
             </span>
           ) : (
@@ -185,6 +194,22 @@ export function AdditionalSerpProviderCard({
           />
         </label>
       </div>
+      <div className="space-y-1">
+        <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            className="toggle toggle-primary toggle-sm"
+            checked={circuitBreaker}
+            onChange={(event) => setCircuitBreaker(event.target.checked)}
+          />
+          Circuit breaker
+        </label>
+        <p className="text-[11px] text-base-content/60 leading-relaxed">
+          {circuitBreaker
+            ? "Automatically bypass this provider temporarily after repeated or deterministic provider failures."
+            : "Circuit protection disabled. OpenSEO will retry this provider on each eligible request before moving to fallback providers."}
+        </p>
+      </div>
       <p className="text-[11px] text-warning">
         Connection test may consume one {label}{" "}
         {provider === "serper" ? "query" : "search"}.
@@ -202,7 +227,9 @@ export function AdditionalSerpProviderCard({
             ) : (
               <RefreshCw className="size-3.5" />
             )}{" "}
-            {data?.circuit.state === "open" ? "Retry now" : "Test connection"}
+            {circuitBreaker && data?.circuit.state === "open"
+              ? "Retry now"
+              : "Test connection"}
           </button>
           {data?.override && (
             <button

@@ -45,10 +45,12 @@ describe("DataForSEO Security Invariants", () => {
       SeoProviderSettingsRepository,
       "getOrganizationProviderSettingsRow",
     ).mockResolvedValue(null);
-    const upsertSpy = vi.spyOn(
-      SeoProviderSettingsRepository,
-      "upsertOrganizationProviderSettingsRow",
-    ).mockResolvedValue();
+    const upsertSpy = vi
+      .spyOn(
+        SeoProviderSettingsRepository,
+        "upsertOrganizationProviderSettingsRow",
+      )
+      .mockResolvedValue();
 
     await saveDataforseoSettings({
       organizationId: "org-sec-1",
@@ -86,11 +88,14 @@ describe("DataForSEO Security Invariants", () => {
       organizationId: "org-sec-2",
       projectId: null,
       enabled: true,
+      circuitBreakerEnabled: true,
       credentialsCiphertext: encrypted,
       updatedAt: new Date().toISOString(),
     });
 
-    const view = await getDataforseoSettingsView({ organizationId: "org-sec-2" });
+    const view = await getDataforseoSettingsView({
+      organizationId: "org-sec-2",
+    });
 
     // Stringify view to ensure no secret exists anywhere in the JSON tree
     const serialized = JSON.stringify(view);
@@ -111,14 +116,17 @@ describe("DataForSEO Security Invariants", () => {
     const rawSecret = "confidential-pass-999";
     const rawLogin = "test-user@company.com";
 
-    const mockFetch = vi.fn<typeof fetch>(async () =>
-      new Response(
-        JSON.stringify({
-          status_code: 20000,
-          tasks: [{ status_code: 20000, result: [{ money: { balance: 5.5 } }] }],
-        }),
-        { status: 200 },
-      ),
+    const mockFetch = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            status_code: 20000,
+            tasks: [
+              { status_code: 20000, result: [{ money: { balance: 5.5 } }] },
+            ],
+          }),
+          { status: 200 },
+        ),
     );
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});

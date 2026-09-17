@@ -337,6 +337,13 @@
       "when": 1789586553810,
       "tag": "0047_colossal_iron_fist",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1789593778853,
+      "tag": "0048_nice_bucky",
+      "breakpoints": true
     }
   ]
 }
