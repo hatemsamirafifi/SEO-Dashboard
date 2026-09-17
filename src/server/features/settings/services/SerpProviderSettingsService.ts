@@ -9,12 +9,10 @@ import {
 import {
   closeProviderCircuit,
   fingerprintProviderCredential,
-  getProviderCircuitState,
   getProviderCircuitView,
-  openProviderCircuit,
-  type ProviderCircuitIdentity,
   type ProviderCircuitView,
 } from "@/server/features/serp/circuitBreaker";
+import { clampProviderRetries } from "@/server/features/serp/retryPolicy";
 
 export type AdditionalSerpProviderId = "serper" | "zenserp";
 export type SerpCredentialSource =
@@ -34,11 +32,13 @@ const ENV_NAMES = {
     key: "SERPER_API_KEY",
     enabled: "SERPER_ENABLED",
     circuitBreaker: "SERPER_CIRCUIT_BREAKER_ENABLED",
+    retries: "SERPER_MAX_RETRIES",
   },
   zenserp: {
     key: "ZENSERP_API_KEY",
     enabled: "ZENSERP_ENABLED",
     circuitBreaker: "ZENSERP_CIRCUIT_BREAKER_ENABLED",
+    retries: "ZENSERP_MAX_RETRIES",
   },
 } as const;
 
@@ -46,6 +46,7 @@ export type EffectiveSerpProviderConfig = {
   provider: AdditionalSerpProviderId;
   enabled: boolean;
   circuitBreakerEnabled: boolean;
+  maxRetries: number;
   configured: boolean;
   apiKey?: string;
   source: SerpCredentialSource;
@@ -62,25 +63,16 @@ export type SerpProviderSettingsView = Omit<
     configured: boolean;
     enabled: boolean;
     circuitBreakerEnabled: boolean;
+    maxRetries: number;
     priority: number;
     apiKeyMasked: string | null;
   } | null;
   circuit: ProviderCircuitView;
 };
 
-export type SerpProviderConnectionTestResult = {
-  ok: boolean;
-  status: number;
-  reason:
-    | "CONNECTED"
-    | "INVALID_CREDENTIALS"
-    | "QUOTA_EXHAUSTED"
-    | "RATE_LIMITED"
-    | "UNAVAILABLE"
-    | "NOT_CONFIGURED";
-  durationMs: number;
-  consumesQuery: true;
-};
+export { type SerpProviderConnectionTestResult } from "@/server/features/settings/services/SerpProviderConnectionTest";
+
+export { testSerpProviderConnection } from "@/server/features/settings/services/SerpProviderConnectionTest";
 
 function envEnabled(value: string | null | undefined): boolean {
   return value === "true" || value === "1";
@@ -123,6 +115,7 @@ export async function resolveEffectiveSerpProviderConfig(input: {
         provider,
         enabled: settingsRow?.enabled ?? row.enabled,
         circuitBreakerEnabled: row.circuitBreakerEnabled,
+        maxRetries: clampProviderRetries(row.maxRetries),
         configured: true,
         apiKey,
         source,
@@ -138,12 +131,19 @@ export async function resolveEffectiveSerpProviderConfig(input: {
   const circuitBreakerEnabled = envCircuitBreakerEnabled(
     await getOptionalEnvValue(ENV_NAMES[provider].circuitBreaker),
   );
+  const envRetriesRaw = await getOptionalEnvValue(ENV_NAMES[provider].retries);
+  const envRetries = clampProviderRetries(
+    envRetriesRaw === null || envRetriesRaw === undefined
+      ? 2
+      : Number(envRetriesRaw),
+  );
   if (apiKey?.trim()) {
     return {
       provider,
       enabled: settingsRow?.enabled ?? enabled,
       circuitBreakerEnabled:
         settingsRow?.circuitBreakerEnabled ?? circuitBreakerEnabled,
+      maxRetries: clampProviderRetries(settingsRow?.maxRetries ?? envRetries),
       configured: true,
       apiKey: apiKey.trim(),
       source: "environment",
@@ -155,6 +155,7 @@ export async function resolveEffectiveSerpProviderConfig(input: {
     enabled: settingsRow?.enabled ?? false,
     circuitBreakerEnabled:
       settingsRow?.circuitBreakerEnabled ?? circuitBreakerEnabled,
+    maxRetries: clampProviderRetries(settingsRow?.maxRetries ?? envRetries),
     configured: false,
     source: "none",
     priority: settingsRow?.priority ?? defaults,
@@ -193,6 +194,7 @@ export async function getSerpProviderSettingsView(input: {
           configured: Boolean(overrideKey),
           enabled: row.enabled,
           circuitBreakerEnabled: row.circuitBreakerEnabled,
+          maxRetries: clampProviderRetries(row.maxRetries),
           priority: row.priority ?? DEFAULT_SERP_PRIORITIES[input.provider],
           apiKeyMasked: maskSerpApiKey(overrideKey),
         }
@@ -214,6 +216,7 @@ export async function saveSerpProviderSettings(input: {
     apiKey?: string;
     enabled?: boolean;
     circuitBreakerEnabled?: boolean;
+    maxRetries?: number;
     priority?: number;
   };
 }): Promise<SerpProviderSettingsView> {
@@ -243,6 +246,9 @@ export async function saveSerpProviderSettings(input: {
     enabled: input.patch.enabled ?? row?.enabled ?? true,
     circuitBreakerEnabled:
       input.patch.circuitBreakerEnabled ?? row?.circuitBreakerEnabled ?? true,
+    maxRetries: clampProviderRetries(
+      input.patch.maxRetries ?? row?.maxRetries ?? 2,
+    ),
     priority:
       input.patch.priority ??
       row?.priority ??
@@ -300,117 +306,4 @@ export async function removeSerpProviderSettings(input: {
     );
   }
   return getSerpProviderSettingsView(input);
-}
-
-function classifyStatus(
-  status: number,
-  body: string,
-): SerpProviderConnectionTestResult["reason"] {
-  if (status === 401 || status === 403) return "INVALID_CREDENTIALS";
-  if (status === 429 && /credit|quota|exhaust/i.test(body))
-    return "QUOTA_EXHAUSTED";
-  if (status === 429) return "RATE_LIMITED";
-  return "UNAVAILABLE";
-}
-
-export async function testSerpProviderConnection(input: {
-  provider: AdditionalSerpProviderId;
-  organizationId: string;
-  projectId?: string | null;
-  apiKey?: string;
-  fetchFn?: typeof fetch;
-}): Promise<SerpProviderConnectionTestResult> {
-  const effective = await resolveEffectiveSerpProviderConfig(input);
-  const apiKey = input.apiKey?.trim() || effective.apiKey;
-  if (!apiKey) {
-    return {
-      ok: false,
-      status: 400,
-      reason: "NOT_CONFIGURED",
-      durationMs: 0,
-      consumesQuery: true,
-    };
-  }
-  const circuitIdentity: ProviderCircuitIdentity = {
-    provider: input.provider,
-    organizationId: input.organizationId,
-    projectId:
-      input.projectId &&
-      (input.apiKey?.trim() || effective.source === "project")
-        ? input.projectId
-        : null,
-    credentialFingerprint: await fingerprintProviderCredential(input.provider, [
-      apiKey,
-    ]),
-  };
-  const failed = (
-    result: SerpProviderConnectionTestResult,
-  ): SerpProviderConnectionTestResult => {
-    const deterministic = ["INVALID_CREDENTIALS", "QUOTA_EXHAUSTED"].includes(
-      result.reason,
-    );
-    if (deterministic || getProviderCircuitState(circuitIdentity)) {
-      openProviderCircuit(circuitIdentity, result.reason);
-    }
-    return result;
-  };
-  const startedAt = Date.now();
-  try {
-    const response =
-      input.provider === "serper"
-        ? await (input.fetchFn ?? fetch)("https://google.serper.dev/search", {
-            method: "POST",
-            headers: {
-              "X-API-KEY": apiKey,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ q: "OpenSEO", num: 1, gl: "us", hl: "en" }),
-            signal: AbortSignal.timeout(15_000),
-          })
-        : await (input.fetchFn ?? fetch)(
-            "https://app.zenserp.com/api/v2/search?q=OpenSEO&engine=google&num=1&gl=us&hl=en",
-            {
-              headers: { apikey: apiKey, Accept: "application/json" },
-              signal: AbortSignal.timeout(15_000),
-            },
-          );
-    const body = await response.text();
-    const durationMs = Date.now() - startedAt;
-    if (!response.ok) {
-      return failed({
-        ok: false,
-        status: response.status,
-        reason: classifyStatus(response.status, body),
-        durationMs,
-        consumesQuery: true,
-      });
-    }
-    try {
-      JSON.parse(body);
-    } catch {
-      return failed({
-        ok: false,
-        status: response.status,
-        reason: "UNAVAILABLE",
-        durationMs,
-        consumesQuery: true,
-      });
-    }
-    closeProviderCircuit(circuitIdentity);
-    return {
-      ok: true,
-      status: response.status,
-      reason: "CONNECTED",
-      durationMs,
-      consumesQuery: true,
-    };
-  } catch {
-    return failed({
-      ok: false,
-      status: 503,
-      reason: "UNAVAILABLE",
-      durationMs: Date.now() - startedAt,
-      consumesQuery: true,
-    });
-  }
 }

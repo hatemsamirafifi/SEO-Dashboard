@@ -1,57 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  asRecord,
+  countriesResult,
+  extractSqlClauseText,
+  strikingResult,
+  totalsResult,
+  type TestFactRow,
+  type TestSyncRow,
+} from "./searchPerformanceReportFlowFixtures";
 
 const mocks = vi.hoisted(() => {
-  const syncsRows: Array<{
-    id?: string;
-    projectId?: string;
-    property?: string;
-    status: string;
-    syncType?: string;
-    requestedStartDate: string | null;
-    requestedEndDate: string | null;
-    actualLastSuccessfulDate?: string | null;
-    rowsFetched?: number;
-    rowsInserted?: number;
-    rowsUpdated?: number;
-    rowsFailed?: number;
-    startedAt?: string;
-    completedAt?: string | null;
-    error?: string | null;
-  }> = [];
-
-  const factRows: Array<{
-    minDate: string | null;
-    maxDate: string | null;
-    count?: number;
-    totalDays?: number;
-  }> = [];
-
-  const totalsResult = {
-    clicks: 120,
-    impressions: 2400,
-    ctr: 0.05,
-    position: 8.5,
-  };
-
-  const strikingResult = [
-    {
-      query: "best running shoes",
-      page: "https://example.com/shoes",
-      clicks: 10,
-      impressions: 200,
-      position: 7.2,
-    },
-  ];
-
-  const countriesResult = [
-    {
-      key: "usa",
-      clicks: 80,
-      impressions: 1500,
-      ctr: 0.053,
-      position: 6.4,
-    },
-  ];
+  const syncsRows: TestSyncRow[] = [];
+  const factRows: TestFactRow[] = [];
 
   const db = {
     select: vi.fn(() => ({
@@ -73,24 +33,7 @@ const mocks = vi.hoisted(() => {
             });
           }
 
-          function safeExtract(obj: unknown, depth = 0): string {
-            if (depth > 6 || !obj) return "";
-            if (typeof obj === "string") return obj;
-            if (typeof obj !== "object") return String(obj);
-            if ("queryChunks" in obj && Array.isArray((obj as any).queryChunks)) {
-              return (obj as any).queryChunks.map((c: any) => safeExtract(c, depth + 1)).join(" ");
-            }
-            if ("value" in obj) return String((obj as any).value);
-            if ("values" in obj && Array.isArray((obj as any).values)) {
-              return (obj as any).values.map(String).join(" ");
-            }
-            if (Array.isArray(obj)) {
-              return obj.map((item) => safeExtract(item, depth + 1)).join(" ");
-            }
-            return "";
-          }
-
-          const clauseStr = safeExtract(clause);
+          const clauseStr = extractSqlClauseText(clause);
           let filteredSyncs = syncsRows;
           if (clauseStr.includes("running") || clauseStr.includes("pending")) {
             filteredSyncs = syncsRows.filter(
@@ -117,7 +60,7 @@ const mocks = vi.hoisted(() => {
     })),
   };
 
-  return { syncsRows, factRows, totalsResult, strikingResult, countriesResult, db };
+  return { syncsRows, factRows, db };
 });
 
 vi.mock("@/db", () => ({ db: mocks.db }));
@@ -148,12 +91,12 @@ async function buildTestSearchPerformanceReport(params: {
       storedCoverage?.startDate ??
       (latestSync?.status === "completed"
         ? latestSync.requestedStartDate
-        : latestSync?.actualLastSuccessfulDate ?? null);
+        : (latestSync?.actualLastSuccessfulDate ?? null));
     const covEndDate =
       storedCoverage?.endDate ??
       (latestSync?.status === "completed"
         ? latestSync.requestedEndDate
-        : latestSync?.actualLastSuccessfulDate ?? null);
+        : (latestSync?.actualLastSuccessfulDate ?? null));
 
     let status: "completed" | "partial" | "failed" | "running" = "completed";
     if (activeSync !== null) {
@@ -193,10 +136,10 @@ async function buildTestSearchPerformanceReport(params: {
         prevStartDate: "2026-04-01",
         prevEndDate: "2026-04-30",
       },
-      totals: mocks.totalsResult,
-      prevTotals: mocks.totalsResult,
-      strikingDistance: mocks.strikingResult,
-      countries: mocks.countriesResult,
+      totals: totalsResult,
+      prevTotals: totalsResult,
+      strikingDistance: strikingResult,
+      countries: countriesResult,
     };
   }
 
@@ -214,10 +157,10 @@ async function buildTestSearchPerformanceReport(params: {
       prevStartDate: "2026-04-01",
       prevEndDate: "2026-04-30",
     },
-    totals: mocks.totalsResult,
-    prevTotals: mocks.totalsResult,
-    strikingDistance: mocks.strikingResult,
-    countries: mocks.countriesResult,
+    totals: totalsResult,
+    prevTotals: totalsResult,
+    strikingDistance: strikingResult,
+    countries: countriesResult,
   };
 }
 
@@ -455,14 +398,20 @@ describe("Search Performance Report Flow & Coverage Scenarios", () => {
 
     // Verify round-trip JSON serialization
     const jsonString = JSON.stringify(report);
-    const parsed = JSON.parse(jsonString);
+    const parsed: unknown = JSON.parse(jsonString);
 
     expect(parsed).toEqual(report);
-    expect(typeof parsed.connected).toBe("boolean");
-    expect(typeof parsed.source).toBe("string");
-    expect(typeof parsed.range.startDate).toBe("string");
-    expect(typeof parsed.totals.clicks).toBe("number");
-    expect(Array.isArray(parsed.strikingDistance)).toBe(true);
-    expect(Array.isArray(parsed.countries)).toBe(true);
+
+    const parsedReport = asRecord(parsed, "serialized report");
+    expect(typeof parsedReport["connected"]).toBe("boolean");
+    expect(typeof parsedReport["source"]).toBe("string");
+    expect(
+      typeof asRecord(parsedReport["range"], "serialized range")["startDate"],
+    ).toBe("string");
+    expect(
+      typeof asRecord(parsedReport["totals"], "serialized totals")["clicks"],
+    ).toBe("number");
+    expect(Array.isArray(parsedReport["strikingDistance"])).toBe(true);
+    expect(Array.isArray(parsedReport["countries"])).toBe(true);
   });
 });

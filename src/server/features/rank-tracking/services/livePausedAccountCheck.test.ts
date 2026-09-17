@@ -24,6 +24,22 @@ import {
 } from "@/client/features/rank-tracking/RankTrackingTableParts";
 import { loadLocalEnv } from "../../../../../scripts/cli-utils";
 
+interface DataforseoTaskResult {
+  status_code?: number;
+  status_message?: string;
+}
+
+interface DataforseoLiveResponse {
+  status_code?: number;
+  status_message?: string;
+  tasks?: DataforseoTaskResult[];
+}
+
+type ProviderErrorFixture = Error & {
+  statusCode?: number;
+  status?: number;
+};
+
 loadLocalEnv();
 process.env.DATAFORSEO_ENABLED = "true";
 
@@ -54,7 +70,7 @@ describe("Live and Paused-Account Rank Check Verification", () => {
           ]),
         },
       );
-      const data: any = await res.json();
+      const data: DataforseoLiveResponse = await res.json();
       const elapsed = Date.now() - start;
       console.log(`Live DataForSEO call finished in ${elapsed}ms with HTTP ${res.status}`);
 
@@ -67,7 +83,7 @@ describe("Live and Paused-Account Rank Check Verification", () => {
       expect(taskStatusCode).toBe(40200);
       expect(taskStatusMessage).toBe("Payment Required.");
 
-      const caughtError: any = new Error(
+      const caughtError: ProviderErrorFixture = new Error(
         `DataForSEO task error (${taskStatusCode}): ${taskStatusMessage}`,
       );
       caughtError.statusCode = taskStatusCode;
@@ -102,7 +118,7 @@ describe("Live and Paused-Account Rank Check Verification", () => {
 
   it("2. Paused account (40201) correctly reports budgetGuard PASS and truthful semantics end-to-end", () => {
     // Exact DataForSEO 40201 upstream task error payload
-    const pausedError: any = new Error(
+    const pausedError: ProviderErrorFixture = new Error(
       "DataForSEO task error (40201): We noticed some unusual activity in your DataForSEO account, so we've temporarily paused access to our services as a precaution.",
     );
     pausedError.statusCode = 40201;

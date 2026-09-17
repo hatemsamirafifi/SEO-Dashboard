@@ -115,6 +115,10 @@ export interface RankRunForTrace {
     resultCompleteness?: string;
     dispatched?: boolean;
     circuitBreakerEnabled?: boolean;
+    attempt?: number | null;
+    maxRetries?: number | null;
+    retryable?: boolean | null;
+    retryAfterMs?: number | null;
     skipReason?: string | null;
     circuitReason?: string | null;
     circuitOpenedAt?: string | null;
@@ -340,6 +344,10 @@ export function buildRankCompletionPatch(input: {
       resultCompleteness: call.resultCompleteness,
       dispatched: call.dispatched,
       circuitBreakerEnabled: call.circuitBreakerEnabled,
+      attempt: call.attempt ?? undefined,
+      maxRetries: call.maxRetries ?? undefined,
+      retryable: call.retryable ?? undefined,
+      retryAfterMs: call.retryAfterMs ?? undefined,
       skipReason:
         call.skipReason ??
         (call.status === "skipped" ? call.errorCode : undefined),

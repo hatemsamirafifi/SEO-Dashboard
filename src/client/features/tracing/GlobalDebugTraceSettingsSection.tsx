@@ -1,5 +1,5 @@
 import { Bug, ExternalLink } from "lucide-react";
-import { useGlobalTrace } from "./globalTraceStore";
+import { useGlobalTrace } from "./useGlobalTrace";
 
 export function GlobalDebugTraceSettingsSection({
   projectId,
@@ -10,7 +10,6 @@ export function GlobalDebugTraceSettingsSection({
     diagnosticsEnabled,
     setDiagnosticsEnabled,
     totalCount,
-    panelOpen,
     setPanelOpen,
   } = useGlobalTrace(projectId);
 

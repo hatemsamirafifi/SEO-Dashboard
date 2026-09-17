@@ -549,6 +549,10 @@ export const seoProviderSettings = sqliteTable(
     })
       .notNull()
       .default(true),
+    // Max additional attempts for temporary request failures (0-5). Total
+    // attempts = retries + 1. Deterministic account/config failures never
+    // consume retries (see serp/retryPolicy).
+    maxRetries: integer("max_retries").notNull().default(2),
     priority: integer("priority"),
     // Encrypted JSON { login: string, password: string }
     credentials: text("credentials"),
@@ -589,6 +593,13 @@ export const rankProviderCalls = sqliteTable(
     circuitReason: text("circuit_reason"),
     circuitOpenedAt: text("circuit_opened_at"),
     circuitExpiresAt: text("circuit_expires_at"),
+    // Retry-policy attribution: 1-based attempt for this provider within one
+    // resolution, configured max retries, and whether the failure that ended
+    // this call was classified retryable.
+    attempt: integer("attempt"),
+    maxRetries: integer("max_retries"),
+    retryable: integer("retryable", { mode: "boolean" }),
+    retryAfterMs: integer("retry_after_ms"),
     durationMs: integer("duration_ms").notNull(),
     resultCount: integer("result_count"),
     requestedDepth: integer("requested_depth").notNull().default(0),

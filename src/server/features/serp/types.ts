@@ -47,6 +47,14 @@ export type SerpProviderCall = {
   dispatched: boolean;
   /** Whether circuit-breaker protection was active for this provider call. */
   circuitBreakerEnabled?: boolean;
+  /** 1-based attempt within this provider's retry sequence. */
+  attempt?: number;
+  /** Configured maximum additional retries for this provider (0-5). */
+  maxRetries?: number;
+  /** Whether the failure that ended this call is classified retryable. */
+  retryable?: boolean;
+  /** Provider-supplied Retry-After (bounded) in ms, when present. */
+  retryAfterMs?: number | null;
   skipReason?: SerpProviderSkipReason | null;
   circuitReason?: string | null;
   circuitOpenedAt?: string | null;
@@ -72,11 +80,22 @@ export class SerpProviderError extends Error {
     public readonly code: string,
     public readonly calls: SerpProviderCall[],
     message: string,
-    public readonly deterministic = false,
+    options: {
+      deterministic?: boolean;
+      /** Provider-supplied Retry-After wait in ms (already bounded), if any. */
+      retryAfterMs?: number | null;
+    } = {},
   ) {
     super(message);
     this.name = "SerpProviderError";
+    this.deterministic = options.deterministic ?? false;
+    this.retryAfterMs = options.retryAfterMs ?? null;
   }
+
+  /** True when retrying the identical request can never succeed. */
+  readonly deterministic: boolean;
+  /** Provider-supplied Retry-After wait in ms (already bounded), if any. */
+  readonly retryAfterMs: number | null;
 }
 
 export class SerpCancelledError extends Error {
