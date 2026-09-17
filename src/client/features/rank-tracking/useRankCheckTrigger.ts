@@ -12,10 +12,8 @@ import {
   registerCancellation,
   unregisterCancellation,
 } from "@/client/features/tracing/cancellationRegistry";
-import type { GlobalTraceProviderCall } from "@/shared/globalTraceTypes";
 import {
   busyBlockedReason,
-  providerTaskCount,
   resolveCheckBusyState,
   type RankCheckDevices,
 } from "./rankTraceCompletion";
@@ -30,7 +28,7 @@ export function useRankCheckTrigger({
   configId,
   isRunning,
   projectId,
-  devices,
+  devices: _devices,
   onSuccess,
 }: {
   configId: string;

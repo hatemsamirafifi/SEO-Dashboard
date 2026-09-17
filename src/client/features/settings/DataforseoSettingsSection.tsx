@@ -65,6 +65,7 @@ export function DataforseoSettingsSection({
   const [circuitBreakerInput, setCircuitBreakerInput] = useState<
     boolean | null
   >(null);
+  const [retriesInput, setRetriesInput] = useState<number | null>(null);
   const [priorityInput, setPriorityInput] = useState<number | null>(null);
   const [testResult, setTestResult] =
     useState<DataforseoConnectionTestResult | null>(null);
@@ -84,6 +85,9 @@ export function DataforseoSettingsSection({
           ? data.override.circuitBreakerEnabled
           : data.circuitBreakerEnabled,
       );
+      setRetriesInput(
+        data.override ? data.override.maxRetries : data.maxRetries,
+      );
       setLoginInput("");
       setPasswordInput("");
       setPriorityInput(data.override?.priority ?? data.priority);
@@ -94,6 +98,7 @@ export function DataforseoSettingsSection({
   const isConfigured = data?.configured ?? false;
   const isEnabled = enabledInput ?? data?.enabled ?? true;
   const circuitBreakerEnabled = circuitBreakerInput ?? true;
+  const maxRetries = retriesInput ?? 2;
 
   const isDirty =
     loginInput.trim().length > 0 ||
@@ -106,7 +111,9 @@ export function DataforseoSettingsSection({
       circuitBreakerInput !==
         (override?.circuitBreakerEnabled ??
           data?.circuitBreakerEnabled ??
-          true));
+          true)) ||
+    (retriesInput !== null &&
+      retriesInput !== (override?.maxRetries ?? data?.maxRetries ?? 2));
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -115,6 +122,7 @@ export function DataforseoSettingsSection({
         password?: string;
         enabled?: boolean;
         circuitBreakerEnabled?: boolean;
+        maxRetries?: number;
         priority?: number;
       } = {};
       if (loginInput.trim()) patch.login = loginInput.trim();
@@ -122,6 +130,7 @@ export function DataforseoSettingsSection({
       if (enabledInput !== null) patch.enabled = enabledInput;
       if (circuitBreakerInput !== null)
         patch.circuitBreakerEnabled = circuitBreakerInput;
+      if (retriesInput !== null) patch.maxRetries = retriesInput;
       if (priorityInput !== null) patch.priority = priorityInput;
       // Trace is observational: single server call, no credentials in trace —
       // only safe presence flags.
@@ -339,19 +348,43 @@ export function DataforseoSettingsSection({
       />
 
       <div className="rounded-box border border-base-300 bg-base-100 p-3 space-y-1.5">
-        <label className="flex items-center gap-2 text-xs font-medium">
-          <input
-            type="checkbox"
-            className="toggle toggle-primary toggle-sm"
-            checked={circuitBreakerEnabled}
-            onChange={(event) => setCircuitBreakerInput(event.target.checked)}
-          />
-          Circuit breaker
-        </label>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <label className="flex items-center gap-2 text-xs font-medium">
+            <input
+              type="checkbox"
+              className="toggle toggle-primary toggle-sm"
+              checked={circuitBreakerEnabled}
+              onChange={(event) =>
+                setCircuitBreakerInput(event.target.checked)
+              }
+            />
+            Circuit breaker
+          </label>
+          <label className="flex items-center gap-2 text-xs">
+            Retries
+            <input
+              type="number"
+              min={0}
+              max={5}
+              value={maxRetries}
+              onChange={(event) =>
+                setRetriesInput(
+                  Math.min(5, Math.max(0, Number(event.target.value))),
+                )
+              }
+              className="input input-bordered input-sm w-16"
+            />
+          </label>
+        </div>
         <p className="text-[11px] text-base-content/60 leading-relaxed">
           {circuitBreakerEnabled
             ? "Automatically bypass this provider temporarily after repeated or deterministic provider failures."
             : "Circuit protection disabled. OpenSEO will retry this provider on each eligible request before moving to fallback providers."}
+        </p>
+        <p className="text-[11px] text-base-content/60 leading-relaxed">
+          Additional attempts for temporary request failures. Credential,
+          account, quota, and configuration errors skip retries and move
+          directly to the next provider.
         </p>
       </div>
 

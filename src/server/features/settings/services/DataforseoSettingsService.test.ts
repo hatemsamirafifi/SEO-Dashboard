@@ -28,6 +28,7 @@ const originalPassword = process.env.DATAFORSEO_PASSWORD;
 const originalApiKey = process.env.DATAFORSEO_API_KEY;
 const originalEnabled = process.env.DATAFORSEO_ENABLED;
 const originalCircuitBreaker = process.env.DATAFORSEO_CIRCUIT_BREAKER_ENABLED;
+const originalMaxRetries = process.env.DATAFORSEO_MAX_RETRIES;
 
 beforeEach(() => {
   process.env.AI_CREDENTIALS_ENCRYPTION_KEY =
@@ -37,6 +38,7 @@ beforeEach(() => {
   delete (process.env as Record<string, string | undefined>).DATAFORSEO_API_KEY;
   delete process.env.DATAFORSEO_ENABLED;
   delete process.env.DATAFORSEO_CIRCUIT_BREAKER_ENABLED;
+  delete process.env.DATAFORSEO_MAX_RETRIES;
   resetProviderCircuitsForTests();
   vi.restoreAllMocks();
 });
@@ -55,6 +57,11 @@ afterEach(() => {
   else
     delete (process.env as Record<string, string | undefined>)
       .DATAFORSEO_CIRCUIT_BREAKER_ENABLED;
+  if (originalMaxRetries !== undefined)
+    process.env.DATAFORSEO_MAX_RETRIES = originalMaxRetries;
+  else
+    delete (process.env as Record<string, string | undefined>)
+      .DATAFORSEO_MAX_RETRIES;
 });
 
 describe("DataforseoSettingsService configuration and persistence", () => {
@@ -75,6 +82,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       expect(config).toEqual({
         enabled: false,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         source: "none",
         configured: false,
         priority: 1,
@@ -100,6 +108,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       expect(config).toEqual({
         enabled: true,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         login: "env-user",
         password: "env-password",
         source: "environment",
@@ -127,6 +136,41 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       expect(config.circuitBreakerEnabled).toBe(false);
     });
 
+    it("persists maxRetries and inherits DATAFORSEO_MAX_RETRIES env default", async () => {
+      vi.spyOn(
+        SeoProviderSettingsRepository,
+        "getOrganizationProviderSettingsRow",
+      ).mockResolvedValue(null);
+      vi.spyOn(
+        SeoProviderSettingsRepository,
+        "getProjectProviderSettingsRow",
+      ).mockResolvedValue(null);
+      process.env.DATAFORSEO_LOGIN = "env-user";
+      process.env.DATAFORSEO_PASSWORD = "env-password";
+      process.env.DATAFORSEO_MAX_RETRIES = "3";
+
+      const envConfig = await resolveEffectiveDataforseoConfig({
+        organizationId: "org-retries",
+      });
+      expect(envConfig.maxRetries).toBe(3);
+
+      const upsertSpy = vi
+        .spyOn(
+          SeoProviderSettingsRepository,
+          "upsertOrganizationProviderSettingsRow",
+        )
+        .mockResolvedValue();
+      await saveDataforseoSettings({
+        organizationId: "org-retries",
+        patch: {
+          login: "retry-user",
+          password: "retry-password",
+          maxRetries: 0,
+        },
+      });
+      expect(upsertSpy.mock.calls[0][2].maxRetries).toBe(0);
+    });
+
     it("resolves legacy DATAFORSEO_API_KEY base64 format", async () => {
       vi.spyOn(
         SeoProviderSettingsRepository,
@@ -143,6 +187,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       expect(config).toEqual({
         enabled: true,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         login: "legacy-login",
         password: "legacy-pass",
         source: "environment",
@@ -167,6 +212,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         provider: "dataforseo",
         enabled: true,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         credentialsCiphertext: orgCipher,
         organizationId: "org-1",
         projectId: null,
@@ -183,6 +229,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       expect(config).toEqual({
         enabled: true,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         login: "org-user",
         password: "org-password",
         source: "organization",
@@ -208,6 +255,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         provider: "dataforseo",
         enabled: true,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         credentialsCiphertext: orgCipher,
         organizationId: "org-1",
         projectId: null,
@@ -221,6 +269,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         provider: "dataforseo",
         enabled: true,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         credentialsCiphertext: projCipher,
         organizationId: null,
         projectId: "proj-1",
@@ -234,6 +283,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
       expect(config).toEqual({
         enabled: true,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         login: "proj-user",
         password: "proj-password",
         source: "project",
@@ -257,6 +307,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         provider: "dataforseo",
         enabled: true,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         credentialsCiphertext: orgCipher,
         organizationId: "org-1",
         projectId: null,
@@ -309,6 +360,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
           password: "new-password",
           enabled: true,
           circuitBreakerEnabled: true,
+        maxRetries: 2,
         },
       });
 
@@ -376,6 +428,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
         provider: "dataforseo",
         enabled: true,
         circuitBreakerEnabled: true,
+        maxRetries: 2,
         credentialsCiphertext: existingCipher,
         organizationId: "org-1",
         projectId: null,

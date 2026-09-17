@@ -10,6 +10,7 @@ import {
   type SerpProviderId,
   type SerpSearchInput,
 } from "./types";
+import { boundedRetryAfterMs } from "./retryPolicy";
 
 const PAGE_SIZE = 10;
 
@@ -87,6 +88,7 @@ function failure(input: {
   deterministic: boolean;
   requestedDepth: number;
   pageNumber: number;
+  retryAfterMs?: number | null;
 }): SerpProviderError {
   return new SerpProviderError(
     input.id,
@@ -103,7 +105,10 @@ function failure(input: {
       }),
     ],
     `${input.id === "serper" ? "Serper.dev" : "Zenserp"} request failed: ${input.code}`,
-    input.deterministic,
+    {
+      deterministic: input.deterministic,
+      retryAfterMs: input.retryAfterMs ?? null,
+    },
   );
 }
 
@@ -263,6 +268,12 @@ export function createHttpSerpProvider(
             deterministic: classified.deterministic,
             requestedDepth,
             pageNumber,
+            // Respect a 429 Retry-After within a safe maximum (retryPolicy
+            // owns the cap); RATE_LIMITED stays retryable.
+            retryAfterMs:
+              response.status === 429
+                ? boundedRetryAfterMs(response.headers.get("retry-after"))
+                : null,
           });
         }
 

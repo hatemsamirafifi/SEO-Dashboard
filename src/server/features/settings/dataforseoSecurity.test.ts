@@ -89,6 +89,7 @@ describe("DataForSEO Security Invariants", () => {
       projectId: null,
       enabled: true,
       circuitBreakerEnabled: true,
+      maxRetries: 2,
       credentialsCiphertext: encrypted,
       updatedAt: new Date().toISOString(),
     });

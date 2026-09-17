@@ -5,6 +5,110 @@ vi.mock("@/serverFunctions/rank-tracking", () => ({
   cancelRankCheckRun: vi.fn(async () => ({ ok: true, status: "cancelled" })),
 }));
 
+function runSelectedCountersScenario(): void {
+  const totalTrackedKeywords = 901;
+  const selectedKeywordIds = ["kw_1", "kw_2", "kw_3", "kw_4"];
+  const projectId = "project_powersiment";
+
+  // 1. User clicks "Check selected" with 4 keywords -> trace started synchronously before async work
+  const opId = globalTraceStore.startOperation({
+    feature: "rank_tracking",
+    operation: "rank_tracking.check_selected",
+    source: "Rank Tracking page",
+    projectId,
+    scope: "selected",
+    selectedCount: selectedKeywordIds.length,
+    selectedKeywordIds,
+    billing: "Paid",
+    metered: true,
+    budget: "PASS",
+    cache: "Not applicable",
+    retry: { attempted: false, count: 0 },
+  });
+
+  const runningOp = globalTraceStore
+    .getState()
+    .operations.find((o) => o.operationId === opId);
+  expect(runningOp?.status).toBe("running");
+  expect(runningOp?.scope).toBe("selected");
+  expect(runningOp?.selectedCount).toBe(4);
+  expect(runningOp?.selectedKeywordIds).toEqual(selectedKeywordIds);
+
+  // 2. Server validates 4 keywords, rejects unselected 897, attaches runId
+  const validatedCount = 4;
+  const unselectedCount = totalTrackedKeywords - validatedCount; // 897
+  const runId = "run_workflow_12345";
+
+  globalTraceStore.updateOperation(opId, {
+    validatedCount,
+    rankChecksStarted: validatedCount,
+    rankChecksSkipped: unselectedCount,
+    metadata: { runId, configId: "cfg_1" },
+    provider: `DataForSEO ×${validatedCount}`,
+    providerCalls: validatedCount,
+    providerBreakdown: [{ provider: "DataForSEO", count: validatedCount }],
+    providers: Array.from({ length: validatedCount }, () => ({
+      provider: "DataForSEO",
+      endpoint: "v3/serp/google/organic/live/advanced",
+      httpStatus: 200,
+      taskStatus: 20000,
+      transport: "HTTP",
+      billing: "Paid",
+      metered: true,
+      budgetGuard: "PASS",
+    })),
+  });
+
+  // 3. Complete check with exact per-keyword children
+  const children = selectedKeywordIds.map((id, index) => ({
+    keywordId: id,
+    keyword: `test keyword ${index + 1}`,
+    status: "success" as const,
+    provider: "DataForSEO",
+    positionBefore: 10 + index,
+    positionAfter: 5 + index,
+    httpStatus: 200,
+    taskStatus: 20000,
+    durationMs: 1200 + index * 50,
+  }));
+
+  globalTraceStore.completeOperation(opId, {
+    status: "success",
+    rankChecksSucceeded: validatedCount,
+    rankChecksFailed: 0,
+    durationMs: 8200,
+    children,
+  });
+
+  // 4. Verify exact runtime-derived numbers in trace
+  const finalOp = globalTraceStore
+    .getState()
+    .operations.find((o) => o.operationId === opId);
+  expect(finalOp).toBeDefined();
+  expect(finalOp?.status).toBe("success");
+  expect(finalOp?.scope).toBe("selected");
+  expect(finalOp?.selectedCount).toBe(4);
+  expect(finalOp?.validatedCount).toBe(4);
+  expect(finalOp?.rankChecksStarted).toBe(4);
+  expect(finalOp?.rankChecksSucceeded).toBe(4);
+  expect(finalOp?.rankChecksFailed).toBe(0);
+  expect(finalOp?.rankChecksSkipped).toBe(897); // 897 unselected
+  expect(finalOp?.providerCalls).toBe(4);
+  expect(finalOp?.provider).toBe("DataForSEO ×4");
+  expect(finalOp?.billing).toBe("Paid");
+  expect(finalOp?.metered).toBe(true);
+  expect(finalOp?.budget).toBe("PASS");
+  expect(finalOp?.cache).toBe("Not applicable");
+  expect(finalOp?.metadata?.runId).toBe("run_workflow_12345");
+  expect(finalOp?.children).toHaveLength(4);
+  expect(finalOp?.children?.[0].positionBefore).toBe(10);
+  expect(finalOp?.children?.[0].positionAfter).toBe(5);
+
+  // CRITICAL: The trace must NOT show 901 rank checks!
+  expect(finalOp?.rankChecksStarted).not.toBe(901);
+  expect(finalOp?.providerCalls).not.toBe(901);
+}
+
 describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () => {
   beforeEach(() => {
     globalTraceStore.clearTrace();
@@ -12,107 +116,7 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
   });
 
   it("proves 4 selected keywords triggers exactly 4 rank checks and not 901", () => {
-    const totalTrackedKeywords = 901;
-    const selectedKeywordIds = ["kw_1", "kw_2", "kw_3", "kw_4"];
-    const projectId = "project_powersiment";
-
-    // 1. User clicks "Check selected" with 4 keywords -> trace started synchronously before async work
-    const opId = globalTraceStore.startOperation({
-      feature: "rank_tracking",
-      operation: "rank_tracking.check_selected",
-      source: "Rank Tracking page",
-      projectId,
-      scope: "selected",
-      selectedCount: selectedKeywordIds.length,
-      selectedKeywordIds,
-      billing: "Paid",
-      metered: true,
-      budget: "PASS",
-      cache: "Not applicable",
-      retry: { attempted: false, count: 0 },
-    });
-
-    const runningOp = globalTraceStore
-      .getState()
-      .operations.find((o) => o.operationId === opId);
-    expect(runningOp?.status).toBe("running");
-    expect(runningOp?.scope).toBe("selected");
-    expect(runningOp?.selectedCount).toBe(4);
-    expect(runningOp?.selectedKeywordIds).toEqual(selectedKeywordIds);
-
-    // 2. Server validates 4 keywords, rejects unselected 897, attaches runId
-    const validatedCount = 4;
-    const unselectedCount = totalTrackedKeywords - validatedCount; // 897
-    const runId = "run_workflow_12345";
-
-    globalTraceStore.updateOperation(opId, {
-      validatedCount,
-      rankChecksStarted: validatedCount,
-      rankChecksSkipped: unselectedCount,
-      metadata: { runId, configId: "cfg_1" },
-      provider: `DataForSEO ×${validatedCount}`,
-      providerCalls: validatedCount,
-      providerBreakdown: [{ provider: "DataForSEO", count: validatedCount }],
-      providers: Array.from({ length: validatedCount }, () => ({
-        provider: "DataForSEO",
-        endpoint: "v3/serp/google/organic/live/advanced",
-        httpStatus: 200,
-        taskStatus: 20000,
-        transport: "HTTP",
-        billing: "Paid",
-        metered: true,
-        budgetGuard: "PASS",
-      })),
-    });
-
-    // 3. Complete check with exact per-keyword children
-    const children = selectedKeywordIds.map((id, index) => ({
-      keywordId: id,
-      keyword: `test keyword ${index + 1}`,
-      status: "success" as const,
-      provider: "DataForSEO",
-      positionBefore: 10 + index,
-      positionAfter: 5 + index,
-      httpStatus: 200,
-      taskStatus: 20000,
-      durationMs: 1200 + index * 50,
-    }));
-
-    globalTraceStore.completeOperation(opId, {
-      status: "success",
-      rankChecksSucceeded: validatedCount,
-      rankChecksFailed: 0,
-      durationMs: 8200,
-      children,
-    });
-
-    // 4. Verify exact runtime-derived numbers in trace
-    const finalOp = globalTraceStore
-      .getState()
-      .operations.find((o) => o.operationId === opId);
-    expect(finalOp).toBeDefined();
-    expect(finalOp?.status).toBe("success");
-    expect(finalOp?.scope).toBe("selected");
-    expect(finalOp?.selectedCount).toBe(4);
-    expect(finalOp?.validatedCount).toBe(4);
-    expect(finalOp?.rankChecksStarted).toBe(4);
-    expect(finalOp?.rankChecksSucceeded).toBe(4);
-    expect(finalOp?.rankChecksFailed).toBe(0);
-    expect(finalOp?.rankChecksSkipped).toBe(897); // 897 unselected
-    expect(finalOp?.providerCalls).toBe(4);
-    expect(finalOp?.provider).toBe("DataForSEO ×4");
-    expect(finalOp?.billing).toBe("Paid");
-    expect(finalOp?.metered).toBe(true);
-    expect(finalOp?.budget).toBe("PASS");
-    expect(finalOp?.cache).toBe("Not applicable");
-    expect(finalOp?.metadata?.runId).toBe("run_workflow_12345");
-    expect(finalOp?.children).toHaveLength(4);
-    expect(finalOp?.children?.[0].positionBefore).toBe(10);
-    expect(finalOp?.children?.[0].positionAfter).toBe(5);
-
-    // CRITICAL: The trace must NOT show 901 rank checks!
-    expect(finalOp?.rankChecksStarted).not.toBe(901);
-    expect(finalOp?.providerCalls).not.toBe(901);
+    runSelectedCountersScenario();
   });
 
   it("handles budget blocked rank check gracefully with 0 provider calls", () => {

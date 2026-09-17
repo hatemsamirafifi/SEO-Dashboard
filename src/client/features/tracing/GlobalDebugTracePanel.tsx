@@ -14,10 +14,14 @@ import {
   type Filter,
 } from "lucide-react";
 import type { GlobalTraceFilter } from "@/shared/globalTraceTypes";
-import { useGlobalTrace } from "./globalTraceStore";
+import { useGlobalTrace } from "./useGlobalTrace";
 import { GlobalTraceOperationCard } from "./GlobalTraceOperationCard";
 
-const FILTERS: Array<{ id: GlobalTraceFilter; label: string; icon: typeof Filter }> = [
+const FILTERS: Array<{
+  id: GlobalTraceFilter;
+  label: string;
+  icon: typeof Filter;
+}> = [
   { id: "all", label: "All", icon: Layers },
   { id: "errors", label: "Errors", icon: AlertCircle },
   { id: "providers", label: "Providers", icon: Server },
@@ -80,7 +84,8 @@ export function GlobalDebugTracePanel({
               OpenSEO Debug Trace
             </h2>
             <p className="text-xs text-base-content/60">
-              Developer diagnostics for non-SAM application operations · Current session
+              Developer diagnostics for non-SAM application operations · Current
+              session
             </p>
           </div>
 

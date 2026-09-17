@@ -1,82 +1,34 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type {
   GlobalTraceFeature,
   GlobalTraceFilter,
   GlobalTraceOperation,
   GlobalTraceStatus,
 } from "@/shared/globalTraceTypes";
-import {
-  computeProviderBreakdown,
-  filterOperations,
-} from "./globalTraceFormat";
+import { computeProviderBreakdown } from "./globalTraceFormat";
 import { cancellationRegistry } from "./cancellationRegistry";
+import { dispatchRankCheckServerCancel } from "./rankCheckCancelDispatch";
+import {
+  DIAGNOSTICS_STORAGE_KEY,
+  MAX_OPERATIONS,
+  OPERATIONS_STORAGE_KEY,
+  getInitialDiagnosticsEnabled,
+  getInitialOperations,
+  isOperationArrayGuard,
+  safeTraceId,
+  saveDiagnosticsEnabledToStorage,
+  saveOperationsToStorage,
+} from "./globalTraceStorage";
 
-const MAX_OPERATIONS = 500;
-const DIAGNOSTICS_STORAGE_KEY = "openseo_global_diagnostics_enabled";
-export const OPERATIONS_STORAGE_KEY = "openseo_global_trace_operations";
+// Re-exported for existing consumers that import from the store module.
+export { safeTraceId } from "./globalTraceStorage";
 
 type Listener = () => void;
-
-/**
- * Secure-context-safe ID generation for trace/operation records.
- * `crypto.randomUUID` only exists in secure contexts (HTTPS / localhost);
- * on plain-HTTP origins it is undefined and would throw, which must never
- * break the underlying SEO operation being traced.
- */
-export function safeTraceId(): string {
-  try {
-    if (
-      typeof crypto !== "undefined" &&
-      typeof crypto.randomUUID === "function"
-    ) {
-      return crypto.randomUUID();
-    }
-  } catch {
-    // Fall through to the Math.random fallback below.
-  }
-  return `trace_${Date.now().toString(36)}_${Math.floor(
-    Math.random() * 0xffffff,
-  ).toString(36)}`;
-}
 
 export interface GlobalTraceStoreState {
   operations: GlobalTraceOperation[];
   diagnosticsEnabled: boolean;
   activeFilter: GlobalTraceFilter;
   panelOpen: boolean;
-}
-
-function getInitialDiagnosticsEnabled(): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    const stored = window.localStorage.getItem(DIAGNOSTICS_STORAGE_KEY);
-    if (stored !== null) {
-      return stored === "true";
-    }
-  } catch {
-    // Ignore localStorage access errors
-  }
-  return true;
-}
-
-function isOperationArray(val: unknown): val is GlobalTraceOperation[] {
-  return Array.isArray(val);
-}
-
-function getInitialOperations(): GlobalTraceOperation[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(OPERATIONS_STORAGE_KEY);
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (isOperationArray(parsed)) {
-        return parsed.slice(0, MAX_OPERATIONS);
-      }
-    }
-  } catch {
-    // Ignore localStorage access errors
-  }
-  return [];
 }
 
 class GlobalTraceStore {
@@ -98,12 +50,7 @@ class GlobalTraceStore {
   }
 
   private saveOperations(ops: GlobalTraceOperation[]) {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(OPERATIONS_STORAGE_KEY, JSON.stringify(ops));
-    } catch {
-      // Ignore localStorage access errors
-    }
+    saveOperationsToStorage(ops);
   }
 
   private handleStorageEvent = (event: StorageEvent) => {
@@ -111,7 +58,7 @@ class GlobalTraceStore {
       try {
         const raw = event.newValue;
         const parsed: unknown = raw ? JSON.parse(raw) : [];
-        if (isOperationArray(parsed)) {
+        if (isOperationArrayGuard(parsed)) {
           this.state = {
             ...this.state,
             operations: parsed.slice(0, MAX_OPERATIONS),
@@ -152,13 +99,7 @@ class GlobalTraceStore {
 
   setDiagnosticsEnabled = (enabled: boolean) => {
     if (this.state.diagnosticsEnabled === enabled) return;
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(DIAGNOSTICS_STORAGE_KEY, String(enabled));
-      } catch {
-        // Ignore
-      }
-    }
+    saveDiagnosticsEnabledToStorage(enabled);
     this.state = {
       ...this.state,
       diagnosticsEnabled: enabled,
@@ -472,25 +413,7 @@ class GlobalTraceStore {
       }
 
       // If this is a rank_tracking operation with a runId, dispatch real server cancellation directly
-      const runId =
-        op.rankCheckRunId ||
-        (op.metadata as { runId?: string } | undefined)?.runId;
-      if (op.feature === "rank_tracking" && runId && op.projectId) {
-        try {
-          const { cancelRankCheckRun } =
-            await import("@/serverFunctions/rank-tracking");
-          await cancelRankCheckRun({
-            data: {
-              projectId: op.projectId,
-              configId: (op.metadata as { configId?: string } | undefined)
-                ?.configId,
-              runId,
-            },
-          });
-        } catch (err) {
-          console.error(`Direct server cancel for run ${runId} failed:`, err);
-        }
-      }
+      await dispatchRankCheckServerCancel(op);
 
       // Check current state after invocation to respect races with natural completion
       const current = this.state.operations.find(
@@ -529,8 +452,8 @@ class GlobalTraceStore {
     try {
       let newOps: GlobalTraceOperation[];
       if (projectId) {
-        newOps = this.state.operations.filter(
-          (op) => Boolean(op.projectId && op.projectId !== projectId),
+        newOps = this.state.operations.filter((op) =>
+          Boolean(op.projectId && op.projectId !== projectId),
         );
       } else {
         newOps = [];
@@ -570,50 +493,3 @@ class GlobalTraceStore {
 }
 
 export const globalTraceStore = new GlobalTraceStore();
-
-export function useGlobalTrace(projectId?: string) {
-  const state = useSyncExternalStore(
-    globalTraceStore.subscribe,
-    globalTraceStore.getState,
-    globalTraceStore.getState,
-  );
-
-  const scopedOperations = useMemo(() => {
-    return projectId
-      ? state.operations.filter(
-          (op) => !op.projectId || op.projectId === projectId,
-        )
-      : state.operations;
-  }, [state.operations, projectId]);
-
-  const filteredOperations = useMemo(() => {
-    return filterOperations(scopedOperations, state.activeFilter);
-  }, [scopedOperations, state.activeFilter]);
-
-  const clearTrace = useCallback(() => {
-    globalTraceStore.clearTrace(projectId);
-  }, [projectId]);
-
-  const removeOperation = useCallback((operationId: string) => {
-    return globalTraceStore.removeOperation(operationId);
-  }, []);
-
-  const cancelOperation = useCallback(async (operationId: string) => {
-    return globalTraceStore.cancelOperation(operationId);
-  }, []);
-
-  return {
-    operations: filteredOperations,
-    allOperations: scopedOperations,
-    totalCount: scopedOperations.length,
-    diagnosticsEnabled: state.diagnosticsEnabled,
-    activeFilter: state.activeFilter,
-    panelOpen: state.panelOpen,
-    setDiagnosticsEnabled: globalTraceStore.setDiagnosticsEnabled,
-    setActiveFilter: globalTraceStore.setActiveFilter,
-    setPanelOpen: globalTraceStore.setPanelOpen,
-    clearTrace,
-    removeOperation,
-    cancelOperation,
-  };
-}

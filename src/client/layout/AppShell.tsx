@@ -14,7 +14,7 @@ import { getSeoApiKeyStatus } from "@/serverFunctions/config";
 import { getProjects } from "@/serverFunctions/projects";
 import { getLastProjectId } from "@/client/lib/active-project";
 import { GlobalDebugTracePanel } from "@/client/features/tracing/GlobalDebugTracePanel";
-import { useGlobalTrace } from "@/client/features/tracing/globalTraceStore";
+import { useGlobalTrace } from "@/client/features/tracing/useGlobalTrace";
 
 const DATAFORSEO_HELP_PATH = "/help/dataforseo-api-key";
 

@@ -30,6 +30,7 @@ export function AdditionalSerpProviderCard({
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [circuitBreaker, setCircuitBreaker] = useState(true);
+  const [retries, setRetries] = useState(2);
   const [priority, setPriority] = useState(provider === "serper" ? 2 : 3);
   const [test, setTest] = useState<SerpProviderConnectionTestResult | null>(
     null,
@@ -43,6 +44,7 @@ export function AdditionalSerpProviderCard({
       query.data.override?.circuitBreakerEnabled ??
         query.data.circuitBreakerEnabled,
     );
+    setRetries(query.data.override?.maxRetries ?? query.data.maxRetries);
     setPriority(query.data.override?.priority ?? query.data.priority);
     setApiKey("");
   }, [query.data]);
@@ -57,6 +59,7 @@ export function AdditionalSerpProviderCard({
             apiKey: apiKey || undefined,
             enabled,
             circuitBreakerEnabled: circuitBreaker,
+            maxRetries: retries,
             priority,
           },
         },
@@ -140,7 +143,7 @@ export function AdditionalSerpProviderCard({
         </div>
         <div>
           <span className="block text-base-content/50">Runtime status</span>
-          {circuitBreaker === false ? (
+          {!circuitBreaker ? (
             <span>Circuit protection disabled</span>
           ) : data?.circuit.state === "open" ? (
             <span className="text-warning">
@@ -182,17 +185,32 @@ export function AdditionalSerpProviderCard({
           />
           Enabled
         </label>
-        <label className="flex items-center gap-2 text-xs">
-          Priority
-          <input
-            type="number"
-            min={1}
-            max={3}
-            value={priority}
-            onChange={(event) => setPriority(Number(event.target.value))}
-            className="input input-bordered input-sm w-20"
-          />
-        </label>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-xs">
+            Retries
+            <input
+              type="number"
+              min={0}
+              max={5}
+              value={retries}
+              onChange={(event) =>
+                setRetries(Math.min(5, Math.max(0, Number(event.target.value))))
+              }
+              className="input input-bordered input-sm w-16"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs">
+            Priority
+            <input
+              type="number"
+              min={1}
+              max={3}
+              value={priority}
+              onChange={(event) => setPriority(Number(event.target.value))}
+              className="input input-bordered input-sm w-20"
+            />
+          </label>
+        </div>
       </div>
       <div className="space-y-1">
         <label className="flex items-center gap-2 text-xs">
@@ -208,6 +226,11 @@ export function AdditionalSerpProviderCard({
           {circuitBreaker
             ? "Automatically bypass this provider temporarily after repeated or deterministic provider failures."
             : "Circuit protection disabled. OpenSEO will retry this provider on each eligible request before moving to fallback providers."}
+        </p>
+        <p className="text-[11px] text-base-content/60 leading-relaxed">
+          Additional attempts for temporary request failures. Credential,
+          account, quota, and configuration errors skip retries and move
+          directly to the next provider.
         </p>
       </div>
       <p className="text-[11px] text-warning">

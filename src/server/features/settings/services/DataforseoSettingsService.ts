@@ -23,6 +23,7 @@ import {
   type ProviderCircuitIdentity,
   type ProviderCircuitView,
 } from "@/server/features/serp/circuitBreaker";
+import { clampProviderRetries } from "@/server/features/serp/retryPolicy";
 
 export type DataForSeoConfigSource =
   | "project"
@@ -33,6 +34,7 @@ export type DataForSeoConfigSource =
 export type DataForSeoConfig = {
   enabled: boolean;
   circuitBreakerEnabled: boolean;
+  maxRetries: number;
   login?: string;
   password?: string;
   source: DataForSeoConfigSource;
@@ -45,6 +47,7 @@ export type DataforseoSettingsView = {
   configured: boolean;
   enabled: boolean;
   circuitBreakerEnabled: boolean;
+  maxRetries: number;
   priority: number;
   source: DataForSeoConfigSource;
   loginMasked: string | null;
@@ -54,6 +57,7 @@ export type DataforseoSettingsView = {
     configured: boolean;
     enabled: boolean;
     circuitBreakerEnabled: boolean;
+    maxRetries: number;
     priority: number;
     loginMasked: string | null;
     passwordConfigured: boolean;
@@ -69,6 +73,7 @@ export type SaveDataforseoSettingsInput = {
     password?: string;
     enabled?: boolean;
     circuitBreakerEnabled?: boolean;
+    maxRetries?: number;
     priority?: number;
   };
 };
@@ -137,6 +142,15 @@ function inheritedCircuitBreakerEnabled(
   return settingsRow?.circuitBreakerEnabled ?? envDefault;
 }
 
+function inheritedMaxRetries(
+  projectRow: SeoProviderSettingsRow | null,
+  orgRow: SeoProviderSettingsRow | null,
+  envDefault: number,
+): number {
+  const settingsRow = projectRow ?? orgRow;
+  return clampProviderRetries(settingsRow?.maxRetries ?? envDefault);
+}
+
 function recordFailedProbe(
   identity: ProviderCircuitIdentity,
   reason: DataforseoConnectionTestResult["reason"],
@@ -185,6 +199,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
       return {
         enabled: projectRow.enabled,
         circuitBreakerEnabled: projectRow.circuitBreakerEnabled,
+        maxRetries: clampProviderRetries(projectRow.maxRetries),
         login: creds.login,
         password: creds.password,
         source: "project",
@@ -205,6 +220,9 @@ export async function resolveEffectiveDataforseoConfig(params?: {
         enabled: settingsRow?.enabled ?? orgRow.enabled,
         circuitBreakerEnabled:
           settingsRow?.circuitBreakerEnabled ?? orgRow.circuitBreakerEnabled,
+        maxRetries: clampProviderRetries(
+          settingsRow?.maxRetries ?? orgRow.maxRetries,
+        ),
         login: creds.login,
         password: creds.password,
         source: "organization",
@@ -225,6 +243,12 @@ export async function resolveEffectiveDataforseoConfig(params?: {
   const envCircuitBreakerEnabled = !["false", "0"].includes(
     envCircuitBreakerRaw ?? "",
   );
+  const envRetriesRaw = await getOptionalEnvValue("DATAFORSEO_MAX_RETRIES");
+  const envRetries = clampProviderRetries(
+    envRetriesRaw === null || envRetriesRaw === undefined
+      ? 2
+      : Number(envRetriesRaw),
+  );
 
   if (envLogin && envPassword) {
     return {
@@ -234,6 +258,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
         orgRow,
         envCircuitBreakerEnabled,
       ),
+      maxRetries: inheritedMaxRetries(projectRow, orgRow, envRetries),
       login: envLogin.trim(),
       password: envPassword.trim(),
       source: "environment",
@@ -253,6 +278,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
           orgRow,
           envCircuitBreakerEnabled,
         ),
+        maxRetries: inheritedMaxRetries(projectRow, orgRow, envRetries),
         login: parsed.login,
         password: parsed.password,
         source: "environment",
@@ -270,6 +296,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
       orgRow,
       envCircuitBreakerEnabled,
     ),
+    maxRetries: inheritedMaxRetries(projectRow, orgRow, envRetries),
     source: "none",
     configured: false,
     priority: inheritedPriority(projectRow, orgRow),
@@ -315,6 +342,7 @@ export async function getDataforseoSettingsView(input: {
       configured: Boolean(creds),
       enabled: targetRow.enabled,
       circuitBreakerEnabled: targetRow.circuitBreakerEnabled,
+      maxRetries: clampProviderRetries(targetRow.maxRetries),
       priority: targetRow.priority ?? 1,
       loginMasked: creds ? maskDataforseoLogin(creds.login) : null,
       passwordConfigured: Boolean(creds?.password),
@@ -331,6 +359,7 @@ export async function getDataforseoSettingsView(input: {
     configured: effective.configured,
     enabled: effective.enabled,
     circuitBreakerEnabled: effective.circuitBreakerEnabled,
+    maxRetries: effective.maxRetries,
     priority: effective.priority,
     source: effective.source,
     loginMasked: maskDataforseoLogin(effective.login),
@@ -419,6 +448,9 @@ export async function saveDataforseoSettings(
       : (existingRow?.enabled ?? true);
   const circuitBreakerEnabled =
     patch.circuitBreakerEnabled ?? existingRow?.circuitBreakerEnabled ?? true;
+  const maxRetries = clampProviderRetries(
+    patch.maxRetries ?? existingRow?.maxRetries ?? 2,
+  );
   const priority = patch.priority ?? existingRow?.priority ?? 1;
 
   if (isProject && projectId) {
@@ -428,6 +460,7 @@ export async function saveDataforseoSettings(
       {
         enabled,
         circuitBreakerEnabled,
+        maxRetries,
         priority,
         credentialsCiphertext,
       },
@@ -439,6 +472,7 @@ export async function saveDataforseoSettings(
       {
         enabled,
         circuitBreakerEnabled,
+        maxRetries,
         priority,
         credentialsCiphertext,
       },

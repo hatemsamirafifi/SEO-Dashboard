@@ -97,7 +97,7 @@ function failedProvider(
           },
         ],
         "failed",
-        deterministic,
+        { deterministic },
       );
     }),
   };
@@ -133,12 +133,62 @@ function insufficientProvider(id: SerpProvider["id"]): SerpProvider {
   };
 }
 
+/**
+ * Provider that fails with the given error for the first `failures` calls,
+ * then succeeds. Used to simulate transient failures that a retry heals.
+ */
+function flakyProvider(
+  id: SerpProvider["id"],
+  failures: number,
+  error: { code: string; deterministic?: boolean } = {
+    code: "PROVIDER_UNAVAILABLE",
+  },
+  position: number | null = 4,
+): SerpProvider {
+  let calls = 0;
+  return {
+    id,
+    supports: () => true,
+    search: vi.fn(async (searchInput: SerpSearchInput) => {
+      calls++;
+      if (calls <= failures) {
+        throw new SerpProviderError(
+          id,
+          error.code,
+          [
+            {
+              provider: id,
+              endpoint: "/search",
+              status: "failed",
+              httpStatus: null,
+              errorCode: error.code,
+              durationMs: 1,
+              resultCount: null,
+              requestedDepth: searchInput.depth,
+              inspectedDepth: null,
+              pagesRequested: 1,
+              resultCompleteness: "not_applicable",
+              dispatched: true,
+            },
+          ],
+          `attempt ${calls} failed: ${error.code}`,
+          { deterministic: error.deterministic ?? false },
+        );
+      }
+      return successProvider(id, position).search(searchInput);
+    }),
+  };
+}
+
 function entries(...providers: SerpProvider[]): SerpResolverEntry[] {
+  // maxRetries: 0 keeps the pre-retry-era single-attempt semantics for the
+  // legacy failover tests; the dedicated retry suite sets retries explicitly.
   return providers.map((provider, index) => ({
     provider,
     priority: index + 1,
     enabled: true,
     configured: true,
+    maxRetries: 0,
   }));
 }
 
@@ -341,7 +391,7 @@ describe("SERP provider resolver", () => {
 
   it("records canonical reasons when every provider is skipped pre-dispatch", async () => {
     resetProviderCircuitsForTests();
-    const error = (await createSerpResolverFromEntries({
+    const caught: unknown = await createSerpResolverFromEntries({
       entries: [
         {
           provider: successProvider("dataforseo", 1),
@@ -364,8 +414,11 @@ describe("SERP provider resolver", () => {
       ],
     })
       .search(input)
-      .catch((value: unknown) => value)) as SerpProvidersUnavailableError;
+      .catch((value: unknown) => value);
 
+    expect(caught).toBeInstanceOf(SerpProvidersUnavailableError);
+    if (!(caught instanceof SerpProvidersUnavailableError)) return;
+    const error = caught;
     expect(error.calls.filter((call) => call.dispatched)).toHaveLength(0);
     expect(error.calls.map((call) => call.skipReason)).toEqual([
       "MISSING_CREDENTIALS",
@@ -400,14 +453,18 @@ describe("SERP provider resolver", () => {
     const serper = successProvider("serper", 3);
     const serperSearch = vi.mocked(serper.search);
     let checks = 0;
-    const error = await createSerpResolverFromEntries({
+    const caught: unknown = await createSerpResolverFromEntries({
       entries: entries(failedProvider("dataforseo"), serper),
     })
       .search({
         ...input,
         isCancelled: async () => ++checks > 1,
       })
-      .catch((value: unknown) => value as SerpCancelledError);
+      .catch((value: unknown) => value);
+
+    expect(caught).toBeInstanceOf(SerpCancelledError);
+    if (!(caught instanceof SerpCancelledError)) return;
+    const error = caught;
     expect(error).toHaveProperty("name", "AbortError");
     expect(error.calls.at(-1)).toMatchObject({
       provider: "serper",
@@ -420,7 +477,7 @@ describe("SERP provider resolver", () => {
   });
 
   it("records every provider as CANCELLED when cancelled before resolution", async () => {
-    const error = await createSerpResolverFromEntries({
+    const caught: unknown = await createSerpResolverFromEntries({
       entries: entries(
         successProvider("dataforseo", 1),
         successProvider("serper", 2),
@@ -428,7 +485,11 @@ describe("SERP provider resolver", () => {
       ),
     })
       .search({ ...input, isCancelled: async () => true })
-      .catch((value: unknown) => value as SerpCancelledError);
+      .catch((value: unknown) => value);
+
+    expect(caught).toBeInstanceOf(SerpCancelledError);
+    if (!(caught instanceof SerpCancelledError)) return;
+    const error = caught;
     expect(error.calls.map((call) => call.skipReason)).toEqual([
       "CANCELLED",
       "CANCELLED",
@@ -696,7 +757,7 @@ describe("SERP provider resolver", () => {
     });
 
     it("takes cancellation precedence regardless of the circuit setting", async () => {
-      const error = await createSerpResolverFromEntries({
+      const caught: unknown = await createSerpResolverFromEntries({
         entries: [
           {
             ...entries(successProvider("dataforseo", 1))[0],
@@ -706,7 +767,11 @@ describe("SERP provider resolver", () => {
         ],
       })
         .search({ ...input, isCancelled: async () => true })
-        .catch((value: unknown) => value as SerpCancelledError);
+        .catch((value: unknown) => value);
+
+      expect(caught).toBeInstanceOf(SerpCancelledError);
+      if (!(caught instanceof SerpCancelledError)) return;
+      const error = caught;
       expect(error.calls.map((call) => call.skipReason)).toEqual([
         "CANCELLED",
         "CANCELLED",
@@ -750,6 +815,411 @@ describe("SERP provider resolver", () => {
         (call) => call.dispatched,
       ).length;
       expect(firstDispatched).toBe(2);
+    });
+  });
+
+  describe("provider retry policy", () => {
+    beforeEach(() => {
+      resetProviderCircuitsForTests();
+    });
+
+    it("retries transient HTTP 503 failures and succeeds without fallback", async () => {
+      const flaky = flakyProvider(
+        "dataforseo",
+        2,
+        { code: "PROVIDER_UNAVAILABLE" },
+        6,
+      );
+      const fallback = successProvider("serper", 2);
+      const fallbackSearch = vi.mocked(fallback.search);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(flaky)[0], maxRetries: 2 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(result.provider).toBe("dataforseo");
+      expect(result.position).toBe(6);
+      expect(flaky.search).toHaveBeenCalledTimes(3);
+      expect(fallbackSearch).not.toHaveBeenCalled();
+      // All three calls are recorded truthfully with attempt numbers.
+      expect(result.calls.map((call) => call.attempt)).toEqual([1, 2, 3]);
+      expect(result.calls.every((call) => call.dispatched)).toBe(true);
+      // Failed attempts carry the retryable classification.
+      expect(result.calls[0]).toMatchObject({ retryable: true });
+      expect(result.calls[0]).toMatchObject({ maxRetries: 2 });
+    });
+
+    it.each([
+      "PROVIDER_UNAVAILABLE",
+      "UPSTREAM_UNAVAILABLE",
+      "RATE_LIMITED",
+      "NETWORK_OR_TIMEOUT",
+      "TRANSIENT_UPSTREAM",
+    ])("retries %s failures", async (code) => {
+      const flaky = flakyProvider("dataforseo", 1, { code });
+      const result = await createSerpResolverFromEntries({
+        entries: [{ ...entries(flaky)[0], maxRetries: 2 }],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(result.provider).toBe("dataforseo");
+      expect(flaky.search).toHaveBeenCalledTimes(2);
+    });
+
+    it("falls back to the next provider after retries are exhausted", async () => {
+      const alwaysFailing = flakyProvider("dataforseo", 99, {
+        code: "PROVIDER_UNAVAILABLE",
+      });
+      const fallback = successProvider("serper", 5);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(alwaysFailing)[0], maxRetries: 2 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(result.provider).toBe("serper");
+      expect(alwaysFailing.search).toHaveBeenCalledTimes(3);
+      // Provider calls: 3 failed DataForSEO attempts + 1 Serper success.
+      expect(
+        result.calls.filter((c) => c.provider === "dataforseo"),
+      ).toHaveLength(3);
+    });
+
+    it("does not interleave providers: current provider finishes retries first", async () => {
+      const callOrder: string[] = [];
+      const dataforseo: SerpProvider = {
+        id: "dataforseo",
+        supports: () => true,
+        search: vi.fn(async () => {
+          callOrder.push("dataforseo");
+          throw new SerpProviderError(
+            "dataforseo",
+            "PROVIDER_UNAVAILABLE",
+            [],
+            "down",
+          );
+        }),
+      };
+      const serper: SerpProvider = {
+        id: "serper",
+        supports: () => true,
+        search: vi.fn(async () => {
+          callOrder.push("serper");
+          throw new SerpProviderError(
+            "serper",
+            "PROVIDER_UNAVAILABLE",
+            [],
+            "down",
+          );
+        }),
+      };
+      await expect(
+        createSerpResolverFromEntries({
+          entries: [
+            { ...entries(dataforseo)[0], maxRetries: 1 },
+            { ...entries(serper)[0], maxRetries: 1 },
+          ],
+          retryWaitMs: 1,
+        }).search(input),
+      ).rejects.toHaveProperty("name", "SerpProvidersUnavailableError");
+      expect(callOrder).toEqual([
+        "dataforseo",
+        "dataforseo",
+        "serper",
+        "serper",
+      ]);
+    });
+
+    it("skips retries for invalid API key and moves directly to fallback", async () => {
+      const broken = flakyProvider("dataforseo", 99, {
+        code: "AUTH_FAILED",
+        deterministic: true,
+      });
+      const fallback = successProvider("serper", 7);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(broken)[0], maxRetries: 5 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(result.provider).toBe("serper");
+      expect(broken.search).toHaveBeenCalledTimes(1);
+      expect(result.calls[0]).toMatchObject({
+        retryable: false,
+        attempt: 1,
+        maxRetries: 5,
+      });
+    });
+
+    it("skips retries for DataForSEO 40201 account paused", async () => {
+      const paused = flakyProvider("dataforseo", 99, {
+        code: "DATAFORSEO_ACCOUNT_PAUSED",
+        deterministic: true,
+      });
+      const fallback = successProvider("serper", 2);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(paused)[0], maxRetries: 5 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(paused.search).toHaveBeenCalledTimes(1);
+      expect(result.provider).toBe("serper");
+      expect(result.calls[0]).toMatchObject({ retryable: false });
+    });
+
+    it("skips retries for quota exhausted", async () => {
+      const exhausted = flakyProvider("serper", 99, {
+        code: "QUOTA_EXHAUSTED",
+        deterministic: true,
+      });
+      const fallback = successProvider("zenserp", 3);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(exhausted)[0], maxRetries: 5 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(exhausted.search).toHaveBeenCalledTimes(1);
+      expect(result.provider).toBe("zenserp");
+    });
+
+    it("skips missing credentials entirely (pre-dispatch, zero retries)", async () => {
+      const provider = successProvider("dataforseo", 1);
+      const providerSearch = vi.mocked(provider.search);
+      const fallback = successProvider("serper", 2);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(provider)[0], configured: false, maxRetries: 5 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(result.provider).toBe("serper");
+      expect(providerSearch).not.toHaveBeenCalled();
+      expect(result.calls[0]).toMatchObject({
+        skipReason: "MISSING_CREDENTIALS",
+        dispatched: false,
+      });
+    });
+
+    it("makes exactly one total attempt when retries = 0", async () => {
+      const flaky = flakyProvider("dataforseo", 1, {
+        code: "PROVIDER_UNAVAILABLE",
+      });
+      const fallback = successProvider("serper", 2);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(flaky)[0], maxRetries: 0 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(flaky.search).toHaveBeenCalledTimes(1);
+      expect(result.provider).toBe("serper");
+      expect(result.calls[0]).toMatchObject({ maxRetries: 0, attempt: 1 });
+    });
+
+    it("makes at most six attempts when retries = 5", async () => {
+      const alwaysFailing = flakyProvider("dataforseo", 99, {
+        code: "PROVIDER_UNAVAILABLE",
+      });
+      const fallback = successProvider("serper", 2);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(alwaysFailing)[0], maxRetries: 5 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(alwaysFailing.search).toHaveBeenCalledTimes(6);
+      expect(result.provider).toBe("serper");
+      const dataforseoCalls = result.calls.filter(
+        (call) => call.provider === "dataforseo",
+      );
+      expect(dataforseoCalls.map((call) => call.attempt)).toEqual([
+        1, 2, 3, 4, 5, 6,
+      ]);
+    });
+
+    it("does not retry a valid NO_RESULT and does not fall back", async () => {
+      const provider = successProvider("dataforseo", null);
+      const providerSearch = vi.mocked(provider.search);
+      const fallback = successProvider("serper", 2);
+      const fallbackSearch = vi.mocked(fallback.search);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(provider)[0], maxRetries: 5 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(result).toMatchObject({ provider: "dataforseo", position: null });
+      expect(providerSearch).toHaveBeenCalledTimes(1);
+      expect(fallbackSearch).not.toHaveBeenCalled();
+    });
+
+    it("does not retry a RANKED result and does not fall back", async () => {
+      const provider = successProvider("dataforseo", 4);
+      const providerSearch = vi.mocked(provider.search);
+      const fallback = successProvider("serper", 2);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(provider)[0], maxRetries: 5 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      expect(result).toMatchObject({ provider: "dataforseo", position: 4 });
+      expect(providerSearch).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not start the next request when cancelled during backoff", async () => {
+      const controller = new AbortController();
+      const first: SerpProvider = {
+        id: "dataforseo",
+        supports: () => true,
+        search: vi.fn(async () => {
+          controller.abort();
+          throw new SerpProviderError(
+            "dataforseo",
+            "PROVIDER_UNAVAILABLE",
+            [],
+            "down",
+          );
+        }),
+      };
+      const fallback = successProvider("serper", 2);
+      const fallbackSearch = vi.mocked(fallback.search);
+      await expect(
+        createSerpResolverFromEntries({
+          entries: [
+            { ...entries(first)[0], maxRetries: 2 },
+            ...entries(fallback),
+          ],
+          retryWaitMs: 1,
+        }).search({ ...input, signal: controller.signal }),
+      ).rejects.toHaveProperty("name", "AbortError");
+      // The abort fired during the first attempt's failure; the retry backoff
+      // must not dispatch anything further.
+      expect(first.search).toHaveBeenCalledTimes(1);
+      expect(fallbackSearch).not.toHaveBeenCalled();
+    });
+
+    it("respects a provider Retry-After when rate limited", async () => {
+      let calls = 0;
+      const rateLimited: SerpProvider = {
+        id: "serper",
+        supports: () => true,
+        search: vi.fn(async (searchInput: SerpSearchInput) => {
+          calls++;
+          if (calls === 1) {
+            throw new SerpProviderError("serper", "RATE_LIMITED", [], "rate limited", {
+              retryAfterMs: 20,
+            });
+          }
+          return successProvider("serper", 9).search(searchInput);
+        }),
+      };
+      const startedAt = Date.now();
+      const result = await createSerpResolverFromEntries({
+        entries: [{ ...entries(rateLimited)[0], maxRetries: 2 }],
+        // No retryWaitMs override: the provider-supplied 20ms Retry-After
+        // must be respected over the default policy backoff.
+      }).search(input);
+      expect(result.provider).toBe("serper");
+      expect(rateLimited.search).toHaveBeenCalledTimes(2);
+      // The retry waited ~20ms (the provider-supplied Retry-After).
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(15);
+      expect(result.calls[0]).toMatchObject({
+        retryable: true,
+        retryAfterMs: 20,
+      });
+    });
+
+    it("keeps pagination separate from retries (insufficient depth falls through)", async () => {
+      const insufficient = insufficientProvider("dataforseo");
+      const fallback = successProvider("serper", 2);
+      const result = await createSerpResolverFromEntries({
+        entries: [
+          { ...entries(insufficient)[0], maxRetries: 5 },
+          ...entries(fallback),
+        ],
+        retryWaitMs: 1,
+      }).search(input);
+      // INSUFFICIENT_DEPTH is a valid provider outcome, not a retryable
+      // failure: no retries, direct fallback.
+      expect(insufficient.search).toHaveBeenCalledTimes(1);
+      expect(result.provider).toBe("serper");
+    });
+
+    it("counts retry calls truthfully in Provider Calls", async () => {
+      // One transient failure + one successful retry = two dispatched calls.
+      const flaky = flakyProvider("dataforseo", 1, {
+        code: "PROVIDER_UNAVAILABLE",
+      });
+      const result = await createSerpResolverFromEntries({
+        entries: [{ ...entries(flaky)[0], maxRetries: 2 }],
+        retryWaitMs: 1,
+      }).search(input);
+      const dispatched = result.calls.filter((call) => call.dispatched);
+      expect(dispatched).toHaveLength(2);
+      expect(result.calls).toHaveLength(2);
+      expect(result.calls.map((call) => call.status)).toEqual([
+        "failed",
+        "success",
+      ]);
+    });
+
+    it("retries even when the circuit breaker is off, and opens no circuit", async () => {
+      const flaky = flakyProvider("dataforseo", 1, {
+        code: "PROVIDER_UNAVAILABLE",
+      });
+      const resolver = createSerpResolverFromEntries({
+        entries: [
+          {
+            ...entries(flaky)[0],
+            maxRetries: 2,
+            circuitBreakerEnabled: false,
+          },
+        ],
+        organizationId: "org-retry-cb-off",
+        retryWaitMs: 1,
+      });
+      const result = await resolver.search(input);
+      expect(result.provider).toBe("dataforseo");
+      expect(flaky.search).toHaveBeenCalledTimes(2);
+      expect(
+        result.calls.every((call) => call.circuitBreakerEnabled === false),
+      ).toBe(true);
+    });
+
+    it("may open the circuit only after retries are exhausted", async () => {
+      const alwaysFailing = flakyProvider("dataforseo", 99, {
+        code: "PROVIDER_UNAVAILABLE",
+      });
+      const fallback = successProvider("serper", 2);
+      const resolver = createSerpResolverFromEntries({
+        entries: [
+          { ...entries(alwaysFailing)[0], maxRetries: 1 },
+          ...entries(fallback),
+        ],
+        organizationId: "org-retry-cb-on",
+        retryWaitMs: 1,
+      });
+      await resolver.search(input);
+      // Retriable failures do not open the circuit (only deterministic do).
+      expect(
+        getProviderCircuitState({
+          provider: "dataforseo",
+          organizationId: "org-retry-cb-on",
+        }),
+      ).toBeNull();
     });
   });
 });

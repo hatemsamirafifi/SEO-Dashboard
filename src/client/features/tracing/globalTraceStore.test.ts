@@ -340,7 +340,9 @@ describe("GlobalTraceStore", () => {
 
     // Project B's operation should still be preserved
     expect(globalTraceStore.getOperations("project_B")).toHaveLength(1);
-    expect(globalTraceStore.getOperations("project_B")[0].projectId).toBe("project_B");
+    expect(globalTraceStore.getOperations("project_B")[0].projectId).toBe(
+      "project_B",
+    );
   });
 
   it("enforces circular buffer max limit of 500 events", () => {
@@ -646,9 +648,9 @@ describe("GlobalTraceStore", () => {
 
   describe("cancelOperation", () => {
     it("transitions running to cancelling to cancelled", async () => {
-      let resolveCancel: () => void = () => {};
+      const cancelGate = { resolve: (): void => {} };
       const cancelPromise = new Promise<void>((resolve) => {
-        resolveCancel = resolve;
+        cancelGate.resolve = resolve;
       });
 
       const opId = globalTraceStore.startOperation({
@@ -670,7 +672,7 @@ describe("GlobalTraceStore", () => {
       );
 
       // Complete handler
-      resolveCancel();
+      cancelGate.resolve();
       await cancelFuture;
 
       // After handler finishes, status is "cancelled"
@@ -769,7 +771,7 @@ describe("GlobalTraceStore", () => {
     });
 
     it("registers supportsCancellation and rankCheckRunId on operation", () => {
-      const opId = globalTraceStore.startOperation({
+      globalTraceStore.startOperation({
         feature: "rank_tracking",
         operation: "rank_tracking.check_selected",
         source: "UI",

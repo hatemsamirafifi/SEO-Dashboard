@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
     provider: string;
     enabled: boolean;
     circuitBreakerEnabled: boolean;
+    maxRetries: number;
     priority: number | null;
     credentialsCiphertext: string | null;
     organizationId: string | null;
@@ -34,6 +35,7 @@ vi.mock(
           input: {
             enabled: boolean;
             circuitBreakerEnabled: boolean;
+    maxRetries: number;
             priority: number;
             credentialsCiphertext: string | null;
           },
@@ -193,6 +195,41 @@ describe("additional SERP provider settings", () => {
     expect(zenserp.circuitBreakerEnabled).toBe(true);
     expect(state.row?.provider).toBe("zenserp");
     expect(state.row?.circuitBreakerEnabled).toBe(true);
+  });
+
+  it("persists maxRetries per provider independently (0-5)", async () => {
+    const serper = await saveSerpProviderSettings({
+      provider: "serper",
+      organizationId: "org-retries",
+      patch: { apiKey: "serper-key-r1", maxRetries: 0 },
+    });
+    const zenserp = await saveSerpProviderSettings({
+      provider: "zenserp",
+      organizationId: "org-retries",
+      patch: { apiKey: "zenserp-key-r2", maxRetries: 5 },
+    });
+    expect(serper.maxRetries).toBe(0);
+    expect(zenserp.maxRetries).toBe(5);
+    expect(state.row?.maxRetries).toBe(5);
+  });
+
+  it("defaults maxRetries to 2 and clamps out-of-range values", async () => {
+    const view = await saveSerpProviderSettings({
+      provider: "serper",
+      organizationId: "org-retries-default",
+      patch: { apiKey: "serper-key-r3" },
+    });
+    expect(view.maxRetries).toBe(2);
+  });
+
+  it("honors SERPER_MAX_RETRIES environment default", async () => {
+    state.env.set("SERPER_API_KEY", "env-serper-key");
+    state.env.set("SERPER_MAX_RETRIES", "4");
+    const view = await getSerpProviderSettingsView({
+      provider: "serper",
+      organizationId: "org-retries-env",
+    });
+    expect(view.maxRetries).toBe(4);
   });
 
   it("defaults circuitBreakerEnabled to true when unset", async () => {

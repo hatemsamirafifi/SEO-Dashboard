@@ -164,6 +164,14 @@ export function ProviderSection({
                 )}
               </div>
               <div className="flex items-center gap-2 text-base-content/70">
+                {p.attempt !== undefined && (
+                  <span>
+                    Attempt {p.attempt}
+                    {typeof p.maxRetries === "number"
+                      ? `/${p.maxRetries + 1}`
+                      : ""}
+                  </span>
+                )}
                 {p.dispatched === false && <span>SKIPPED</span>}
                 {p.httpStatus && <span>HTTP {p.httpStatus}</span>}
                 {p.taskStatus && <span>Task {p.taskStatus}</span>}
@@ -176,6 +184,7 @@ export function ProviderSection({
                 p.inspectedDepth !== undefined ||
                 p.pagesRequested !== undefined ||
                 p.circuitBreakerEnabled === false ||
+                typeof p.maxRetries === "number" ||
                 p.resultCompleteness) && (
                 <div className="mt-1 flex w-full flex-wrap gap-x-3 text-[11px] text-base-content/60">
                   {p.requestedDepth !== undefined && (
@@ -190,10 +199,28 @@ export function ProviderSection({
                   {p.resultCompleteness && (
                     <span>Outcome: {p.resultCompleteness.toUpperCase()}</span>
                   )}
+                  {typeof p.maxRetries === "number" && (
+                    <span>Retries configured: {p.maxRetries}</span>
+                  )}
                   {p.dispatched !== false &&
                     p.circuitBreakerEnabled === false && (
                       <span>Circuit protection: Disabled</span>
                     )}
+                </div>
+              )}
+              {p.retryable === true && p.dispatched !== false && (
+                <div className="mt-1 w-full text-[11px] text-warning">
+                  <span className="font-semibold">Retryable:</span> Yes
+                  {typeof p.retryAfterMs === "number" &&
+                    p.retryAfterMs > 0 && (
+                      <> · Retry-After: {p.retryAfterMs}ms</>
+                    )}
+                </div>
+              )}
+              {p.retryable === false && p.dispatched !== false && (
+                <div className="mt-1 w-full text-[11px] text-base-content/60">
+                  <span className="font-semibold">Retryable:</span> No · retries
+                  skipped for this failure class
                 </div>
               )}
               {p.dispatched === false && p.skipReason && (

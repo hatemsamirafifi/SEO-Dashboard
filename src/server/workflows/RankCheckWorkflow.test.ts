@@ -135,9 +135,9 @@ async function runWorkflow(params: {
     sleepUntil: () => Promise.resolve(),
     // Never invoked by the workflow under test; typed to satisfy the engine's
     // WorkflowStep surface without importing real runtime code.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- unused stub cast to the engine's step signature
-    waitForEvent: (() =>
-      Promise.resolve({} as never)) as unknown as WorkflowStep["waitForEvent"],
+    waitForEvent: (():
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- placeholder value for a stub that is never awaited by the workflow under test
+      Promise<never> => Promise.resolve({} as never)) as unknown as WorkflowStep["waitForEvent"],
   };
   const payload: WorkflowEventPayload = {
     runId: "run_1",

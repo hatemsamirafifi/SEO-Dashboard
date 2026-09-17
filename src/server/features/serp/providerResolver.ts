@@ -5,6 +5,8 @@ import {
   DEFAULT_SERP_PRIORITIES,
   resolveEffectiveSerpProviderConfig,
 } from "@/server/features/settings/services/SerpProviderSettingsService";
+import { AppError } from "@/server/lib/errors";
+import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
 import { createHttpSerpProvider } from "./httpProviders";
 import {
   SerpProviderError,
@@ -18,6 +20,52 @@ import {
 import { fingerprintProviderCredential } from "./circuitBreaker";
 
 type DataforseoClient = ReturnType<typeof createDataforseoClient>;
+
+/**
+ * Normalize a raw DataForSEO SDK error into the central provider failure
+ * vocabulary. Deterministic failures (auth, paused account, credits) are
+ * marked so the central retry policy never repeats them; everything else —
+ * transport, 5xx, timeouts, malformed responses — stays retryable.
+ */
+function classifyDataforseoFailure(error: unknown): {
+  code: string;
+  deterministic: boolean;
+} {
+  // Structured AppError codes carry the provider's own classification.
+  if (error instanceof AppError) {
+    switch (error.code) {
+      case "DATAFORSEO_ACCOUNT_PAUSED":
+        return { code: "DATAFORSEO_ACCOUNT_PAUSED", deterministic: true };
+      case "DATAFORSEO_AUTH_FAILED":
+      case "UNAUTHENTICATED":
+        return { code: "AUTH_FAILED", deterministic: true };
+      case "PAYMENT_REQUIRED":
+        return { code: "CREDITS_UNAVAILABLE", deterministic: true };
+      case "RATE_LIMITED":
+        return { code: "RATE_LIMITED", deterministic: false };
+      case "UPSTREAM_UNAVAILABLE":
+        return { code: "PROVIDER_UNAVAILABLE", deterministic: false };
+      default:
+        break;
+    }
+  }
+  if (error instanceof ProviderUnavailableError) {
+    return { code: "PROVIDER_DISABLED", deterministic: true };
+  }
+  // Fallback for unstructured SDK/network errors: inspect the message.
+  const message = error instanceof Error ? error.message : String(error);
+  if (/40201|paused/i.test(message)) {
+    return { code: "DATAFORSEO_ACCOUNT_PAUSED", deterministic: true };
+  }
+  if (/401|auth|credential|invalid api key/i.test(message)) {
+    return { code: "AUTH_FAILED", deterministic: true };
+  }
+  if (/40200|402|credit|quota exhausted/i.test(message)) {
+    return { code: "CREDITS_UNAVAILABLE", deterministic: true };
+  }
+  // Ordinary transport/upstream failures remain retryable.
+  return { code: "PROVIDER_FAILURE", deterministic: false };
+}
 
 function dataforseoProvider(client: DataforseoClient): SerpProvider {
   return {
@@ -61,16 +109,7 @@ function dataforseoProvider(client: DataforseoClient): SerpProvider {
         };
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") throw error;
-        const message = error instanceof Error ? error.message : String(error);
-        const deterministic =
-          /401|40200|40201|paused|auth|credential|credit|quota/i.test(message);
-        const code = /40201|paused/i.test(message)
-          ? "DATAFORSEO_ACCOUNT_PAUSED"
-          : /401|auth|credential/i.test(message)
-            ? "AUTH_FAILED"
-            : /40200|credit|quota/i.test(message)
-              ? "CREDITS_UNAVAILABLE"
-              : "PROVIDER_FAILURE";
+        const { code, deterministic } = classifyDataforseoFailure(error);
         throw new SerpProviderError(
           "dataforseo",
           code,
@@ -91,7 +130,7 @@ function dataforseoProvider(client: DataforseoClient): SerpProvider {
             },
           ],
           `DataForSEO request failed: ${code}`,
-          deterministic,
+          { deterministic },
         );
       }
     },
@@ -138,6 +177,7 @@ export async function createRankSerpResolver(input: {
       ),
       provider: dataforseoProvider(input.client),
       circuitBreakerEnabled: dataforseo.circuitBreakerEnabled,
+      maxRetries: dataforseo.maxRetries,
       credentialFingerprint: dataforseoFingerprint,
       circuitProjectId:
         dataforseo.source === "project" ? input.projectId : null,
@@ -152,6 +192,7 @@ export async function createRankSerpResolver(input: {
         fetchFn: input.fetchFn,
       }),
       circuitBreakerEnabled: serper.circuitBreakerEnabled,
+      maxRetries: serper.maxRetries,
       credentialFingerprint: serperFingerprint,
       circuitProjectId: serper.source === "project" ? input.projectId : null,
     },
@@ -165,6 +206,7 @@ export async function createRankSerpResolver(input: {
         fetchFn: input.fetchFn,
       }),
       circuitBreakerEnabled: zenserp.circuitBreakerEnabled,
+      maxRetries: zenserp.maxRetries,
       credentialFingerprint: zenserpFingerprint,
       circuitProjectId: zenserp.source === "project" ? input.projectId : null,
     },

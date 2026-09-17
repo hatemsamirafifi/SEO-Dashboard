@@ -111,7 +111,7 @@ export function DataforseoStatusCard({
           Runtime status
         </span>
         <div className="mt-1 text-base-content/70">
-          {circuitBreakerEnabled === false ? (
+          {!circuitBreakerEnabled ? (
             "Circuit protection disabled"
           ) : circuit?.state === "open" ? (
             <>
@@ -153,7 +153,7 @@ export function ProviderCircuitAlert({
   circuit?: ProviderCircuitView;
   circuitBreakerEnabled?: boolean;
 }) {
-  if (circuitBreakerEnabled === false) return null;
+  if (!circuitBreakerEnabled) return null;
   if (circuit?.state !== "open") return null;
   return (
     <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning">

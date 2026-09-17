@@ -66,6 +66,14 @@ export type GlobalTraceProviderCall = {
   resultCompleteness?: string;
   dispatched?: boolean;
   circuitBreakerEnabled?: boolean;
+  /** 1-based attempt within this provider's retry sequence. */
+  attempt?: number;
+  /** Configured maximum additional retries for this provider (0-5). */
+  maxRetries?: number;
+  /** Whether the failure that ended this call is classified retryable. */
+  retryable?: boolean;
+  /** Provider-supplied Retry-After (bounded) in ms, when present. */
+  retryAfterMs?: number | null;
   skipReason?: string | null;
   circuitReason?: string | null;
   circuitOpenedAt?: string | null;

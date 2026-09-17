@@ -6,6 +6,7 @@ export type SeoProviderSettingsRow = {
   provider: string;
   enabled: boolean;
   circuitBreakerEnabled: boolean;
+  maxRetries: number;
   priority?: number | null;
   /** AES-GCM encrypted ciphertext { login, password }, or null. */
   credentialsCiphertext: string | null;
@@ -17,6 +18,7 @@ export type SeoProviderSettingsRow = {
 export type SeoProviderSettingsInput = {
   enabled?: boolean;
   circuitBreakerEnabled?: boolean;
+  maxRetries?: number;
   priority?: number | null;
   /** Encrypted credentials ciphertext. Pass undefined to preserve existing. */
   credentialsCiphertext?: string | null;
@@ -26,6 +28,7 @@ const ROW_COLUMNS = {
   provider: seoProviderSettings.provider,
   enabled: seoProviderSettings.enabled,
   circuitBreakerEnabled: seoProviderSettings.circuitBreakerEnabled,
+  maxRetries: seoProviderSettings.maxRetries,
   priority: seoProviderSettings.priority,
   credentialsCiphertext: seoProviderSettings.credentials,
   organizationId: seoProviderSettings.organizationId,
@@ -37,6 +40,7 @@ type RawRow = {
   provider: string;
   enabled: boolean;
   circuitBreakerEnabled: boolean;
+  maxRetries: number;
   priority: number | null;
   credentialsCiphertext: string | null;
   organizationId: string | null;
@@ -49,6 +53,7 @@ function toRow(raw: RawRow): SeoProviderSettingsRow {
     provider: raw.provider,
     enabled: Boolean(raw.enabled),
     circuitBreakerEnabled: Boolean(raw.circuitBreakerEnabled),
+    maxRetries: raw.maxRetries,
     priority: raw.priority,
     credentialsCiphertext: raw.credentialsCiphertext,
     organizationId: raw.organizationId,
@@ -105,6 +110,7 @@ export async function upsertOrganizationProviderSettingsRow(
     provider,
     enabled: input.enabled ?? true,
     circuitBreakerEnabled: input.circuitBreakerEnabled ?? true,
+    maxRetries: input.maxRetries ?? 2,
     priority: input.priority ?? null,
     credentials: input.credentialsCiphertext ?? null,
     updatedAt: now,
@@ -118,6 +124,9 @@ export async function upsertOrganizationProviderSettingsRow(
   }
   if (input.circuitBreakerEnabled !== undefined) {
     setUpdate.circuitBreakerEnabled = input.circuitBreakerEnabled;
+  }
+  if (input.maxRetries !== undefined) {
+    setUpdate.maxRetries = input.maxRetries;
   }
   if (input.priority !== undefined) {
     setUpdate.priority = input.priority;
@@ -151,6 +160,7 @@ export async function upsertProjectProviderSettingsRow(
     provider,
     enabled: input.enabled ?? true,
     circuitBreakerEnabled: input.circuitBreakerEnabled ?? true,
+    maxRetries: input.maxRetries ?? 2,
     priority: input.priority ?? null,
     credentials: input.credentialsCiphertext ?? null,
     updatedAt: now,
@@ -164,6 +174,9 @@ export async function upsertProjectProviderSettingsRow(
   }
   if (input.circuitBreakerEnabled !== undefined) {
     setUpdate.circuitBreakerEnabled = input.circuitBreakerEnabled;
+  }
+  if (input.maxRetries !== undefined) {
+    setUpdate.maxRetries = input.maxRetries;
   }
   if (input.priority !== undefined) {
     setUpdate.priority = input.priority;
