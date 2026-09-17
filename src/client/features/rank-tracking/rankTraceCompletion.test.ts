@@ -845,6 +845,7 @@ describe("multi-provider trace accounting", () => {
     });
 
     expect(patch.providerCalls).toBe(3);
+    expect(patch.providersConsidered).toBe(2);
     expect(patch.providerBreakdown).toEqual([
       { provider: "Zenserp", count: 3 },
     ]);
@@ -852,12 +853,59 @@ describe("multi-provider trace accounting", () => {
       provider: "Serper.dev",
       dispatched: false,
       pagesRequested: 0,
+      skipReason: "UNSUPPORTED_DEVICE",
     });
     expect(patch.providers?.at(-1)).toMatchObject({
       requestedDepth: 30,
       inspectedDepth: 30,
       pagesRequested: 3,
       resultCompleteness: "complete",
+    });
+  });
+
+  it("keeps providerCalls at zero and exposes safe reasons for all-pre-dispatch skips", () => {
+    const skipped = [
+      ["dataforseo", "CIRCUIT_OPEN", "DATAFORSEO_ACCOUNT_PAUSED"],
+      ["serper", "DISABLED", null],
+      ["zenserp", "DISABLED", null],
+    ] as const;
+    const patch = buildRankCompletionPatch({
+      run: run({
+        status: "failed",
+        errorMessage:
+          "SERP_PROVIDERS_UNAVAILABLE: No eligible SERP provider was available.",
+        providerCalls: skipped.map(([provider, skipReason, circuitReason]) => ({
+          provider,
+          endpoint: "/search",
+          status: "skipped" as const,
+          httpStatus: null,
+          errorCode: skipReason,
+          skipReason,
+          circuitReason,
+          circuitOpenedAt: "2026-09-16T18:00:00.000Z",
+          circuitExpiresAt: "2026-09-16T18:30:00.000Z",
+          durationMs: 0,
+          requestedDepth: 10,
+          inspectedDepth: null,
+          pagesRequested: 0,
+          resultCompleteness: "not_applicable",
+          dispatched: false,
+        })),
+      }),
+      rows: [],
+      targetIds: ["kw_1"],
+    });
+
+    expect(patch.providerCalls).toBe(0);
+    expect(patch.providersConsidered).toBe(3);
+    expect(patch.providers?.map((call) => call.skipReason)).toEqual([
+      "CIRCUIT_OPEN",
+      "DISABLED",
+      "DISABLED",
+    ]);
+    expect(patch.providers?.[0]).toMatchObject({
+      circuitReason: "DATAFORSEO_ACCOUNT_PAUSED",
+      dispatched: false,
     });
   });
 

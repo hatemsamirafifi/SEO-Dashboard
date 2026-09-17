@@ -299,6 +299,50 @@ describe("GlobalTraceStore", () => {
     expect(projBOps[0].projectId).toBe("project_B");
   });
 
+  it("12. clears trace operations for current project scope including global operations", () => {
+    // Global operation (no projectId, e.g. settings test connection)
+    globalTraceStore.recordOperation({
+      feature: "settings",
+      operation: "settings.dataforseo.connection_test",
+      source: "Settings page",
+      status: "success",
+      startedAt: Date.now(),
+    });
+
+    // Project A operation
+    globalTraceStore.recordOperation({
+      feature: "rank_tracking",
+      operation: "rank_tracking.check_selected",
+      source: "Rank Tracking page",
+      projectId: "project_A",
+      status: "success",
+      startedAt: Date.now(),
+    });
+
+    // Project B operation
+    globalTraceStore.recordOperation({
+      feature: "rank_tracking",
+      operation: "rank_tracking.check_selected",
+      source: "Rank Tracking page",
+      projectId: "project_B",
+      status: "success",
+      startedAt: Date.now(),
+    });
+
+    // Project A sees its own operation and the global operation
+    expect(globalTraceStore.getOperations("project_A")).toHaveLength(2);
+
+    // Clear trace from Project A view
+    globalTraceStore.clearTrace("project_A");
+
+    // Project A view should now be completely cleared
+    expect(globalTraceStore.getOperations("project_A")).toHaveLength(0);
+
+    // Project B's operation should still be preserved
+    expect(globalTraceStore.getOperations("project_B")).toHaveLength(1);
+    expect(globalTraceStore.getOperations("project_B")[0].projectId).toBe("project_B");
+  });
+
   it("enforces circular buffer max limit of 500 events", () => {
     for (let i = 0; i < 520; i++) {
       globalTraceStore.recordOperation({

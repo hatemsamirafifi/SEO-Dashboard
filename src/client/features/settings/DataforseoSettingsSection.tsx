@@ -19,14 +19,26 @@ import {
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   DataforseoCredentialsForm,
-  DataforseoStatusCard,
   DataforseoTestAlert,
   DataforseoApiHealthCard,
 } from "@/client/features/settings/DataforseoSettingsParts";
+import {
+  DataforseoStatusCard,
+  ProviderCircuitAlert,
+} from "@/client/features/settings/ProviderCircuitStatus";
+import type { DataforseoSettingsView } from "@/serverFunctions/dataforseoSettings";
 
 interface DataforseoSettingsSectionProps {
   scope?: "organization" | "project";
   projectId?: string;
+}
+
+function testConnectionLabel(circuitOpen: boolean): string {
+  return circuitOpen ? "Retry now" : "Test Connection";
+}
+
+function readCircuit(data?: DataforseoSettingsView) {
+  return data?.circuit;
 }
 
 export function DataforseoSettingsSection({
@@ -56,6 +68,7 @@ export function DataforseoSettingsSection({
   const [statusLastChecked, setStatusLastChecked] = useState<Date | null>(null);
 
   const data = viewQuery.data;
+  const circuit = readCircuit(data);
 
   useEffect(() => {
     if (data) {
@@ -172,7 +185,7 @@ export function DataforseoSettingsSection({
             },
           }),
       }),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       setTestResult(res);
       setLastChecked(new Date());
       if (res.ok) {
@@ -188,6 +201,7 @@ export function DataforseoSettingsSection({
       } else {
         toast.error(`Connection failed: ${res.reason}`);
       }
+      await queryClient.invalidateQueries({ queryKey });
     },
     onError: (err) => {
       toast.error(getStandardErrorMessage(err, "Failed to test connection"));
@@ -272,7 +286,10 @@ export function DataforseoSettingsSection({
         isEnabled={isEnabled}
         source={data?.source}
         lastChecked={lastChecked}
+        circuit={circuit}
       />
+
+      <ProviderCircuitAlert circuit={circuit} />
 
       {testResult && <DataforseoTestAlert result={testResult} />}
 
@@ -313,7 +330,7 @@ export function DataforseoSettingsSection({
             ) : (
               <>
                 <RefreshCw className="size-3.5" />
-                Test Connection
+                {testConnectionLabel(circuit?.state === "open")}
               </>
             )}
           </button>

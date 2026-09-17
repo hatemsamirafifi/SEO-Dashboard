@@ -22,6 +22,7 @@ import { KEYWORDS_PER_BATCH } from "@/shared/rank-tracking";
 import { pgStep } from "@/server/workflows/pgStep";
 import type { RankSerpResolver } from "@/server/features/serp/providerResolver";
 import { SerpProvidersUnavailableError } from "@/server/features/serp/resolverCore";
+import { SerpCancelledError } from "@/server/features/serp/types";
 import {
   getIsoCountryCode,
   LOCATION_OPTIONS,
@@ -370,7 +371,8 @@ async function checkBatchLive(
         );
         const reason = safeProviderReason(outcome.reason);
         const calls =
-          outcome.reason instanceof SerpProvidersUnavailableError
+          outcome.reason instanceof SerpProvidersUnavailableError ||
+          outcome.reason instanceof SerpCancelledError
             ? outcome.reason.calls
             : [];
         if (calls.length > 0) {

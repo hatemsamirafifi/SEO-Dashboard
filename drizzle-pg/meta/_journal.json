@@ -176,6 +176,13 @@
       "when": 1789496461810,
       "tag": "0024_late_daredevil",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1789586562094,
+      "tag": "0025_even_callisto",
+      "breakpoints": true
     }
   ]
 }

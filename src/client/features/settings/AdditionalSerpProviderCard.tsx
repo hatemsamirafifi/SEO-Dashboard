@@ -11,6 +11,10 @@ import {
 } from "@/serverFunctions/serpProviderSettings";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { formatSource } from "./DataforseoSettingsParts";
+import {
+  formatCircuitReason,
+  formatCircuitRetryAfter,
+} from "./ProviderCircuitStatus";
 
 export function AdditionalSerpProviderCard({
   provider,
@@ -72,7 +76,7 @@ export function AdditionalSerpProviderCard({
       testSerpProviderConnectionFn({
         data: { provider, projectId, apiKey: apiKey || undefined },
       }),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       setTest(result);
       setLastTested(new Date());
       if (result.ok) {
@@ -80,6 +84,7 @@ export function AdditionalSerpProviderCard({
       } else {
         toast.error(`${label}: ${result.reason}`);
       }
+      await queryClient.invalidateQueries({ queryKey });
     },
     onError: (error) =>
       toast.error(getStandardErrorMessage(error, `Failed to test ${label}`)),
@@ -107,22 +112,35 @@ export function AdditionalSerpProviderCard({
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 rounded-lg bg-base-200/50 p-3 text-xs sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 rounded-lg bg-base-200/50 p-3 text-xs sm:grid-cols-5">
         <div>
           <span className="block text-base-content/50">Status</span>
           <span className={test?.ok ? "text-success" : ""}>
-            {test
-              ? test.ok
-                ? "Connected"
-                : test.reason.replaceAll("_", " ")
-              : data?.configured
-                ? "Configured"
-                : "Not configured"}
+            {data?.circuit.state === "open"
+              ? "Temporarily bypassed"
+              : test
+                ? test.ok
+                  ? "Connected"
+                  : test.reason.replaceAll("_", " ")
+                : data?.configured
+                  ? "Configured"
+                  : "Not configured"}
           </span>
         </div>
         <div>
           <span className="block text-base-content/50">Enabled</span>
           {enabled ? "Yes" : "No"}
+        </div>
+        <div>
+          <span className="block text-base-content/50">Runtime status</span>
+          {data?.circuit.state === "open" ? (
+            <span className="text-warning">
+              {formatCircuitReason(data.circuit.reason)} ·{" "}
+              {formatCircuitRetryAfter(data.circuit.retryAfterMs)}
+            </span>
+          ) : (
+            "Available"
+          )}
         </div>
         <div>
           <span className="block text-base-content/50">Credential source</span>
@@ -184,7 +202,7 @@ export function AdditionalSerpProviderCard({
             ) : (
               <RefreshCw className="size-3.5" />
             )}{" "}
-            Test connection
+            {data?.circuit.state === "open" ? "Retry now" : "Test connection"}
           </button>
           {data?.override && (
             <button

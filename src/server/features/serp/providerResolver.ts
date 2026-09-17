@@ -15,6 +15,7 @@ import {
   createSerpResolverFromEntries,
   type SerpResolverEntry,
 } from "./resolverCore";
+import { fingerprintProviderCredential } from "./circuitBreaker";
 
 type DataforseoClient = ReturnType<typeof createDataforseoClient>;
 
@@ -61,14 +62,13 @@ function dataforseoProvider(client: DataforseoClient): SerpProvider {
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") throw error;
         const message = error instanceof Error ? error.message : String(error);
-        const deterministic = /40201|paused|auth|credential|credit/i.test(
-          message,
-        );
+        const deterministic =
+          /401|40200|40201|paused|auth|credential|credit|quota/i.test(message);
         const code = /40201|paused/i.test(message)
           ? "DATAFORSEO_ACCOUNT_PAUSED"
-          : /auth|credential/i.test(message)
+          : /401|auth|credential/i.test(message)
             ? "AUTH_FAILED"
-            : /credit/i.test(message)
+            : /40200|credit|quota/i.test(message)
               ? "CREDITS_UNAVAILABLE"
               : "PROVIDER_FAILURE";
         throw new SerpProviderError(
@@ -118,6 +118,15 @@ export async function createRankSerpResolver(input: {
     const index = configuredOrder?.indexOf(provider) ?? -1;
     return index >= 0 ? index + 1 : fallback;
   };
+  const [dataforseoFingerprint, serperFingerprint, zenserpFingerprint] =
+    await Promise.all([
+      fingerprintProviderCredential("dataforseo", [
+        dataforseo.login,
+        dataforseo.password,
+      ]),
+      fingerprintProviderCredential("serper", [serper.apiKey]),
+      fingerprintProviderCredential("zenserp", [zenserp.apiKey]),
+    ]);
   const entries: SerpResolverEntry[] = [
     {
       enabled: dataforseo.enabled,
@@ -128,6 +137,9 @@ export async function createRankSerpResolver(input: {
         dataforseo.source,
       ),
       provider: dataforseoProvider(input.client),
+      credentialFingerprint: dataforseoFingerprint,
+      circuitProjectId:
+        dataforseo.source === "project" ? input.projectId : null,
     },
     {
       enabled: serper.enabled,
@@ -138,6 +150,8 @@ export async function createRankSerpResolver(input: {
         apiKey: serper.apiKey ?? "",
         fetchFn: input.fetchFn,
       }),
+      credentialFingerprint: serperFingerprint,
+      circuitProjectId: serper.source === "project" ? input.projectId : null,
     },
     {
       enabled: zenserp.enabled,
@@ -148,6 +162,8 @@ export async function createRankSerpResolver(input: {
         apiKey: zenserp.apiKey ?? "",
         fetchFn: input.fetchFn,
       }),
+      credentialFingerprint: zenserpFingerprint,
+      circuitProjectId: zenserp.source === "project" ? input.projectId : null,
     },
   ];
 

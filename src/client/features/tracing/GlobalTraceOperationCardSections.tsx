@@ -4,6 +4,17 @@ import type {
 } from "@/shared/globalTraceTypes";
 import { formatTraceDuration } from "./globalTraceFormat";
 
+function formatCircuitRetryAfter(expiresAt?: string | null): string | null {
+  if (!expiresAt) return null;
+  const remainingSeconds = Math.max(
+    0,
+    Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000),
+  );
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  return `${minutes}m ${seconds}s`;
+}
+
 export function ScopeSection({
   operation,
 }: {
@@ -104,7 +115,13 @@ export function ProviderSection({
       <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/50">
         Provider & Network
       </h4>
-      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+        <div className="rounded border border-base-200 bg-base-100 p-2">
+          <div className="text-base-content/60">Providers Considered</div>
+          <div className="font-mono font-semibold text-base-content">
+            {operation.providersConsidered ?? operation.providers?.length ?? 0}
+          </div>
+        </div>
         <div className="rounded border border-base-200 bg-base-100 p-2">
           <div className="text-base-content/60">Provider Calls</div>
           <div className="font-mono font-semibold text-base-content">
@@ -171,6 +188,27 @@ export function ProviderSection({
                   )}
                   {p.resultCompleteness && (
                     <span>Outcome: {p.resultCompleteness.toUpperCase()}</span>
+                  )}
+                </div>
+              )}
+              {p.dispatched === false && p.skipReason && (
+                <div className="mt-1 w-full text-[11px] text-base-content/70">
+                  <span className="font-semibold">Reason:</span> {p.skipReason}
+                  {p.circuitReason && (
+                    <>
+                      {" · "}
+                      <span className="font-semibold">
+                        Circuit reason:
+                      </span>{" "}
+                      {p.circuitReason}
+                    </>
+                  )}
+                  {formatCircuitRetryAfter(p.circuitExpiresAt) && (
+                    <>
+                      {" · "}
+                      <span className="font-semibold">Retry after:</span>{" "}
+                      {formatCircuitRetryAfter(p.circuitExpiresAt)}
+                    </>
                   )}
                 </div>
               )}
