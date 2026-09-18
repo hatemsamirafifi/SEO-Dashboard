@@ -74,7 +74,11 @@ function CardSummary({ operation }: { operation: GlobalTraceOperation }) {
       {operation.scope && (
         <span>
           <strong className="font-medium text-base-content">
-            {operation.scope === "selected" ? "Selected" : "All"}
+            {operation.operation === "rank_tracking.check_missing_rankings"
+              ? "Missing rankings"
+              : operation.scope === "selected"
+                ? "Selected"
+                : "All"}
           </strong>
           {operation.selectedCount !== undefined && (
             <span>

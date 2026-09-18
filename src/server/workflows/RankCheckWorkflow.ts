@@ -7,6 +7,7 @@ import { NonRetryableError } from "cloudflare:workflows";
 import { withPgClient } from "@/db";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import { getLatestRankingFactsForConfig } from "@/server/features/rank-tracking/repositories/missingRankingQueries";
 import { failRunIfActive } from "@/server/features/rank-tracking/services/rankCheckRunGuards";
 import {
   runLiveCheck,
@@ -22,7 +23,10 @@ import {
   AUTUMN_SEO_DATA_BALANCE_FEATURE_ID,
   AUTUMN_SEO_DATA_TOPUP_BALANCE_FEATURE_ID,
 } from "@/shared/billing";
-import { estimateRankCheckCredits } from "@/shared/rank-tracking";
+import {
+  classifyKeywordFromPairFacts,
+  estimateRankCheckCredits,
+} from "@/shared/rank-tracking";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { createRankSerpResolver } from "@/server/features/serp/providerResolver";
 
@@ -44,6 +48,9 @@ interface RankCheckParams {
   serpDepth: number;
   trigger: "manual" | "scheduled";
   keywordIds?: string[];
+  /** "Check missing rankings" mode: keywordIds were pre-resolved to the
+   * eligible set at trigger time; prepare re-resolves against fresh state. */
+  missingRankings?: boolean;
 }
 
 async function prepareRankCheckKeywords(input: {
@@ -54,6 +61,7 @@ async function prepareRankCheckKeywords(input: {
   serpDepth: number;
   trigger: RankCheckParams["trigger"];
   keywordIds?: string[];
+  missingRankings?: boolean;
 }) {
   // If stale-cleanup marked our run failed before we got here, bail out
   // rather than resurrecting a superseded run.
@@ -81,6 +89,26 @@ async function prepareRankCheckKeywords(input: {
   if (input.keywordIds && input.keywordIds.length > 0) {
     const idSet = new Set(input.keywordIds);
     trackingKeywords = trackingKeywords.filter((kw) => idSet.has(kw.id));
+  }
+
+  // Missing-rankings mode re-resolves eligibility against fresh snapshot
+  // state at execution time: a keyword that recovered on every tracked
+  // device between trigger and execution is dropped here, before any
+  // provider call is made. Pair-level, matching the trigger-time rule — a
+  // keyword with a ranked device but a missing device stays in the run.
+  if (
+    input.missingRankings &&
+    input.keywordIds &&
+    input.keywordIds.length > 0
+  ) {
+    const facts = await getLatestRankingFactsForConfig(
+      input.configId,
+      trackingKeywords.map((kw) => kw.id),
+    );
+    trackingKeywords = trackingKeywords.filter(
+      (kw) =>
+        classifyKeywordFromPairFacts(facts, kw.id, input.devices).eligible,
+    );
   }
 
   if (trackingKeywords.length === 0) {
@@ -326,6 +354,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       serpDepth,
       trigger,
       keywordIds,
+      missingRankings,
     } = event.payload;
 
     const client = createDataforseoClient(billingCustomer);
@@ -371,6 +400,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
             serpDepth,
             trigger,
             keywordIds,
+            missingRankings,
           }),
       );
 

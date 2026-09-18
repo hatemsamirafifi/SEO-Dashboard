@@ -2,17 +2,25 @@ import type {
   GlobalTraceKeywordChild,
   GlobalTraceOperation,
 } from "@/shared/globalTraceTypes";
+import type { MissingRankingsBreakdown } from "@/shared/rank-tracking";
 import { formatTraceDuration } from "./globalTraceFormat";
 
 function formatCircuitRetryAfter(expiresAt?: string | null): string | null {
   if (!expiresAt) return null;
-  const remainingSeconds = Math.max(
+  const remaining = Math.max(
     0,
     Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000),
   );
-  const minutes = Math.floor(remainingSeconds / 60);
-  const seconds = remainingSeconds % 60;
-  return `${minutes}m ${seconds}s`;
+  return `${Math.floor(remaining / 60)}m ${remaining % 60}s`;
+}
+
+function childStatusClass(child: GlobalTraceKeywordChild): string {
+  if (child.rankingStatus === "RANKED" || child.status === "success")
+    return "text-success";
+  if (child.rankingStatus === "NO_RESULT" || child.status === "no_result")
+    return "text-base-content/60";
+  if (child.rankingStatus === "NOT_CHECKED") return "text-base-content/40";
+  return child.status === "blocked" ? "text-warning" : "text-error";
 }
 
 export function ScopeSection({
@@ -27,6 +35,12 @@ export function ScopeSection({
 
   if (!hasScope) return null;
 
+  const breakdown = (
+    operation.metadata as
+      | { missingRankingsBreakdown?: MissingRankingsBreakdown }
+      | undefined
+  )?.missingRankingsBreakdown;
+
   return (
     <div className="space-y-1.5">
       <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/50">
@@ -35,8 +49,10 @@ export function ScopeSection({
       <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         <div className="rounded border border-base-200 bg-base-100 p-2">
           <div className="text-base-content/60">Scope</div>
-          <div className="font-semibold capitalize text-base-content">
-            {operation.scope ?? "Standard"}
+          <div className="font-semibold text-base-content">
+            {operation.operation === "rank_tracking.check_missing_rankings"
+              ? "Missing rankings"
+              : (operation.scope ?? "Standard")}
           </div>
         </div>
         <div className="rounded border border-base-200 bg-base-100 p-2">
@@ -83,6 +99,21 @@ export function ScopeSection({
         </div>
       )}
 
+      {breakdown && (
+        <div className="flex flex-wrap gap-3 pt-1 text-xs text-base-content/60">
+          <span>
+            Ranking unavailable:{" "}
+            <span className="font-mono">{breakdown.ranking_unavailable}</span>
+          </span>
+          <span>
+            Lost: <span className="font-mono">{breakdown.lost}</span>
+          </span>
+          <span>
+            No ranking:{" "}
+            <span className="font-mono">{breakdown.no_ranking}</span>
+          </span>
+        </div>
+      )}
       {operation.selectedKeywordIds &&
         operation.selectedKeywordIds.length > 0 && (
           <div className="pt-1">
@@ -211,10 +242,9 @@ export function ProviderSection({
               {p.retryable === true && p.dispatched !== false && (
                 <div className="mt-1 w-full text-[11px] text-warning">
                   <span className="font-semibold">Retryable:</span> Yes
-                  {typeof p.retryAfterMs === "number" &&
-                    p.retryAfterMs > 0 && (
-                      <> · Retry-After: {p.retryAfterMs}ms</>
-                    )}
+                  {typeof p.retryAfterMs === "number" && p.retryAfterMs > 0 && (
+                    <> · Retry-After: {p.retryAfterMs}ms</>
+                  )}
                 </div>
               )}
               {p.retryable === false && p.dispatched !== false && (
@@ -366,18 +396,7 @@ export function ChildrenSection({
               )}
 
               <span
-                className={`font-semibold uppercase text-[11px] ${
-                  child.rankingStatus === "RANKED" || child.status === "success"
-                    ? "text-success"
-                    : child.rankingStatus === "NO_RESULT" ||
-                        child.status === "no_result"
-                      ? "text-base-content/60"
-                      : child.rankingStatus === "NOT_CHECKED"
-                        ? "text-base-content/40"
-                        : child.status === "blocked"
-                          ? "text-warning"
-                          : "text-error"
-                }`}
+                className={`font-semibold uppercase text-[11px] ${childStatusClass(child)}`}
               >
                 {child.rankingStatus ?? child.status}
               </span>

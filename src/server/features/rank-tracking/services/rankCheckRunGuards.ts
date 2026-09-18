@@ -146,6 +146,7 @@ export async function beginRankCheckRun(input: {
   keywordIds?: string[];
   trigger: "manual" | "scheduled";
   workflowStartErrorMessage: string;
+  missingRankings?: boolean;
 }): Promise<RankCheckTriggerResult> {
   // At most two attempts: once normally, once after clearing a stale blocker.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -175,6 +176,7 @@ export async function beginRankCheckRun(input: {
             serpDepth: input.config.serpDepth,
             trigger: input.trigger,
             keywordIds: input.keywordIds,
+            missingRankings: input.missingRankings ?? false,
           },
         });
       } catch (error) {

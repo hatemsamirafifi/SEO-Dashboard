@@ -1,7 +1,5 @@
 import { env } from "cloudflare:workers";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
-import type { KeywordMetricRow } from "@/server/lib/dataforseo";
-import { getSeoDataRouter } from "@/server/lib/seo-data";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import { AppError } from "@/server/lib/errors";
 import type {
@@ -17,7 +15,13 @@ import {
   isScheduledRankTrackingInterval,
   MAX_KEYWORDS_PER_CONFIG,
   MAX_CONFIGS_PER_PROJECT,
+  type MissingRankingsBreakdown,
 } from "@/shared/rank-tracking";
+import {
+  getMissingRankingsSummary,
+  resolveMissingRankingKeywordIds,
+} from "./missingRankings";
+import { refreshKeywordMetrics } from "./keywordMetrics";
 import { resolveMarket } from "@/shared/keyword-locations";
 import { formatRankTrackingCost } from "./rankTrackingCost";
 import { formatRankTrackingRun } from "./rankTrackingRun";
@@ -251,6 +255,7 @@ async function triggerCheck(input: {
   projectId: string;
   billingCustomer: BillingCustomerContext;
   keywordIds?: string[];
+  missingRankings?: boolean;
   operationId?: string;
 }): Promise<RankCheckTriggerResult> {
   const config = await getValidatedConfig(input.configId, input.projectId);
@@ -268,6 +273,34 @@ async function triggerCheck(input: {
     input.keywordIds,
   );
 
+  // "Check missing rankings" mode: eligibility is resolved here — once at
+  // trigger time for the run's keyword scope, and again inside the workflow
+  // prepare step (fresh state at execution time, so a keyword that recovered
+  // between trigger and execution is not billed). Explicit selection
+  // intersects the eligible set. Zero eligible keywords returns BEFORE any
+  // run is created — no empty provider-execution run ever exists.
+  let effectiveKeywordIds = requestedKeywordIds ?? undefined;
+  let missingBreakdown: MissingRankingsBreakdown | null = null;
+  if (input.missingRankings) {
+    const resolution = await resolveMissingRankingKeywordIds({
+      configId: config.id,
+      devices: config.devices,
+      keywordIds: requestedKeywordIds ?? undefined,
+    });
+    missingBreakdown = resolution.breakdown;
+    if (resolution.eligibleIds.length === 0) {
+      return {
+        ok: false,
+        reason: "no_missing_rankings",
+        blockingRunId: null,
+        operationId: input.operationId,
+        eligibleCount: 0,
+        breakdown: resolution.breakdown,
+      };
+    }
+    effectiveKeywordIds = resolution.eligibleIds;
+  }
+
   const runResult = await beginRankCheckRun({
     workflow: env.RANK_CHECK_WORKFLOW,
     config,
@@ -278,27 +311,29 @@ async function triggerCheck(input: {
       organizationId: input.billingCustomer.organizationId,
       projectId: input.billingCustomer.projectId,
     },
-    keywordsTotal: requestedKeywordIds
-      ? requestedKeywordIds.length
+    keywordsTotal: effectiveKeywordIds
+      ? effectiveKeywordIds.length
       : keywords.length,
-    keywordIds: requestedKeywordIds ?? undefined,
+    keywordIds: effectiveKeywordIds,
     trigger: "manual",
     workflowStartErrorMessage: "Failed to start rank check workflow",
+    missingRankings: input.missingRankings ?? false,
   });
 
   if (runResult.ok) {
     const totalTracked = keywords.length;
-    const validatedCount = requestedKeywordIds
-      ? requestedKeywordIds.length
+    const validatedCount = effectiveKeywordIds
+      ? effectiveKeywordIds.length
       : totalTracked;
     return {
       ...runResult,
       operationId: input.operationId,
-      scope: requestedKeywordIds ? "selected" : "all",
+      scope: effectiveKeywordIds ? "selected" : "all",
       selectedCount: input.keywordIds?.length ?? totalTracked,
       validatedCount,
-      validatedKeywordIds: requestedKeywordIds ?? undefined,
+      validatedKeywordIds: effectiveKeywordIds,
       unselectedCount: totalTracked - validatedCount,
+      ...(missingBreakdown ? { breakdown: missingBreakdown } : {}),
     };
   }
 
@@ -333,60 +368,6 @@ async function getLatestRun(configId: string, projectId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Keyword metrics (volume, difficulty, CPC)
-// ---------------------------------------------------------------------------
-
-async function refreshKeywordMetrics(
-  configId: string,
-  projectId: string,
-  billingCustomer: BillingCustomerContext,
-): Promise<{ updated: number }> {
-  const [config, keywords] = await Promise.all([
-    getValidatedConfig(configId, projectId),
-    RankTrackingRepository.getKeywordsForConfig(configId),
-  ]);
-  if (keywords.length === 0) return { updated: 0 };
-
-  const { data: metrics } = await getSeoDataRouter().route<KeywordMetricRow[]>({
-    dataType: "keyword_metrics",
-    keywords: keywords.map((kw) => kw.keyword),
-    locationCode: config.locationCode,
-    languageCode: config.languageCode,
-    billingCustomer,
-    creditFeature: "rank_tracking",
-    constraints: {
-      projectId,
-      // Local configs must retain city-scoped volume/CPC semantics. Providers
-      // that cannot honor this constraint report unsupported and fall through.
-      ...(config.locationName ? { locationName: config.locationName } : {}),
-    },
-  });
-  const byKeyword = new Map(
-    metrics.map((metric) => [metric.keyword.toLowerCase(), metric]),
-  );
-
-  const now = new Date().toISOString();
-  const updates = keywords
-    .map((kw) => {
-      const metric = byKeyword.get(kw.keyword.toLowerCase());
-      if (!metric) return null;
-      // Rank tracking only tracks volume / difficulty / CPC.
-      return {
-        id: kw.id,
-        searchVolume: metric.searchVolume,
-        keywordDifficulty: metric.keywordDifficulty,
-        cpc: metric.cpc,
-        metricsFetchedAt: now,
-      };
-    })
-    .filter((u): u is NonNullable<typeof u> => u !== null);
-
-  if (updates.length === 0) return { updated: 0 };
-  await RankTrackingRepository.updateKeywordMetrics(updates);
-  return { updated: updates.length };
-}
-
-// ---------------------------------------------------------------------------
 // Cost estimation
 // ---------------------------------------------------------------------------
 
@@ -414,13 +395,10 @@ async function getValidatedConfig(configId: string, projectId: string) {
 
 function normalizeDomain(domain: string): string {
   let d = domain.trim().toLowerCase();
-  // Strip protocol
+  // Strip protocol, path/query/fragment, trailing slash, and www. prefix.
   d = d.replace(/^https?:\/\//, "");
-  // Strip path, query string, and fragment
   d = d.replace(/[/?#].*$/, "");
-  // Strip trailing slash
   d = d.replace(/\/+$/, "");
-  // Strip www. prefix
   d = d.replace(/^www\./, "");
   if (!d) {
     throw new AppError("INTERNAL_ERROR", "Invalid domain");
@@ -487,6 +465,7 @@ export const RankTrackingService = {
   addKeywords,
   removeKeywords,
   triggerCheck,
+  getMissingRankingsSummary,
   getLatestRun,
   estimateCost,
   refreshKeywordMetrics,

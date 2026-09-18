@@ -23,6 +23,7 @@ import {
   getKeywordHistorySchema,
   getConfigTrendSchema,
   getPositionMatrixSchema,
+  missingRankingsSummarySchema,
 } from "@/types/schemas/rank-tracking";
 
 export interface RankKeywordHistoryPoint {
@@ -151,6 +152,7 @@ export const triggerRankCheck = createServerFn({ method: "POST" })
       projectId: context.projectId,
       billingCustomer: context,
       keywordIds: data.keywordIds,
+      missingRankings: data.missingRankings,
       operationId: data.operationId,
     });
 
@@ -166,12 +168,24 @@ export const triggerRankCheck = createServerFn({ method: "POST" })
             run_id: result.runId,
             scope: data.keywordIds?.length ? "selected" : "all",
             selected_count: data.keywordIds?.length ?? undefined,
+            missing_rankings: data.missingRankings ?? false,
           },
         }),
       );
     }
 
     return result;
+  });
+
+export const getMissingRankingsSummary = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(missingRankingsSummarySchema)
+  .handler(async ({ data, context }) => {
+    return RankTrackingService.getMissingRankingsSummary({
+      configId: data.configId,
+      projectId: context.projectId,
+      keywordIds: data.keywordIds,
+    });
   });
 
 export const cancelRankCheckRun = createServerFn({ method: "POST" })

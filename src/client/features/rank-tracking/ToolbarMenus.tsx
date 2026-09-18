@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   Play,
   RefreshCw,
+  SearchX,
   Sheet,
 } from "lucide-react";
 
@@ -85,8 +86,16 @@ function MenuItem({
   );
 }
 
+function missingCountLabel(count: number | null): string {
+  if (count === null) return "";
+  if (count === 0) return " (0)";
+  return ` (${count})`;
+}
+
 export function MoreMenu({
   onCheckNow,
+  onCheckMissingRankings,
+  missingRankingsCount,
   checkBusy,
   checkDisabled,
   onRefreshMetrics,
@@ -94,6 +103,8 @@ export function MoreMenu({
   hasData,
 }: {
   onCheckNow: () => void;
+  onCheckMissingRankings: () => void;
+  missingRankingsCount: number | null;
   checkBusy: boolean;
   checkDisabled: boolean;
   onRefreshMetrics: () => void;
@@ -108,10 +119,23 @@ export function MoreMenu({
       {!checkDisabled && (
         <MenuItem
           icon={<Play className="size-3.5" />}
-          label={checkBusy ? "Running..." : "Check all rankings"}
+          label={checkBusy ? "Running..." : "Check rankings"}
           description="Fetch current Google positions for every tracked keyword"
           onClick={onCheckNow}
           disabled={checkBusy}
+        />
+      )}
+      {!checkDisabled && (
+        <MenuItem
+          icon={<SearchX className="size-3.5" />}
+          label={
+            checkBusy
+              ? "Running..."
+              : `Check missing rankings${missingCountLabel(missingRankingsCount)}`
+          }
+          description="Check keywords that are unavailable, lost, or have no current ranking."
+          onClick={onCheckMissingRankings}
+          disabled={checkBusy || missingRankingsCount === 0}
         />
       )}
       <MenuItem
