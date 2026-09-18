@@ -186,3 +186,146 @@ export function scheduleLabel(
 export function devicesCount(devices: RankTrackingConfig["devices"]): number {
   return devices === "both" ? 2 : 1;
 }
+
+// ---------------------------------------------------------------------------
+// Missing-ranking eligibility ("Check missing rankings" bulk action)
+// ---------------------------------------------------------------------------
+
+/** User-visible missing-ranking buckets for the bulk action breakdown. */
+export type MissingRankingBucket =
+  | "ranking_unavailable"
+  | "lost"
+  | "no_ranking";
+
+export interface MissingRankingsBreakdown {
+  ranking_unavailable: number;
+  lost: number;
+  no_ranking: number;
+}
+
+/**
+ * Persisted ranking state for one (keyword, device) pair, derived from the
+ * keyword's latest snapshot row — never from rendered UI strings.
+ *
+ * The three missing states stay semantically distinct:
+ * - "ranking_unavailable": the latest check attempt could not determine a
+ *   position (CHECK_FAILED). Retrying the check is the point of the action.
+ * - "lost": previously ranked; the latest valid observation no longer finds
+ *   the target within the tracked SERP depth.
+ * - "no_ranking": a successful SERP inspection found no ranking (NO_RESULT,
+ *   legacy rows), or the pair has never been checked.
+ */
+export type DeviceRankingState =
+  | "ranked"
+  | MissingRankingBucket
+  | "not_checked";
+
+export interface DeviceRankingFacts {
+  /** A snapshot exists for this pair in any terminal run. */
+  hasSnapshot: boolean;
+  position: number | null;
+  previousPosition?: number | null;
+  rankingStatus?:
+    | "RANKED"
+    | "NO_RESULT"
+    | "CHECK_FAILED"
+    | "NOT_CHECKED"
+    | null;
+}
+
+/**
+ * Classify one (keyword, device) pair from its latest snapshot row. Mirrors
+ * the table's rendering semantics: CHECK_FAILED renders "Ranking unavailable"
+ * (even when a last valid position exists), a position renders "#N", and a
+ * null position with a previous position renders "lost".
+ */
+export function classifyDeviceRankingState(
+  facts: DeviceRankingFacts,
+): DeviceRankingState {
+  if (!facts.hasSnapshot) return "not_checked";
+  if (facts.rankingStatus === "CHECK_FAILED") return "ranking_unavailable";
+  if (typeof facts.position === "number") return "ranked";
+  if (typeof facts.previousPosition === "number") return "lost";
+  return "no_ranking";
+}
+
+export function isMissingRankingState(state: DeviceRankingState): boolean {
+  return state !== "ranked";
+}
+
+/** Collapse a missing state into its breakdown bucket ("not checked" reports as no ranking). */
+export function missingRankingBucket(
+  state: DeviceRankingState,
+): MissingRankingBucket {
+  return state === "not_checked"
+    ? "no_ranking"
+    : state === "ranked"
+      ? "no_ranking"
+      : state;
+}
+
+const MISSING_BUCKET_PRIORITY: Record<MissingRankingBucket, number> = {
+  ranking_unavailable: 0,
+  lost: 1,
+  no_ranking: 2,
+};
+
+export interface KeywordMissingRankingClassification {
+  eligible: boolean;
+  /** Highest-priority missing bucket across tracked devices; null when ranked. */
+  bucket: MissingRankingBucket | null;
+}
+
+/**
+ * Keyword-level eligibility: eligible when at least one tracked device pair is
+ * missing a current ranking. The breakdown bucket is deterministic when
+ * several devices are missing with different states.
+ */
+export function classifyKeywordMissingRankings(
+  deviceStates: DeviceRankingState[],
+): KeywordMissingRankingClassification {
+  let best: MissingRankingBucket | null = null;
+  for (const state of deviceStates) {
+    if (!isMissingRankingState(state)) continue;
+    const bucket = missingRankingBucket(state);
+    if (
+      best === null ||
+      MISSING_BUCKET_PRIORITY[bucket] < MISSING_BUCKET_PRIORITY[best]
+    ) {
+      best = bucket;
+    }
+  }
+  return { eligible: best !== null, bucket: best };
+}
+
+/** Facts for a pair with no snapshot at all ("never checked"). */
+export function noRankingFacts(): DeviceRankingFacts {
+  return {
+    hasSnapshot: false,
+    position: null,
+    previousPosition: null,
+    rankingStatus: null,
+  };
+}
+
+/**
+ * Classify a keyword from its per-device pair facts, considering only the
+ * devices the config actually tracks. Eligibility is strictly pair-level:
+ * a keyword with Desktop RANKED #5 and Mobile CHECK_FAILED / lost is still
+ * eligible because the mobile pair is missing its ranking — preservation of
+ * a last valid position, on any device, never suppresses the retry.
+ */
+export function classifyKeywordFromPairFacts(
+  pairFacts: Map<string, DeviceRankingFacts>,
+  keywordId: string,
+  devices: "both" | "desktop" | "mobile",
+): KeywordMissingRankingClassification {
+  const trackedDevices: Array<"desktop" | "mobile"> =
+    devices === "both" ? ["desktop", "mobile"] : [devices];
+  const states = trackedDevices.map((device) =>
+    classifyDeviceRankingState(
+      pairFacts.get(`${keywordId}:${device}`) ?? noRankingFacts(),
+    ),
+  );
+  return classifyKeywordMissingRankings(states);
+}

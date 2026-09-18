@@ -20,6 +20,7 @@ import {
   getPositionMatrix,
   getLatestPositionsMap,
 } from "./snapshotQueries";
+import { getLatestRankingFactsForConfig } from "./missingRankingQueries";
 
 // ---------------------------------------------------------------------------
 // Config CRUD
@@ -427,4 +428,5 @@ export const RankTrackingRepository = {
   getConfigTrend,
   getPositionMatrix,
   getLatestPositionsMap,
+  getLatestRankingFactsForConfig,
 };

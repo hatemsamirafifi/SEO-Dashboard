@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { FileDown, Loader2, Play, Sheet, Trash2 } from "lucide-react";
+import { FileDown, Loader2, Play, SearchX, Sheet, Trash2 } from "lucide-react";
 import { Modal } from "@/client/components/Modal";
 import {
   AppDataTable,
@@ -41,6 +41,7 @@ export function RankTrackingTable({
   locationName,
   serpDepth,
   onCheckSelected,
+  onCheckMissingSelected,
   checkSelectedBusy,
   checkSelectedDisabled,
 }: {
@@ -57,6 +58,7 @@ export function RankTrackingTable({
   locationName?: string | null;
   serpDepth: number;
   onCheckSelected: (keywordIds: string[]) => void;
+  onCheckMissingSelected: (keywordIds: string[]) => void;
   checkSelectedBusy: boolean;
   checkSelectedDisabled: boolean;
 }) {
@@ -122,7 +124,9 @@ export function RankTrackingTable({
   const selectedRankRows = selectedRows.map((row) => row.original);
   // Selection is keyed by trackingKeywordId (getRowId), so this is the exact
   // set of checked rows — independent of sorting, filtering, or pagination.
-  const selectedKeywordIds = selectedRankRows.map((row) => row.trackingKeywordId);
+  const selectedKeywordIds = selectedRankRows.map(
+    (row) => row.trackingKeywordId,
+  );
 
   const exportSelectionToSheets = () => {
     const { headers, rows: exportRows } = buildRankTrackingExport(
@@ -222,6 +226,18 @@ export function RankTrackingTable({
               variant="primary"
             >
               Check selected
+            </TableBulkActionButton>
+            <TableBulkActionButton
+              icon={<SearchX className="size-3.5" />}
+              onClick={() => onCheckMissingSelected(selectedKeywordIds)}
+              disabled={
+                checkSelectedBusy ||
+                checkSelectedDisabled ||
+                selectedCount === 0
+              }
+              title="Check keywords that are unavailable, lost, or have no current ranking"
+            >
+              Check missing
             </TableBulkActionButton>
             <TableBulkActionButton
               icon={<Trash2 className="size-3.5" />}

@@ -20,8 +20,30 @@ import {
 
 interface CheckTriggerVariables {
   keywordIds?: string[];
+  missingRankings?: boolean;
   traceOperationId?: string;
   signal?: AbortSignal;
+}
+
+export type RankCheckOperation =
+  | "rank_tracking.check_selected"
+  | "rank_tracking.check_all"
+  | "rank_tracking.check_missing_rankings";
+
+export function resolveOperationAndScope(opts: {
+  keywordIds?: string[];
+  missingRankings?: boolean;
+}): { operation: RankCheckOperation; scope: "selected" | "all" } {
+  if (opts.missingRankings) {
+    return {
+      operation: "rank_tracking.check_missing_rankings",
+      scope: opts.keywordIds?.length ? "selected" : "all",
+    };
+  }
+  if (opts.keywordIds && opts.keywordIds.length > 0) {
+    return { operation: "rank_tracking.check_selected", scope: "selected" };
+  }
+  return { operation: "rank_tracking.check_all", scope: "all" };
 }
 
 export function useRankCheckTrigger({
@@ -51,6 +73,7 @@ export function useRankCheckTrigger({
           projectId,
           configId,
           keywordIds: opts.keywordIds,
+          missingRankings: opts.missingRankings,
           operationId: opts.traceOperationId,
         },
         signal: opts.signal,
@@ -64,6 +87,24 @@ export function useRankCheckTrigger({
       const opId = opts.traceOperationId ?? currentOpIdRef.current;
 
       if (!result.ok) {
+        if (result.reason === "no_missing_rankings") {
+          // Zero eligible keywords: the server created NO run. Report the
+          // no-op as a blocked diagnostics operation — never an empty
+          // provider-execution run.
+          toast.info("No keywords need a ranking check right now");
+          if (opId) {
+            globalTraceStore.completeOperation(opId, {
+              status: "blocked",
+              budget: "PASS",
+              blockedReason:
+                "No keywords with a missing ranking in the current scope",
+              providerCalls: 0,
+              rankChecksSkipped: result.eligibleCount ?? 0,
+            });
+            unregisterCancellation(opId);
+          }
+          return;
+        }
         toast.info("A rank check is already running");
         if (opId) {
           globalTraceStore.completeOperation(opId, {
@@ -79,14 +120,19 @@ export function useRankCheckTrigger({
 
       currentRunIdRef.current = result.runId;
 
+      const { operation: triggerOperation } = resolveOperationAndScope(opts);
       captureClientEvent("rank_tracking:check_trigger", {
+        operation: triggerOperation,
         scope: opts.keywordIds ? "selected" : "all",
         selected_count: opts.keywordIds?.length ?? undefined,
+        missing_rankings: opts.missingRankings ?? false,
       });
       toast.success(
-        opts.keywordIds
-          ? `Rank check started for ${opts.keywordIds.length} selected keyword${opts.keywordIds.length !== 1 ? "s" : ""}`
-          : "Rank check started",
+        opts.missingRankings
+          ? `Missing-ranking check started for ${result.validatedCount ?? 0} keyword${(result.validatedCount ?? 0) !== 1 ? "s" : ""}`
+          : opts.keywordIds
+            ? `Rank check started for ${opts.keywordIds.length} selected keyword${opts.keywordIds.length !== 1 ? "s" : ""}`
+            : "Rank check started",
       );
 
       if (opId) {
@@ -123,6 +169,9 @@ export function useRankCheckTrigger({
           metadata: {
             runId: result.runId,
             configId,
+            ...(opts.missingRankings && result.breakdown
+              ? { missingRankingsBreakdown: result.breakdown }
+              : {}),
           },
         });
       }
@@ -176,7 +225,10 @@ export function useRankCheckTrigger({
     },
   });
 
-  const startCheck = (opts: { keywordIds?: string[] }) => {
+  const startCheck = (opts: {
+    keywordIds?: string[];
+    missingRankings?: boolean;
+  }) => {
     const busyState = resolveCheckBusyState({
       isPending: triggerMutation.isPending,
       isRunning,
@@ -184,18 +236,16 @@ export function useRankCheckTrigger({
     if (busyState !== "proceed") {
       // Every click leaves a trace: a busy click is an observable `blocked`
       // operation, never silence (the 0-operations bug).
-      const isSelected = Boolean(opts.keywordIds && opts.keywordIds.length > 0);
+      const { operation, scope } = resolveOperationAndScope(opts);
       try {
         globalTraceStore.recordOperation({
           feature: "rank_tracking",
-          operation: isSelected
-            ? "rank_tracking.check_selected"
-            : "rank_tracking.check_all",
+          operation,
           source: "Rank Tracking page",
           projectId,
           status: "blocked",
           startedAt: Date.now(),
-          scope: isSelected ? "selected" : "all",
+          scope,
           selectedCount: opts.keywordIds?.length,
           selectedKeywordIds: opts.keywordIds,
           billing: "Paid",
@@ -213,7 +263,7 @@ export function useRankCheckTrigger({
       return;
     }
 
-    const isSelected = Boolean(opts.keywordIds && opts.keywordIds.length > 0);
+    const { operation, scope } = resolveOperationAndScope(opts);
     // Trace creation is synchronous and infallible: the RUNNING operation
     // exists before the network request, so even a failed request still
     // leaves an observable FAILED trace. A trace failure must never prevent
@@ -222,12 +272,10 @@ export function useRankCheckTrigger({
     try {
       opId = globalTraceStore.startOperation({
         feature: "rank_tracking",
-        operation: isSelected
-          ? "rank_tracking.check_selected"
-          : "rank_tracking.check_all",
+        operation,
         source: "Rank Tracking page",
         projectId,
-        scope: isSelected ? "selected" : "all",
+        scope,
         selectedCount: opts.keywordIds?.length,
         selectedKeywordIds: opts.keywordIds,
         supportsCancellation: true,

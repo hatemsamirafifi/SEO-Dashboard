@@ -16,6 +16,9 @@ export function RankTrackingTableToolbar({
   onExportToSheets,
   onCopyKeywords,
   onCheckNow,
+  onCheckMissingRankings,
+  missingRankingsCount,
+  missingRankingsLoading,
   onRefreshMetrics,
   metricsRefreshing,
   checkBusy,
@@ -43,6 +46,9 @@ export function RankTrackingTableToolbar({
   onExportToSheets: () => void;
   onCopyKeywords: () => void;
   onCheckNow: () => void;
+  onCheckMissingRankings: () => void;
+  missingRankingsCount: number | null;
+  missingRankingsLoading: boolean;
   onRefreshMetrics: () => void;
   metricsRefreshing: boolean;
   checkBusy: boolean;
@@ -123,6 +129,10 @@ export function RankTrackingTableToolbar({
 
       <MoreMenu
         onCheckNow={onCheckNow}
+        onCheckMissingRankings={onCheckMissingRankings}
+        missingRankingsCount={
+          missingRankingsLoading ? null : missingRankingsCount
+        }
         checkBusy={checkBusy}
         checkDisabled={checkDisabled}
         onRefreshMetrics={onRefreshMetrics}

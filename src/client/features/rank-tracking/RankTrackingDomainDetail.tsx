@@ -6,12 +6,14 @@ import {
   getLatestRankResults,
   getRankPositionMatrix,
   estimateRankCheckCost,
+  getMissingRankingsSummary,
 } from "@/serverFunctions/rank-tracking";
-import { AlertTriangle, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 import { getCustomerPlanStatus } from "@/client/features/billing/plan-detection";
 import { captureClientEvent } from "@/client/lib/posthog";
 import { FreePlanAlert } from "./FreePlanAlert";
+import { ConfigAlerts } from "./ConfigAlerts";
 import { RankTrackingDetailHeader } from "./RankTrackingDetailHeader";
 import { RankTrackingOverview } from "./RankTrackingOverview";
 import { RankTrackingTable } from "./RankTrackingTable";
@@ -37,6 +39,7 @@ import {
   type Filters,
 } from "./RankTrackingFilters";
 import { CheckConfirmModal } from "./CheckConfirmModal";
+import { MissingRankingsConfirmModal } from "./MissingRankingsConfirmModal";
 import { useMetricsRefresh } from "./useMetricsRefresh";
 import { useRankCheckTrigger } from "./useRankCheckTrigger";
 import { useRankRunPolling } from "./useRankRunPolling";
@@ -119,24 +122,37 @@ export function RankTrackingDomainDetail({
       estimateRankCheckCost({ data: { projectId, configId: config.id } }),
   });
 
+  // Eligible count for "Check missing rankings" — server-resolved from
+  // persisted snapshot state (CHECK_FAILED / lost / NO_RESULT / never checked),
+  // so the menu label and confirm modal never guess from the rendered table.
+  const { data: missingRankingsSummary, isLoading: missingRankingsLoading } =
+    useQuery({
+      queryKey: ["rankTrackingMissingRankings", projectId, config.id],
+      queryFn: () =>
+        getMissingRankingsSummary({
+          data: { projectId, configId: config.id },
+        }),
+    });
+
   const [pendingCheck, setPendingCheck] = useState<{
     count: number;
     keywordIds?: string[];
+    missingRankings?: boolean;
   } | null>(null);
 
   const handleKeywordsAdded = (result: {
     added: number;
     checkTriggered: boolean;
   }) => {
-    void queryClient.invalidateQueries({
-      queryKey: ["rankTrackingCostEstimate", projectId, config.id],
-    });
-    void queryClient.invalidateQueries({
-      queryKey: ["rankTrackingResults", projectId, config.id],
-    });
-    void queryClient.invalidateQueries({
-      queryKey: ["rankTrackingLatestRun", projectId, config.id],
-    });
+    for (const key of [
+      ["rankTrackingCostEstimate"],
+      ["rankTrackingResults"],
+      ["rankTrackingLatestRun"],
+    ]) {
+      void queryClient.invalidateQueries({
+        queryKey: [...key, projectId, config.id],
+      });
+    }
     setShowAddKeywords(false);
     captureClientEvent("rank_tracking:keywords_add");
     toast.success(
@@ -184,6 +200,26 @@ export function RankTrackingDomainDetail({
     requestCheck(keywordIds.length, keywordIds);
   };
 
+  // "Check missing" on a selection: the selected ids are sent to the server
+  // and intersected with the eligible set there; the confirm modal shows the
+  // truthful per-selection eligible count and breakdown.
+  const handleCheckMissingSelected = (keywordIds: string[]) => {
+    if (keywordIds.length === 0) return;
+    setPendingCheck({
+      count: keywordIds.length,
+      keywordIds,
+      missingRankings: true,
+    });
+  };
+  // Config-scope variant: eligible ids are resolved server-side from persisted
+  // state; the trigger intersects any selection with that set.
+  const requestMissingRankingsCheck = (keywordIds?: string[]) =>
+    setPendingCheck({
+      count: keywordIds?.length ?? 0,
+      keywordIds,
+      missingRankings: true,
+    });
+
   const rows = resultsData?.rows;
   const run = resultsData?.run;
   const hasBothDevices = config.devices === "both";
@@ -210,38 +246,7 @@ export function RankTrackingDomainDetail({
         Back to domains
       </button>
 
-      {config.lastSkipReason === "insufficient_credits" && (
-        <div className="alert alert-warning text-sm py-2">
-          <AlertTriangle className="size-4" />
-          <span>
-            Last scheduled check was skipped due to insufficient credits. Top up
-            your balance to resume automatic tracking.
-          </span>
-        </div>
-      )}
-
-      {latestRun?.maybeStale && (
-        <div className="alert alert-warning text-sm py-2">
-          <AlertTriangle className="size-4" />
-          <span>
-            This run may be unresponsive and will be cleaned up automatically.
-          </span>
-        </div>
-      )}
-
-      {/* A failed run leaves rows in "Not checked" with no snapshot behind,
-          which is indistinguishable from "never checked" in the table. Call
-          it out explicitly so Position never stays an unexplained "-". */}
-      {latestRun?.status === "failed" && (
-        <div className="alert alert-error text-sm py-2">
-          <AlertTriangle className="size-4" />
-          <span>
-            Last rank check failed
-            {latestRun.errorMessage ? `: ${latestRun.errorMessage}` : "."} Open
-            Settings → Debug Trace for the per-keyword breakdown.
-          </span>
-        </div>
-      )}
+      <ConfigAlerts config={config} latestRun={latestRun} />
 
       <FreePlanAlert visible={isFreePlan} />
 
@@ -319,6 +324,9 @@ export function RankTrackingDomainDetail({
             const count = costEstimate?.keywordCount ?? rows?.length ?? 0;
             if (count > 0) requestCheck(count);
           }}
+          onCheckMissingRankings={() => requestMissingRankingsCheck()}
+          missingRankingsCount={missingRankingsSummary?.eligibleCount ?? null}
+          missingRankingsLoading={missingRankingsLoading}
           onRefreshMetrics={refreshMetrics}
           metricsRefreshing={metricsRefreshing}
           checkBusy={isBusy}
@@ -363,6 +371,7 @@ export function RankTrackingDomainDetail({
               locationName={config.locationName}
               serpDepth={config.serpDepth}
               onCheckSelected={handleCheckSelected}
+              onCheckMissingSelected={handleCheckMissingSelected}
               checkSelectedBusy={isBusy}
               checkSelectedDisabled={isFreePlan}
             />
@@ -370,16 +379,27 @@ export function RankTrackingDomainDetail({
         </div>
       </div>
 
-      {pendingCheck && (
+      {pendingCheck && !pendingCheck.missingRankings && (
         <CheckConfirmModal
           keywordCount={pendingCheck.count}
           devices={config.devices}
           serpDepth={config.serpDepth}
           isPending={isPending}
-          onRunNow={() =>
-            startCheck({
-              keywordIds: pendingCheck.keywordIds,
-            })
+          onRunNow={() => startCheck({ keywordIds: pendingCheck.keywordIds })}
+          onCancel={() => setPendingCheck(null)}
+        />
+      )}
+
+      {pendingCheck?.missingRankings && (
+        <MissingRankingsConfirmModal
+          configId={config.id}
+          projectId={projectId}
+          keywordIds={pendingCheck.keywordIds}
+          devices={config.devices}
+          serpDepth={config.serpDepth}
+          isPending={isPending}
+          onRunNow={(_count, keywordIds) =>
+            startCheck({ keywordIds, missingRankings: true })
           }
           onCancel={() => setPendingCheck(null)}
         />
