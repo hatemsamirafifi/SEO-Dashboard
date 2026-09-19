@@ -3,6 +3,7 @@ import { AppError } from "@/server/lib/errors";
 import type { RankTrackingConfig } from "@/types/schemas/rank-tracking";
 import {
   classifyKeywordFromPairFacts,
+  type MissingRankingBucket,
   type MissingRankingsBreakdown,
 } from "@/shared/rank-tracking";
 
@@ -26,22 +27,35 @@ import {
  * location-specific: a keyword ranked in the UAE config is never resolved
  * from the Egypt config's snapshots.
  *
- * Returns the eligible ids plus a truthful per-bucket breakdown.
+ * When missingRankingStates is provided, only keywords whose resolved bucket
+ * matches one of the specified states are included in eligibleIds.
+ *
+ * Returns the eligible ids plus a truthful per-bucket breakdown, candidate
+ * counts, and total missing count before filter.
  */
 export async function resolveMissingRankingKeywordIds(input: {
   configId: string;
   devices: RankTrackingConfig["devices"];
   /** Restrict resolution to these ids (selection mode). */
   keywordIds?: string[];
+  /** Filter to specific missing states. If undefined, defaults to all missing states. */
+  missingRankingStates?: MissingRankingBucket[];
 }): Promise<{
   eligibleIds: string[];
   breakdown: MissingRankingsBreakdown;
+  totalMissingCount: number;
+  candidatesCount: number;
 }> {
   const configKeywords = await RankTrackingRepository.getKeywordsForConfig(
     input.configId,
   );
   if (configKeywords.length === 0) {
-    return { eligibleIds: [], breakdown: emptyBreakdown() };
+    return {
+      eligibleIds: [],
+      breakdown: emptyBreakdown(),
+      totalMissingCount: 0,
+      candidatesCount: 0,
+    };
   }
 
   let candidateIds = configKeywords.map((kw) => kw.id);
@@ -49,7 +63,12 @@ export async function resolveMissingRankingKeywordIds(input: {
     const requested = new Set(input.keywordIds);
     candidateIds = candidateIds.filter((id) => requested.has(id));
     if (candidateIds.length === 0) {
-      return { eligibleIds: [], breakdown: emptyBreakdown() };
+      return {
+        eligibleIds: [],
+        breakdown: emptyBreakdown(),
+        totalMissingCount: 0,
+        candidatesCount: 0,
+      };
     }
   }
 
@@ -60,6 +79,21 @@ export async function resolveMissingRankingKeywordIds(input: {
 
   const breakdown = emptyBreakdown();
   const eligibleIds: string[] = [];
+  let totalMissingCount = 0;
+
+  const validBuckets = new Set<MissingRankingBucket>([
+    "ranking_unavailable",
+    "lost",
+    "no_ranking",
+  ]);
+  const allowedStates =
+    input.missingRankingStates !== undefined
+      ? new Set(
+          input.missingRankingStates.filter((s): s is MissingRankingBucket =>
+            validBuckets.has(s),
+          ),
+        )
+      : validBuckets;
 
   for (const id of candidateIds) {
     const classification = classifyKeywordFromPairFacts(
@@ -69,11 +103,20 @@ export async function resolveMissingRankingKeywordIds(input: {
     );
     if (!classification.eligible || !classification.bucket) continue;
 
-    eligibleIds.push(id);
+    totalMissingCount += 1;
     breakdown[classification.bucket] += 1;
+
+    if (allowedStates.has(classification.bucket)) {
+      eligibleIds.push(id);
+    }
   }
 
-  return { eligibleIds, breakdown };
+  return {
+    eligibleIds,
+    breakdown,
+    totalMissingCount,
+    candidatesCount: candidateIds.length,
+  };
 }
 
 export function emptyBreakdown(): MissingRankingsBreakdown {

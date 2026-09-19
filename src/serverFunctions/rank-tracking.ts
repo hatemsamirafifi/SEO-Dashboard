@@ -153,6 +153,7 @@ export const triggerRankCheck = createServerFn({ method: "POST" })
       billingCustomer: context,
       keywordIds: data.keywordIds,
       missingRankings: data.missingRankings,
+      missingRankingStates: data.missingRankingStates,
       operationId: data.operationId,
     });
 
@@ -169,6 +170,7 @@ export const triggerRankCheck = createServerFn({ method: "POST" })
             scope: data.keywordIds?.length ? "selected" : "all",
             selected_count: data.keywordIds?.length ?? undefined,
             missing_rankings: data.missingRankings ?? false,
+            missing_ranking_states: data.missingRankingStates,
           },
         }),
       );

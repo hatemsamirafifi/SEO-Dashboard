@@ -15,6 +15,7 @@ import {
   isScheduledRankTrackingInterval,
   MAX_KEYWORDS_PER_CONFIG,
   MAX_CONFIGS_PER_PROJECT,
+  type MissingRankingBucket,
   type MissingRankingsBreakdown,
 } from "@/shared/rank-tracking";
 import {
@@ -256,6 +257,7 @@ async function triggerCheck(input: {
   billingCustomer: BillingCustomerContext;
   keywordIds?: string[];
   missingRankings?: boolean;
+  missingRankingStates?: MissingRankingBucket[];
   operationId?: string;
 }): Promise<RankCheckTriggerResult> {
   const config = await getValidatedConfig(input.configId, input.projectId);
@@ -281,13 +283,20 @@ async function triggerCheck(input: {
   // run is created — no empty provider-execution run ever exists.
   let effectiveKeywordIds = requestedKeywordIds ?? undefined;
   let missingBreakdown: MissingRankingsBreakdown | null = null;
+  let candidatesCount = keywords.length;
+  let missingEligibleBeforeFilter = 0;
+
   if (input.missingRankings) {
     const resolution = await resolveMissingRankingKeywordIds({
       configId: config.id,
       devices: config.devices,
       keywordIds: requestedKeywordIds ?? undefined,
+      missingRankingStates: input.missingRankingStates,
     });
     missingBreakdown = resolution.breakdown;
+    candidatesCount = resolution.candidatesCount;
+    missingEligibleBeforeFilter = resolution.totalMissingCount;
+
     if (resolution.eligibleIds.length === 0) {
       return {
         ok: false,
@@ -295,6 +304,9 @@ async function triggerCheck(input: {
         blockingRunId: null,
         operationId: input.operationId,
         eligibleCount: 0,
+        candidatesCount,
+        missingEligibleBeforeFilter,
+        selectedStates: input.missingRankingStates,
         breakdown: resolution.breakdown,
       };
     }
@@ -318,6 +330,7 @@ async function triggerCheck(input: {
     trigger: "manual",
     workflowStartErrorMessage: "Failed to start rank check workflow",
     missingRankings: input.missingRankings ?? false,
+    missingRankingStates: input.missingRankingStates,
   });
 
   if (runResult.ok) {
@@ -333,6 +346,9 @@ async function triggerCheck(input: {
       validatedCount,
       validatedKeywordIds: effectiveKeywordIds,
       unselectedCount: totalTracked - validatedCount,
+      candidatesCount,
+      missingEligibleBeforeFilter,
+      selectedStates: input.missingRankingStates,
       ...(missingBreakdown ? { breakdown: missingBreakdown } : {}),
     };
   }

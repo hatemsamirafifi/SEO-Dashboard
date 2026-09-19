@@ -5,6 +5,7 @@ import type {
   RankCheckTriggerResult,
   RankTrackingConfig,
 } from "@/types/schemas/rank-tracking";
+import type { MissingRankingBucket } from "@/shared/rank-tracking";
 
 type RunRow = Awaited<ReturnType<typeof RankTrackingRepository.getRunById>>;
 
@@ -147,6 +148,7 @@ export async function beginRankCheckRun(input: {
   trigger: "manual" | "scheduled";
   workflowStartErrorMessage: string;
   missingRankings?: boolean;
+  missingRankingStates?: MissingRankingBucket[];
 }): Promise<RankCheckTriggerResult> {
   // At most two attempts: once normally, once after clearing a stale blocker.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -177,6 +179,7 @@ export async function beginRankCheckRun(input: {
             trigger: input.trigger,
             keywordIds: input.keywordIds,
             missingRankings: input.missingRankings ?? false,
+            missingRankingStates: input.missingRankingStates,
           },
         });
       } catch (error) {

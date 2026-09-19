@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, SearchX, Zap } from "lucide-react";
 import { Modal } from "@/client/components/Modal";
@@ -7,15 +8,70 @@ import {
   devicesCount,
   KEYWORDS_PER_BATCH,
   SECONDS_PER_BATCH,
+  type MissingRankingBucket,
+  type MissingRankingsBreakdown,
 } from "@/shared/rank-tracking";
 import type { RankTrackingConfig } from "@/types/schemas/rank-tracking";
+
+export function calculateActiveCount(
+  breakdown: MissingRankingsBreakdown | undefined,
+  selectedStates: readonly MissingRankingBucket[],
+): number {
+  if (!breakdown) return 0;
+  let count = 0;
+  if (selectedStates.includes("ranking_unavailable")) {
+    count += breakdown.ranking_unavailable;
+  }
+  if (selectedStates.includes("lost")) {
+    count += breakdown.lost;
+  }
+  if (selectedStates.includes("no_ranking")) {
+    count += breakdown.no_ranking;
+  }
+  return count;
+}
+
+export function calculateEtaSeconds(
+  count: number,
+  devices: RankTrackingConfig["devices"],
+): number {
+  const dc = devicesCount(devices);
+  const totalChecks = count * dc;
+  return Math.ceil(totalChecks / KEYWORDS_PER_BATCH) * SECONDS_PER_BATCH;
+}
+
+export function formatEta(seconds: number): string {
+  if (seconds === 0) return "0s";
+  return seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)} min`;
+}
+
+export function isRunButtonDisabled(
+  isPending: boolean,
+  activeCount: number,
+): boolean {
+  return isPending || activeCount === 0;
+}
+
+export const STATE_OPTIONS: Array<{
+  key: MissingRankingBucket;
+  label: string;
+}> = [
+  { key: "ranking_unavailable", label: "Ranking unavailable" },
+  { key: "lost", label: "Lost" },
+  { key: "no_ranking", label: "No ranking" },
+];
 
 /**
  * Confirmation for "Check missing rankings". The eligible count and per-bucket
  * breakdown are resolved server-side from persisted snapshot state — the same
  * query the trigger uses — so the numbers are truthful for the exact scope
- * being confirmed (selection or config-wide). Zero eligible keywords disables
- * Run Now instead of starting an empty run.
+ * being confirmed (selection or config-wide).
+ *
+ * Users can choose any combination of the three missing-ranking states
+ * (Ranking unavailable, Lost, No ranking). Keyword count, estimated cost,
+ * and ETA update immediately.
+ *
+ * Zero eligible/selected keywords disables Run Now instead of starting an empty run.
  */
 export function MissingRankingsConfirmModal({
   configId,
@@ -33,9 +89,19 @@ export function MissingRankingsConfirmModal({
   devices: RankTrackingConfig["devices"];
   serpDepth: number;
   isPending: boolean;
-  onRunNow: (eligibleCount: number, keywordIds?: string[]) => void;
+  onRunNow: (
+    eligibleCount: number,
+    keywordIds?: string[],
+    missingRankingStates?: MissingRankingBucket[],
+  ) => void;
   onCancel: () => void;
 }) {
+  const [selectedStates, setSelectedStates] = useState<MissingRankingBucket[]>([
+    "ranking_unavailable",
+    "lost",
+    "no_ranking",
+  ]);
+
   const { data: summary, isLoading } = useQuery({
     queryKey: [
       "rankTrackingMissingRankings",
@@ -49,19 +115,37 @@ export function MissingRankingsConfirmModal({
       }),
   });
 
-  const eligibleCount = summary?.eligibleCount ?? 0;
+  const totalEligibleCount = summary?.eligibleCount ?? 0;
   const breakdown = summary?.breakdown;
-  const selectedCount = keywordIds?.length;
-  const dc = devicesCount(devices);
-  const totalChecks = eligibleCount * dc;
+  const requestedCount = keywordIds?.length;
+
+  const activeCount = useMemo(
+    () => calculateActiveCount(breakdown, selectedStates),
+    [breakdown, selectedStates],
+  );
+
   const cost = estimateRankCheckCredits(
-    eligibleCount,
+    activeCount,
     devices,
     serpDepth,
     "live",
   );
-  const liveTime =
-    Math.ceil(totalChecks / KEYWORDS_PER_BATCH) * SECONDS_PER_BATCH;
+  const liveTime = calculateEtaSeconds(activeCount, devices);
+  const etaText = formatEta(activeCount === 0 ? 0 : liveTime);
+
+  const toggleState = (state: MissingRankingBucket) => {
+    setSelectedStates((prev) =>
+      prev.includes(state) ? prev.filter((s) => s !== state) : [...prev, state],
+    );
+  };
+
+  const handleSelectAll = () => {
+    setSelectedStates(["ranking_unavailable", "lost", "no_ranking"]);
+  };
+
+  const handleClearAll = () => {
+    setSelectedStates([]);
+  };
 
   return (
     <Modal
@@ -77,9 +161,9 @@ export function MissingRankingsConfirmModal({
           Check missing rankings
         </h3>
         <p className="text-sm text-base-content/60 mt-1">
-          {selectedCount !== undefined
-            ? `${eligibleCount} of ${selectedCount} selected keyword${selectedCount !== 1 ? "s" : ""} need a ranking check.`
-            : `${eligibleCount} keyword${eligibleCount !== 1 ? "s" : ""} need a ranking check.`}
+          {requestedCount !== undefined
+            ? `${totalEligibleCount} of ${requestedCount} selected keyword${requestedCount !== 1 ? "s" : ""} need a ranking check.`
+            : `${totalEligibleCount} keyword${totalEligibleCount !== 1 ? "s" : ""} need a ranking check.`}
         </p>
       </div>
 
@@ -90,34 +174,74 @@ export function MissingRankingsConfirmModal({
       ) : (
         <>
           {breakdown && (
-            <div className="rounded-lg border border-base-300 p-3 text-xs space-y-1">
-              <div className="font-semibold text-base-content/70">
-                Missing rankings: {eligibleCount}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-base-content/60">
+                <span>Select which ranking states to check:</span>
+                <div className="flex items-center gap-1.5 font-medium">
+                  <button
+                    type="button"
+                    onClick={handleSelectAll}
+                    className="hover:text-primary transition-colors cursor-pointer"
+                  >
+                    Select all
+                  </button>
+                  <span className="text-base-content/30">|</span>
+                  <button
+                    type="button"
+                    onClick={handleClearAll}
+                    className="hover:text-primary transition-colors cursor-pointer"
+                  >
+                    Clear all
+                  </button>
+                </div>
               </div>
-              <div className="flex justify-between text-base-content/70">
-                <span>Ranking unavailable</span>
-                <span className="font-mono">
-                  {breakdown.ranking_unavailable}
+
+              <div className="space-y-1.5">
+                {STATE_OPTIONS.map(({ key, label }) => {
+                  const isChecked = selectedStates.includes(key);
+                  const count = breakdown[key];
+                  return (
+                    <label
+                      key={key}
+                      className={`flex items-center justify-between px-3 py-2 rounded-lg border transition-colors cursor-pointer ${
+                        isChecked
+                          ? "border-primary/40 bg-primary/5 text-base-content"
+                          : "border-base-200 hover:border-base-300 text-base-content/70"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-primary checkbox-sm rounded"
+                          checked={isChecked}
+                          onChange={() => toggleState(key)}
+                        />
+                        <span className="text-xs font-medium">{label}</span>
+                      </div>
+                      <span className="font-mono text-xs text-base-content/70">
+                        {count}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-between pt-1 text-xs text-base-content/70 border-t border-base-200">
+                <span className="font-semibold">Selected for check:</span>
+                <span className="font-mono font-semibold text-base-content">
+                  {activeCount} {activeCount === 1 ? "keyword" : "keywords"}
                 </span>
-              </div>
-              <div className="flex justify-between text-base-content/70">
-                <span>Lost</span>
-                <span className="font-mono">{breakdown.lost}</span>
-              </div>
-              <div className="flex justify-between text-base-content/70">
-                <span>No ranking</span>
-                <span className="font-mono">{breakdown.no_ranking}</span>
               </div>
             </div>
           )}
 
           <button
-            className="flex w-full items-center gap-4 rounded-xl border-2 border-base-300 p-4 text-left transition-colors hover:border-primary hover:bg-primary/5 disabled:opacity-50"
-            onClick={() => onRunNow(eligibleCount, keywordIds)}
-            disabled={isPending || eligibleCount === 0}
+            className="flex w-full items-center gap-4 rounded-xl border-2 border-base-300 p-4 text-left transition-colors hover:border-primary hover:bg-primary/5 disabled:opacity-50 disabled:hover:border-base-300 disabled:hover:bg-transparent"
+            onClick={() => onRunNow(activeCount, keywordIds, selectedStates)}
+            disabled={isPending || activeCount === 0}
           >
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-              {eligibleCount === 0 ? (
+              {activeCount === 0 ? (
                 <SearchX className="size-5 text-base-content/40" />
               ) : (
                 <Zap className="size-5 text-primary" />
@@ -125,14 +249,14 @@ export function MissingRankingsConfirmModal({
             </div>
             <div className="flex-1">
               <p className="font-medium">
-                {eligibleCount === 0
-                  ? "No keywords need a check"
-                  : `Check ${eligibleCount} keyword${eligibleCount !== 1 ? "s" : ""}`}
+                {activeCount === 0
+                  ? "No keywords selected"
+                  : `Check ${activeCount} keyword${activeCount !== 1 ? "s" : ""}`}
               </p>
               <p className="text-xs text-base-content/60">
-                {eligibleCount === 0
-                  ? "Every keyword in scope currently has a ranking."
-                  : `Results in ~${liveTime < 60 ? `${liveTime}s` : `${Math.ceil(liveTime / 60)} min`}`}
+                {activeCount === 0
+                  ? "Select at least one ranking state to check."
+                  : `Results in ~${etaText}`}
               </p>
             </div>
             <div className="text-right">

@@ -104,6 +104,7 @@ const billingCustomer = {
 async function runWorkflow(params: {
   keywordIds?: string[];
   missingRankings?: boolean;
+  missingRankingStates?: any[];
 }) {
   const { RankCheckWorkflow } = await import("./RankCheckWorkflow");
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine ctor args are unused by the workflow body
@@ -137,6 +138,7 @@ async function runWorkflow(params: {
       trigger: "manual" as const,
       keywordIds: params.keywordIds,
       missingRankings: params.missingRankings,
+      missingRankingStates: params.missingRankingStates,
     },
     timestamp: new Date(),
     instanceId: "run_1",
@@ -167,6 +169,13 @@ function pairFacts(entries: Record<string, string>): Map<string, unknown> {
         hasSnapshot: true,
         position: null,
         previousPosition: 8,
+        rankingStatus: "NO_RESULT",
+      });
+    } else if (state === "NO_RESULT") {
+      map.set(key, {
+        hasSnapshot: true,
+        position: null,
+        previousPosition: null,
         rankingStatus: "NO_RESULT",
       });
     } else {
@@ -276,5 +285,61 @@ describe("RankCheckWorkflow missing-rankings re-resolution", () => {
       "run_1",
       expect.objectContaining({ status: "completed", keywordsChecked: 1 }),
     );
+  });
+
+  it("re-resolution applies missingRankingStates: drops keywords whose current state is not in the selection", async () => {
+    // User selected Lost only.
+    // keyword_1 was lost, still lost -> kept
+    // keyword_2 was lost, but changed to CHECK_FAILED (Ranking unavailable) -> dropped!
+    // keyword_3 was lost, but recovered to Ranked #8 -> dropped!
+    repoMocks.getKeywordsForConfig.mockResolvedValue(makeKeywords(3));
+    factsMocks.getLatestRankingFactsForConfig.mockResolvedValue(
+      pairFacts({
+        "keyword_1:desktop": "lost",
+        "keyword_1:mobile": "lost",
+        "keyword_2:desktop": "CHECK_FAILED",
+        "keyword_2:mobile": "CHECK_FAILED",
+        "keyword_3:desktop": "8",
+        "keyword_3:mobile": "8",
+      }),
+    );
+
+    await runWorkflow({
+      keywordIds: ["keyword_1", "keyword_2", "keyword_3"],
+      missingRankings: true,
+      missingRankingStates: ["lost"],
+    });
+
+    expect(pathsMocks.runLiveCheck).toHaveBeenCalledTimes(1);
+    const ctx = pathsMocks.runLiveCheck.mock.calls[0][1];
+    expect(ctx.keywords.map((kw) => kw.id)).toEqual(["keyword_1"]);
+  });
+
+  it("re-resolution applies multi-state missingRankingStates filter", async () => {
+    // User selected ranking_unavailable + no_ranking
+    // keyword_1: CHECK_FAILED (ranking_unavailable) -> kept
+    // keyword_2: lost -> dropped!
+    // keyword_3: NO_RESULT (no_ranking) -> kept
+    repoMocks.getKeywordsForConfig.mockResolvedValue(makeKeywords(3));
+    factsMocks.getLatestRankingFactsForConfig.mockResolvedValue(
+      pairFacts({
+        "keyword_1:desktop": "CHECK_FAILED",
+        "keyword_1:mobile": "CHECK_FAILED",
+        "keyword_2:desktop": "lost",
+        "keyword_2:mobile": "lost",
+        "keyword_3:desktop": "NO_RESULT",
+        "keyword_3:mobile": "NO_RESULT",
+      }),
+    );
+
+    await runWorkflow({
+      keywordIds: ["keyword_1", "keyword_2", "keyword_3"],
+      missingRankings: true,
+      missingRankingStates: ["ranking_unavailable", "no_ranking"],
+    });
+
+    expect(pathsMocks.runLiveCheck).toHaveBeenCalledTimes(1);
+    const ctx = pathsMocks.runLiveCheck.mock.calls[0][1];
+    expect(ctx.keywords.map((kw) => kw.id)).toEqual(["keyword_1", "keyword_3"]);
   });
 });
