@@ -311,4 +311,28 @@ describe("runLiveCheck provider-reason capture", () => {
       delete process.env.RANK_CHECK_CONCURRENCY;
     }
   });
+
+  it("increments keywordsChecked monotonically across multiple batches without resetting backwards", async () => {
+    process.env.RANK_CHECK_CONCURRENCY = "5";
+    const rankCheck = vi.fn(
+      async (input: { keywordId: string; keyword: string }) =>
+        okResult(input.keywordId, input.keyword),
+    );
+
+    // 25 keywords => 3 batches (10 + 10 + 5)
+    await runLiveCheck(step, makeCtx(rankCheck, 25));
+
+    const checkedUpdates = repoMocks.updateRun.mock.calls
+      .filter(([runId, patch]) => runId === "run_1" && typeof patch.keywordsChecked === "number")
+      .map(([, patch]) => patch.keywordsChecked as number);
+
+    expect(checkedUpdates.length).toBeGreaterThan(0);
+    // Every update must be >= the previous one (monotonically non-decreasing, no chunk reset to 1-10)
+    for (let i = 1; i < checkedUpdates.length; i++) {
+      expect(checkedUpdates[i]).toBeGreaterThanOrEqual(checkedUpdates[i - 1]);
+    }
+    // Final progress reaches total keywords
+    expect(checkedUpdates.at(-1)).toBe(25);
+    delete process.env.RANK_CHECK_CONCURRENCY;
+  });
 });

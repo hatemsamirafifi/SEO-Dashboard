@@ -194,12 +194,18 @@ export function getLiveCheckConcurrency(): number {
 async function checkBatchLive(
   ctx: CheckContext,
   tasks: RankCheckTaskInput[],
-  concurrency = getLiveCheckConcurrency(),
+  options?: {
+    concurrency?: number;
+    baseKeywordsChecked?: number;
+  },
 ): Promise<{
   written: number;
   distinctKeywordsChecked: number;
   firstError: string | null;
 }> {
+  const concurrency = options?.concurrency ?? getLiveCheckConcurrency();
+  const baseKeywordsChecked = options?.baseKeywordsChecked;
+
   // Guard: if run was already cancelled before this batch, do not start
   const initialRun = await RankTrackingRepository.getRunById(ctx.runId);
   if (initialRun?.status === "cancelled") {
@@ -416,9 +422,12 @@ async function checkBatchLive(
       await RankTrackingRepository.insertSnapshots(chunkSnapshotRows);
       totalWritten += chunkSnapshotRows.length;
       // Incrementally update run progress in DB so polling UI sees real-time increments
-      await RankTrackingRepository.updateRun(ctx.runId, {
-        keywordsChecked: distinctKeywordsCheckedSet.size,
-      });
+      if (baseKeywordsChecked !== undefined) {
+        await RankTrackingRepository.updateRun(ctx.runId, {
+          keywordsChecked:
+            baseKeywordsChecked + distinctKeywordsCheckedSet.size,
+        });
+      }
     }
 
     // Check if cancellation was requested while chunk was executing
@@ -473,7 +482,9 @@ export async function runLiveCheck(
       `live-batch-${batchIndex}`,
       SINGLE_ATTEMPT_STEP_CONFIG,
       async () => {
-        const batch = await checkBatchLive(ctx, batchTasks);
+        const batch = await checkBatchLive(ctx, batchTasks, {
+          baseKeywordsChecked: totalKeywordsChecked,
+        });
         firstError ??= batch.firstError;
         totalKeywordsChecked += batch.distinctKeywordsChecked;
         // Progress for the UI; finalize recounts from the DB anyway.
