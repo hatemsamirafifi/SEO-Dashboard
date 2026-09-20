@@ -324,6 +324,13 @@
                         "when":  1789932332678,
                         "tag":  "0050_ga4_connections",
                         "breakpoints":  true
+                    },
+                    {
+                        "idx":  46,
+                        "version":  "6",
+                        "when":  1789948576773,
+                        "tag":  "0052_quick_quentin_quire",
+                        "breakpoints":  true
                     }
                 ]
 }

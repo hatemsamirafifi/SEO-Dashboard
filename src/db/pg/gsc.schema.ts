@@ -81,10 +81,7 @@ export const gscSearchPerformance = pgTable(
       table.grain,
       table.grainKey,
     ),
-    index("gsc_search_perf_project_date_idx").on(
-      table.projectId,
-      table.date,
-    ),
+    index("gsc_search_perf_project_date_idx").on(table.projectId, table.date),
     index("gsc_search_perf_project_property_date_idx").on(
       table.projectId,
       table.property,
@@ -141,6 +138,9 @@ export const gscSearchPerformanceSyncs = pgTable(
     rowsInserted: integer("rows_inserted").notNull().default(0),
     rowsUpdated: integer("rows_updated").notNull().default(0),
     rowsFailed: integer("rows_failed").notNull().default(0),
+    // Units (chunks) finalized without provider error in this run. Consumed
+    // by §7 source-version token selection.
+    successfulUnits: integer("successful_units").notNull().default(0),
     error: text("error"),
     checkpoint: text("checkpoint"),
     createdAt: text("created_at").notNull().default(isoNow),

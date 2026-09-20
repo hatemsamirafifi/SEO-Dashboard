@@ -170,6 +170,13 @@
                         "when":  1789932332678,
                         "tag":  "0028_ga4_connections",
                         "breakpoints":  true
+                    },
+                    {
+                        "idx":  24,
+                        "version":  "7",
+                        "when":  1789948581450,
+                        "tag":  "0030_equal_satana",
+                        "breakpoints":  true
                     }
                 ]
 }
