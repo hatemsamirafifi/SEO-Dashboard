@@ -28,6 +28,10 @@ vi.mock("@/server/features/ga4/repositories/Ga4ConnectionRepository", () => ({
 vi.mock("@/server/lib/ga4Client", () => ({
   createGa4Client: () => ({ listProperties: mocks.listProperties }),
 }));
+vi.mock("cloudflare:workers", () => ({ env: {} }));
+vi.mock("@/server/lib/seo-data/cost-tracker", () => ({
+  recordFreeProviderCall: () => {},
+}));
 
 describe("Ga4Service boundary", () => {
   beforeEach(() => {
