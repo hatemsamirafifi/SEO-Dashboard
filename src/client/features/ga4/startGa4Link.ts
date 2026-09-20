@@ -20,10 +20,10 @@ export async function startGa4Link(
       providerId: GA4_OAUTH_PROVIDER_ID,
       callbackURL,
     });
-    if (result.error)
-      return toast.error(
-        result.error.message ?? "Could not start Google sign-in",
-      );
+    if (result.error) {
+      toast.error(result.error.message ?? "Could not start Google sign-in");
+      return;
+    }
     if (result.data?.url) window.location.href = result.data.url;
   } catch (error) {
     toast.error(getStandardErrorMessage(error));

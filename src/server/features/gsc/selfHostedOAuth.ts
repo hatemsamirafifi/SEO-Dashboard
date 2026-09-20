@@ -221,6 +221,10 @@ async function consumeGa4State(
     );
 }
 
+function projectIdFromCallbackPath(path: string): string | undefined {
+  return /^\/p\/([^/?#]+)(?:\/|$)/.exec(path)?.[1];
+}
+
 function getRedirectUri(
   publicOrigin: string,
   provider: OAuthProviderDescriptor,
@@ -349,6 +353,7 @@ async function createSelfHostedAuthorizationUrl(input: {
   callbackURL: string;
   publicOrigin: string;
   provider: OAuthProviderDescriptor;
+  projectId?: string;
 }) {
   const config = await getGscOAuthClientConfig();
   if (!config || !(await hasSelfHostedGscConfig())) {
@@ -400,6 +405,7 @@ async function handleSelfHostedOAuthCallback(input: {
   user: SelfHostedGscUser;
   publicOrigin: string;
   provider: OAuthProviderDescriptor;
+  expectedProjectId?: string;
 }) {
   const config = await getGscOAuthClientConfig();
   if (!config) {
@@ -422,7 +428,12 @@ async function handleSelfHostedOAuthCallback(input: {
   if (state.userId !== input.user.userId) {
     return new Response("Search Console OAuth user mismatch", { status: 403 });
   }
-  if (input.provider.requireProjectState) await consumeGa4State(state);
+  if (input.provider.requireProjectState) {
+    await consumeGa4State(
+      state,
+      projectIdFromCallbackPath(state.callbackPath),
+    );
+  }
 
   // state.callbackPath is a validated same-origin relative path
   // (getSafeCallbackPath). Redirect with a *relative* Location so the browser

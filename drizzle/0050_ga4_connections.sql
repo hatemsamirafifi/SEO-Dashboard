@@ -1,5 +1,3 @@
--- Snapshot-only forward migration: 0050_ga4_connections already created this table.
-/*
 CREATE TABLE `ga4_connections` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -17,4 +15,4 @@ CREATE TABLE `ga4_connections` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `ga4_connections_project_idx` ON `ga4_connections` (`project_id`);--> statement-breakpoint
-CREATE INDEX `ga4_connections_organization_idx` ON `ga4_connections` (`organization_id`); */
+CREATE INDEX `ga4_connections_organization_idx` ON `ga4_connections` (`organization_id`);
