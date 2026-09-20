@@ -163,6 +163,13 @@
                         "when":  1789934724727,
                         "tag":  "0029_open_thundra",
                         "breakpoints":  true
+                    },
+                    {
+                        "idx":  23,
+                        "version":  "7",
+                        "when":  1789932332678,
+                        "tag":  "0028_ga4_connections",
+                        "breakpoints":  true
                     }
                 ]
 }
