@@ -10,6 +10,8 @@ data, or sensitive paths.
 
 ## Open
 
+- [ ] `2026-09-20T22:25:00Z` — `codex` — The full `pnpm test` run times out in `src/server/mcp/tools/output-schema-validation.test.ts` on `find_serp_competitors` while the rest of the suite proceeds; isolate or raise the timeout for this known slow provider-shape test so the standard full-suite gate is reliable.
+
 - [ ] `2026-09-20T19:05:29Z` — `codex` — On a fresh Windows worktree with `core.autocrlf=true`, `pnpm ci:check` stops at Prettier because all 1,031 checked-out files are converted to CRLF while the formatter expects LF; add a repository `.gitattributes` policy (or document the required Git line-ending configuration) so the standard CI gate is usable after checkout.
 - [ ] `2026-09-16T19:23:07Z` — `codex` — `pnpm db:generate` delegates both schema generators through `npm run`, so npm emits repeated unsupported pnpm `.npmrc` option warnings before each Drizzle run. Invoke the two `drizzle-kit generate` commands directly through pnpm so migration output stays signal-rich.
 - [ ] `2026-08-29T03:00:00Z` — `opencode` — `tsc --noEmit` over the root project routinely exceeds 5–10 min wall time and once crash-exits with node fail-fast 0xC0000409; even a scoped `tsc -p` over `SamChatAgent.ts` + its transitive imports never finished, so touched-file type verification isn't practical locally. Add an incremental `tsBuildInfoFile` config / documented CI-only strategy (or split server/client projects) so changed-file type checks complete on this machine.
