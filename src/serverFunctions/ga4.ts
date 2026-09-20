@@ -48,7 +48,7 @@ export const listGa4Properties = createServerFn({ method: "POST" })
     try {
       return {
         accounts: await Ga4Service.listPropertiesForUser(context.userId),
-        failure: null as const,
+        failure: null as "permission" | "provider" | null,
       };
     } catch (error) {
       if (

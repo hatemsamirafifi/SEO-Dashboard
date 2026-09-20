@@ -66,7 +66,7 @@ type ServerFunction = {
     method: "POST";
     data: Record<string, string>;
     context: Record<string, never>;
-  }): Promise<{ error?: Error }>;
+  }): Promise<unknown>;
 };
 
 type StartStorage = AsyncLocalStorage<{
@@ -144,7 +144,7 @@ describe("GA4 server-function project authorization", () => {
     async (_name, fn, data) => {
       const result = await executeServerFunction(fn, data);
 
-      expect(result.error).toEqual(new Error("NOT_FOUND"));
+      expect(result).toMatchObject({ error: new Error("NOT_FOUND") });
     },
   );
 });
