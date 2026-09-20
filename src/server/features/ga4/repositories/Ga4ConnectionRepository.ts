@@ -32,8 +32,8 @@ async function upsert(input: {
     .values({ id: crypto.randomUUID(), ...input })
     .onConflictDoUpdate({
       target: ga4Connections.projectId,
+      where: eq(ga4Connections.organizationId, input.organizationId),
       set: {
-        organizationId: input.organizationId,
         propertyId: input.propertyId,
         propertyDisplayName: input.propertyDisplayName,
         connectedByUserId: input.connectedByUserId,

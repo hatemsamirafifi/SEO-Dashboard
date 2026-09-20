@@ -5,11 +5,14 @@ import { isHostedClientAuthMode } from "@/lib/auth-mode";
 import { startSelfHostedGa4Link } from "@/serverFunctions/ga4";
 import { GA4_OAUTH_PROVIDER_ID } from "@/shared/ga4";
 
-export async function startGa4Link(callbackURL: string): Promise<void> {
+export async function startGa4Link(
+  projectId: string,
+  callbackURL: string,
+): Promise<void> {
   try {
     if (!isHostedClientAuthMode()) {
       window.location.href = (
-        await startSelfHostedGa4Link({ data: { callbackURL } })
+        await startSelfHostedGa4Link({ data: { projectId, callbackURL } })
       ).url;
       return;
     }

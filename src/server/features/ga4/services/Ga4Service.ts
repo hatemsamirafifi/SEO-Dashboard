@@ -1,9 +1,6 @@
-import { and, eq } from "drizzle-orm";
-import { db } from "@/db";
-import { account } from "@/db/schema";
 import { AppError } from "@/server/lib/errors";
 import { createGa4Client, type Ga4Property } from "@/server/lib/ga4Client";
-import { GA4_OAUTH_PROVIDER_ID } from "@/shared/ga4";
+import { Ga4GrantRepository } from "../repositories/Ga4GrantRepository";
 import {
   Ga4ConnectionRepository,
   type Ga4Connection,
@@ -12,18 +9,12 @@ import {
 type GrantProperties = { accountId: string; properties: Ga4Property[] };
 
 async function grants(userId: string) {
-  return db
-    .select({ accountId: account.accountId })
-    .from(account)
-    .where(
-      and(
-        eq(account.userId, userId),
-        eq(account.providerId, GA4_OAUTH_PROVIDER_ID),
-      ),
-    );
+  return Ga4GrantRepository.listForUser(userId);
 }
 async function userHasGrant(userId: string) {
-  return (await grants(userId)).length > 0;
+  return (await grants(userId)).some((grant) =>
+    Ga4GrantRepository.hasAnalyticsConsent(grant.scope),
+  );
 }
 async function getConnection(
   projectId: string,
@@ -36,13 +27,15 @@ async function listPropertiesForUser(
 ): Promise<GrantProperties[]> {
   const userGrants = await grants(userId);
   return Promise.all(
-    userGrants.map(async ({ accountId }) => ({
-      accountId,
-      properties: await createGa4Client({
-        userId,
-        ga4AccountId: accountId,
-      }).listProperties(),
-    })),
+    userGrants
+      .filter((grant) => Ga4GrantRepository.hasAnalyticsConsent(grant.scope))
+      .map(async ({ accountId }) => ({
+        accountId,
+        properties: await createGa4Client({
+          userId,
+          ga4AccountId: accountId,
+        }).listProperties(),
+      })),
   );
 }
 async function setProperty(input: {
@@ -98,15 +91,10 @@ async function disconnect(input: {
       connection.ga4AccountId,
     ))
   ) {
-    await db
-      .delete(account)
-      .where(
-        and(
-          eq(account.userId, input.userId),
-          eq(account.providerId, GA4_OAUTH_PROVIDER_ID),
-          eq(account.accountId, connection.ga4AccountId),
-        ),
-      );
+    await Ga4GrantRepository.deleteForUserAccount(
+      input.userId,
+      connection.ga4AccountId,
+    );
   }
 }
 export const Ga4Service = {

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { startGa4Link } from "./startGa4Link";
+import { shouldShowPropertyPicker } from "./connectionState";
 import {
   disconnectGa4,
   getGa4Connection,
@@ -21,10 +22,11 @@ export function AnalyticsConnectionCard({ projectId }: { projectId: string }) {
     queryKey: ["ga4Connection", projectId],
     queryFn: () => getGa4Connection({ data: { projectId } }),
   });
-  const shouldList = Boolean(
-    (picking || connection.data?.currentUserHasGrant) &&
-    !connection.data?.connected,
-  );
+  const shouldList = shouldShowPropertyPicker({
+    connected: Boolean(connection.data?.connected),
+    picking,
+    hasGrant: Boolean(connection.data?.currentUserHasGrant),
+  });
   const properties = useQuery({
     queryKey: ["ga4Properties", projectId],
     queryFn: () => listGa4Properties({ data: { projectId } }),
@@ -62,6 +64,19 @@ export function AnalyticsConnectionCard({ projectId }: { projectId: string }) {
       <div className="space-y-4 border-t border-base-300 p-5 sm:p-6">
         {connection.isLoading ? (
           <span className="loading loading-spinner loading-sm" />
+        ) : connection.isError ? (
+          <div className="space-y-2">
+            <p className="text-sm text-error">
+              Could not load the Analytics connection.
+            </p>
+            <button
+              className="btn btn-outline btn-sm"
+              type="button"
+              onClick={() => void connection.refetch()}
+            >
+              Retry
+            </button>
+          </div>
         ) : !configured ? (
           <p className="text-sm text-warning">
             Google OAuth setup is required before Analytics can be connected.
@@ -106,7 +121,9 @@ export function AnalyticsConnectionCard({ projectId }: { projectId: string }) {
                 <button
                   className="btn btn-outline btn-sm"
                   type="button"
-                  onClick={() => void startGa4Link(window.location.href)}
+                  onClick={() =>
+                    void startGa4Link(projectId, window.location.href)
+                  }
                 >
                   Reconnect
                 </button>
@@ -142,6 +159,25 @@ export function AnalyticsConnectionCard({ projectId }: { projectId: string }) {
                     )),
                   )}
                 </select>
+                {properties.data?.accounts.every(
+                  (account) => account.properties.length === 0,
+                ) ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-base-content/70">
+                      No accessible Analytics properties were found for this
+                      account.
+                    </p>
+                    <button
+                      className="btn btn-outline btn-sm"
+                      type="button"
+                      onClick={() =>
+                        void startGa4Link(projectId, window.location.href)
+                      }
+                    >
+                      Connect another account
+                    </button>
+                  </div>
+                ) : null}
                 <div className="flex gap-2">
                   <button
                     className="btn btn-primary btn-sm"
@@ -171,7 +207,7 @@ export function AnalyticsConnectionCard({ projectId }: { projectId: string }) {
             <button
               className="btn btn-outline btn-sm"
               type="button"
-              onClick={() => void startGa4Link(window.location.href)}
+              onClick={() => void startGa4Link(projectId, window.location.href)}
             >
               Connect with Google
             </button>

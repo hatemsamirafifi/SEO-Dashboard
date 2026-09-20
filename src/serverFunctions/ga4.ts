@@ -75,11 +75,12 @@ export const disconnectGa4 = createServerFn({ method: "POST" })
     return { connected: false as const };
   });
 export const startSelfHostedGa4Link = createServerFn({ method: "POST" })
-  .middleware(requireAuthenticatedContext)
+  .middleware(requireProjectContext)
   .validator(startGa4LinkSchema)
   .handler(async ({ data, context }) => ({
     url: await createSelfHostedGa4AuthorizationUrl({
       user: { userId: context.userId, userEmail: context.userEmail },
+      projectId: context.projectId,
       callbackURL: data.callbackURL,
       publicOrigin: getPublicOrigin(getRequest()),
     }),

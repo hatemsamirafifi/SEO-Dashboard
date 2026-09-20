@@ -2,19 +2,28 @@ import { z } from "zod";
 import { getAuth } from "@/lib/auth";
 import { GA4_OAUTH_PROVIDER_ID } from "@/shared/ga4";
 
-const adminPropertiesSchema = z
+const accountSummariesSchema = z
   .object({
-    properties: z
+    accountSummaries: z
       .array(
         z
           .object({
-            name: z.string().regex(/^properties\/[^/]+$/),
-            displayName: z.string().min(1),
-            currencyCode: z.string().min(1).optional(),
+            account: z.string().regex(/^accounts\/[^/]+$/),
+            propertySummaries: z
+              .array(
+                z
+                  .object({
+                    property: z.string().regex(/^properties\/[^/]+$/),
+                    displayName: z.string().min(1),
+                  })
+                  .passthrough(),
+              )
+              .optional(),
           })
           .passthrough(),
       )
       .optional(),
+    nextPageToken: z.string().min(1).optional(),
   })
   .passthrough();
 
@@ -60,23 +69,35 @@ export function createGa4Client(options: {
 
   return {
     async listProperties(): Promise<Ga4Property[]> {
-      const response = await fetch(
-        "https://analyticsadmin.googleapis.com/v1beta/properties",
-        {
-          headers: { Authorization: `Bearer ${await getToken()}` },
-        },
-      );
-      if (!response.ok)
-        throw new Ga4ApiError(
-          response.status,
-          `Google Analytics Admin API error (${response.status}).`,
+      const token = await getToken();
+      const properties: Ga4Property[] = [];
+      let pageToken: string | undefined;
+      do {
+        const url = new URL(
+          "https://analyticsadmin.googleapis.com/v1beta/accountSummaries",
         );
-      const parsed = adminPropertiesSchema.parse(await response.json());
-      return (parsed.properties ?? []).map((property) => ({
-        propertyId: property.name.slice("properties/".length),
-        displayName: property.displayName,
-        currencyCode: property.currencyCode ?? null,
-      }));
+        if (pageToken) url.searchParams.set("pageToken", pageToken);
+        const response = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok)
+          throw new Ga4ApiError(
+            response.status,
+            `Google Analytics Admin API error (${response.status}).`,
+          );
+        const parsed = accountSummariesSchema.parse(await response.json());
+        for (const account of parsed.accountSummaries ?? []) {
+          for (const property of account.propertySummaries ?? []) {
+            properties.push({
+              propertyId: property.property.slice("properties/".length),
+              displayName: property.displayName,
+              currencyCode: null,
+            });
+          }
+        }
+        pageToken = parsed.nextPageToken;
+      } while (pageToken);
+      return properties;
     },
   };
 }

@@ -10,5 +10,5 @@ export const setGa4PropertySchema = ga4ProjectSchema
   })
   .strict();
 export const startGa4LinkSchema = z
-  .object({ callbackURL: z.string().min(1) })
+  .object({ projectId: z.string().min(1), callbackURL: z.string().min(1) })
   .strict();
