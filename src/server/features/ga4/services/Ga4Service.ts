@@ -3,11 +3,17 @@ import { AppError } from "@/server/lib/errors";
 import {
   createGa4Client,
   type Ga4Property,
+  type Ga4ReportRequest,
   type Ga4ReportResult,
 } from "@/server/lib/ga4Client";
 import { buildCacheKey, getCached, setCached } from "@/server/lib/r2-cache";
-import { recordFreeProviderCall } from "@/server/lib/seo-data/cost-tracker";
+import {
+  recordCacheHit,
+  recordCacheMiss,
+  recordFreeProviderCall,
+} from "@/server/lib/seo-data/cost-tracker";
 import { singleFlight } from "@/server/lib/seo-data/single-flight";
+import { traceCacheDecision } from "@/server/lib/seo-data/trace";
 import { traceDirectProviderCall } from "@/server/features/sam/samTraceBus";
 import { GA4_CACHE_TTL_SECONDS } from "@/shared/ga4";
 import { Ga4GrantRepository } from "../repositories/Ga4GrantRepository";
@@ -45,40 +51,50 @@ type ReportCacheOutcome = {
   fromCache: boolean;
 };
 
-/** Deterministic cache params: property + normalized request, sorted keys.
- *  Tokens are never part of cache keys or payloads. */
-async function reportCacheKey(request: Record<string, unknown>) {
-  return buildCacheKey("ga4:report", { request });
+/** Deterministic cache params: organization + property + normalized request,
+ *  sorted keys. Mirrors the router cache-key convention (org always part of
+ *  the key). Tokens are never part of cache keys or payloads. */
+async function reportCacheKey(
+  organizationId: string,
+  request: Record<string, unknown>,
+) {
+  return buildCacheKey("ga4:report", { organizationId, request });
 }
 
 /** Cache-first report flow mirroring the DataRouter seam composition
  *  (cache → singleFlight → trace) without registering a router provider. */
 async function runReportCached(input: {
   connection: Ga4Connection;
-  request: Record<string, unknown>;
-  buildRequest: () => {
-    propertyId: string;
-    dateRanges: Array<{ startDate: string; endDate: string }>;
-    dimensions: string[];
-    metrics: string[];
-    dimensionFilter?: unknown;
-    limit?: number;
-    offset?: number;
-  };
+  request: Ga4ReportRequest;
 }): Promise<ReportCacheOutcome> {
-  const key = await reportCacheKey(input.request);
+  const { connection, request } = input;
+  const key = await reportCacheKey(connection.organizationId, {
+    propertyId: connection.propertyId,
+    dateRanges: request.dateRanges,
+    dimensions: request.dimensions,
+    metrics: request.metrics,
+    dimensionFilter: request.dimensionFilter ?? null,
+    limit: request.limit ?? null,
+    offset: request.offset ?? null,
+  });
   const raw = await getCached(key);
   if (raw !== null) {
     const parsed = ga4ReportResultSchema.safeParse(raw);
-    if (parsed.success) return { data: parsed.data, fromCache: true };
+    if (parsed.success) {
+      recordCacheHit();
+      traceCacheDecision(true);
+      return { data: parsed.data, fromCache: true };
+    }
   }
+  recordCacheMiss();
+  traceCacheDecision(false);
   const client = createGa4Client({
-    userId: input.connection.connectedByUserId,
-    ga4AccountId: input.connection.ga4AccountId,
+    userId: connection.connectedByUserId,
+    ga4AccountId: connection.ga4AccountId,
   });
   const data = await singleFlight(key, () =>
     traceDirectProviderCall("ga4", () =>
-      client.runReport(input.buildRequest()),
+      client.runReport({ ...request, propertyId: connection.propertyId }),
     ),
   );
   await setCached(key, data, GA4_CACHE_TTL_SECONDS);
@@ -200,41 +216,13 @@ async function requireConnection(projectId: string, organizationId: string) {
 async function runReportForConnection(input: {
   projectId: string;
   organizationId: string;
-  request: {
-    propertyId: string;
-    dateRanges: Array<{ startDate: string; endDate: string }>;
-    dimensions: string[];
-    metrics: string[];
-    dimensionFilter?: unknown;
-    limit?: number;
-    offset?: number;
-  };
+  request: Ga4ReportRequest;
 }): Promise<ReportCacheOutcome> {
   const connection = await requireConnection(
     input.projectId,
     input.organizationId,
   );
-  return runReportCached({
-    connection,
-    request: {
-      propertyId: connection.propertyId,
-      dateRanges: input.request.dateRanges,
-      dimensions: input.request.dimensions,
-      metrics: input.request.metrics,
-      dimensionFilter: input.request.dimensionFilter,
-      limit: input.request.limit,
-      offset: input.request.offset,
-    },
-    buildRequest: () => ({
-      propertyId: connection.propertyId,
-      dateRanges: input.request.dateRanges,
-      dimensions: input.request.dimensions,
-      metrics: input.request.metrics,
-      dimensionFilter: input.request.dimensionFilter,
-      limit: input.request.limit,
-      offset: input.request.offset,
-    }),
-  });
+  return runReportCached({ connection, request: input.request });
 }
 
 type PeriodUsersOutcome = Ga4PeriodUsers & { fromCache: boolean };
@@ -250,6 +238,7 @@ async function getPeriodUsers(input: {
     input.organizationId,
   );
   const key = await buildCacheKey("ga4:distinct-users", {
+    organizationId: connection.organizationId,
     propertyId: connection.propertyId,
     startDate: input.startDate,
     endDate: input.endDate,
@@ -257,8 +246,14 @@ async function getPeriodUsers(input: {
   const raw = await getCached(key);
   if (raw !== null) {
     const parsed = periodUsersSchema.safeParse(raw);
-    if (parsed.success) return { fromCache: true, ...parsed.data };
+    if (parsed.success) {
+      recordCacheHit();
+      traceCacheDecision(true);
+      return { fromCache: true, ...parsed.data };
+    }
   }
+  recordCacheMiss();
+  traceCacheDecision(false);
   const client = createGa4Client({
     userId: connection.connectedByUserId,
     ga4AccountId: connection.ga4AccountId,

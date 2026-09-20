@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   getConnection: vi.fn(),
   resetBus: vi.fn(),
   recordFree: vi.fn(),
+  recordCacheHit: vi.fn(),
+  recordCacheMiss: vi.fn(),
+  traceCacheDecision: vi.fn(),
 }));
 vi.mock("@/server/lib/r2-cache", () => ({
   getCached: mocks.getCached,
@@ -44,6 +47,11 @@ vi.mock("@/server/features/sam/samTraceBus", () => ({
 }));
 vi.mock("@/server/lib/seo-data/cost-tracker", () => ({
   recordFreeProviderCall: mocks.recordFree,
+  recordCacheHit: mocks.recordCacheHit,
+  recordCacheMiss: mocks.recordCacheMiss,
+}));
+vi.mock("@/server/lib/seo-data/trace", () => ({
+  traceCacheDecision: mocks.traceCacheDecision,
 }));
 vi.mock("cloudflare:workers", () => ({ env: {} }));
 
@@ -199,6 +207,48 @@ describe("Ga4Service report methods", () => {
     });
     const keys = mocks.setCached.mock.calls.map((call) => call[0]);
     expect(new Set(keys).size).toBe(2);
+  });
+
+  it("includes the organization id in the cache key like the router convention", async () => {
+    await Ga4Service.runReportForConnection({
+      projectId: "p1",
+      organizationId: "o1",
+      request: REPORT_REQUEST,
+    });
+    const key = mocks.setCached.mock.calls[0][0];
+    expect(key).toContain("ga4:report");
+    // The deterministic mock key serializes params — organizationId must be
+    // part of them so cross-org requests never share entries.
+    expect(mocks.buildCacheKey).toHaveBeenCalledWith(
+      "ga4:report",
+      expect.objectContaining({ organizationId: "o1" }),
+    );
+  });
+
+  it("records cache decisions and hit/miss counters like the router seam", async () => {
+    mocks.getCached.mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [{ dimensionValues: ["20250101"], metricValues: [7] }],
+      metadata: { samplingState: "NOT_SAMPLED", isTruncated: false },
+    });
+    await Ga4Service.runReportForConnection({
+      projectId: "p1",
+      organizationId: "o1",
+      request: REPORT_REQUEST,
+    });
+    expect(mocks.recordCacheHit).toHaveBeenCalledTimes(1);
+    expect(mocks.traceCacheDecision).toHaveBeenCalledWith(true);
+    expect(mocks.recordCacheMiss).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    mocks.getConnection.mockResolvedValue(CONNECTION);
+    await Ga4Service.runReportForConnection({
+      projectId: "p1",
+      organizationId: "o1",
+      request: REPORT_REQUEST,
+    });
+    expect(mocks.recordCacheMiss).toHaveBeenCalledTimes(1);
+    expect(mocks.traceCacheDecision).toHaveBeenCalledWith(false);
   });
 });
 
