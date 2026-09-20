@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { startGa4Link } from "./startGa4Link";
 import { shouldShowPropertyPicker } from "./connectionState";
+import { propertyListRecovery } from "./propertyListState";
 import {
   disconnectGa4,
   getGa4Connection,
@@ -112,20 +113,27 @@ export function AnalyticsConnectionCard({ projectId }: { projectId: string }) {
             </p>
             {properties.isLoading ? (
               <span className="loading loading-spinner loading-sm" />
-            ) : properties.isError ? (
+            ) : properties.isError || properties.data?.failure ? (
               <div>
                 <p className="text-sm text-error">
-                  We could not access Analytics. Reconnect to grant Analytics
-                  permission.
+                  {
+                    propertyListRecovery(properties.data?.failure ?? "provider")
+                      .message
+                  }
                 </p>
                 <button
                   className="btn btn-outline btn-sm"
                   type="button"
                   onClick={() =>
-                    void startGa4Link(projectId, window.location.href)
+                    properties.data?.failure === "permission"
+                      ? void startGa4Link(projectId, window.location.href)
+                      : void properties.refetch()
                   }
                 >
-                  Reconnect
+                  {
+                    propertyListRecovery(properties.data?.failure ?? "provider")
+                      .action
+                  }
                 </button>
               </div>
             ) : (

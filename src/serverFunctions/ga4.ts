@@ -3,6 +3,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
 import { Ga4Service } from "@/server/features/ga4/services/Ga4Service";
+import { Ga4ApiError, Ga4TokenError } from "@/server/lib/ga4Client";
 import { createSelfHostedGa4AuthorizationUrl } from "@/server/features/gsc/selfHostedOAuth";
 import { hasSelfHostedGscConfig } from "@/server/features/gsc/oauth-config";
 import {
@@ -43,9 +44,21 @@ export const getGa4Connection = createServerFn({ method: "POST" })
 export const listGa4Properties = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(ga4ProjectSchema)
-  .handler(async ({ context }) => ({
-    accounts: await Ga4Service.listPropertiesForUser(context.userId),
-  }));
+  .handler(async ({ context }) => {
+    try {
+      return {
+        accounts: await Ga4Service.listPropertiesForUser(context.userId),
+        failure: null as const,
+      };
+    } catch (error) {
+      if (
+        error instanceof Ga4TokenError ||
+        (error instanceof Ga4ApiError && [401, 403].includes(error.status))
+      )
+        return { accounts: [], failure: "permission" as const };
+      return { accounts: [], failure: "provider" as const };
+    }
+  });
 export const setGa4Property = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(setGa4PropertySchema)
