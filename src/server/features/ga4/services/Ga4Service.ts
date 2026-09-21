@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AppError } from "@/server/lib/errors";
 import {
   createGa4Client,
+  ga4ReportResultSchema,
   type Ga4Property,
   type Ga4ReportRequest,
   type Ga4ReportResult,
@@ -21,20 +22,6 @@ import {
   Ga4ConnectionRepository,
   type Ga4Connection,
 } from "../repositories/Ga4ConnectionRepository";
-
-const ga4ReportResultSchema = z.object({
-  rowCount: z.number().int().nonnegative(),
-  rows: z.array(
-    z.object({
-      dimensionValues: z.array(z.string()),
-      metricValues: z.array(z.number()),
-    }),
-  ),
-  metadata: z.object({
-    samplingState: z.enum(["SAMPLED", "NOT_SAMPLED"]),
-    isTruncated: z.boolean(),
-  }),
-});
 
 const periodUsersSchema = z.object({
   asOf: z.string(),

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Ga4ClientModule from "@/server/lib/ga4Client";
 
 // R2 cache primitives — the GA4 service uses them directly (not router-shaped
 // SeoCacheService requests).
@@ -32,9 +33,13 @@ vi.mock("@/server/lib/r2-cache", () => ({
 vi.mock("@/server/features/ga4/repositories/Ga4ConnectionRepository", () => ({
   Ga4ConnectionRepository: { getByProjectId: mocks.getConnection },
 }));
-vi.mock("@/server/lib/ga4Client", () => ({
-  createGa4Client: () => ({ runReport: mocks.clientRunReport }),
-}));
+vi.mock("@/server/lib/ga4Client", async (importOriginal) => {
+  const actual = await importOriginal<typeof Ga4ClientModule>();
+  return {
+    ...actual,
+    createGa4Client: () => ({ runReport: mocks.clientRunReport }),
+  };
+});
 vi.mock("@/server/features/sam/samTraceBus", () => ({
   getSamTraceBus: () => ({
     currentTurnId: () => null,
@@ -78,7 +83,11 @@ const REPORT_REQUEST = {
 const API_RESULT = {
   rowCount: 1,
   rows: [{ dimensionValues: ["20250101"], metricValues: [12] }],
-  metadata: { samplingState: "NOT_SAMPLED", isTruncated: false },
+  metadata: {
+    samplingState: "NOT_SAMPLED",
+    isTruncated: false,
+    currencyCode: null,
+  },
 };
 
 describe("Ga4Service report methods", () => {
@@ -126,7 +135,11 @@ describe("Ga4Service report methods", () => {
     mocks.getCached.mockResolvedValueOnce({
       rowCount: 1,
       rows: [{ dimensionValues: ["20250101"], metricValues: [99] }],
-      metadata: { samplingState: "NOT_SAMPLED", isTruncated: false },
+      metadata: {
+        samplingState: "NOT_SAMPLED",
+        isTruncated: false,
+        currencyCode: null,
+      },
     });
     const result = await Ga4Service.runReportForConnection({
       projectId: "p1",
@@ -229,7 +242,11 @@ describe("Ga4Service report methods", () => {
     mocks.getCached.mockResolvedValueOnce({
       rowCount: 1,
       rows: [{ dimensionValues: ["20250101"], metricValues: [7] }],
-      metadata: { samplingState: "NOT_SAMPLED", isTruncated: false },
+      metadata: {
+        samplingState: "NOT_SAMPLED",
+        isTruncated: false,
+        currencyCode: null,
+      },
     });
     await Ga4Service.runReportForConnection({
       projectId: "p1",
@@ -261,7 +278,11 @@ describe("Ga4Service.getPeriodUsers", () => {
     mocks.clientRunReport.mockResolvedValue({
       rowCount: 1,
       rows: [{ dimensionValues: [], metricValues: [123, 45] }],
-      metadata: { samplingState: "NOT_SAMPLED", isTruncated: false },
+      metadata: {
+        samplingState: "NOT_SAMPLED",
+        isTruncated: false,
+        currencyCode: null,
+      },
     });
     clearSingleFlight();
   });

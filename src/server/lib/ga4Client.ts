@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { z } from "zod";
 import { getAuth } from "@/lib/auth";
 import { GA4_OAUTH_PROVIDER_ID } from "@/shared/ga4";
@@ -34,6 +35,15 @@ export type Ga4Property = {
 };
 
 export class Ga4TokenError extends Error {}
+/** No GA4 property is connected for the project. Defined beside the other
+ *  client error types (rather than in Ga4Service) so the error taxonomy can
+ *  classify it without an import cycle. */
+export class Ga4NotConnectedError extends Error {
+  constructor(projectId: string) {
+    super(`Google Analytics is not connected for project ${projectId}.`);
+    this.name = "Ga4NotConnectedError";
+  }
+}
 export class Ga4ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -61,8 +71,8 @@ const ALLOWED_DIMENSIONS = new Set([
   "country",
 ]);
 
-/** Allowlisted Data API metrics. Revenue metrics arrive with the Task 3
- *  ecommerce sync scope; key events with live calibration. */
+/** Allowlisted Data API metrics. Revenue + key-event metrics arrived with
+ *  the Task 3 sync scope (fixture-verified; live calibration external). */
 const ALLOWED_METRICS = new Set([
   "sessions",
   "engagedSessions",
@@ -72,7 +82,17 @@ const ALLOWED_METRICS = new Set([
   "newUsers",
   "activeUsers",
   "totalUsers",
+  "keyEvents",
+  "totalRevenue",
+  "purchaseRevenue",
+  "transactions",
+  "addToCarts",
+  "checkouts",
 ]);
+
+const ga4OrderBySchema = z
+  .object({ name: z.string().min(1), desc: z.boolean().optional() })
+  .strict();
 
 const ga4ReportRequestSchema = z
   .object({
@@ -84,6 +104,7 @@ const ga4ReportRequestSchema = z
     dimensions: z.array(z.string().min(1)).max(9).default([]),
     metrics: z.array(z.string().min(1)).min(1).max(9),
     dimensionFilter: z.unknown().optional(),
+    orderBys: z.array(ga4OrderBySchema).optional(),
     limit: z.number().int().positive().max(100_000).optional(),
     offset: z.number().int().min(0).max(1_000_000).optional(),
   })
@@ -116,6 +137,7 @@ const ga4RunReportResponseSchema = z
             }),
           )
           .optional(),
+        currencyCode: z.string().min(1).optional(),
       })
       .passthrough()
       .optional(),
@@ -125,8 +147,29 @@ const ga4RunReportResponseSchema = z
 export type Ga4ReportResult = {
   rowCount: number;
   rows: Array<{ dimensionValues: string[]; metricValues: number[] }>;
-  metadata: { samplingState: "SAMPLED" | "NOT_SAMPLED"; isTruncated: boolean };
+  metadata: {
+    samplingState: "SAMPLED" | "NOT_SAMPLED";
+    isTruncated: boolean;
+    currencyCode: string | null;
+  };
 };
+
+/** Canonical normalized-report schema. Reused by cache readers so cached
+ *  payloads validate against the exact contract (drift = miss). */
+export const ga4ReportResultSchema: z.ZodType<Ga4ReportResult> = z.object({
+  rowCount: z.number().int().nonnegative(),
+  rows: z.array(
+    z.object({
+      dimensionValues: z.array(z.string()),
+      metricValues: z.array(z.number()),
+    }),
+  ),
+  metadata: z.object({
+    samplingState: z.enum(["SAMPLED", "NOT_SAMPLED"]),
+    isTruncated: z.boolean(),
+    currencyCode: z.string().nullable(),
+  }),
+});
 
 const ga4BatchErrorSchema = z
   .object({
@@ -189,9 +232,17 @@ function normalizeRunReportResponse(
       dimensionValues: (row.dimensionValues ?? []).map((v) => v.value),
       metricValues: (row.metricValues ?? []).map((v) => Number(v.value)),
     })),
-    metadata: { samplingState, isTruncated: false },
+    metadata: {
+      samplingState,
+      isTruncated: false,
+      currencyCode: parsed.metadata?.currencyCode ?? null,
+    },
   };
 }
+
+const ga4PropertySchema = z
+  .object({ createTime: z.string().min(1).optional() })
+  .passthrough();
 
 function assertAllowlisted(request: Ga4ReportRequest) {
   for (const dimension of request.dimensions) {
@@ -206,6 +257,15 @@ function assertAllowlisted(request: Ga4ReportRequest) {
         `Metric "${metric}" is not on the GA4 allowlist.`,
       );
   }
+  for (const orderBy of request.orderBys ?? []) {
+    if (
+      !ALLOWED_DIMENSIONS.has(orderBy.name) &&
+      !ALLOWED_METRICS.has(orderBy.name)
+    )
+      throw new Ga4RequestError(
+        `Order-by "${orderBy.name}" is not on the GA4 allowlist.`,
+      );
+  }
 }
 
 function toRunReportBody(request: Ga4ReportRequest) {
@@ -214,6 +274,12 @@ function toRunReportBody(request: Ga4ReportRequest) {
     dimensions: request.dimensions.map((name) => ({ name })),
     metrics: request.metrics.map((name) => ({ name })),
     dimensionFilter: request.dimensionFilter,
+    orderBys: request.orderBys?.map((orderBy) => ({
+      desc: orderBy.desc ?? false,
+      ...(ALLOWED_METRICS.has(orderBy.name)
+        ? { metric: { metricName: orderBy.name } }
+        : { dimension: { dimensionName: orderBy.name } }),
+    })),
     limit: request.limit,
     offset: request.offset,
   };
@@ -290,6 +356,25 @@ export function createGa4Client(options: {
       return properties;
     },
 
+    /** Property creation date (`YYYY-MM-DD`) for initial-window clamping, or
+     *  null when the Admin API does not return a usable createTime. HTTP
+     *  failures propagate as classified Ga4ApiError (never silent). */
+    async getPropertyCreateTime(propertyId: string): Promise<string | null> {
+      const token = await getToken();
+      const response = await fetch(
+        `https://analyticsadmin.googleapis.com/v1beta/properties/${propertyId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok)
+        throw new Ga4ApiError(
+          response.status,
+          `Google Analytics Admin API error (${response.status}).`,
+        );
+      const parsed = ga4PropertySchema.parse(await response.json());
+      const match = parsed.createTime?.slice(0, 10) ?? null;
+      return match && /^\d{4}-\d{2}-\d{2}$/.test(match) ? match : null;
+    },
+
     async runReport(request: Ga4ReportRequest): Promise<Ga4ReportResult> {
       const parsed = ga4ReportRequestSchema.parse(request);
       assertAllowlisted(parsed);
@@ -355,6 +440,13 @@ export function classifyGa4Error(error: unknown): Ga4ErrorClassification {
   if (error instanceof Ga4RequestError) {
     return {
       errorClass: "INVALID_REQUEST",
+      message: error.message,
+      retryable: false,
+    };
+  }
+  if (error instanceof Ga4NotConnectedError) {
+    return {
+      errorClass: "NOT_CONNECTED",
       message: error.message,
       retryable: false,
     };
