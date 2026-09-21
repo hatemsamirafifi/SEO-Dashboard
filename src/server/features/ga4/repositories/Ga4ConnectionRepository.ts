@@ -70,9 +70,21 @@ async function existsForConnectorAccount(userId: string, accountId: string) {
     .limit(1);
   return rows.length > 0;
 }
+/** Capability latch written by the sync engine when report metadata reveals
+ *  ecommerce revenue or the property currency. Mapping fields untouched. */
+async function updateConnectionCapabilities(
+  id: string,
+  patch: { hasEcommerce?: boolean; currencyCode?: string | null },
+) {
+  await db
+    .update(ga4Connections)
+    .set({ ...patch, updatedAt: sql`(current_timestamp)` })
+    .where(eq(ga4Connections.id, id));
+}
 export const Ga4ConnectionRepository = {
   getByProjectId,
   upsert,
   deleteByProjectId,
   existsForConnectorAccount,
+  updateConnectionCapabilities,
 };

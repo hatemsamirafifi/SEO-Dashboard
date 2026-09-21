@@ -85,4 +85,25 @@ describe("Ga4ConnectionRepository conflict isolation", () => {
       ga4AccountId: "account-a",
     });
   });
+
+  it("latches ecommerce capability and currency without touching the mapping", async () => {
+    const created = await Ga4ConnectionRepository.upsert(connection);
+    await Ga4ConnectionRepository.updateConnectionCapabilities(created.id, {
+      hasEcommerce: true,
+      currencyCode: "EUR",
+    });
+
+    if (!database.db) throw new Error("Test database was not initialized");
+    const rows = await database.db
+      .select()
+      .from(ga4Connections)
+      .where(eq(ga4Connections.projectId, "shared-project"));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      propertyId: "property-a",
+      hasEcommerce: true,
+      currencyCode: "EUR",
+    });
+  });
 });
