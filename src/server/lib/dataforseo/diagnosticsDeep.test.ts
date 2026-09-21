@@ -110,7 +110,7 @@ describe("DataForSEO HTTP 500 Deep Diagnostics", () => {
       expect(parsed.httpStatus).toBe(200);
       expect(parsed.dataforseoStatusCode).toBe(40201);
       expect(parsed.dataforseoStatusMessage).toBe(taskMessage);
-      expect(parsed.errorClass).toBe("DATAFORSEO_ACCOUNT_PAUSED");
+      expect(parsed.errorClass).toBe("DATAFORSEO_ACCESS_PAUSED");
     });
 
     it("handles non-credit task error inside HTTP 200", () => {
