@@ -14,6 +14,7 @@ import {
 } from "@/server/features/gsc/services/gscSyncUtils";
 import {
   GA4_GRAINS,
+  GA4_SYNC_CHUNK_DAYS,
   GA4_INITIAL_WINDOW_DAYS,
   GA4_LANDING_PAGE_TOP_N,
   GA4_REPORT_PAGE_LIMIT,
@@ -449,7 +450,7 @@ async function runSync(options: Ga4SyncOptions): Promise<Ga4SyncResult> {
     connection,
     client,
   );
-  const chunkDays = options.chunkDays ?? 7;
+  const chunkDays = options.chunkDays ?? GA4_SYNC_CHUNK_DAYS;
   const chunks = splitDateRangeIntoChunks(startDate, endDate, chunkDays);
 
   const existingRun = await Ga4SyncRepository.getActiveSyncRun(

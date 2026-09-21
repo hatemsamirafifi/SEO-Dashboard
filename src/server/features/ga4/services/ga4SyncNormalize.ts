@@ -11,6 +11,7 @@ import {
   type Ga4SummaryInsert,
 } from "../repositories/Ga4SyncRepository";
 import {
+  GA4_BATCH_SUB_REQUEST_COUNT,
   GA4_REPORT_MAX_PAGES,
   eachDayUtc,
   type Ga4CoverageStatus,
@@ -358,7 +359,7 @@ export async function normalizeChunkResponses(input: {
 }): Promise<ChunkNormalization> {
   const { projectId, propertyId, connectionId, chunk, responses, limits } =
     input;
-  if (responses.length !== 5) {
+  if (responses.length !== GA4_BATCH_SUB_REQUEST_COUNT) {
     throw new Error("GA4 batch response count mismatch");
   }
   const chunkDates = new Set(eachDayUtc(chunk.startDate, chunk.endDate));

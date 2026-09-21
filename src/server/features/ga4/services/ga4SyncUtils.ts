@@ -86,6 +86,7 @@ export type Ga4GrainSubRequest = {
 /** One batchRunReports call per chunk covering all grains: five
  *  sub-requests (summary ships as core + revenue halves for the Data API
  *  10-metric cap). Landing pages are sessions-desc top-N bounded. */
+export const GA4_BATCH_SUB_REQUEST_COUNT = 5;
 export function buildGrainSubRequests(input: {
   propertyId: string;
   startDate: string;
@@ -95,7 +96,7 @@ export function buildGrainSubRequests(input: {
     propertyId: input.propertyId,
     dateRanges: [{ startDate: input.startDate, endDate: input.endDate }],
   };
-  return [
+  const requests: Ga4GrainSubRequest[] = [
     {
       ...base,
       dimensions: ["date"],
@@ -137,6 +138,10 @@ export function buildGrainSubRequests(input: {
       limit: GA4_REPORT_PAGE_LIMIT,
     },
   ];
+  if (requests.length !== GA4_BATCH_SUB_REQUEST_COUNT) {
+    throw new Error("GA4 grain sub-requests drifted from the batch count");
+  }
+  return requests;
 }
 
 /** Every calendar day in a closed [startDate, endDate] range (UTC). */

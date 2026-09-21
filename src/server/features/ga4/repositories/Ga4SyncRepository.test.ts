@@ -622,5 +622,10 @@ describe("Ga4SyncRepository readers and aggregation guards", () => {
       to: "2025-01-31",
     });
     expect(totals.eventCount).toBe(5);
+    if (!database.db) throw new Error("Test database was not initialized");
+    const { ga4DailyEvents } = await import("@/db/schema");
+    const stored = await database.db.select().from(ga4DailyEvents);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ eventCount: 5, isKeyEvent: true });
   });
 });

@@ -171,6 +171,15 @@ describe("GA4 Data API client", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it("rejects an empty batch before any HTTP call", async () => {
+      const fetchMock = vi.mocked(fetch);
+      const client = createGa4Client({ userId: "u", ga4AccountId: "a" });
+      await expect(client.batchRunReports([])).rejects.toBeInstanceOf(
+        Ga4RequestError,
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it("maps per-report errors to the failing index only", async () => {
       const fetchMock = vi.mocked(fetch);
       fetchMock.mockResolvedValueOnce(

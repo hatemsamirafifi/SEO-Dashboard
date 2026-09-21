@@ -3,9 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Ga4ClientModule from "@/server/lib/ga4Client";
 import type { createGa4Client } from "@/server/lib/ga4Client";
 import type { Ga4ReportResult } from "@/server/lib/ga4Client";
-import { Ga4ConnectionRepository } from "../repositories/Ga4ConnectionRepository";
 import type { Ga4Connection } from "../repositories/Ga4ConnectionRepository";
+// oxlint-disable-next-line typescript/consistent-type-imports -- typeof queries need the value import; erased to types only
+import { Ga4ConnectionRepository } from "../repositories/Ga4ConnectionRepository";
+// oxlint-disable-next-line typescript/consistent-type-imports -- typeof queries need the value import; erased to types only
 import { Ga4SyncRepository } from "../repositories/Ga4SyncRepository";
+import type {
+  Ga4CoverageStatus,
+  Ga4SyncGrain,
+} from "./ga4SyncUtils";
 
 type Ga4Client = ReturnType<typeof createGa4Client>;
 
@@ -19,9 +25,13 @@ type MarkUnitsCall = {
 };
 
 const mocks = vi.hoisted(() => ({
-  getConnection: vi.fn<
-    (projectId: string, organizationId: string) => Promise<Ga4Connection | null>
-  >(),
+  getConnection:
+    vi.fn<
+      (
+        projectId: string,
+        organizationId: string,
+      ) => Promise<Ga4Connection | null>
+    >(),
   updateCapabilities:
     vi.fn<(typeof Ga4ConnectionRepository)["updateConnectionCapabilities"]>(),
   getActiveSyncRun: vi.fn<(typeof Ga4SyncRepository)["getActiveSyncRun"]>(),
@@ -241,6 +251,33 @@ describe("Ga4SyncService.runSync connection and concurrency", () => {
 });
 
 describe("Ga4SyncService.runSync successful windows", () => {
+  it("force-resets units on manual explicit windows but not on incremental runs", async () => {
+    await Ga4SyncService.runSync({
+      projectId: "p1",
+      organizationId: "o1",
+      startDate: "2025-01-01",
+      endDate: "2025-01-07",
+    });
+    expect(mocks.seedPendingUnits).toHaveBeenCalledWith(
+      expect.objectContaining({ force: true }),
+    );
+    vi.clearAllMocks();
+    mocks.getConnection.mockResolvedValue(CONNECTION);
+    mocks.getActiveSyncRun.mockResolvedValue(null);
+    mocks.createSyncRun.mockResolvedValue({ ok: true, sync: SYNC_ROW });
+    mocks.getCoverageMap.mockResolvedValue(new Map());
+    mocks.getLastFullyCoveredDate.mockResolvedValue("2025-01-07");
+    mocks.batchRunReports.mockResolvedValue(weekBatch(DATES_7));
+    await Ga4SyncService.runSync({
+      projectId: "p1",
+      organizationId: "o1",
+      syncType: "incremental",
+    });
+    expect(mocks.seedPendingUnits).toHaveBeenCalledWith(
+      expect.objectContaining({ force: false }),
+    );
+  });
+
   it("completes a full window with one batch call per chunk", async () => {
     const result = await Ga4SyncService.runSync({
       projectId: "p1",
@@ -269,7 +306,7 @@ describe("Ga4SyncService.runSync successful windows", () => {
   });
 
   it("skips fully-covered chunks with zero HTTP calls", async () => {
-    const covered = new Map();
+    const covered = new Map<string, Map<Ga4SyncGrain, Ga4CoverageStatus>>();
     for (const date of [
       "2025-01-01",
       "2025-01-02",

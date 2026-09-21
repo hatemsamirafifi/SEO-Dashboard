@@ -388,6 +388,11 @@ export function createGa4Client(options: {
     async batchRunReports(
       requests: Ga4ReportRequest[],
     ): Promise<Array<Ga4ReportResult | Ga4ApiError>> {
+      if (requests.length === 0) {
+        throw new Ga4RequestError(
+          "batchRunReports requires at least one sub-request.",
+        );
+      }
       const parsed = requests.map((request) => {
         const validated = ga4ReportRequestSchema.parse(request);
         assertAllowlisted(validated);
