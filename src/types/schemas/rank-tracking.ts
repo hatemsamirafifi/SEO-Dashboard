@@ -2,7 +2,10 @@ import type { InferSelectModel } from "drizzle-orm";
 import { z } from "zod";
 import { rankTrackingConfigs } from "@/db/schema";
 import { MAX_TRACKED_KEYWORD_LENGTH } from "@/shared/rank-tracking";
-import type { MissingRankingsBreakdown } from "@/shared/rank-tracking";
+import type {
+  MissingRankingBucket,
+  MissingRankingsBreakdown,
+} from "@/shared/rank-tracking";
 import { domainField } from "@/types/schemas/domain";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +29,9 @@ export type RankCheckTriggerResult =
       validatedKeywordIds?: string[];
       unselectedCount?: number;
       breakdown?: MissingRankingsBreakdown;
+      candidatesCount?: number;
+      missingEligibleBeforeFilter?: number;
+      selectedStates?: MissingRankingBucket[];
     }
   | {
       ok: false;
@@ -35,6 +41,9 @@ export type RankCheckTriggerResult =
       /** Missing-rankings mode: 0 keywords were eligible — NO run created. */
       eligibleCount?: number;
       breakdown?: MissingRankingsBreakdown;
+      candidatesCount?: number;
+      missingEligibleBeforeFilter?: number;
+      selectedStates?: MissingRankingBucket[];
     };
 
 export interface RankTrackingDeviceResult {
@@ -102,12 +111,20 @@ export const updateConfigSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+export const missingRankingBucketSchema = z.enum([
+  "ranking_unavailable",
+  "lost",
+  "no_ranking",
+]);
+
 export const triggerCheckSchema = z.object({
   projectId: z.string().uuid(),
   configId: z.string().uuid(),
   keywordIds: z.array(z.string().uuid()).max(2000).optional(),
   /** "Check missing rankings" mode: resolve eligible ids server-side. */
   missingRankings: z.boolean().optional(),
+  /** Optional filter to restrict check to specific missing ranking states. */
+  missingRankingStates: z.array(missingRankingBucketSchema).optional(),
   operationId: z.string().optional(),
 });
 

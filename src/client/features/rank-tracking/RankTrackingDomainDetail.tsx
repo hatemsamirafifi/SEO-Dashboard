@@ -398,8 +398,12 @@ export function RankTrackingDomainDetail({
           devices={config.devices}
           serpDepth={config.serpDepth}
           isPending={isPending}
-          onRunNow={(_count, keywordIds) =>
-            startCheck({ keywordIds, missingRankings: true })
+          onRunNow={(_count, keywordIds, missingRankingStates) =>
+            startCheck({
+              keywordIds,
+              missingRankings: true,
+              missingRankingStates,
+            })
           }
           onCancel={() => setPendingCheck(null)}
         />

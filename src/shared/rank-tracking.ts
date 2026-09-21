@@ -197,6 +197,21 @@ export type MissingRankingBucket =
   | "lost"
   | "no_ranking";
 
+export const MISSING_RANKING_BUCKETS: readonly MissingRankingBucket[] = [
+  "ranking_unavailable",
+  "lost",
+  "no_ranking",
+] as const;
+
+export const MISSING_RANKING_BUCKET_LABELS: Record<
+  MissingRankingBucket,
+  string
+> = {
+  ranking_unavailable: "Ranking unavailable",
+  lost: "Lost",
+  no_ranking: "No ranking",
+};
+
 export interface MissingRankingsBreakdown {
   ranking_unavailable: number;
   lost: number;
