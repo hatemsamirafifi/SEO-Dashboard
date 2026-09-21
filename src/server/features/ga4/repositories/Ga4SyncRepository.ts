@@ -1,5 +1,5 @@
 /* eslint-disable max-lines */
-import { and, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   ga4DailyAcquisition,
@@ -671,6 +671,256 @@ async function getEntityTotals(input: {
   return { eventCount: totals?.eventCount ?? 0 };
 }
 
+const SUCCESS_COVERAGE_STATUSES = [
+  "success_with_data",
+  "success_zero_rows",
+] as const;
+
+/** Dates with SUCCESS_* coverage for one grain in [from, to]. Every analytics
+ *  reader gates on this: FAILED-coverage dates are excluded (failure is never
+ *  rendered as zero), SUCCESS_ZERO_ROWS dates contribute zero stored facts. */
+function coveredDatesQuery(
+  projectId: string,
+  propertyId: string,
+  grain: string,
+  from: string,
+  to: string,
+) {
+  return db
+    .select({ date: ga4SyncCoverage.date })
+    .from(ga4SyncCoverage)
+    .where(
+      and(
+        eq(ga4SyncCoverage.projectId, projectId),
+        eq(ga4SyncCoverage.propertyId, propertyId),
+        eq(ga4SyncCoverage.grain, grain),
+        inArray(ga4SyncCoverage.status, [...SUCCESS_COVERAGE_STATUSES]),
+        gte(ga4SyncCoverage.date, from),
+        lte(ga4SyncCoverage.date, to),
+      ),
+    );
+}
+
+export type Ga4DailySeriesPoint = {
+  date: string;
+  sessions: number;
+  engagedSessions: number;
+  userEngagementDuration: number;
+  screenPageViews: number;
+  eventCount: number;
+  newUsers: number;
+};
+
+/** Coverage-gated daily summary series for trend charts (selected range).
+ *  Only dates with SUCCESS_* summary coverage appear; no totalUsers /
+ *  activeUsers keys (distinct metrics are never summed or averaged). */
+async function getDailySummarySeries(
+  projectId: string,
+  propertyId: string,
+  from: string,
+  to: string,
+): Promise<Ga4DailySeriesPoint[]> {
+  const rows = await db
+    .select({
+      date: ga4DailySummary.date,
+      sessions: ga4DailySummary.sessions,
+      engagedSessions: ga4DailySummary.engagedSessions,
+      userEngagementDuration: ga4DailySummary.userEngagementDuration,
+      screenPageViews: ga4DailySummary.screenPageViews,
+      eventCount: ga4DailySummary.eventCount,
+      newUsers: ga4DailySummary.newUsers,
+    })
+    .from(ga4DailySummary)
+    .where(
+      and(
+        eq(ga4DailySummary.projectId, projectId),
+        eq(ga4DailySummary.propertyId, propertyId),
+        gte(ga4DailySummary.date, from),
+        lte(ga4DailySummary.date, to),
+        inArray(
+          ga4DailySummary.date,
+          coveredDatesQuery(projectId, propertyId, "summary", from, to),
+        ),
+      ),
+    )
+    .orderBy(asc(ga4DailySummary.date));
+  return rows.map((row) => ({
+    date: row.date,
+    sessions: row.sessions ?? 0,
+    engagedSessions: row.engagedSessions ?? 0,
+    userEngagementDuration: row.userEngagementDuration ?? 0,
+    screenPageViews: row.screenPageViews ?? 0,
+    eventCount: row.eventCount ?? 0,
+    newUsers: row.newUsers ?? 0,
+  }));
+}
+
+export type Ga4AcquisitionGroup = {
+  channelGroup: string;
+  source: string;
+  medium: string;
+  sessions: number;
+  engagedSessions: number;
+  userEngagementDuration: number;
+  screenPageViews: number;
+  eventCount: number;
+};
+
+/** Acquisition rows grouped by channel/source/medium over SUCCESS_*-covered
+ *  acquisition dates, ordered by sessions desc. Per-entity date-range sums
+ *  (valid per §9.4); no project-wide rollup, no newUsers (summary-grain
+ *  only per the analytics contract). */
+async function getAcquisitionGroups(
+  projectId: string,
+  propertyId: string,
+  from: string,
+  to: string,
+  filter: { channelGroup?: string },
+): Promise<Ga4AcquisitionGroup[]> {
+  const sessionsSum = sql<number | null>`sum(${ga4DailyAcquisition.sessions})`;
+  const rows = await db
+    .select({
+      channelGroup: ga4DailyAcquisition.channelGroup,
+      source: ga4DailyAcquisition.source,
+      medium: ga4DailyAcquisition.medium,
+      sessions: sessionsSum,
+      engagedSessions: sql<
+        number | null
+      >`sum(${ga4DailyAcquisition.engagedSessions})`,
+      userEngagementDuration: sql<
+        number | null
+      >`sum(${ga4DailyAcquisition.userEngagementDuration})`,
+      screenPageViews: sql<
+        number | null
+      >`sum(${ga4DailyAcquisition.screenPageViews})`,
+      eventCount: sql<number | null>`sum(${ga4DailyAcquisition.eventCount})`,
+    })
+    .from(ga4DailyAcquisition)
+    .where(
+      and(
+        eq(ga4DailyAcquisition.projectId, projectId),
+        eq(ga4DailyAcquisition.propertyId, propertyId),
+        gte(ga4DailyAcquisition.date, from),
+        lte(ga4DailyAcquisition.date, to),
+        ...(filter.channelGroup
+          ? [eq(ga4DailyAcquisition.channelGroup, filter.channelGroup)]
+          : []),
+        inArray(
+          ga4DailyAcquisition.date,
+          coveredDatesQuery(projectId, propertyId, "acquisition", from, to),
+        ),
+      ),
+    )
+    .groupBy(
+      ga4DailyAcquisition.channelGroup,
+      ga4DailyAcquisition.source,
+      ga4DailyAcquisition.medium,
+    )
+    .orderBy(desc(sessionsSum));
+  return rows.map((row) => ({
+    channelGroup: row.channelGroup,
+    source: row.source,
+    medium: row.medium,
+    sessions: row.sessions ?? 0,
+    engagedSessions: row.engagedSessions ?? 0,
+    userEngagementDuration: row.userEngagementDuration ?? 0,
+    screenPageViews: row.screenPageViews ?? 0,
+    eventCount: row.eventCount ?? 0,
+  }));
+}
+
+export type Ga4LandingGroup = {
+  landingPage: string;
+  sessions: number;
+  engagedSessions: number;
+  userEngagementDuration: number;
+  screenPageViews: number;
+};
+
+/** Landing rows grouped by page over SUCCESS_*-covered landing dates,
+ *  ordered by sessions desc with a caller-supplied top-N bound. */
+async function getLandingGroups(
+  projectId: string,
+  propertyId: string,
+  from: string,
+  to: string,
+  filter: { limit: number },
+): Promise<Ga4LandingGroup[]> {
+  const sessionsSum = sql<number | null>`sum(${ga4DailyLandingPages.sessions})`;
+  const rows = await db
+    .select({
+      landingPage: ga4DailyLandingPages.landingPage,
+      sessions: sessionsSum,
+      engagedSessions: sql<
+        number | null
+      >`sum(${ga4DailyLandingPages.engagedSessions})`,
+      userEngagementDuration: sql<
+        number | null
+      >`sum(${ga4DailyLandingPages.userEngagementDuration})`,
+      screenPageViews: sql<
+        number | null
+      >`sum(${ga4DailyLandingPages.screenPageViews})`,
+    })
+    .from(ga4DailyLandingPages)
+    .where(
+      and(
+        eq(ga4DailyLandingPages.projectId, projectId),
+        eq(ga4DailyLandingPages.propertyId, propertyId),
+        gte(ga4DailyLandingPages.date, from),
+        lte(ga4DailyLandingPages.date, to),
+        inArray(
+          ga4DailyLandingPages.date,
+          coveredDatesQuery(projectId, propertyId, "landing_pages", from, to),
+        ),
+      ),
+    )
+    .groupBy(ga4DailyLandingPages.landingPage)
+    .orderBy(desc(sessionsSum))
+    .limit(filter.limit);
+  return rows.map((row) => ({
+    landingPage: row.landingPage,
+    sessions: row.sessions ?? 0,
+    engagedSessions: row.engagedSessions ?? 0,
+    userEngagementDuration: row.userEngagementDuration ?? 0,
+    screenPageViews: row.screenPageViews ?? 0,
+  }));
+}
+
+export type Ga4GrainCoverage = {
+  coveredDates: string[];
+  coveredThrough: string | null;
+};
+
+/** SUCCESS_*-covered dates for one grain in [from, to] plus the latest such
+ *  date (null when nothing is covered). Drives partial badges. */
+async function getGrainCoverage(
+  projectId: string,
+  propertyId: string,
+  grain: Ga4SyncGrain,
+  from: string,
+  to: string,
+): Promise<Ga4GrainCoverage> {
+  const rows = await db
+    .select({ date: ga4SyncCoverage.date })
+    .from(ga4SyncCoverage)
+    .where(
+      and(
+        eq(ga4SyncCoverage.projectId, projectId),
+        eq(ga4SyncCoverage.propertyId, propertyId),
+        eq(ga4SyncCoverage.grain, grain),
+        inArray(ga4SyncCoverage.status, [...SUCCESS_COVERAGE_STATUSES]),
+        gte(ga4SyncCoverage.date, from),
+        lte(ga4SyncCoverage.date, to),
+      ),
+    )
+    .orderBy(asc(ga4SyncCoverage.date));
+  const coveredDates = rows.map((row) => row.date);
+  return {
+    coveredDates,
+    coveredThrough: coveredDates[coveredDates.length - 1] ?? null,
+  };
+}
+
 export const Ga4SyncRepository = {
   getActiveSyncRun,
   getLatestSyncRun,
@@ -688,4 +938,8 @@ export const Ga4SyncRepository = {
   upsertEventRows,
   getSummaryTotals,
   getEntityTotals,
+  getDailySummarySeries,
+  getAcquisitionGroups,
+  getLandingGroups,
+  getGrainCoverage,
 };
