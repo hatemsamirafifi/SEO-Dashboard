@@ -90,4 +90,30 @@ describe("analytics range filter schemas", () => {
         .success,
     ).toBe(false);
   });
+
+  it("landing schema coerces string limits from router search params", () => {
+    // TanStack router search params arrive as strings; the wire contract is
+    // string-in/number-out (domain/backlinks precedent for numeric params).
+    expect(
+      analyticsLandingPagesSchema.parse({ projectId: "p1", limit: "10" }),
+    ).toMatchObject({ limit: 10 });
+    expect(
+      analyticsLandingPagesSchema.safeParse({ projectId: "p1", limit: "many" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("acquisition and landing share the overview range contract", () => {
+    for (const schema of [
+      analyticsAcquisitionSchema,
+      analyticsLandingPagesSchema,
+    ]) {
+      expect(schema.parse({ projectId: "p1" })).toMatchObject({
+        range: "last_28_days",
+      });
+      expect(
+        schema.safeParse({ projectId: "p1", range: "last_12_months" }).success,
+      ).toBe(false);
+    }
+  });
 });

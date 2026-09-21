@@ -70,6 +70,8 @@ export const analyticsAcquisitionSchema = z
 export const analyticsLandingPagesSchema = z
   .object({
     ...analyticsFilterShape,
-    limit: z.number().int().min(1).max(100).default(25),
+    // Router search params arrive as strings; coerce matches the
+    // domain/backlinks precedent for numeric page params.
+    limit: z.coerce.number().int().min(1).max(100).default(25),
   })
   .strict();

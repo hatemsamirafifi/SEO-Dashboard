@@ -3,6 +3,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
 import { Ga4Service } from "@/server/features/ga4/services/Ga4Service";
+import { AnalyticsService } from "@/server/features/ga4/services/AnalyticsService";
 import { Ga4SyncService } from "@/server/features/ga4/services/Ga4SyncService";
 import { Ga4SyncRepository } from "@/server/features/ga4/repositories/Ga4SyncRepository";
 import { GA4_GRAINS } from "@/server/features/ga4/services/ga4SyncUtils";
@@ -10,6 +11,9 @@ import { Ga4ApiError, Ga4TokenError } from "@/server/lib/ga4Client";
 import { createSelfHostedGa4AuthorizationUrl } from "@/server/features/gsc/selfHostedOAuth";
 import { hasSelfHostedGscConfig } from "@/server/features/gsc/oauth-config";
 import {
+  analyticsAcquisitionSchema,
+  analyticsLandingPagesSchema,
+  analyticsOverviewSchema,
   ga4PeriodUsersSchema,
   ga4ProjectSchema,
   ga4SyncStatusSchema,
@@ -166,5 +170,45 @@ export const getPeriodUsers = createServerFn({ method: "POST" })
       organizationId: context.organizationId,
       startDate: data.startDate,
       endDate: data.endDate,
+    }),
+  );
+export const getAnalyticsOverview = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(analyticsOverviewSchema)
+  .handler(async ({ data, context }) =>
+    AnalyticsService.getOverview({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      range: data.range,
+      ...(data.channel ? { channel: data.channel } : {}),
+      ...(data.device ? { device: data.device } : {}),
+      ...(data.country ? { country: data.country } : {}),
+    }),
+  );
+export const getAnalyticsAcquisition = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(analyticsAcquisitionSchema)
+  .handler(async ({ data, context }) =>
+    AnalyticsService.getAcquisition({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      range: data.range,
+      ...(data.channel ? { channel: data.channel } : {}),
+      ...(data.device ? { device: data.device } : {}),
+      ...(data.country ? { country: data.country } : {}),
+    }),
+  );
+export const getAnalyticsLandingPages = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(analyticsLandingPagesSchema)
+  .handler(async ({ data, context }) =>
+    AnalyticsService.getLandingPages({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      range: data.range,
+      limit: data.limit,
+      ...(data.channel ? { channel: data.channel } : {}),
+      ...(data.device ? { device: data.device } : {}),
+      ...(data.country ? { country: data.country } : {}),
     }),
   );
