@@ -14,6 +14,11 @@ export const GA4_CACHE_TTL_SECONDS = 24 * 60 * 60;
  *  Postgres share identical uniqueness semantics (no NULLS NOT DISTINCT). */
 export const GA4_NOT_SET_SENTINEL = "(not set)";
 
+/** GA4 `sessionDefaultChannelGroup` value for organic traffic. The analytics
+ *  Organic view is the acquisition reader filtered to this exact value
+ *  (final-plan §9.6); no separate endpoint exists. */
+export const ORGANIC_CHANNEL_GROUP = "Organic Search";
+
 /** Canonical dimension form: trimmed verbatim value, sentinel when empty.
  *  Case is preserved for display fidelity. */
 export function canonicalGa4Dimension(
