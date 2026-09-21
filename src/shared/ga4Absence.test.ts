@@ -29,6 +29,7 @@ const GA4_SURFACE_FILES = [
   "src/client/features/analytics/analyticsCopy.ts",
   "src/client/features/analytics/AnalyticsFilterToolbar.tsx",
   "src/client/features/analytics/AnalyticsSections.tsx",
+  "src/client/features/analytics/AnalyticsExtendedSections.tsx",
   "src/client/features/analytics/AnalyticsPage.tsx",
   "src/routes/_project/p/$projectId/analytics.tsx",
 ];

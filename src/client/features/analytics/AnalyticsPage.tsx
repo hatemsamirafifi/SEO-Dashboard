@@ -6,6 +6,10 @@ import { ORGANIC_CHANNEL_GROUP } from "@/shared/ga4";
 import type { AnalyticsRange } from "@/types/schemas/ga4";
 import {
   getAnalyticsAcquisition,
+  getAnalyticsAudience,
+  getAnalyticsConversions,
+  getAnalyticsEcommerce,
+  getAnalyticsEvents,
   getAnalyticsLandingPages,
   getAnalyticsOverview,
   getGa4Connection,
@@ -24,6 +28,12 @@ import {
   LandingSection,
   OverviewSection,
 } from "@/client/features/analytics/AnalyticsSections";
+import {
+  AudienceSection,
+  ConversionsSection,
+  EcommerceSection,
+  EventsSection,
+} from "@/client/features/analytics/AnalyticsExtendedSections";
 import { toAnalyticsPageView } from "@/client/features/analytics/analyticsCopy";
 
 function buildFilterInput(
@@ -98,6 +108,33 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
     enabled: connected,
     placeholderData: keepPreviousData,
   });
+  const eventsQuery = useQuery({
+    queryKey: ["analyticsEvents", projectId, filterInput],
+    queryFn: () => getAnalyticsEvents({ data: { projectId, ...filterInput } }),
+    enabled: connected,
+    placeholderData: keepPreviousData,
+  });
+  const conversionsQuery = useQuery({
+    queryKey: ["analyticsConversions", projectId, filterInput],
+    queryFn: () =>
+      getAnalyticsConversions({ data: { projectId, ...filterInput } }),
+    enabled: connected,
+    placeholderData: keepPreviousData,
+  });
+  const ecommerceQuery = useQuery({
+    queryKey: ["analyticsEcommerce", projectId, filterInput],
+    queryFn: () =>
+      getAnalyticsEcommerce({ data: { projectId, ...filterInput } }),
+    enabled: connected,
+    placeholderData: keepPreviousData,
+  });
+  const audienceQuery = useQuery({
+    queryKey: ["analyticsAudience", projectId, filterInput],
+    queryFn: () =>
+      getAnalyticsAudience({ data: { projectId, ...filterInput } }),
+    enabled: connected,
+    placeholderData: keepPreviousData,
+  });
 
   const overview = overviewQuery.data;
   const view = toAnalyticsPageView({
@@ -122,11 +159,17 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
       overview?.connected === true ? overview.coverage.coveredThrough : null,
   });
 
-  const isFetching =
-    overviewQuery.isFetching ||
-    acquisitionQuery.isFetching ||
-    organicQuery.isFetching ||
-    landingQuery.isFetching;
+  const sectionQueries = [
+    overviewQuery,
+    acquisitionQuery,
+    organicQuery,
+    landingQuery,
+    eventsQuery,
+    conversionsQuery,
+    ecommerceQuery,
+    audienceQuery,
+  ];
+  const isFetching = sectionQueries.some((query) => query.isFetching);
 
   return (
     <div className="overflow-auto px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
@@ -266,6 +309,57 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
                     pending={landingQuery.isPending}
                     queryError={
                       landingQuery.isError ? landingQuery.error : null
+                    }
+                  />
+                </section>
+
+                <section aria-label="Events">
+                  <div className="mb-2 flex items-center gap-2">
+                    <h2 className="font-semibold">Events</h2>
+                    <CoverageBadge result={eventsQuery.data} />
+                  </div>
+                  <EventsSection
+                    result={eventsQuery.data}
+                    pending={eventsQuery.isPending}
+                    queryError={eventsQuery.isError ? eventsQuery.error : null}
+                  />
+                </section>
+
+                <section aria-label="Conversions">
+                  <div className="mb-2 flex items-center gap-2">
+                    <h2 className="font-semibold">Conversions</h2>
+                    <CoverageBadge result={conversionsQuery.data} />
+                  </div>
+                  <ConversionsSection
+                    result={conversionsQuery.data}
+                    pending={conversionsQuery.isPending}
+                    queryError={
+                      conversionsQuery.isError ? conversionsQuery.error : null
+                    }
+                  />
+                </section>
+
+                <section aria-label="Ecommerce">
+                  <h2 className="mb-2 font-semibold">Ecommerce</h2>
+                  <EcommerceSection
+                    result={ecommerceQuery.data}
+                    pending={ecommerceQuery.isPending}
+                    queryError={
+                      ecommerceQuery.isError ? ecommerceQuery.error : null
+                    }
+                  />
+                </section>
+
+                <section aria-label="Audience">
+                  <div className="mb-2 flex items-center gap-2">
+                    <h2 className="font-semibold">Audience</h2>
+                    <CoverageBadge result={audienceQuery.data} />
+                  </div>
+                  <AudienceSection
+                    result={audienceQuery.data}
+                    pending={audienceQuery.isPending}
+                    queryError={
+                      audienceQuery.isError ? audienceQuery.error : null
                     }
                   />
                 </section>

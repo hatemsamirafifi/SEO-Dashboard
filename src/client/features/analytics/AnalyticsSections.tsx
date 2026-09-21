@@ -2,6 +2,9 @@ import { Link } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 import type {
   AnalyticsAcquisitionResult,
+  AnalyticsAudienceResult,
+  AnalyticsConversionsResult,
+  AnalyticsEventsResult,
   AnalyticsLandingResult,
   AnalyticsAcquisitionRow,
   AnalyticsLandingRow,
@@ -11,7 +14,7 @@ import type {
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { coverageBadge, formatDelta, formatPctChange } from "./analyticsCopy";
 
-function formatCount(value: number): string {
+export function formatCount(value: number): string {
   return value.toLocaleString("en-US");
 }
 
@@ -38,7 +41,7 @@ function DeltaLine({
   );
 }
 
-function StatCard({
+export function StatCard({
   label,
   delta,
   format,
@@ -226,7 +229,7 @@ export function LandingPagesTable({
   );
 }
 
-function SectionLoading({ label }: { label: string }) {
+export function SectionLoading({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2 py-4 text-sm text-base-content/60">
       <Loader2 className="size-4 animate-spin" /> Loading {label}…
@@ -234,7 +237,7 @@ function SectionLoading({ label }: { label: string }) {
   );
 }
 
-function SectionError({ error }: { error: unknown }) {
+export function SectionError({ error }: { error: unknown }) {
   return (
     <div className="alert alert-error">
       <span className="text-sm">{getStandardErrorMessage(error)}</span>
@@ -304,10 +307,16 @@ export function LandingSection({
   return <LandingPagesTable projectId={projectId} rows={result.rows} />;
 }
 
+type CoveragedAnalyticsResult =
+  | AnalyticsOverviewResult
+  | AnalyticsEventsResult
+  | AnalyticsConversionsResult
+  | AnalyticsAudienceResult;
+
 export function CoverageBadge({
   result,
 }: {
-  result: AnalyticsOverviewResult | undefined;
+  result: CoveragedAnalyticsResult | undefined;
 }) {
   if (!result || !result.connected) return null;
   return (
