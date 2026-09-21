@@ -61,9 +61,7 @@ const analyticsFilterShape = {
   country: z.string().min(1).max(100).optional(),
 };
 
-export const analyticsOverviewSchema = z
-  .object(analyticsFilterShape)
-  .strict();
+export const analyticsOverviewSchema = z.object(analyticsFilterShape).strict();
 export const analyticsAcquisitionSchema = z
   .object(analyticsFilterShape)
   .strict();

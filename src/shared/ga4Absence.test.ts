@@ -18,6 +18,7 @@ const GA4_SURFACE_FILES = [
   "src/server/features/ga4/services/scheduledGa4Sync.ts",
   "src/server/features/ga4/repositories/Ga4SyncRepository.ts",
   "src/server/features/ga4/repositories/Ga4ConnectionRepository.ts",
+  "src/server/features/ga4/services/AnalyticsService.ts",
   "src/db/ga4.schema.ts",
   "src/db/pg/ga4.schema.ts",
   "src/types/schemas/ga4.ts",
@@ -25,6 +26,11 @@ const GA4_SURFACE_FILES = [
   "src/client/features/ga4/AnalyticsConnectionCard.tsx",
   "src/client/features/ga4/Ga4SyncStatus.tsx",
   "src/client/features/ga4/syncStatusCopy.ts",
+  "src/client/features/analytics/analyticsCopy.ts",
+  "src/client/features/analytics/AnalyticsFilterToolbar.tsx",
+  "src/client/features/analytics/AnalyticsSections.tsx",
+  "src/client/features/analytics/AnalyticsPage.tsx",
+  "src/routes/_project/p/$projectId/analytics.tsx",
 ];
 
 function readSurface(file: string): string {
@@ -62,6 +68,7 @@ describe("GA4 no-SUM-users invariant", () => {
       "src/server/features/ga4/services/Ga4SyncService.ts",
       "src/server/features/ga4/services/ga4SyncNormalize.ts",
       "src/server/features/ga4/services/Ga4Service.ts",
+      "src/server/features/ga4/services/AnalyticsService.ts",
       "src/server/lib/ga4Client.ts",
     ];
     const forbidden = [

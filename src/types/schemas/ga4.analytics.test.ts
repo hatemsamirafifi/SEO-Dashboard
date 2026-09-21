@@ -39,9 +39,7 @@ describe("analytics range filter schemas", () => {
     const payload = { projectId: "p1", range: "last_7_days", bogus: true };
     expect(analyticsOverviewSchema.safeParse(payload).success).toBe(false);
     expect(analyticsAcquisitionSchema.safeParse(payload).success).toBe(false);
-    expect(
-      analyticsLandingPagesSchema.safeParse(payload).success,
-    ).toBe(false);
+    expect(analyticsLandingPagesSchema.safeParse(payload).success).toBe(false);
   });
 
   it("accepts optional channel/device/country filters", () => {

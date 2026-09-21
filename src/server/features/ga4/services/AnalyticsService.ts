@@ -1,8 +1,6 @@
+/* eslint-disable max-lines */
 import { ORGANIC_CHANNEL_GROUP } from "@/shared/ga4";
-import {
-  ANALYTICS_RANGE_DAYS,
-  type AnalyticsRange,
-} from "@/types/schemas/ga4";
+import { ANALYTICS_RANGE_DAYS, type AnalyticsRange } from "@/types/schemas/ga4";
 import { Ga4ConnectionRepository } from "../repositories/Ga4ConnectionRepository";
 import {
   NEW_USERS_FOOTNOTE,
@@ -100,7 +98,8 @@ function toCoverage(
 ): AnalyticsCoverage {
   const covered = coverage.coveredDates.length;
   return {
-    status: covered >= totalDates ? "complete" : covered > 0 ? "partial" : "none",
+    status:
+      covered >= totalDates ? "complete" : covered > 0 ? "partial" : "none",
     coveredDates: covered,
     totalDates,
     coveredThrough: coverage.coveredThrough,
@@ -169,25 +168,16 @@ type SummaryLike = {
 function summaryDeltas(current: SummaryLike, previous: SummaryLike) {
   return {
     sessions: deltaOf(current.sessions, previous.sessions),
-    engagedSessions: deltaOf(
-      current.engagedSessions,
-      previous.engagedSessions,
-    ),
+    engagedSessions: deltaOf(current.engagedSessions, previous.engagedSessions),
     userEngagementDuration: deltaOf(
       current.userEngagementDuration,
       previous.userEngagementDuration,
     ),
-    screenPageViews: deltaOf(
-      current.screenPageViews,
-      previous.screenPageViews,
-    ),
+    screenPageViews: deltaOf(current.screenPageViews, previous.screenPageViews),
     eventCount: deltaOf(current.eventCount, previous.eventCount),
     newUsers: deltaOf(current.newUsers, previous.newUsers),
     totalRevenue: deltaOf(current.totalRevenue, previous.totalRevenue),
-    purchaseRevenue: deltaOf(
-      current.purchaseRevenue,
-      previous.purchaseRevenue,
-    ),
+    purchaseRevenue: deltaOf(current.purchaseRevenue, previous.purchaseRevenue),
     transactions: deltaOf(current.transactions, previous.transactions),
     addToCarts: deltaOf(current.addToCarts, previous.addToCarts),
     checkouts: deltaOf(current.checkouts, previous.checkouts),
@@ -307,10 +297,7 @@ type AdditiveRow = {
 function rowDeltas(current: AdditiveRow, previous: AdditiveRow) {
   return {
     sessions: deltaOf(current.sessions, previous.sessions),
-    engagedSessions: deltaOf(
-      current.engagedSessions,
-      previous.engagedSessions,
-    ),
+    engagedSessions: deltaOf(current.engagedSessions, previous.engagedSessions),
     engagementRate: deltaOf(
       engagementRateOf(current),
       engagementRateOf(previous),
@@ -319,10 +306,7 @@ function rowDeltas(current: AdditiveRow, previous: AdditiveRow) {
       avgEngagementTimeOf(current),
       avgEngagementTimeOf(previous),
     ),
-    screenPageViews: deltaOf(
-      current.screenPageViews,
-      previous.screenPageViews,
-    ),
+    screenPageViews: deltaOf(current.screenPageViews, previous.screenPageViews),
     eventCount: deltaOf(current.eventCount, previous.eventCount),
   };
 }
@@ -445,13 +429,44 @@ function toAcquisitionRow(
   };
 }
 
-function ZERO_ACQUISITION_GROUP(group: Ga4AcquisitionGroup): Ga4AcquisitionGroup {
+function ZERO_ACQUISITION_GROUP(
+  group: Ga4AcquisitionGroup,
+): Ga4AcquisitionGroup {
   return { ...ZERO_ROW, ...group, sessions: 0 };
 }
 
 export type AnalyticsLandingRow = {
   landingPage: string;
-} & ReturnType<typeof rowDeltas>;
+} & ReturnType<typeof landingRowDeltas>;
+
+type LandingAdditiveRow = {
+  sessions: number;
+  engagedSessions: number;
+  userEngagementDuration: number;
+  screenPageViews: number;
+};
+
+/** Landing deltas exclude eventCount: the landing grain stores no per-event
+ *  metric (§9.3 `ga4_daily_landing_pages`), so page rows must never claim
+ *  one. Ratios derive from summed components at query time (§9.4). */
+function landingRowDeltas(
+  current: LandingAdditiveRow,
+  previous: LandingAdditiveRow,
+) {
+  return {
+    sessions: deltaOf(current.sessions, previous.sessions),
+    engagedSessions: deltaOf(current.engagedSessions, previous.engagedSessions),
+    engagementRate: deltaOf(
+      engagementRateOf(current),
+      engagementRateOf(previous),
+    ),
+    avgEngagementTimePerSession: deltaOf(
+      avgEngagementTimeOf(current),
+      avgEngagementTimeOf(previous),
+    ),
+    screenPageViews: deltaOf(current.screenPageViews, previous.screenPageViews),
+  };
+}
 
 export type AnalyticsLandingResult =
   | { connected: false }
@@ -515,13 +530,22 @@ async function getLandingPages(input: {
   const seen = new Set<string>();
   const rows: AnalyticsLandingRow[] = currentGroups.map((group) => {
     seen.add(group.landingPage);
-    return toLandingRow(group, previousByPage.get(group.landingPage) ?? ZERO_ROW);
+    return toLandingRow(
+      group,
+      previousByPage.get(group.landingPage) ?? ZERO_ROW,
+    );
   });
   for (const group of previousGroups) {
     if (seen.has(group.landingPage)) continue;
     rows.push(
       toLandingRow(
-        { ...group, sessions: 0, engagedSessions: 0, userEngagementDuration: 0, screenPageViews: 0 },
+        {
+          ...group,
+          sessions: 0,
+          engagedSessions: 0,
+          userEngagementDuration: 0,
+          screenPageViews: 0,
+        },
         group,
       ),
     );
@@ -540,11 +564,11 @@ async function getLandingPages(input: {
 
 function toLandingRow(
   current: Ga4LandingGroup,
-  previous: AdditiveRow,
+  previous: LandingAdditiveRow,
 ): AnalyticsLandingRow {
   return {
     landingPage: current.landingPage,
-    ...rowDeltas(current, previous),
+    ...landingRowDeltas(current, previous),
   };
 }
 

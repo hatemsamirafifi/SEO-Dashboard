@@ -1,6 +1,7 @@
 import {
   Bookmark,
   Bot,
+  ChartNoAxesColumn,
   ClipboardCheck,
   Globe,
   LayoutDashboard,
@@ -41,6 +42,11 @@ const projectNavItems = [
     to: "/p/$projectId/search-performance" as const,
     label: "GSC Insights",
     icon: GoogleGlyphMuted,
+  },
+  {
+    to: "/p/$projectId/analytics" as const,
+    label: "Analytics",
+    icon: ChartNoAxesColumn,
   },
   {
     to: "/p/$projectId/domain" as const,
@@ -117,6 +123,7 @@ export function getProjectNavGroups(projectId: string) {
       label: "My Site",
       items: [
         byPath("/p/$projectId/search-performance"),
+        byPath("/p/$projectId/analytics"),
         byPath("/p/$projectId/rank-tracking"),
         byPath("/p/$projectId/saved"),
         byPath("/p/$projectId/audit"),
