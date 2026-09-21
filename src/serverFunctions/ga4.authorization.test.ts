@@ -33,6 +33,20 @@ vi.mock("@/server/features/ga4/services/Ga4Service", () => ({
     listPropertiesForUser: vi.fn(),
     setProperty: vi.fn(),
     disconnect: vi.fn(),
+    runReportForConnection: vi.fn(),
+    getPeriodUsers: vi.fn(),
+  },
+}));
+
+vi.mock("@/server/features/ga4/services/Ga4SyncService", () => ({
+  Ga4SyncService: { runSync: vi.fn() },
+}));
+
+vi.mock("@/server/features/ga4/repositories/Ga4SyncRepository", () => ({
+  Ga4SyncRepository: {
+    getLatestSyncRun: vi.fn(),
+    getActiveSyncRun: vi.fn(),
+    getLastFullyCoveredDate: vi.fn(),
   },
 }));
 
@@ -55,9 +69,12 @@ vi.mock("@/server/mcp/public-origin", () => ({
 import {
   disconnectGa4,
   getGa4Connection,
+  getGa4SyncStatus,
+  getPeriodUsers,
   listGa4Properties,
   setGa4Property,
   startSelfHostedGa4Link,
+  triggerGa4Sync,
 } from "./ga4";
 import { globalServerFunctionMiddleware } from "./middleware";
 
@@ -137,6 +154,17 @@ describe("GA4 server-function project authorization", () => {
       {
         projectId: "other-project",
         callbackURL: "/p/other-project/settings",
+      },
+    ],
+    ["triggerGa4Sync", triggerGa4Sync, { projectId: "other-project" }],
+    ["getGa4SyncStatus", getGa4SyncStatus, { projectId: "other-project" }],
+    [
+      "getPeriodUsers",
+      getPeriodUsers,
+      {
+        projectId: "other-project",
+        startDate: "2025-01-01",
+        endDate: "2025-01-31",
       },
     ],
   ])(

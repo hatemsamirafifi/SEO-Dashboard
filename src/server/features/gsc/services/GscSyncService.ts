@@ -368,6 +368,7 @@ async function runSync(options: GscSyncOptions): Promise<GscSyncResult> {
       rowsFetched,
       rowsInserted,
       rowsFailed,
+      successfulUnits: chunksCompleted,
     });
 
     return {
@@ -397,6 +398,7 @@ async function runSync(options: GscSyncOptions): Promise<GscSyncResult> {
       rowsFetched,
       rowsInserted,
       rowsFailed,
+      successfulUnits: chunksCompleted,
       error: `${classified.errorClass}: ${classified.message}`,
     });
 

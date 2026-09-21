@@ -3,13 +3,19 @@ import { getRequest } from "@tanstack/react-start/server";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
 import { Ga4Service } from "@/server/features/ga4/services/Ga4Service";
+import { Ga4SyncService } from "@/server/features/ga4/services/Ga4SyncService";
+import { Ga4SyncRepository } from "@/server/features/ga4/repositories/Ga4SyncRepository";
+import { GA4_GRAINS } from "@/server/features/ga4/services/ga4SyncUtils";
 import { Ga4ApiError, Ga4TokenError } from "@/server/lib/ga4Client";
 import { createSelfHostedGa4AuthorizationUrl } from "@/server/features/gsc/selfHostedOAuth";
 import { hasSelfHostedGscConfig } from "@/server/features/gsc/oauth-config";
 import {
+  ga4PeriodUsersSchema,
   ga4ProjectSchema,
+  ga4SyncStatusSchema,
   setGa4PropertySchema,
   startGa4LinkSchema,
+  triggerGa4SyncSchema,
 } from "@/types/schemas/ga4";
 import {
   requireAuthenticatedContext,
@@ -98,3 +104,67 @@ export const startSelfHostedGa4Link = createServerFn({ method: "POST" })
       publicOrigin: getPublicOrigin(getRequest()),
     }),
   }));
+export const triggerGa4Sync = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(triggerGa4SyncSchema)
+  .handler(async ({ data, context }) =>
+    Ga4SyncService.runSync({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      syncType: data.syncType,
+      startDate: data.startDate,
+      endDate: data.endDate,
+    }),
+  );
+export const getGa4SyncStatus = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(ga4SyncStatusSchema)
+  .handler(async ({ context }) => {
+    const connection = await Ga4Service.getConnection(
+      context.projectId,
+      context.organizationId,
+    );
+    if (!connection) {
+      return {
+        connected: false as const,
+        latestSync: null,
+        activeSync: null,
+        isRunning: false,
+        lastFullyCoveredDate: null,
+      };
+    }
+    const [latest, active, lastFullyCoveredDate] = await Promise.all([
+      Ga4SyncRepository.getLatestSyncRun(
+        context.projectId,
+        connection.propertyId,
+      ),
+      Ga4SyncRepository.getActiveSyncRun(
+        context.projectId,
+        connection.propertyId,
+      ),
+      Ga4SyncRepository.getLastFullyCoveredDate(
+        context.projectId,
+        connection.propertyId,
+        [...GA4_GRAINS],
+        new Date().toISOString().slice(0, 10),
+      ),
+    ]);
+    return {
+      connected: true as const,
+      latestSync: latest,
+      activeSync: active,
+      isRunning: active !== null,
+      lastFullyCoveredDate,
+    };
+  });
+export const getPeriodUsers = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(ga4PeriodUsersSchema)
+  .handler(async ({ data, context }) =>
+    Ga4Service.getPeriodUsers({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      startDate: data.startDate,
+      endDate: data.endDate,
+    }),
+  );

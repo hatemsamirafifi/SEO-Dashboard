@@ -148,6 +148,9 @@ async function createSyncRun(input: {
         requestedStartDate: input.requestedStartDate,
         requestedEndDate: input.requestedEndDate,
         status: "running",
+        // Explicit ISO-8601 like updatedAt: startedAt orders runs and gates
+        // the 6h cron floor, both of which compare lexicographically.
+        startedAt: nowIso,
         // Written explicitly as ISO-8601: SQLite's current_timestamp uses a
         // space separator which does NOT compare correctly against ISO
         // strings, and updatedAt is compared lexicographically for
@@ -259,7 +262,10 @@ async function seedPendingUnits(input: {
         eq(ga4SyncCoverage.propertyId, input.propertyId),
         inArray(ga4SyncCoverage.date, input.dates),
         inArray(ga4SyncCoverage.grain, [...input.grains]),
-        inArray(ga4SyncCoverage.status, resettable.map((s) => s.toLowerCase())),
+        inArray(
+          ga4SyncCoverage.status,
+          resettable.map((s) => s.toLowerCase()),
+        ),
       ),
     );
 }
@@ -345,7 +351,12 @@ async function getLastFullyCoveredDate(
   grains: Ga4SyncGrain[],
   throughDate: string,
 ): Promise<string | null> {
-  const map = await getCoverageMap(projectId, propertyId, "0000-01-01", throughDate);
+  const map = await getCoverageMap(
+    projectId,
+    propertyId,
+    "0000-01-01",
+    throughDate,
+  );
   let best: string | null = null;
   for (const [date, states] of map) {
     if (date > throughDate) continue;
@@ -485,7 +496,10 @@ async function getSummaryTotals(
         eq(ga4SyncCoverage.projectId, projectId),
         eq(ga4SyncCoverage.propertyId, propertyId),
         eq(ga4SyncCoverage.grain, "summary"),
-        inArray(ga4SyncCoverage.status, ["success_with_data", "success_zero_rows"]),
+        inArray(ga4SyncCoverage.status, [
+          "success_with_data",
+          "success_zero_rows",
+        ]),
         gte(ga4SyncCoverage.date, from),
         lte(ga4SyncCoverage.date, to),
       ),
@@ -493,13 +507,21 @@ async function getSummaryTotals(
   const [totals] = await db
     .select({
       sessions: sql<number | null>`sum(${ga4DailySummary.sessions})`,
-      engagedSessions: sql<number | null>`sum(${ga4DailySummary.engagedSessions})`,
-      userEngagementDuration: sql<number | null>`sum(${ga4DailySummary.userEngagementDuration})`,
-      screenPageViews: sql<number | null>`sum(${ga4DailySummary.screenPageViews})`,
+      engagedSessions: sql<
+        number | null
+      >`sum(${ga4DailySummary.engagedSessions})`,
+      userEngagementDuration: sql<
+        number | null
+      >`sum(${ga4DailySummary.userEngagementDuration})`,
+      screenPageViews: sql<
+        number | null
+      >`sum(${ga4DailySummary.screenPageViews})`,
       eventCount: sql<number | null>`sum(${ga4DailySummary.eventCount})`,
       newUsers: sql<number | null>`sum(${ga4DailySummary.newUsers})`,
       totalRevenue: sql<number | null>`sum(${ga4DailySummary.totalRevenue})`,
-      purchaseRevenue: sql<number | null>`sum(${ga4DailySummary.purchaseRevenue})`,
+      purchaseRevenue: sql<
+        number | null
+      >`sum(${ga4DailySummary.purchaseRevenue})`,
       transactions: sql<number | null>`sum(${ga4DailySummary.transactions})`,
       addToCarts: sql<number | null>`sum(${ga4DailySummary.addToCarts})`,
       checkouts: sql<number | null>`sum(${ga4DailySummary.checkouts})`,
@@ -556,9 +578,15 @@ async function getEntityTotals(input: {
     const [totals] = await db
       .select({
         sessions: sql<number | null>`sum(${ga4DailyAcquisition.sessions})`,
-        engagedSessions: sql<number | null>`sum(${ga4DailyAcquisition.engagedSessions})`,
-        userEngagementDuration: sql<number | null>`sum(${ga4DailyAcquisition.userEngagementDuration})`,
-        screenPageViews: sql<number | null>`sum(${ga4DailyAcquisition.screenPageViews})`,
+        engagedSessions: sql<
+          number | null
+        >`sum(${ga4DailyAcquisition.engagedSessions})`,
+        userEngagementDuration: sql<
+          number | null
+        >`sum(${ga4DailyAcquisition.userEngagementDuration})`,
+        screenPageViews: sql<
+          number | null
+        >`sum(${ga4DailyAcquisition.screenPageViews})`,
         eventCount: sql<number | null>`sum(${ga4DailyAcquisition.eventCount})`,
         newUsers: sql<number | null>`sum(${ga4DailyAcquisition.newUsers})`,
       })
@@ -593,9 +621,15 @@ async function getEntityTotals(input: {
     const [totals] = await db
       .select({
         sessions: sql<number | null>`sum(${ga4DailyLandingPages.sessions})`,
-        engagedSessions: sql<number | null>`sum(${ga4DailyLandingPages.engagedSessions})`,
-        userEngagementDuration: sql<number | null>`sum(${ga4DailyLandingPages.userEngagementDuration})`,
-        screenPageViews: sql<number | null>`sum(${ga4DailyLandingPages.screenPageViews})`,
+        engagedSessions: sql<
+          number | null
+        >`sum(${ga4DailyLandingPages.engagedSessions})`,
+        userEngagementDuration: sql<
+          number | null
+        >`sum(${ga4DailyLandingPages.userEngagementDuration})`,
+        screenPageViews: sql<
+          number | null
+        >`sum(${ga4DailyLandingPages.screenPageViews})`,
       })
       .from(ga4DailyLandingPages)
       .where(

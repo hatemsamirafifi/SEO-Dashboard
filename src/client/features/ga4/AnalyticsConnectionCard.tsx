@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { startGa4Link } from "./startGa4Link";
+import { Ga4SyncStatus } from "./Ga4SyncStatus";
 import { shouldShowPropertyPicker } from "./connectionState";
 import { propertyListRecovery } from "./propertyListState";
 import {
@@ -105,6 +106,7 @@ export function AnalyticsConnectionCard({ projectId }: { projectId: string }) {
                 Disconnect
               </button>
             </div>
+            <Ga4SyncStatus projectId={projectId} />
           </>
         ) : shouldList ? (
           <>

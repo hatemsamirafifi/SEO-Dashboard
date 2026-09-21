@@ -8,6 +8,7 @@ import { ProjectRepository } from "@/server/features/projects/repositories/Proje
 import { SamSessionRepository } from "@/server/features/sam/SamSessionRepository";
 import { runScheduledRankChecks } from "@/server/features/rank-tracking/services/scheduledRankChecks";
 import { runScheduledGscSync } from "@/server/features/gsc/services/scheduledGscSync";
+import { runScheduledGa4Sync } from "@/server/features/ga4/services/scheduledGa4Sync";
 import { getOrCreateOrganizationCustomer } from "@/server/billing/subscription";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getAuthMode, isHostedAuthMode } from "@/lib/auth-mode";
@@ -190,6 +191,7 @@ export default {
     await withPgClient(async () => {
       await runScheduledRankChecks(env);
       await runScheduledGscSync();
+      await runScheduledGa4Sync();
     });
   },
 };

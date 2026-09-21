@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Ga4ClientModule from "@/server/lib/ga4Client";
 import type { createGa4Client } from "@/server/lib/ga4Client";
 import type { Ga4ReportResult } from "@/server/lib/ga4Client";
-import type { Ga4ConnectionRepository } from "../repositories/Ga4ConnectionRepository";
-import type { Ga4SyncRepository } from "../repositories/Ga4SyncRepository";
+import { Ga4ConnectionRepository } from "../repositories/Ga4ConnectionRepository";
+import type { Ga4Connection } from "../repositories/Ga4ConnectionRepository";
+import { Ga4SyncRepository } from "../repositories/Ga4SyncRepository";
 
 type Ga4Client = ReturnType<typeof createGa4Client>;
 
@@ -18,23 +19,27 @@ type MarkUnitsCall = {
 };
 
 const mocks = vi.hoisted(() => ({
-  getConnection: vi.fn<Ga4ConnectionRepository["getByProjectId"]>(),
+  getConnection: vi.fn<
+    (projectId: string, organizationId: string) => Promise<Ga4Connection | null>
+  >(),
   updateCapabilities:
-    vi.fn<Ga4ConnectionRepository["updateConnectionCapabilities"]>(),
-  getActiveSyncRun: vi.fn<Ga4SyncRepository["getActiveSyncRun"]>(),
-  getLatestSyncRun: vi.fn<Ga4SyncRepository["getLatestSyncRun"]>(),
-  createSyncRun: vi.fn<Ga4SyncRepository["createSyncRun"]>(),
-  updateSyncRun: vi.fn<Ga4SyncRepository["updateSyncRun"]>(),
-  markStaleRunsFailed: vi.fn<Ga4SyncRepository["markStaleRunsFailed"]>(),
-  seedPendingUnits: vi.fn<Ga4SyncRepository["seedPendingUnits"]>(),
+    vi.fn<(typeof Ga4ConnectionRepository)["updateConnectionCapabilities"]>(),
+  getActiveSyncRun: vi.fn<(typeof Ga4SyncRepository)["getActiveSyncRun"]>(),
+  getLatestSyncRun: vi.fn<(typeof Ga4SyncRepository)["getLatestSyncRun"]>(),
+  createSyncRun: vi.fn<(typeof Ga4SyncRepository)["createSyncRun"]>(),
+  updateSyncRun: vi.fn<(typeof Ga4SyncRepository)["updateSyncRun"]>(),
+  markStaleRunsFailed:
+    vi.fn<(typeof Ga4SyncRepository)["markStaleRunsFailed"]>(),
+  seedPendingUnits: vi.fn<(typeof Ga4SyncRepository)["seedPendingUnits"]>(),
   markUnits: vi.fn<(units: MarkUnitsCall[]) => Promise<void>>(),
-  getCoverageMap: vi.fn<Ga4SyncRepository["getCoverageMap"]>(),
+  getCoverageMap: vi.fn<(typeof Ga4SyncRepository)["getCoverageMap"]>(),
   getLastFullyCoveredDate:
-    vi.fn<Ga4SyncRepository["getLastFullyCoveredDate"]>(),
-  upsertSummaryRows: vi.fn<Ga4SyncRepository["upsertSummaryRows"]>(),
-  upsertAcquisitionRows: vi.fn<Ga4SyncRepository["upsertAcquisitionRows"]>(),
-  upsertLandingRows: vi.fn<Ga4SyncRepository["upsertLandingRows"]>(),
-  upsertEventRows: vi.fn<Ga4SyncRepository["upsertEventRows"]>(),
+    vi.fn<(typeof Ga4SyncRepository)["getLastFullyCoveredDate"]>(),
+  upsertSummaryRows: vi.fn<(typeof Ga4SyncRepository)["upsertSummaryRows"]>(),
+  upsertAcquisitionRows:
+    vi.fn<(typeof Ga4SyncRepository)["upsertAcquisitionRows"]>(),
+  upsertLandingRows: vi.fn<(typeof Ga4SyncRepository)["upsertLandingRows"]>(),
+  upsertEventRows: vi.fn<(typeof Ga4SyncRepository)["upsertEventRows"]>(),
   deterministicFactId: vi.fn(async () => "fact-id"),
   runReport: vi.fn<Ga4Client["runReport"]>(),
   batchRunReports: vi.fn<Ga4Client["batchRunReports"]>(),
@@ -99,16 +104,31 @@ const CONNECTION = {
   ga4AccountId: "acc1",
   currencyCode: null,
   hasEcommerce: false,
+  createdAt: "2025-01-01T00:00:00.000Z",
+  updatedAt: "2025-01-01T00:00:00.000Z",
 };
 
 const SYNC_ROW = {
   id: "sync-1",
   projectId: "p1",
+  ga4ConnectionId: "conn-1",
   propertyId: "42",
   syncType: "initial",
   requestedStartDate: "2025-01-01",
   requestedEndDate: "2025-01-07",
   status: "running",
+  startedAt: "2025-01-08T00:00:00.000Z",
+  completedAt: null,
+  rowsFetched: 0,
+  rowsInserted: 0,
+  rowsUpdated: 0,
+  rowsFailed: 0,
+  successfulUnits: 0,
+  error: null,
+  errorClass: null,
+  checkpoint: null,
+  createdAt: "2025-01-08T00:00:00.000Z",
+  updatedAt: "2025-01-08T00:00:00.000Z",
 };
 
 function report(
