@@ -68,6 +68,13 @@ vi.mock("@/server/mcp/public-origin", () => ({
 
 import {
   disconnectGa4,
+  getAnalyticsAcquisition,
+  getAnalyticsAudience,
+  getAnalyticsConversions,
+  getAnalyticsEcommerce,
+  getAnalyticsEvents,
+  getAnalyticsLandingPages,
+  getAnalyticsOverview,
   getGa4Connection,
   getGa4SyncStatus,
   getPeriodUsers,
@@ -166,6 +173,37 @@ describe("GA4 server-function project authorization", () => {
         startDate: "2025-01-01",
         endDate: "2025-01-31",
       },
+    ],
+    [
+      "getAnalyticsOverview",
+      getAnalyticsOverview,
+      { projectId: "other-project" },
+    ],
+    [
+      "getAnalyticsAcquisition",
+      getAnalyticsAcquisition,
+      { projectId: "other-project" },
+    ],
+    [
+      "getAnalyticsLandingPages",
+      getAnalyticsLandingPages,
+      { projectId: "other-project" },
+    ],
+    ["getAnalyticsEvents", getAnalyticsEvents, { projectId: "other-project" }],
+    [
+      "getAnalyticsConversions",
+      getAnalyticsConversions,
+      { projectId: "other-project" },
+    ],
+    [
+      "getAnalyticsEcommerce",
+      getAnalyticsEcommerce,
+      { projectId: "other-project" },
+    ],
+    [
+      "getAnalyticsAudience",
+      getAnalyticsAudience,
+      { projectId: "other-project" },
     ],
   ])(
     "rejects wrong-organization access before %s runs",

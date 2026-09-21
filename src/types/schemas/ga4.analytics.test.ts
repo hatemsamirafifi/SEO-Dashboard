@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   ANALYTICS_RANGES,
   analyticsAcquisitionSchema,
+  analyticsAudienceSchema,
+  analyticsConversionsSchema,
+  analyticsEcommerceSchema,
+  analyticsEventsSchema,
   analyticsLandingPagesSchema,
   analyticsOverviewSchema,
 } from "./ga4";
@@ -112,6 +116,53 @@ describe("analytics range filter schemas", () => {
       expect(
         schema.safeParse({ projectId: "p1", range: "last_12_months" }).success,
       ).toBe(false);
+    }
+  });
+
+  it("events and conversions default limit to 25, bound it 1..100, coerce strings", () => {
+    for (const schema of [analyticsEventsSchema, analyticsConversionsSchema]) {
+      expect(schema.parse({ projectId: "p1" })).toMatchObject({
+        range: "last_28_days",
+        limit: 25,
+      });
+      expect(schema.parse({ projectId: "p1", limit: "10" })).toMatchObject({
+        limit: 10,
+      });
+      expect(schema.safeParse({ projectId: "p1", limit: 0 }).success).toBe(
+        false,
+      );
+      expect(schema.safeParse({ projectId: "p1", limit: 101 }).success).toBe(
+        false,
+      );
+      expect(
+        schema.safeParse({ projectId: "p1", range: "custom" }).success,
+      ).toBe(false);
+      expect(
+        schema.safeParse({ projectId: "p1", range: "last_7_days", bogus: 1 })
+          .success,
+      ).toBe(false);
+    }
+  });
+
+  it("ecommerce and audience share the filter-only range contract", () => {
+    for (const schema of [analyticsEcommerceSchema, analyticsAudienceSchema]) {
+      expect(schema.parse({ projectId: "p1" })).toMatchObject({
+        range: "last_28_days",
+      });
+      expect(
+        schema.parse({
+          projectId: "p1",
+          range: "last_7_days",
+          device: "mobile",
+          country: "United States",
+        }),
+      ).toMatchObject({ device: "mobile", country: "United States" });
+      expect(
+        schema.safeParse({ projectId: "p1", range: "last_12_months" }).success,
+      ).toBe(false);
+      expect(schema.safeParse({ projectId: "p1", limit: 10 }).success).toBe(
+        false,
+      );
     }
   });
 });

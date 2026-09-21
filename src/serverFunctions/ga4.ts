@@ -12,6 +12,10 @@ import { createSelfHostedGa4AuthorizationUrl } from "@/server/features/gsc/selfH
 import { hasSelfHostedGscConfig } from "@/server/features/gsc/oauth-config";
 import {
   analyticsAcquisitionSchema,
+  analyticsAudienceSchema,
+  analyticsConversionsSchema,
+  analyticsEcommerceSchema,
+  analyticsEventsSchema,
   analyticsLandingPagesSchema,
   analyticsOverviewSchema,
   ga4PeriodUsersSchema,
@@ -207,6 +211,60 @@ export const getAnalyticsLandingPages = createServerFn({ method: "POST" })
       organizationId: context.organizationId,
       range: data.range,
       limit: data.limit,
+      ...(data.channel ? { channel: data.channel } : {}),
+      ...(data.device ? { device: data.device } : {}),
+      ...(data.country ? { country: data.country } : {}),
+    }),
+  );
+export const getAnalyticsEvents = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(analyticsEventsSchema)
+  .handler(async ({ data, context }) =>
+    AnalyticsService.getEvents({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      range: data.range,
+      limit: data.limit,
+      ...(data.channel ? { channel: data.channel } : {}),
+      ...(data.device ? { device: data.device } : {}),
+      ...(data.country ? { country: data.country } : {}),
+    }),
+  );
+export const getAnalyticsConversions = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(analyticsConversionsSchema)
+  .handler(async ({ data, context }) =>
+    AnalyticsService.getConversions({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      range: data.range,
+      limit: data.limit,
+      ...(data.channel ? { channel: data.channel } : {}),
+      ...(data.device ? { device: data.device } : {}),
+      ...(data.country ? { country: data.country } : {}),
+    }),
+  );
+export const getAnalyticsEcommerce = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(analyticsEcommerceSchema)
+  .handler(async ({ data, context }) =>
+    AnalyticsService.getEcommerce({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      range: data.range,
+      ...(data.channel ? { channel: data.channel } : {}),
+      ...(data.device ? { device: data.device } : {}),
+      ...(data.country ? { country: data.country } : {}),
+    }),
+  );
+export const getAnalyticsAudience = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(analyticsAudienceSchema)
+  .handler(async ({ data, context }) =>
+    AnalyticsService.getAudience({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      range: data.range,
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),

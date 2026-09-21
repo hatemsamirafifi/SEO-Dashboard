@@ -73,3 +73,20 @@ export const analyticsLandingPagesSchema = z
     limit: z.coerce.number().int().min(1).max(100).default(25),
   })
   .strict();
+
+// PR5 extended sections (final-plan §9.6): events + read-only conversions
+// share the landing limit contract; ecommerce/audience are filter-only.
+// Goal selection, custom ranges, and geo/tech grains stay deferred per §22.
+const analyticsEventFilterShape = {
+  ...analyticsFilterShape,
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+};
+
+export const analyticsEventsSchema = z
+  .object(analyticsEventFilterShape)
+  .strict();
+export const analyticsConversionsSchema = z
+  .object(analyticsEventFilterShape)
+  .strict();
+export const analyticsEcommerceSchema = z.object(analyticsFilterShape).strict();
+export const analyticsAudienceSchema = z.object(analyticsFilterShape).strict();

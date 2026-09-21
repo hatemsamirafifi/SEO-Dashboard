@@ -1,5 +1,15 @@
 /* eslint-disable max-lines */
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { db } from "@/db";
 import {
   ga4DailyAcquisition,
@@ -886,6 +896,59 @@ async function getLandingGroups(
   }));
 }
 
+export type Ga4EventGroup = {
+  eventName: string;
+  eventCount: number;
+  isKeyEvent: boolean;
+};
+
+/** Event rows grouped by name over SUCCESS_*-covered event dates, ordered
+ *  by eventCount desc with a caller-supplied top-N bound. `keyEventsOnly`
+ *  serves the read-only conversions list (goal selection deferred per §22).
+ *  `isKeyEvent` aggregates via max for SQLite/PG boolean parity. */
+async function getEventGroups(
+  projectId: string,
+  propertyId: string,
+  from: string,
+  to: string,
+  filter: { limit: number; keyEventsOnly?: boolean },
+): Promise<Ga4EventGroup[]> {
+  const eventCountSum = sql<number | null>`sum(${ga4DailyEvents.eventCount})`;
+  // max(case...) keeps SQLite/PG parity: PG max(boolean) returns boolean
+  // while SQLite booleans are integers, so normalize to 0/1 in SQL.
+  const keyEventFlag = sql<
+    number | null
+  >`max(case when ${ga4DailyEvents.isKeyEvent} then 1 else 0 end)`;
+  const rows = await db
+    .select({
+      eventName: ga4DailyEvents.eventName,
+      eventCount: eventCountSum,
+      isKeyEvent: keyEventFlag,
+    })
+    .from(ga4DailyEvents)
+    .where(
+      and(
+        eq(ga4DailyEvents.projectId, projectId),
+        eq(ga4DailyEvents.propertyId, propertyId),
+        gte(ga4DailyEvents.date, from),
+        lte(ga4DailyEvents.date, to),
+        ...(filter.keyEventsOnly ? [eq(ga4DailyEvents.isKeyEvent, true)] : []),
+        inArray(
+          ga4DailyEvents.date,
+          coveredDatesQuery(projectId, propertyId, "events", from, to),
+        ),
+      ),
+    )
+    .groupBy(ga4DailyEvents.eventName)
+    .orderBy(desc(eventCountSum))
+    .limit(filter.limit);
+  return rows.map((row) => ({
+    eventName: row.eventName,
+    eventCount: row.eventCount ?? 0,
+    isKeyEvent: (row.isKeyEvent ?? 0) === 1,
+  }));
+}
+
 export type Ga4GrainCoverage = {
   coveredDates: string[];
   coveredThrough: string | null;
@@ -941,5 +1004,6 @@ export const Ga4SyncRepository = {
   getDailySummarySeries,
   getAcquisitionGroups,
   getLandingGroups,
+  getEventGroups,
   getGrainCoverage,
 };

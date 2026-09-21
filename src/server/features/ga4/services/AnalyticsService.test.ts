@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getDailySummarySeries: vi.fn(),
   getAcquisitionGroups: vi.fn(),
   getLandingGroups: vi.fn(),
+  getEventGroups: vi.fn(),
   getGrainCoverage: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ vi.mock("@/server/features/ga4/repositories/Ga4SyncRepository", () => ({
     getDailySummarySeries: mocks.getDailySummarySeries,
     getAcquisitionGroups: mocks.getAcquisitionGroups,
     getLandingGroups: mocks.getLandingGroups,
+    getEventGroups: mocks.getEventGroups,
     getGrainCoverage: mocks.getGrainCoverage,
   },
   NEW_USERS_FOOTNOTE: "new_users footnote",
@@ -26,15 +28,13 @@ vi.mock("@/server/features/ga4/repositories/Ga4SyncRepository", () => ({
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
 
-import {
-  AnalyticsService,
-  resolveAnalyticsWindows,
-} from "./AnalyticsService";
+import { AnalyticsService, resolveAnalyticsWindows } from "./AnalyticsService";
 
 const BASE = { projectId: "p1", organizationId: "o1" };
 const CONNECTION = {
   propertyId: "properties/42",
   currencyCode: "USD",
+  hasEcommerce: true,
 };
 
 function summaryTotals(overrides: Record<string, number> = {}) {
@@ -428,5 +428,140 @@ describe("AnalyticsService.getLandingPages", () => {
       expect.anything(),
       { limit: 10 },
     );
+  });
+});
+
+describe("AnalyticsService.getEvents", () => {
+  it("returns not-connected when no connection row exists", async () => {
+    mocks.getConnection.mockResolvedValue(null);
+    const result = await AnalyticsService.getEvents({
+      ...BASE,
+      range: "last_7_days",
+      limit: 10,
+    });
+    expect(result).toEqual({ connected: false as const });
+    expect(mocks.getEventGroups).not.toHaveBeenCalled();
+  });
+
+  it("merges current/previous event rows with deltas", async () => {
+    mocks.getEventGroups
+      .mockResolvedValueOnce([
+        { eventName: "page_view", eventCount: 16, isKeyEvent: false },
+        { eventName: "purchase", eventCount: 4, isKeyEvent: true },
+      ])
+      .mockResolvedValueOnce([
+        { eventName: "page_view", eventCount: 8, isKeyEvent: false },
+      ]);
+
+    const result = await AnalyticsService.getEvents({
+      ...BASE,
+      range: "last_7_days",
+      limit: 10,
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0]).toMatchObject({
+      eventName: "page_view",
+      eventCount: { current: 16, previous: 8, change: 8, pctChange: 100 },
+    });
+    expect(result.rows[1].eventCount).toMatchObject({
+      current: 4,
+      previous: 0,
+      pctChange: null,
+    });
+  });
+
+  it("passes limit and keyEventsOnly=false to the repository", async () => {
+    mocks.getEventGroups.mockResolvedValue([]);
+    await AnalyticsService.getEvents({
+      ...BASE,
+      range: "last_7_days",
+      limit: 7,
+    });
+    expect(mocks.getEventGroups).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      { limit: 7, keyEventsOnly: false },
+    );
+  });
+});
+
+describe("AnalyticsService.getConversions", () => {
+  it("reads only key events and carries the deferred-goal note", async () => {
+    mocks.getEventGroups.mockResolvedValue([]);
+    const result = await AnalyticsService.getConversions({
+      ...BASE,
+      range: "last_7_days",
+      limit: 10,
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(mocks.getEventGroups).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      { limit: 10, keyEventsOnly: true },
+    );
+    expect(result.goalSelectionDeferredNote).toContain("deferred");
+  });
+});
+
+describe("AnalyticsService.getEcommerce", () => {
+  it("hides the section without the hasEcommerce capability", async () => {
+    mocks.getConnection.mockResolvedValue({
+      ...CONNECTION,
+      hasEcommerce: false,
+    });
+    const result = await AnalyticsService.getEcommerce({
+      ...BASE,
+      range: "last_7_days",
+    });
+    expect(result).toMatchObject({
+      connected: true,
+      available: false,
+    });
+    expect(mocks.getSummaryTotals).not.toHaveBeenCalled();
+  });
+
+  it("returns revenue deltas with currency passthrough when capable", async () => {
+    mocks.getSummaryTotals
+      .mockResolvedValueOnce(summaryTotals({ totalRevenue: 100 }))
+      .mockResolvedValueOnce(summaryTotals({ totalRevenue: 40 }));
+    const result = await AnalyticsService.getEcommerce({
+      ...BASE,
+      range: "last_7_days",
+    });
+    if (!result.connected || !result.available)
+      throw new Error("expected available result");
+    expect(result.totals.totalRevenue).toMatchObject({
+      current: 100,
+      previous: 40,
+    });
+    expect(result.currencyCode).toBe("USD");
+    expect(result.currencyNote).toContain("never converted");
+  });
+});
+
+describe("AnalyticsService.getAudience", () => {
+  it("returns newUsers deltas with deferral and distinct-users notes", async () => {
+    mocks.getSummaryTotals
+      .mockResolvedValueOnce(summaryTotals({ newUsers: 70 }))
+      .mockResolvedValueOnce(summaryTotals({ newUsers: 35 }));
+    const result = await AnalyticsService.getAudience({
+      ...BASE,
+      range: "last_7_days",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.totals.newUsers).toMatchObject({
+      current: 70,
+      previous: 35,
+      change: 35,
+    });
+    expect(result.newUsersFootnote).toBe("new_users footnote");
+    expect(result.geoTechDeferredNote).toContain("deferred");
+    expect(result.distinctUsersNote).toContain("never summed");
+    expect(result).not.toHaveProperty("totalUsers");
   });
 });

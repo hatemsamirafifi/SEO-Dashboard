@@ -6,6 +6,7 @@ import {
   NEW_USERS_FOOTNOTE,
   Ga4SyncRepository,
   type Ga4AcquisitionGroup,
+  type Ga4EventGroup,
   type Ga4GrainCoverage,
   type Ga4LandingGroup,
 } from "../repositories/Ga4SyncRepository";
@@ -572,9 +573,338 @@ function toLandingRow(
   };
 }
 
+export type AnalyticsEventRow = {
+  eventName: string;
+  isKeyEvent: boolean;
+  eventCount: MetricDelta;
+};
+
+export type AnalyticsEventsResult =
+  | { connected: false }
+  | {
+      connected: true;
+      propertyId: string;
+      filters: AnalyticsFilters;
+      windows: AnalyticsWindows;
+      coverage: AnalyticsCoverage;
+      rows: AnalyticsEventRow[];
+      reservedFilterNote: string | null;
+    };
+
+export type AnalyticsConversionsResult =
+  | { connected: false }
+  | {
+      connected: true;
+      propertyId: string;
+      filters: AnalyticsFilters;
+      windows: AnalyticsWindows;
+      coverage: AnalyticsCoverage;
+      rows: AnalyticsEventRow[];
+      goalSelectionDeferredNote: string;
+      reservedFilterNote: string | null;
+    };
+
+const GOAL_SELECTION_DEFERRED_NOTE =
+  "Conversions are a read-only key-event list; in-app goal selection is deferred.";
+
+function toEventRow(
+  current: Ga4EventGroup,
+  previousCount: number,
+): AnalyticsEventRow {
+  return {
+    eventName: current.eventName,
+    isKeyEvent: current.isKeyEvent,
+    eventCount: deltaOf(current.eventCount, previousCount),
+  };
+}
+
+async function getEventRows(input: {
+  projectId: string;
+  organizationId: string;
+  range: AnalyticsRange;
+  channel?: string;
+  device?: string;
+  country?: string;
+  limit: number;
+  keyEventsOnly: boolean;
+}): Promise<
+  | { connected: false }
+  | {
+      connected: true;
+      propertyId: string;
+      filters: AnalyticsFilters;
+      windows: AnalyticsWindows;
+      coverage: AnalyticsCoverage;
+      rows: AnalyticsEventRow[];
+      reservedFilterNote: string | null;
+    }
+> {
+  const connection = await requireConnection(
+    input.projectId,
+    input.organizationId,
+  );
+  if (!connection) return { connected: false };
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const windows = resolveAnalyticsWindows(input.range, todayIso);
+  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const [currentGroups, previousGroups, grainCoverage] = await Promise.all([
+    Ga4SyncRepository.getEventGroups(
+      input.projectId,
+      connection.propertyId,
+      windows.current.from,
+      windows.current.to,
+      { limit: input.limit, keyEventsOnly: input.keyEventsOnly },
+    ),
+    Ga4SyncRepository.getEventGroups(
+      input.projectId,
+      connection.propertyId,
+      windows.previous.from,
+      windows.previous.to,
+      { limit: input.limit, keyEventsOnly: input.keyEventsOnly },
+    ),
+    Ga4SyncRepository.getGrainCoverage(
+      input.projectId,
+      connection.propertyId,
+      "events",
+      windows.current.from,
+      windows.current.to,
+    ),
+  ]);
+
+  const previousByName = new Map(
+    previousGroups.map((group) => [group.eventName, group.eventCount]),
+  );
+  const seen = new Set<string>();
+  const rows: AnalyticsEventRow[] = currentGroups.map((group) => {
+    seen.add(group.eventName);
+    return toEventRow(group, previousByName.get(group.eventName) ?? 0);
+  });
+  for (const group of previousGroups) {
+    if (seen.has(group.eventName)) continue;
+    rows.push(
+      toEventRow(
+        { ...group, eventCount: 0, isKeyEvent: group.isKeyEvent },
+        group.eventCount,
+      ),
+    );
+  }
+
+  return {
+    connected: true,
+    propertyId: connection.propertyId,
+    filters: filtersOf(input),
+    windows,
+    coverage: toCoverage(grainCoverage, days),
+    rows,
+    reservedFilterNote: reservedFilterNoteFor(input),
+  };
+}
+
+async function getEvents(input: {
+  projectId: string;
+  organizationId: string;
+  range: AnalyticsRange;
+  channel?: string;
+  device?: string;
+  country?: string;
+  limit: number;
+}): Promise<AnalyticsEventsResult> {
+  return getEventRows({ ...input, keyEventsOnly: false });
+}
+
+async function getConversions(input: {
+  projectId: string;
+  organizationId: string;
+  range: AnalyticsRange;
+  channel?: string;
+  device?: string;
+  country?: string;
+  limit: number;
+}): Promise<AnalyticsConversionsResult> {
+  const result = await getEventRows({ ...input, keyEventsOnly: true });
+  if (!result.connected) return result;
+  return { ...result, goalSelectionDeferredNote: GOAL_SELECTION_DEFERRED_NOTE };
+}
+
+export type AnalyticsEcommerceResult =
+  | { connected: false }
+  | { connected: true; available: false; propertyId: string }
+  | {
+      connected: true;
+      available: true;
+      propertyId: string;
+      filters: AnalyticsFilters;
+      windows: AnalyticsWindows;
+      coverage: AnalyticsCoverage;
+      totals: {
+        totalRevenue: MetricDelta;
+        purchaseRevenue: MetricDelta;
+        transactions: MetricDelta;
+        addToCarts: MetricDelta;
+        checkouts: MetricDelta;
+      };
+      currencyCode: string | null;
+      currencyNote: string;
+      reservedFilterNote: string | null;
+    };
+
+async function getEcommerce(input: {
+  projectId: string;
+  organizationId: string;
+  range: AnalyticsRange;
+  channel?: string;
+  device?: string;
+  country?: string;
+}): Promise<AnalyticsEcommerceResult> {
+  const connection = await requireConnection(
+    input.projectId,
+    input.organizationId,
+  );
+  if (!connection) return { connected: false };
+  // Conditional section: hidden without the capability latch — never
+  // misleading zeros (§9.6). The latch is set by the sync engine on
+  // observed revenue.
+  if (!connection.hasEcommerce) {
+    return {
+      connected: true,
+      available: false,
+      propertyId: connection.propertyId,
+    };
+  }
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const windows = resolveAnalyticsWindows(input.range, todayIso);
+  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const [current, previous, grainCoverage] = await Promise.all([
+    Ga4SyncRepository.getSummaryTotals(
+      input.projectId,
+      connection.propertyId,
+      windows.current.from,
+      windows.current.to,
+      connection.currencyCode,
+    ),
+    Ga4SyncRepository.getSummaryTotals(
+      input.projectId,
+      connection.propertyId,
+      windows.previous.from,
+      windows.previous.to,
+      connection.currencyCode,
+    ),
+    Ga4SyncRepository.getGrainCoverage(
+      input.projectId,
+      connection.propertyId,
+      "summary",
+      windows.current.from,
+      windows.current.to,
+    ),
+  ]);
+
+  return {
+    connected: true,
+    available: true,
+    propertyId: connection.propertyId,
+    filters: filtersOf(input),
+    windows,
+    coverage: toCoverage(grainCoverage, days),
+    totals: {
+      totalRevenue: deltaOf(current.totalRevenue, previous.totalRevenue),
+      purchaseRevenue: deltaOf(
+        current.purchaseRevenue,
+        previous.purchaseRevenue,
+      ),
+      transactions: deltaOf(current.transactions, previous.transactions),
+      addToCarts: deltaOf(current.addToCarts, previous.addToCarts),
+      checkouts: deltaOf(current.checkouts, previous.checkouts),
+    },
+    currencyCode: connection.currencyCode,
+    currencyNote: currencyNoteFor(connection.currencyCode),
+    reservedFilterNote: reservedFilterNoteFor(input),
+  };
+}
+
+export type AnalyticsAudienceResult =
+  | { connected: false }
+  | {
+      connected: true;
+      propertyId: string;
+      filters: AnalyticsFilters;
+      windows: AnalyticsWindows;
+      coverage: AnalyticsCoverage;
+      totals: { newUsers: MetricDelta };
+      newUsersFootnote: string;
+      geoTechDeferredNote: string;
+      distinctUsersNote: string;
+      reservedFilterNote: string | null;
+    };
+
+const GEO_TECH_DEFERRED_NOTE =
+  "Device and country breakdowns are deferred: geo/technology tables ship after the MVP (final-plan §22). Totals reflect the full property.";
+const DISTINCT_USERS_NOTE =
+  "Total and active users are distinct counts and are never summed; exact period values come from the getPeriodUsers query.";
+
+async function getAudience(input: {
+  projectId: string;
+  organizationId: string;
+  range: AnalyticsRange;
+  channel?: string;
+  device?: string;
+  country?: string;
+}): Promise<AnalyticsAudienceResult> {
+  const connection = await requireConnection(
+    input.projectId,
+    input.organizationId,
+  );
+  if (!connection) return { connected: false };
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const windows = resolveAnalyticsWindows(input.range, todayIso);
+  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const [current, previous, grainCoverage] = await Promise.all([
+    Ga4SyncRepository.getSummaryTotals(
+      input.projectId,
+      connection.propertyId,
+      windows.current.from,
+      windows.current.to,
+      connection.currencyCode,
+    ),
+    Ga4SyncRepository.getSummaryTotals(
+      input.projectId,
+      connection.propertyId,
+      windows.previous.from,
+      windows.previous.to,
+      connection.currencyCode,
+    ),
+    Ga4SyncRepository.getGrainCoverage(
+      input.projectId,
+      connection.propertyId,
+      "summary",
+      windows.current.from,
+      windows.current.to,
+    ),
+  ]);
+
+  return {
+    connected: true,
+    propertyId: connection.propertyId,
+    filters: filtersOf(input),
+    windows,
+    coverage: toCoverage(grainCoverage, days),
+    totals: { newUsers: deltaOf(current.newUsers, previous.newUsers) },
+    newUsersFootnote: NEW_USERS_FOOTNOTE,
+    geoTechDeferredNote: GEO_TECH_DEFERRED_NOTE,
+    distinctUsersNote: DISTINCT_USERS_NOTE,
+    reservedFilterNote: reservedFilterNoteFor(input),
+  };
+}
+
 export const AnalyticsService = {
   getOverview,
   getAcquisition,
   getLandingPages,
+  getEvents,
+  getConversions,
+  getEcommerce,
+  getAudience,
   resolveAnalyticsWindows,
 };

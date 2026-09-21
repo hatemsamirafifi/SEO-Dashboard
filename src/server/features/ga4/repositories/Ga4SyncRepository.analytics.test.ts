@@ -171,6 +171,25 @@ function landingRow(
   };
 }
 
+function eventRow(
+  id: string,
+  date: string,
+  eventName: string,
+  eventCount: number,
+  isKeyEvent = false,
+) {
+  return {
+    id,
+    projectId: PROJECT,
+    propertyId: PROPERTY,
+    ga4ConnectionId: null,
+    date,
+    eventName,
+    eventCount,
+    isKeyEvent,
+  };
+}
+
 async function cover(
   date: string,
   grain: (typeof GA4_GRAINS)[number],
@@ -206,20 +225,38 @@ describe("Ga4SyncRepository analytics readers", () => {
     );
     // FAILED-coverage date excluded; ZERO_ROWS date contributes zero rows
     // (no stored facts) but is itself covered.
-    expect(series.map((row) => row.date)).toEqual([
-      "2025-01-01",
-      "2025-01-02",
-    ]);
+    expect(series.map((row) => row.date)).toEqual(["2025-01-01", "2025-01-02"]);
     expect(series[0]).toMatchObject({ sessions: 10, engagedSessions: 5 });
   });
 
   it("groups acquisition rows by channel/source/medium over covered dates only", async () => {
     await Ga4SyncRepository.upsertAcquisitionRows([
-      acquisitionRow("a1", "2025-01-01", "Organic Search", "google", "organic", 10),
-      acquisitionRow("a2", "2025-01-02", "Organic Search", "google", "organic", 6),
+      acquisitionRow(
+        "a1",
+        "2025-01-01",
+        "Organic Search",
+        "google",
+        "organic",
+        10,
+      ),
+      acquisitionRow(
+        "a2",
+        "2025-01-02",
+        "Organic Search",
+        "google",
+        "organic",
+        6,
+      ),
       acquisitionRow("a3", "2025-01-01", "Direct", "(direct)", "(none)", 4),
       // FAILED-coverage date: must not contribute.
-      acquisitionRow("a4", "2025-01-03", "Organic Search", "google", "organic", 100),
+      acquisitionRow(
+        "a4",
+        "2025-01-03",
+        "Organic Search",
+        "google",
+        "organic",
+        100,
+      ),
     ]);
     await cover("2025-01-01", "acquisition", "SUCCESS_WITH_DATA");
     await cover("2025-01-02", "acquisition", "SUCCESS_WITH_DATA");
@@ -250,7 +287,14 @@ describe("Ga4SyncRepository analytics readers", () => {
 
   it("filters acquisition groups by channel", async () => {
     await Ga4SyncRepository.upsertAcquisitionRows([
-      acquisitionRow("a1", "2025-01-01", "Organic Search", "google", "organic", 10),
+      acquisitionRow(
+        "a1",
+        "2025-01-01",
+        "Organic Search",
+        "google",
+        "organic",
+        10,
+      ),
       acquisitionRow("a2", "2025-01-01", "Direct", "(direct)", "(none)", 4),
     ]);
     await cover("2025-01-01", "acquisition", "SUCCESS_WITH_DATA");
@@ -316,5 +360,82 @@ describe("Ga4SyncRepository analytics readers", () => {
     );
     expect(coverage.coveredDates).toEqual([]);
     expect(coverage.coveredThrough).toBeNull();
+  });
+
+  it("groups events by name over covered dates only, ordered by count desc", async () => {
+    await Ga4SyncRepository.upsertEventRows([
+      eventRow("e1", "2025-01-01", "page_view", 10),
+      eventRow("e2", "2025-01-02", "page_view", 6),
+      eventRow("e3", "2025-01-01", "purchase", 4, true),
+      eventRow("e4", "2025-01-03", "page_view", 999),
+    ]);
+    await cover("2025-01-01", "events", "SUCCESS_WITH_DATA");
+    await cover("2025-01-02", "events", "SUCCESS_WITH_DATA");
+    await cover("2025-01-03", "events", "FAILED");
+
+    const groups = await Ga4SyncRepository.getEventGroups(
+      PROJECT,
+      PROPERTY,
+      "2025-01-01",
+      "2025-01-03",
+      { limit: 10 },
+    );
+    expect(groups).toEqual([
+      expect.objectContaining({
+        eventName: "page_view",
+        eventCount: 16,
+        isKeyEvent: false,
+      }),
+      expect.objectContaining({
+        eventName: "purchase",
+        eventCount: 4,
+        isKeyEvent: true,
+      }),
+    ]);
+  });
+
+  it("filters event groups to key events only and honors limit", async () => {
+    await Ga4SyncRepository.upsertEventRows([
+      eventRow("e1", "2025-01-01", "page_view", 50),
+      eventRow("e2", "2025-01-01", "purchase", 5, true),
+      eventRow("e3", "2025-01-01", "generate_lead", 15, true),
+    ]);
+    await cover("2025-01-01", "events", "SUCCESS_WITH_DATA");
+
+    const keyOnly = await Ga4SyncRepository.getEventGroups(
+      PROJECT,
+      PROPERTY,
+      "2025-01-01",
+      "2025-01-01",
+      { limit: 10, keyEventsOnly: true },
+    );
+    expect(keyOnly.map((row) => row.eventName)).toEqual([
+      "generate_lead",
+      "purchase",
+    ]);
+
+    const limited = await Ga4SyncRepository.getEventGroups(
+      PROJECT,
+      PROPERTY,
+      "2025-01-01",
+      "2025-01-01",
+      { limit: 1, keyEventsOnly: true },
+    );
+    expect(limited).toHaveLength(1);
+    expect(limited[0]).toMatchObject({ eventName: "generate_lead" });
+  });
+
+  it("returns no event rows when nothing is covered", async () => {
+    await Ga4SyncRepository.upsertEventRows([
+      eventRow("e1", "2025-01-01", "page_view", 10),
+    ]);
+    const groups = await Ga4SyncRepository.getEventGroups(
+      PROJECT,
+      PROPERTY,
+      "2025-01-01",
+      "2025-01-01",
+      { limit: 10 },
+    );
+    expect(groups).toEqual([]);
   });
 });
