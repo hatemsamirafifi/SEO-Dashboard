@@ -1,7 +1,7 @@
 import { FREE_MAX_AUDIT_PAGES } from "@/shared/audit-limits";
 import { isErrorCode, type ErrorCode } from "@/shared/error-codes";
 
-const STANDARD_MESSAGES: Record<ErrorCode, string> = {
+export const STANDARD_MESSAGES: Record<ErrorCode, string> = {
   UNAUTHENTICATED: "Please sign in and try again.",
   AUTH_CONFIG_MISSING:
     "OpenSEO auth is not configured. Follow the README setup steps for Cloudflare Access.",
@@ -26,8 +26,20 @@ const STANDARD_MESSAGES: Record<ErrorCode, string> = {
     "DataForSEO rejected the API key. Check that DATAFORSEO_API_KEY is the base64 of your DataForSEO login:password.",
   DATAFORSEO_ACCOUNT_PAUSED:
     "DataForSEO access is temporarily paused. Your credentials are valid and your account may have available balance, but DataForSEO has temporarily restricted API access as a security precaution. Contact DataForSEO support at support@dataforseo.com to reactivate the account.",
+  DATAFORSEO_ACCESS_PAUSED:
+    "DataForSEO access is temporarily paused. Your credentials are valid and your account may have available balance, but DataForSEO has temporarily restricted API access as a security precaution. Contact DataForSEO support at support@dataforseo.com to reactivate the account.",
+  CREDITS_UNAVAILABLE:
+    "Your DataForSEO balance is not sufficient for this request.",
+  INSUFFICIENT_FUNDS:
+    "Your DataForSEO balance is not sufficient for this request.",
   RATE_LIMITED: "Too many requests. Please wait and try again.",
+  COST_LIMIT_EXCEEDED:
+    "DataForSEO cost limit exceeded. Please wait or adjust your account limits.",
+  TOO_MANY_SIMULTANEOUS_QUERIES:
+    "Too many simultaneous DataForSEO queries. Please wait and try again.",
   UPSTREAM_UNAVAILABLE:
+    "The data provider is temporarily unavailable. Please retry in a moment.",
+  TRANSIENT_UPSTREAM:
     "The data provider is temporarily unavailable. Please retry in a moment.",
   CONFLICT: "This request conflicts with existing data.",
   INTERNAL_ERROR:

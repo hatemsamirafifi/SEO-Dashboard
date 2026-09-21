@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  getErrorCode,
-  getStandardErrorMessage,
-} from "@/client/lib/error-messages";
+import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { captureClientEvent } from "@/client/lib/posthog";
 import { LOCATIONS } from "@/client/features/keywords/utils";
 import { parseKeywordInput } from "@/client/features/keywords/state/keywordControllerActions";
 import { researchKeywords } from "@/serverFunctions/keywords";
 import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
+import { recordKeywordResearchTraceFailure } from "./keywordResearchTraceHelper";
 import type {
   KeywordMode,
   ResearchSource,
@@ -135,12 +133,7 @@ export async function keywordResearchQueryFn(request: KeywordResearchRequest) {
 
     return result;
   } catch (error) {
-    globalTraceStore.completeOperation(opId, {
-      status: "failed",
-      errorClass: getErrorCode(error) ?? "OPERATION_FAILED",
-      errorMessage:
-        error instanceof Error ? error.message : "Keyword research failed",
-    });
+    recordKeywordResearchTraceFailure(opId, error, request);
     throw error;
   }
 }

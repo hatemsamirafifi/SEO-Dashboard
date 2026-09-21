@@ -22,12 +22,16 @@ export function DataforseoTestAlert({
 }: {
   result: DataforseoConnectionTestResult;
 }) {
+  const isPaused =
+    result.reason === "DATAFORSEO_ACCESS_PAUSED" ||
+    result.reason === "DATAFORSEO_ACCOUNT_PAUSED";
+
   return (
     <div
       className={`flex items-start gap-2.5 rounded-lg border p-3 text-xs leading-relaxed ${
         result.ok
           ? "border-success/30 bg-success/10 text-success"
-          : result.reason === "CREDITS_UNAVAILABLE"
+          : result.reason === "CREDITS_UNAVAILABLE" || isPaused
             ? "border-warning/30 bg-warning/10 text-warning"
             : "border-error/30 bg-error/10 text-error"
       }`}
@@ -37,16 +41,32 @@ export function DataforseoTestAlert({
       ) : (
         <AlertTriangle className="size-4 shrink-0 mt-0.5" />
       )}
-      <div className="flex-1">
+      <div className="flex-1 space-y-1">
         <span className="font-semibold block">
           {result.ok
             ? "Connection verified"
-            : result.reason === "CREDITS_UNAVAILABLE"
-              ? "Credits unavailable (HTTP 402)"
-              : result.reason === "INVALID_CREDENTIALS"
-                ? "Authentication failed (HTTP 401)"
-                : `Connection error: ${result.reason}`}
+            : isPaused
+              ? "DataForSEO access paused (HTTP 200 / 40201)"
+              : result.reason === "CREDITS_UNAVAILABLE"
+                ? "Credits unavailable (HTTP 402)"
+                : result.reason === "INVALID_CREDENTIALS"
+                  ? "Authentication failed (HTTP 401)"
+                  : `Connection error: ${result.reason}`}
         </span>
+        {isPaused && (
+          <p className="text-base-content/80">
+            API Health = Operational does NOT mean account access is active.
+            DataForSEO has temporarily restricted API access as a security
+            precaution. Contact DataForSEO support at{" "}
+            <a
+              href="mailto:support@dataforseo.com?subject=Reactivate%20DataForSEO%20API%20Access"
+              className="underline font-medium hover:text-primary"
+            >
+              support@dataforseo.com
+            </a>{" "}
+            to reactivate access.
+          </p>
+        )}
         {result.balance !== null && result.balance !== undefined && (
           <p className="mt-0.5">
             Account balance: ${result.balance.toFixed(2)} USD

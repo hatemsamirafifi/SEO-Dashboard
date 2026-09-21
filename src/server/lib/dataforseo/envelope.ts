@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AppError } from "@/server/lib/errors";
+import type { ErrorCode } from "@/shared/error-codes";
 import type { DataforseoErrorClassifier } from "@/server/lib/dataforseo/core";
 import {
   attachDataforseoDiagnostics,
@@ -205,6 +206,44 @@ export function isDataforseoAccountPaused(
   return msg.includes("unusual activity") && msg.includes("paused access");
 }
 
+export function findDataforseoAccountPausedItem(
+  response: DataforseoResponseLike<DataforseoTaskLike> | null | undefined,
+): { status_code?: number; status_message?: string; path?: string[] } | null {
+  if (!response) return null;
+  if (isDataforseoAccountPaused(response)) return response;
+  if (Array.isArray(response.tasks)) {
+    const found = response.tasks.find((t) => isDataforseoAccountPaused(t));
+    if (found) return found;
+  }
+  const singleTask = (response as { task?: DataforseoTaskLike }).task;
+  if (singleTask && isDataforseoAccountPaused(singleTask)) return singleTask;
+  return null;
+}
+
+export function defaultClassifyDataforseoTask(
+  statusCode: number | undefined,
+  message: string,
+): ErrorCode | null {
+  if (statusCode === 40201) return "DATAFORSEO_ACCESS_PAUSED";
+  if (statusCode === 40200) return "CREDITS_UNAVAILABLE";
+  if (statusCode === 40210) return "INSUFFICIENT_FUNDS";
+  if (statusCode === 40202) return "RATE_LIMITED";
+  if (statusCode === 40203) return "COST_LIMIT_EXCEEDED";
+  if (statusCode === 40209) return "TOO_MANY_SIMULTANEOUS_QUERIES";
+  if (
+    typeof statusCode === "number" &&
+    statusCode >= 50000 &&
+    statusCode < 60000
+  ) {
+    return "TRANSIENT_UPSTREAM";
+  }
+  const lower = message.toLowerCase();
+  if (lower.includes("unusual activity") && lower.includes("paused access")) {
+    return "DATAFORSEO_ACCESS_PAUSED";
+  }
+  return null;
+}
+
 export function assertOk<T extends DataforseoTaskLike>(
   response: DataforseoResponseLike<T> | null,
   options: AssertOkOptions = {},
@@ -217,19 +256,43 @@ export function assertOk<T extends DataforseoTaskLike>(
   }
   const { classify, classifyPath, treatNoResultsAsEmpty } = options;
 
+  // First check if any part of the response (top-level or tasks) signals access paused
+  const pausedItem = findDataforseoAccountPausedItem(response);
+  if (pausedItem) {
+    const message =
+      pausedItem.status_message ||
+      response.status_message ||
+      "DataForSEO access is temporarily paused";
+    const path = appFailurePath(
+      classifyPath,
+      pausedItem.path ? `/${pausedItem.path.join("/")}` : undefined,
+    );
+    const pausedError = new AppError("DATAFORSEO_ACCESS_PAUSED", message, {
+      provider: "DataForSEO",
+      providerStatusCode: String(pausedItem.status_code ?? response.status_code ?? 40201),
+      providerStatusMessage: message,
+      errorClass: "DATAFORSEO_ACCESS_PAUSED",
+    });
+    attachDataforseoDiagnostics(
+      pausedError,
+      appFailureDiagnostics(
+        path,
+        pausedItem.status_code ?? response.status_code,
+        message,
+        pausedItem as DataforseoTaskLike,
+      ),
+    );
+    throw pausedError;
+  }
+
   if (response.status_code !== 20000) {
     const message = response.status_message || "DataForSEO request failed";
     const path = classifyPath ?? "";
 
-    if (isDataforseoAccountPaused(response)) {
-      const pausedError = new AppError("DATAFORSEO_ACCOUNT_PAUSED", message, {
-        provider: "DataForSEO",
-        providerStatusCode: String(response.status_code ?? 40201),
-        providerStatusMessage: message,
-        errorClass: "DATAFORSEO_ACCOUNT_PAUSED",
-      });
+    const classifiedByOption = classify?.(response.status_code, message, path);
+    if (classifiedByOption) {
       attachDataforseoDiagnostics(
-        pausedError,
+        classifiedByOption,
         appFailureDiagnostics(
           path,
           response.status_code,
@@ -237,12 +300,33 @@ export function assertOk<T extends DataforseoTaskLike>(
           null,
         ),
       );
-      throw pausedError;
+      throw classifiedByOption;
     }
 
-    const error =
-      classify?.(response.status_code, message, path) ??
-      new AppError("INTERNAL_ERROR", message);
+    const defaultCode = defaultClassifyDataforseoTask(
+      response.status_code,
+      message,
+    );
+    if (defaultCode) {
+      const defaultError = new AppError(defaultCode, message, {
+        provider: "DataForSEO",
+        providerStatusCode: String(response.status_code ?? ""),
+        providerStatusMessage: message,
+        errorClass: defaultCode,
+      });
+      attachDataforseoDiagnostics(
+        defaultError,
+        appFailureDiagnostics(
+          path,
+          response.status_code,
+          response.status_message,
+          null,
+        ),
+      );
+      throw defaultError;
+    }
+
+    const error = new AppError("INTERNAL_ERROR", message);
     attachDataforseoDiagnostics(
       error,
       appFailureDiagnostics(
@@ -269,25 +353,6 @@ export function assertOk<T extends DataforseoTaskLike>(
       task.path ? `/${task.path.join("/")}` : undefined,
     );
 
-    if (isDataforseoAccountPaused(task)) {
-      const pausedError = new AppError("DATAFORSEO_ACCOUNT_PAUSED", message, {
-        provider: "DataForSEO",
-        providerStatusCode: String(task.status_code ?? 40201),
-        providerStatusMessage: message,
-        errorClass: "DATAFORSEO_ACCOUNT_PAUSED",
-      });
-      attachDataforseoDiagnostics(
-        pausedError,
-        appFailureDiagnostics(
-          path,
-          task.status_code,
-          task.status_message,
-          task,
-        ),
-      );
-      throw pausedError;
-    }
-
     const error = classify?.(task.status_code, message, path ?? "");
     if (error) {
       attachDataforseoDiagnostics(
@@ -300,6 +365,29 @@ export function assertOk<T extends DataforseoTaskLike>(
         ),
       );
       throw error;
+    }
+
+    const defaultCode = defaultClassifyDataforseoTask(
+      task.status_code,
+      message,
+    );
+    if (defaultCode) {
+      const defaultError = new AppError(defaultCode, message, {
+        provider: "DataForSEO",
+        providerStatusCode: String(task.status_code ?? ""),
+        providerStatusMessage: message,
+        errorClass: defaultCode,
+      });
+      attachDataforseoDiagnostics(
+        defaultError,
+        appFailureDiagnostics(
+          path,
+          task.status_code,
+          task.status_message,
+          task,
+        ),
+      );
+      throw defaultError;
     }
 
     const detailedMessage = describeInvalidField(message, task);
