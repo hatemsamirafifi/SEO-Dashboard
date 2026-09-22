@@ -179,6 +179,8 @@ function isValidTransition(
 ): boolean {
   if (toStatus === "failed") return true;
   if (fromStatus === "failed") return false;
+  // Idempotent re-entry (resume re-asserts the detecting stage).
+  if (fromStage === toStage && fromStatus === toStatus) return true;
   if (toStatus === "partial") {
     return fromStage === "composing" && toStage === "composing";
   }

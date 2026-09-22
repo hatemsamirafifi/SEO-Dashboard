@@ -1,0 +1,468 @@
+import { waitUntil } from "cloudflare:workers";
+import { captureServerEvent } from "@/server/lib/posthog";
+import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
+import { THRESHOLD_VERSION } from "@/shared/intelligence-thresholds";
+import { buildFindingKey, type Finding } from "@/shared/intelligence";
+import {
+  ArtifactError,
+  ArtifactStore,
+  FINDINGS_SCHEMA_VERSION,
+} from "../repositories/ArtifactStore";
+import {
+  ScanLedgerRepository,
+  type IntelligenceRunRow,
+} from "../repositories/ScanLedgerRepository";
+import type { DetectorContext, DetectorDef } from "../detectors/types";
+import { defaultThresholdsFor } from "@/shared/intelligence-thresholds";
+import { listDetectors } from "../detectors/registry";
+import {
+  SourceTokens,
+  describeActiveMutations,
+  hasActiveMutations,
+  hashSourceState,
+  type DetectionSourceState,
+} from "./SourceTokens";
+
+/**
+ * Stage-1 detection service (final-plan §6). Owns the source-consistency
+ * gate, single-shot detection, artifact freeze, and the park at
+ * `materializing`. Stages 2–3 (materialize/compose) arrive in Tasks 8/11 and
+ * read the frozen artifact only — never source repositories.
+ */
+
+export const DETECTION_MAX_RETRIES = 2;
+export const SCAN_FLOOR_MS = 4 * 60 * 60 * 1000;
+export const SCAN_FORCE_MS = 24 * 60 * 60 * 1000;
+export const MANUAL_SCAN_LIMIT_MS = 15 * 60 * 1000;
+
+export type TriggeredBy = "cron" | "manual";
+
+export type ScanOutcome =
+  | {
+      ok: true;
+      run: IntelligenceRunRow;
+      inputHash: string;
+      findingsCount: number;
+    }
+  | { ok: false; deferred: "active_mutation"; active: string[] }
+  | { ok: false; deferred: false; run: IntelligenceRunRow };
+
+export type ManualScanOutcome =
+  | ScanOutcome
+  | { ok: false; rateLimited: true; retryAfterMs: number };
+
+/** Fetches one detector's pre-fetched input. Detector-specific fetchers
+ *  land with the detectors (Task 7); Stage 1 never reads source tables
+ *  itself. */
+export type DetectorInputFetcher = (
+  detectorKey: string,
+  ctx: DetectorContext,
+) => Promise<unknown>;
+
+function shortHash(hash: string): string {
+  return hash.slice(0, 8);
+}
+
+function captureIntelligenceEvent(input: {
+  event: string;
+  projectId: string;
+  organizationId: string;
+  actorUserId?: string;
+  properties?: Record<string, unknown>;
+}): void {
+  waitUntil(
+    captureServerEvent({
+      distinctId: input.actorUserId ?? input.organizationId,
+      event: input.event,
+      organizationId: input.organizationId,
+      properties: { project_id: input.projectId, ...input.properties },
+    }),
+  );
+}
+
+function versionsEqual(
+  first: DetectionSourceState,
+  second: DetectionSourceState,
+): boolean {
+  const keys = ["gsc", "ga4", "rank", "audit", "backlinks"] as const;
+  if (first.thresholdVersion !== second.thresholdVersion) return false;
+  if (first.sourceSet.join(",") !== second.sourceSet.join(",")) return false;
+  const firstDetectors = Object.entries(first.detectorVersions).sort();
+  const secondDetectors = Object.entries(second.detectorVersions).sort();
+  if (JSON.stringify(firstDetectors) !== JSON.stringify(secondDetectors)) {
+    return false;
+  }
+  return keys.every((key) => first.versions[key] === second.versions[key]);
+}
+
+function changedSources(
+  before: DetectionSourceState,
+  after: DetectionSourceState,
+): string[] {
+  const changed: string[] = [];
+  const keys = ["gsc", "ga4", "rank", "audit", "backlinks"] as const;
+  for (const key of keys) {
+    if (before.versions[key] !== after.versions[key]) changed.push(key);
+  }
+  if (before.sourceSet.join(",") !== after.sourceSet.join(",")) {
+    changed.push("sourceSet");
+  }
+  return changed;
+}
+
+export type DetectionAttemptMeta = {
+  attempt: number;
+  beforeHash8: string;
+  afterHash8: string | null;
+  changedSources: string[];
+  activeReasons: string[];
+};
+
+/**
+ * Runs every registered detector with version-level source gating. A
+ * detector whose required source has no committed version (null =
+ * unconnected/no valid mutation) is SKIPPED with reason — never fed empty
+ * input as if it were data. Finer FAILED-grain gating is detector-specific
+ * and arrives with the detectors (Task 7).
+ */
+export async function runDetectionStage(input: {
+  projectId: string;
+  organizationId: string;
+  runId: string;
+  state: DetectionSourceState;
+  detectors?: DetectorDef[];
+  fetchInput?: DetectorInputFetcher;
+}): Promise<Finding[]> {
+  const detectors = input.detectors ?? listDetectors();
+  const findings: Finding[] = [];
+  const detectedAt = new Date().toISOString();
+
+  for (const detector of detectors) {
+    const missing = detector.requiredSources.filter(
+      (source) => input.state.versions[source] === null,
+    );
+    if (missing.length > 0) {
+      await ScanLedgerRepository.recordDetectorOutcome({
+        runId: input.runId,
+        detectorKey: detector.detectorKey,
+        status: "skipped",
+        skipReason: `required source has no committed version: ${missing.join(",")}`,
+      });
+      continue;
+    }
+    const ctx: DetectorContext = {
+      projectId: input.projectId,
+      organizationId: input.organizationId,
+      periodFrom: "",
+      periodTo: "",
+      thresholds: defaultThresholdsFor(detector.detectorKey),
+      thresholdVersion: THRESHOLD_VERSION,
+    };
+    try {
+      const detectorInput = input.fetchInput
+        ? await input.fetchInput(detector.detectorKey, ctx)
+        : null;
+      if (detectorInput === null) {
+        await ScanLedgerRepository.recordDetectorOutcome({
+          runId: input.runId,
+          detectorKey: detector.detectorKey,
+          status: "skipped",
+          skipReason: "no input fetcher registered for detector",
+        });
+        continue;
+      }
+      const drafts = detector.detect(ctx, detectorInput);
+      for (const draft of drafts) {
+        findings.push({
+          findingKey: await buildFindingKey({
+            projectId: input.projectId,
+            detectorKey: detector.detectorKey,
+            detectorVersion: detector.version,
+            entityKey: draft.entityKey,
+            periodFrom: draft.evidence.periods?.from ?? "",
+            periodTo: draft.evidence.periods?.to ?? "",
+          }),
+          detectorKey: detector.detectorKey,
+          detectorVersion: detector.version,
+          projectId: input.projectId,
+          entityKey: draft.entityKey,
+          entity: draft.entity,
+          evidence: draft.evidence,
+          detectedAt: draft.detectedAt || detectedAt,
+          confidenceScore: draft.confidenceScore,
+          coverageFlags: draft.coverageFlags,
+        });
+      }
+      await ScanLedgerRepository.recordDetectorOutcome({
+        runId: input.runId,
+        detectorKey: detector.detectorKey,
+        status: "completed",
+        findingsCount: drafts.length,
+      });
+    } catch (error) {
+      await ScanLedgerRepository.recordDetectorOutcome({
+        runId: input.runId,
+        detectorKey: detector.detectorKey,
+        status: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return findings;
+}
+
+async function executeDetection(input: {
+  projectId: string;
+  organizationId: string;
+  run: IntelligenceRunRow;
+  before: DetectionSourceState;
+  actorUserId?: string;
+  fetchInput?: DetectorInputFetcher;
+}): Promise<ScanOutcome> {
+  const attemptMeta: DetectionAttemptMeta[] = [];
+  let accepted: DetectionSourceState | null = null;
+  let findings: Finding[] = [];
+
+  await ScanLedgerRepository.transitionStage({
+    id: input.run.id,
+    toStage: "detecting",
+    toStatus: "detecting",
+  });
+
+  for (let attempt = 0; attempt <= DETECTION_MAX_RETRIES; attempt += 1) {
+    const beforeHash = await hashSourceState(input.before);
+    const stageFindings = await runDetectionStage({
+      projectId: input.projectId,
+      organizationId: input.organizationId,
+      runId: input.run.id,
+      state: input.before,
+      fetchInput: input.fetchInput,
+    });
+    const after = await SourceTokens.assembleDetectionSourceState(
+      input.projectId,
+    );
+    const afterHash = await hashSourceState(after);
+    attemptMeta.push({
+      attempt,
+      beforeHash8: shortHash(beforeHash),
+      afterHash8: shortHash(afterHash),
+      changedSources: changedSources(input.before, after),
+      activeReasons: describeActiveMutations(after),
+    });
+    if (versionsEqual(input.before, after)) {
+      accepted = after;
+      findings = stageFindings;
+      break;
+    }
+    console.log(
+      `[intelligence:scan] detection_retry project ${input.projectId} ` +
+        `attempt=${attempt} H_before8=${shortHash(beforeHash)} ` +
+        `H_after8=${shortHash(afterHash)} ` +
+        `changed=${changedSources(input.before, after).join(",") || "none"} ` +
+        `active=${describeActiveMutations(after).join(";") || "none"}`,
+    );
+    captureIntelligenceEvent({
+      event: "intelligence:detection_retry",
+      projectId: input.projectId,
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      properties: { attempt },
+    });
+    if (attempt < DETECTION_MAX_RETRIES) {
+      // Re-detect against the fresh state: nothing is frozen yet, so no
+      // artifact bytes exist to preserve. The loop re-reads versions via the
+      // next iteration's `after` comparison base.
+      input.before = after;
+    }
+  }
+
+  if (!accepted) {
+    const failed = await ScanLedgerRepository.failRun(input.run.id, {
+      error: `SOURCE_CHANGED_DURING_DETECTION: sources kept changing across ${DETECTION_MAX_RETRIES + 1} attempts`,
+      errorClass: "SOURCE_CHANGED_DURING_DETECTION",
+      errorStage: "detecting",
+    });
+    captureIntelligenceEvent({
+      event: "intelligence:detection_unstable",
+      projectId: input.projectId,
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+    });
+    return { ok: false, deferred: false, run: failed };
+  }
+
+  const inputHash = await hashSourceState(accepted);
+  let pointers;
+  try {
+    pointers = await ArtifactStore.writeArtifact({
+      projectId: input.projectId,
+      runId: input.run.id,
+      findings,
+      inputHash,
+      inputSourceVersions: accepted.versions,
+      detectorVersions: accepted.detectorVersions,
+      thresholdVersion: accepted.thresholdVersion,
+    });
+  } catch (error) {
+    const errorClass =
+      error instanceof ArtifactError ? error.errorClass : "ARTIFACT_CORRUPT";
+    const failed = await ScanLedgerRepository.failRun(input.run.id, {
+      error: `${errorClass}: ${error instanceof Error ? error.message : String(error)}`,
+      errorClass,
+      errorStage: "detecting",
+    });
+    captureIntelligenceEvent({
+      event: "intelligence:artifact_corrupt",
+      projectId: input.projectId,
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      properties: { error_class: errorClass },
+    });
+    return { ok: false, deferred: false, run: failed };
+  }
+
+  const parked = await ScanLedgerRepository.commitStageOnePointer({
+    id: input.run.id,
+    inputHash,
+    inputSourceVersionsJson: JSON.stringify(accepted.versions),
+    detectorVersionsJson: JSON.stringify(accepted.detectorVersions),
+    thresholdVersion: accepted.thresholdVersion,
+    manifestKey: pointers.manifestKey,
+    manifestHash: pointers.manifestHash,
+    findingsSchemaVersion: FINDINGS_SCHEMA_VERSION,
+    findingsCount: pointers.findingsCount,
+    detectionAttemptMetaJson: JSON.stringify(attemptMeta),
+  });
+  console.log(
+    `[intelligence:scan] detected project ${input.projectId} ` +
+      `run=${input.run.id} H8=${shortHash(inputHash)} ` +
+      `findings=${pointers.findingsCount} stage=materializing`,
+  );
+  captureIntelligenceEvent({
+    event: "intelligence:scan",
+    projectId: input.projectId,
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    properties: {
+      findings_count: pointers.findingsCount,
+      input_hash8: shortHash(inputHash),
+    },
+  });
+  return {
+    ok: true,
+    run: parked,
+    inputHash,
+    findingsCount: pointers.findingsCount,
+  };
+}
+
+export async function runScan(input: {
+  projectId: string;
+  organizationId: string;
+  triggeredBy: TriggeredBy;
+  actorUserId?: string;
+  fetchInput?: DetectorInputFetcher;
+}): Promise<ScanOutcome> {
+  const before = await SourceTokens.assembleDetectionSourceState(
+    input.projectId,
+  );
+  if (input.triggeredBy === "cron" && hasActiveMutations(before)) {
+    const active = describeActiveMutations(before);
+    console.log(
+      `[intelligence:scan] deferred_active_mutation project ${input.projectId} ` +
+        `active=${active.join(";")}`,
+    );
+    return { ok: false, deferred: "active_mutation", active };
+  }
+  const run = await ScanLedgerRepository.createRun({
+    projectId: input.projectId,
+    organizationId: input.organizationId,
+    triggeredBy: input.triggeredBy,
+  });
+  return executeDetection({
+    projectId: input.projectId,
+    organizationId: input.organizationId,
+    run,
+    before,
+    actorUserId: input.actorUserId,
+    fetchInput: input.fetchInput,
+  });
+}
+
+/**
+ * Resume a crashed run. Detecting without a manifest pointer means nothing
+ * froze: re-run detection on the existing row. Materializing/composing runs
+ * are parked for their stage owners (Tasks 8/11) — resume returns deferred
+ * WITHOUT re-detecting frozen bytes. Terminal runs are not resumed.
+ */
+export async function resumeScan(
+  runId: string,
+  options?: { fetchInput?: DetectorInputFetcher },
+): Promise<
+  | ScanOutcome
+  | { ok: false; deferred: true; reason: string; stage: string }
+> {
+  const run = await ScanLedgerRepository.getRun(runId);
+  if (!run) throw new Error(`Intelligence run not found: ${runId}`);
+  if (
+    run.status === "completed" ||
+    run.status === "partial" ||
+    run.status === "failed"
+  ) {
+    return { ok: false, deferred: true, reason: "terminal", stage: run.status };
+  }
+  if (run.manifestKey !== null) {
+    return {
+      ok: false,
+      deferred: true,
+      reason: "frozen_artifact_owned_by_stage",
+      stage: run.currentStage,
+    };
+  }
+  const owner = await ProjectRepository.getProjectById(run.projectId);
+  if (!owner) throw new Error(`Project not found: ${run.projectId}`);
+  const before = await SourceTokens.assembleDetectionSourceState(run.projectId);
+  return executeDetection({
+    projectId: run.projectId,
+    organizationId: owner.organizationId,
+    run,
+    before,
+    fetchInput: options?.fetchInput,
+  });
+}
+
+/** Manual refresh bypasses `changed` but honors 1 per 15 min per project. */
+export async function triggerManualScan(input: {
+  projectId: string;
+  organizationId: string;
+  actorUserId: string;
+  fetchInput?: DetectorInputFetcher;
+}): Promise<ManualScanOutcome> {
+  const latest = await ScanLedgerRepository.getLatestRun(input.projectId);
+  if (
+    latest &&
+    latest.triggeredBy === "manual" &&
+    Date.parse(latest.startedAt) > Date.now() - MANUAL_SCAN_LIMIT_MS
+  ) {
+    return {
+      ok: false,
+      rateLimited: true,
+      retryAfterMs:
+        MANUAL_SCAN_LIMIT_MS - (Date.now() - Date.parse(latest.startedAt)),
+    };
+  }
+  return runScan({
+    projectId: input.projectId,
+    organizationId: input.organizationId,
+    triggeredBy: "manual",
+    actorUserId: input.actorUserId,
+    fetchInput: input.fetchInput,
+  });
+}
+
+export const FindingService = {
+  runScan,
+  resumeScan,
+  triggerManualScan,
+  runDetectionStage,
+};

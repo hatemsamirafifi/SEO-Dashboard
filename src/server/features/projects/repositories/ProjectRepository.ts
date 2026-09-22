@@ -57,6 +57,20 @@ async function getProjectById(projectId: string) {
   return project ?? null;
 }
 
+// All unarchived projects across organizations. Only for trusted server
+// contexts with no user to scope by — e.g. the intelligence cron, which
+// authorizes nothing per-project but only reads scan-ledger state and
+// project ids it then scans idempotently.
+async function listUnarchivedProjects() {
+  return db
+    .select({
+      projectId: projects.id,
+      organizationId: projects.organizationId,
+    })
+    .from(projects)
+    .where(isNull(projects.archivedAt));
+}
+
 async function createProject(
   organizationId: string,
   name: string,
@@ -220,6 +234,7 @@ export const ProjectRepository = {
   countProjects,
   getProjectForOrganization,
   getProjectById,
+  listUnarchivedProjects,
   createProject,
   updateProject,
   updateProjectDomain,
