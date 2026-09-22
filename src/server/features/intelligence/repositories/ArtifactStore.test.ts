@@ -12,8 +12,7 @@ vi.mock("cloudflare:workers", () => ({
         if (body === undefined) return null;
         return { text: async () => body };
       },
-      head: async (key: string) =>
-        r2.objects.has(key) ? { key } : null,
+      head: async (key: string) => (r2.objects.has(key) ? { key } : null),
       put: async (key: string, body: string) => {
         r2.objects.set(key, body);
       },
@@ -21,7 +20,7 @@ vi.mock("cloudflare:workers", () => ({
   },
 }));
 
-import { FINDINGS_PER_CHUNK, ArtifactError, ArtifactStore } from "./ArtifactStore";
+import { FINDINGS_PER_CHUNK, ArtifactStore } from "./ArtifactStore";
 import type { Finding } from "@/shared/intelligence";
 
 function finding(overrides: Partial<Finding> = {}): Finding {
@@ -64,11 +63,16 @@ beforeEach(() => {
 
 describe("ArtifactStore", () => {
   it("round-trips an empty finding set as a valid empty artifact", async () => {
-    const pointers = await ArtifactStore.writeArtifact({ ...BASE, findings: [] });
+    const pointers = await ArtifactStore.writeArtifact({
+      ...BASE,
+      findings: [],
+    });
     expect(pointers.findingsCount).toBe(0);
     expect(pointers.chunkKeys).toEqual([]);
     expect(pointers.manifestHash).toHaveLength(64);
-    expect(pointers.manifestKey).toContain(`manifest-${pointers.manifestHash}.json`);
+    expect(pointers.manifestKey).toContain(
+      `manifest-${pointers.manifestHash}.json`,
+    );
 
     const loaded = await ArtifactStore.loadArtifact(
       pointers.manifestKey,
@@ -183,9 +187,8 @@ describe("ArtifactStore", () => {
   });
 
   it("fails loads when a chunk holds an invalid finding", async () => {
-    const { canonicalJson, sha256HexFull, stableHash } = await import(
-      "@/shared/intelligence"
-    );
+    const { canonicalJson, sha256HexFull, stableHash } =
+      await import("@/shared/intelligence");
     const pointers = await ArtifactStore.writeArtifact({
       ...BASE,
       findings: [finding()],
@@ -198,14 +201,29 @@ describe("ArtifactStore", () => {
     r2.objects.set(chunkKey, tampered);
     const manifestText = r2.objects.get(pointers.manifestKey);
     if (!manifestText) throw new Error("expected a manifest");
-    const manifest = JSON.parse(manifestText) as {
-      artifactHash: string;
-      chunks: Array<{ chunkHash: string }>;
-    };
-    const chunk = manifest.chunks[0];
-    if (!chunk) throw new Error("expected a manifest chunk");
+    const manifest: unknown = JSON.parse(manifestText);
+    if (
+      typeof manifest !== "object" ||
+      manifest === null ||
+      !("chunks" in manifest) ||
+      !Array.isArray(manifest.chunks) ||
+      !("artifactHash" in manifest) ||
+      typeof manifest.artifactHash !== "string"
+    ) {
+      throw new Error("expected a manifest object");
+    }
+    const chunk: unknown = manifest.chunks[0];
+    if (
+      typeof chunk !== "object" ||
+      chunk === null ||
+      !("chunkHash" in chunk) ||
+      typeof chunk.chunkHash !== "string"
+    ) {
+      throw new Error("expected a manifest chunk");
+    }
     chunk.chunkHash = await sha256HexFull(tampered);
-    const { artifactHash: _embedded, ...withoutHash } = manifest;
+    const withoutHash: Record<string, unknown> = { ...manifest };
+    delete withoutHash.artifactHash;
     const nextHash = await stableHash(withoutHash);
     const nextKey = pointers.manifestKey.replace(
       pointers.manifestHash,

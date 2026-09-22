@@ -42,6 +42,7 @@ vi.mock("@/server/lib/posthog", () => ({
 import { runScheduledIntelligenceScan } from "./scheduledIntelligenceScan";
 import { FindingService } from "./FindingService";
 import { ScanLedgerRepository } from "../repositories/ScanLedgerRepository";
+import { runRowFixture } from "../intelligenceTestFixtures";
 import { SourceTokens } from "./SourceTokens";
 import type { DetectionSourceState } from "./SourceTokens";
 
@@ -49,7 +50,13 @@ function state(
   overrides: Partial<DetectionSourceState> = {},
 ): DetectionSourceState {
   return {
-    versions: { gsc: null, ga4: null, rank: null, audit: null, backlinks: null },
+    versions: {
+      gsc: null,
+      ga4: null,
+      rank: null,
+      audit: null,
+      backlinks: null,
+    },
     sourceSet: [],
     detectorVersions: {},
     thresholdVersion: 1,
@@ -111,9 +118,12 @@ describe("runScheduledIntelligenceScan", () => {
     vi.spyOn(SourceTokens, "assembleDetectionSourceState").mockResolvedValue(
       state(),
     );
-    const runScan = vi
-      .spyOn(FindingService, "runScan")
-      .mockResolvedValue({ ok: true, run: {}, inputHash: "x", findingsCount: 0 } as never);
+    const runScan = vi.spyOn(FindingService, "runScan").mockResolvedValue({
+      ok: true,
+      run: runRowFixture(),
+      inputHash: "x",
+      findingsCount: 0,
+    });
 
     await runScheduledIntelligenceScan();
 
@@ -142,9 +152,7 @@ describe("runScheduledIntelligenceScan", () => {
     await runScheduledIntelligenceScan();
 
     expect(runScan).not.toHaveBeenCalled();
-    expect(
-      await ScanLedgerRepository.getLatestRun("project-1"),
-    ).toBeNull();
+    expect(await ScanLedgerRepository.getLatestRun("project-1")).toBeNull();
   });
 
   it("skips unchanged sources inside the 4h floor, scans after it", async () => {
@@ -189,7 +197,9 @@ describe("runScheduledIntelligenceScan", () => {
 
     // Backdate completion beyond the floor: unchanged sources still skip
     // unless forced; force window is 24h so move past 4h but not 24h.
-    const fiveHoursAgo = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+    const fiveHoursAgo = new Date(
+      Date.now() - 5 * 60 * 60 * 1000,
+    ).toISOString();
     await database.client?.execute(
       `UPDATE intelligence_runs SET completed_at = '${fiveHoursAgo}' WHERE id = '${run.id}'`,
     );
@@ -212,10 +222,10 @@ describe("runScheduledIntelligenceScan", () => {
     );
     runScan.mockResolvedValue({
       ok: true,
-      run: {},
+      run: runRowFixture(),
       inputHash: "y",
       findingsCount: 0,
-    } as never);
+    });
     await runScheduledIntelligenceScan();
     expect(runScan).toHaveBeenCalledTimes(1);
   });

@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 const STAGE_ONE_FILES = [
   "src/server/features/intelligence/services/FindingService.ts",
+  "src/server/features/intelligence/services/detectionStage.ts",
   "src/server/features/intelligence/services/scheduledIntelligenceScan.ts",
   "src/server/features/intelligence/repositories/ScanLedgerRepository.ts",
   "src/server/features/intelligence/repositories/ArtifactStore.ts",
@@ -23,7 +24,8 @@ const STAGE_ONE_FILES = [
 
 // SourceTokens.ts is the ONE file allowed to import source repositories.
 const NO_SOURCE_IMPORT_FILES = STAGE_ONE_FILES.filter(
-  (file) => file !== "src/server/features/intelligence/services/SourceTokens.ts",
+  (file) =>
+    file !== "src/server/features/intelligence/services/SourceTokens.ts",
 );
 
 const SOURCE_REPOSITORY_IMPORTS = [
@@ -72,6 +74,7 @@ describe("intelligence Stage-1 import ban", () => {
   it("services never touch env.DB directly", () => {
     for (const file of [
       "src/server/features/intelligence/services/FindingService.ts",
+      "src/server/features/intelligence/services/detectionStage.ts",
       "src/server/features/intelligence/services/scheduledIntelligenceScan.ts",
     ]) {
       const content = readSurface(file);

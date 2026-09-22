@@ -33,6 +33,10 @@ export class ArtifactError extends Error {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 const artifactChunkSchema = z
   .object({
     detectorKey: z.string().min(1),
@@ -130,16 +134,14 @@ export async function writeArtifact(input: {
   const chunkKeys: string[] = [];
   let totalBytes = 0;
 
-  for (const [detectorKey, group] of [...byDetector.entries()].sort(([a], [b]) =>
-    a < b ? -1 : 1,
+  for (const [detectorKey, group] of [...byDetector.entries()].toSorted(
+    ([a], [b]) => (a < b ? -1 : 1),
   )) {
     for (let offset = 0; offset < group.length; offset += FINDINGS_PER_CHUNK) {
       const slice = group.slice(offset, offset + FINDINGS_PER_CHUNK);
       const seq = Math.floor(offset / FINDINGS_PER_CHUNK);
       // Canonical form is the hashed + stored form (stable across runtimes).
-      const body = canonicalJson(
-        JSON.parse(canonicalJson(slice)) as unknown,
-      );
+      const body = canonicalJson(JSON.parse(canonicalJson(slice)) as unknown);
       const chunkHash = await sha256HexFull(body);
       const objectKey =
         `intelligence-runs/${input.projectId}/${input.runId}/` +
@@ -174,7 +176,10 @@ export async function writeArtifact(input: {
     `intelligence-runs/${input.projectId}/${input.runId}/` +
     `manifest-${artifactHash}.json`;
   const manifestText = canonicalJson({ ...manifestBody, artifactHash });
-  const manifestWritten = await putIfAbsentOrIdentical(manifestKey, manifestText);
+  const manifestWritten = await putIfAbsentOrIdentical(
+    manifestKey,
+    manifestText,
+  );
   totalBytes += manifestWritten.sizeBytes;
 
   console.log(
@@ -216,12 +221,18 @@ export async function loadArtifact(
       `Manifest unparsable: ${manifestKey}`,
     );
   }
+  if (!isRecord(raw)) {
+    throw new ArtifactError(
+      "ARTIFACT_CORRUPT",
+      `Manifest is not an object: ${manifestKey}`,
+    );
+  }
   // The embedded artifactHash covers the manifest WITHOUT itself; strip it
   // before verifying against the DB pointer.
-  const { artifactHash: embeddedHash, ...manifestWithoutHash } =
-    (raw as Record<string, unknown>);
+  const { artifactHash: embeddedHash, ...manifestWithoutHash } = raw;
   if (
-    (await sha256HexFull(canonicalJson(manifestWithoutHash))) !== manifestHash ||
+    (await sha256HexFull(canonicalJson(manifestWithoutHash))) !==
+      manifestHash ||
     embeddedHash !== manifestHash
   ) {
     throw new ArtifactError(
@@ -249,9 +260,8 @@ export async function loadArtifact(
       );
     }
     if (
-      (await sha256HexFull(
-        canonicalJson(JSON.parse(chunkText) as unknown),
-      )) !== chunk.chunkHash
+      (await sha256HexFull(canonicalJson(JSON.parse(chunkText) as unknown))) !==
+      chunk.chunkHash
     ) {
       throw new ArtifactError(
         "ARTIFACT_HASH_MISMATCH",

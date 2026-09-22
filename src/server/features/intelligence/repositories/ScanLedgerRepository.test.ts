@@ -30,9 +30,7 @@ vi.mock("@/db", async () => {
 });
 
 vi.mock("@/db/runBatch", () => ({
-  runBatch: async (
-    build: (tx: unknown) => Promise<unknown>[] | unknown[],
-  ) => {
+  runBatch: async (build: (tx: unknown) => Promise<unknown>[] | unknown[]) => {
     if (!database.db) throw new Error("Test database was not initialized");
     for (const statement of build(database.db)) await statement;
   },

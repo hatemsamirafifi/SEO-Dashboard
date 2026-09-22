@@ -14,7 +14,9 @@ export function listDetectors(): DetectorDef[] {
 }
 
 export function getDetector(detectorKey: string): DetectorDef | null {
-  return DETECTORS.find((detector) => detector.detectorKey === detectorKey) ?? null;
+  return (
+    DETECTORS.find((detector) => detector.detectorKey === detectorKey) ?? null
+  );
 }
 
 /** Registry identity snapshot pinned into run input hashes. */

@@ -1,20 +1,12 @@
 import type { z } from "zod";
-import type {
-  findingSchema,
-  opportunitySchema,
-} from "@/shared/intelligence";
+import type { findingSchema, opportunitySchema } from "@/shared/intelligence";
 import type { DetectorThresholds } from "@/shared/intelligence-thresholds";
 
 export type Finding = z.infer<typeof findingSchema>;
 export type Opportunity = z.infer<typeof opportunitySchema>;
 
 /** Sources a detector may require or corroborate with. */
-export type DetectionSource =
-  | "gsc"
-  | "ga4"
-  | "rank"
-  | "audit"
-  | "backlinks";
+export type DetectionSource = "gsc" | "ga4" | "rank" | "audit" | "backlinks";
 
 /**
  * Coverage requirement for one source: the grain(s) that must hold

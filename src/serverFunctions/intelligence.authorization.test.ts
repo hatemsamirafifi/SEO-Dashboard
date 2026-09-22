@@ -34,11 +34,14 @@ vi.mock("@/server/features/intelligence/services/FindingService", () => ({
   },
 }));
 
-vi.mock("@/server/features/intelligence/repositories/ScanLedgerRepository", () => ({
-  ScanLedgerRepository: {
-    getLatestRun: mocks.getLatestRun,
-  },
-}));
+vi.mock(
+  "@/server/features/intelligence/repositories/ScanLedgerRepository",
+  () => ({
+    ScanLedgerRepository: {
+      getLatestRun: mocks.getLatestRun,
+    },
+  }),
+);
 
 import {
   getIntelligenceScanStatus,
@@ -47,6 +50,7 @@ import {
   triggerIntelligenceScan,
 } from "./intelligence";
 import { globalServerFunctionMiddleware } from "./middleware";
+import { runRowFixture } from "@/server/features/intelligence/intelligenceTestFixtures";
 
 type ServerFunction = {
   __executeServer(input: {
@@ -129,14 +133,10 @@ describe("intelligence server-function project authorization", () => {
     expect(
       toTriggerScanResponse({
         ok: true,
-        run: {
-          id: "run-1",
-          status: "materializing",
-          currentStage: "materializing",
-        },
+        run: runRowFixture({ findingsCount: 3 }),
         inputHash: "a".repeat(64),
         findingsCount: 3,
-      } as never),
+      }),
     ).toMatchObject({ ok: true, runId: "run-1", findingsCount: 3 });
 
     expect(
@@ -159,12 +159,13 @@ describe("intelligence server-function project authorization", () => {
       toTriggerScanResponse({
         ok: false,
         deferred: false,
-        run: {
+        run: runRowFixture({
           id: "run-2",
+          status: "failed",
           error: "SOURCE_CHANGED_DURING_DETECTION: ...",
           errorClass: "SOURCE_CHANGED_DURING_DETECTION",
-        },
-      } as never),
+        }),
+      }),
     ).toMatchObject({
       ok: false,
       runId: "run-2",
@@ -175,17 +176,17 @@ describe("intelligence server-function project authorization", () => {
   it("shapes the status response for missing and present runs", () => {
     expect(toScanStatusResponse(null)).toMatchObject({ run: null });
     expect(
-      toScanStatusResponse({
-        id: "run-1",
-        status: "failed",
-        currentStage: "detecting",
-        triggeredBy: "cron",
-        startedAt: "2026-01-01T00:00:00.000Z",
-        completedAt: "2026-01-01T00:01:00.000Z",
-        findingsCount: 0,
-        error: "boom",
-        errorClass: "DETECTOR_THREW",
-      } as never),
+      toScanStatusResponse(
+        runRowFixture({
+          status: "failed",
+          currentStage: "detecting",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          completedAt: "2026-01-01T00:01:00.000Z",
+          findingsCount: 0,
+          error: "boom",
+          errorClass: "DETECTOR_THREW",
+        }),
+      ),
     ).toMatchObject({
       run: { id: "run-1", status: "failed", errorClass: "DETECTOR_THREW" },
     });

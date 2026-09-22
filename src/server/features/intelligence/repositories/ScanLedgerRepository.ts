@@ -159,7 +159,11 @@ async function transitionStage(input: {
     status: toStatus,
     updatedAt: nowIso(),
   };
-  if (toStatus === "completed" || toStatus === "partial" || toStatus === "failed") {
+  if (
+    toStatus === "completed" ||
+    toStatus === "partial" ||
+    toStatus === "failed"
+  ) {
     patch.completedAt = nowIso();
   }
   await db
@@ -169,6 +173,10 @@ async function transitionStage(input: {
   const updated = await getRun(input.id);
   if (!updated) throw new Error(`Intelligence run not found: ${input.id}`);
   return updated;
+}
+
+function isStage(value: string): value is IntelligenceStage {
+  return (INTELLIGENCE_STAGES as readonly string[]).includes(value);
 }
 
 function isValidTransition(
@@ -187,9 +195,9 @@ function isValidTransition(
   if (toStatus === "completed") {
     return fromStage === "composing" && toStage === "composing";
   }
-  const fromOrder = STAGE_ORDER[fromStage as IntelligenceStage];
-  const toOrder = STAGE_ORDER[toStage as IntelligenceStage];
-  if (fromOrder === undefined || toOrder === undefined) return false;
+  if (!isStage(fromStage) || !isStage(toStage)) return false;
+  const fromOrder = STAGE_ORDER[fromStage];
+  const toOrder = STAGE_ORDER[toStage];
   // Forward one stage at a time; status tracks the stage while in flight.
   return (
     toOrder === fromOrder + 1 &&

@@ -1,8 +1,7 @@
 import { waitUntil } from "cloudflare:workers";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
-import { THRESHOLD_VERSION } from "@/shared/intelligence-thresholds";
-import { buildFindingKey, type Finding } from "@/shared/intelligence";
+import type { Finding } from "@/shared/intelligence";
 import {
   ArtifactError,
   ArtifactStore,
@@ -12,9 +11,7 @@ import {
   ScanLedgerRepository,
   type IntelligenceRunRow,
 } from "../repositories/ScanLedgerRepository";
-import type { DetectorContext, DetectorDef } from "../detectors/types";
-import { defaultThresholdsFor } from "@/shared/intelligence-thresholds";
-import { listDetectors } from "../detectors/registry";
+import { runDetectionStage, type DetectorInputFetcher } from "./detectionStage";
 import {
   SourceTokens,
   describeActiveMutations,
@@ -51,14 +48,6 @@ export type ManualScanOutcome =
   | ScanOutcome
   | { ok: false; rateLimited: true; retryAfterMs: number };
 
-/** Fetches one detector's pre-fetched input. Detector-specific fetchers
- *  land with the detectors (Task 7); Stage 1 never reads source tables
- *  itself. */
-export type DetectorInputFetcher = (
-  detectorKey: string,
-  ctx: DetectorContext,
-) => Promise<unknown>;
-
 function shortHash(hash: string): string {
   return hash.slice(0, 8);
 }
@@ -87,9 +76,16 @@ function versionsEqual(
   const keys = ["gsc", "ga4", "rank", "audit", "backlinks"] as const;
   if (first.thresholdVersion !== second.thresholdVersion) return false;
   if (first.sourceSet.join(",") !== second.sourceSet.join(",")) return false;
-  const firstDetectors = Object.entries(first.detectorVersions).sort();
-  const secondDetectors = Object.entries(second.detectorVersions).sort();
-  if (JSON.stringify(firstDetectors) !== JSON.stringify(secondDetectors)) {
+  // Order-invariant without sorting: same key set, same per-key values.
+  const firstKeys = Object.keys(first.detectorVersions);
+  if (firstKeys.length !== Object.keys(second.detectorVersions).length) {
+    return false;
+  }
+  if (
+    !firstKeys.every(
+      (key) => first.detectorVersions[key] === second.detectorVersions[key],
+    )
+  ) {
     return false;
   }
   return keys.every((key) => first.versions[key] === second.versions[key]);
@@ -117,99 +113,6 @@ export type DetectionAttemptMeta = {
   changedSources: string[];
   activeReasons: string[];
 };
-
-/**
- * Runs every registered detector with version-level source gating. A
- * detector whose required source has no committed version (null =
- * unconnected/no valid mutation) is SKIPPED with reason — never fed empty
- * input as if it were data. Finer FAILED-grain gating is detector-specific
- * and arrives with the detectors (Task 7).
- */
-export async function runDetectionStage(input: {
-  projectId: string;
-  organizationId: string;
-  runId: string;
-  state: DetectionSourceState;
-  detectors?: DetectorDef[];
-  fetchInput?: DetectorInputFetcher;
-}): Promise<Finding[]> {
-  const detectors = input.detectors ?? listDetectors();
-  const findings: Finding[] = [];
-  const detectedAt = new Date().toISOString();
-
-  for (const detector of detectors) {
-    const missing = detector.requiredSources.filter(
-      (source) => input.state.versions[source] === null,
-    );
-    if (missing.length > 0) {
-      await ScanLedgerRepository.recordDetectorOutcome({
-        runId: input.runId,
-        detectorKey: detector.detectorKey,
-        status: "skipped",
-        skipReason: `required source has no committed version: ${missing.join(",")}`,
-      });
-      continue;
-    }
-    const ctx: DetectorContext = {
-      projectId: input.projectId,
-      organizationId: input.organizationId,
-      periodFrom: "",
-      periodTo: "",
-      thresholds: defaultThresholdsFor(detector.detectorKey),
-      thresholdVersion: THRESHOLD_VERSION,
-    };
-    try {
-      const detectorInput = input.fetchInput
-        ? await input.fetchInput(detector.detectorKey, ctx)
-        : null;
-      if (detectorInput === null) {
-        await ScanLedgerRepository.recordDetectorOutcome({
-          runId: input.runId,
-          detectorKey: detector.detectorKey,
-          status: "skipped",
-          skipReason: "no input fetcher registered for detector",
-        });
-        continue;
-      }
-      const drafts = detector.detect(ctx, detectorInput);
-      for (const draft of drafts) {
-        findings.push({
-          findingKey: await buildFindingKey({
-            projectId: input.projectId,
-            detectorKey: detector.detectorKey,
-            detectorVersion: detector.version,
-            entityKey: draft.entityKey,
-            periodFrom: draft.evidence.periods?.from ?? "",
-            periodTo: draft.evidence.periods?.to ?? "",
-          }),
-          detectorKey: detector.detectorKey,
-          detectorVersion: detector.version,
-          projectId: input.projectId,
-          entityKey: draft.entityKey,
-          entity: draft.entity,
-          evidence: draft.evidence,
-          detectedAt: draft.detectedAt || detectedAt,
-          confidenceScore: draft.confidenceScore,
-          coverageFlags: draft.coverageFlags,
-        });
-      }
-      await ScanLedgerRepository.recordDetectorOutcome({
-        runId: input.runId,
-        detectorKey: detector.detectorKey,
-        status: "completed",
-        findingsCount: drafts.length,
-      });
-    } catch (error) {
-      await ScanLedgerRepository.recordDetectorOutcome({
-        runId: input.runId,
-        detectorKey: detector.detectorKey,
-        status: "failed",
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-  return findings;
-}
 
 async function executeDetection(input: {
   projectId: string;
@@ -399,8 +302,7 @@ export async function resumeScan(
   runId: string,
   options?: { fetchInput?: DetectorInputFetcher },
 ): Promise<
-  | ScanOutcome
-  | { ok: false; deferred: true; reason: string; stage: string }
+  ScanOutcome | { ok: false; deferred: true; reason: string; stage: string }
 > {
   const run = await ScanLedgerRepository.getRun(runId);
   if (!run) throw new Error(`Intelligence run not found: ${runId}`);

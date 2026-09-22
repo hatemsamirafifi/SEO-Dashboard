@@ -84,7 +84,10 @@ async function selectGa4Version(projectId: string): Promise<string | null> {
       projectId,
       connection.propertyId,
     );
-    if (run && (best === null || (run.completedAt ?? "") > (best.completedAt ?? ""))) {
+    if (
+      run &&
+      (best === null || (run.completedAt ?? "") > (best.completedAt ?? ""))
+    ) {
       best = { id: run.id, completedAt: run.completedAt };
     }
   }
@@ -175,7 +178,9 @@ async function selectAuditVersion(
     .map((row) => row.id);
   const completed = rows
     .filter((row) => row.status === "completed" && row.completedAt !== null)
-    .sort((a, b) => ((a.completedAt ?? "") < (b.completedAt ?? "") ? 1 : -1));
+    .toSorted((a, b) =>
+      (a.completedAt ?? "") < (b.completedAt ?? "") ? 1 : -1,
+    );
   return { version: completed[0]?.id ?? null, activeRunIds };
 }
 
@@ -263,12 +268,11 @@ export async function assembleDetectionSourceState(
     audit: audit.version,
     backlinks,
   };
-  const sourceSet = (Object.entries(versions) as Array<
-    [IntelligenceSource, string | null]
-  >)
-    .filter(([, version]) => version !== null)
-    .map(([source]) => source)
-    .sort();
+  // Canonical order (sorted): connect/disconnect flips change identity via
+  // the hashed sourceSet, never via insertion order.
+  const sourceSet = INTELLIGENCE_SOURCES.filter(
+    (source) => versions[source] !== null,
+  ).toSorted((a, b) => (a < b ? -1 : 1));
   const activeMutations = await selectActiveMutations(
     projectId,
     audit.activeRunIds,
@@ -307,11 +311,12 @@ export function hasActiveMutations(state: DetectionSourceState): boolean {
 }
 
 export function describeActiveMutations(state: DetectionSourceState): string[] {
-  return (Object.entries(state.activeMutations) as Array<
-    [IntelligenceSource, ActiveMutation]
-  >)
-    .filter(([, mutation]) => mutation.isMutating)
-    .map(([source, mutation]) => `${source}:${mutation.activeRunIds.join(",")}`);
+  return INTELLIGENCE_SOURCES.filter(
+    (source) => state.activeMutations[source].isMutating,
+  ).map(
+    (source) =>
+      `${source}:${state.activeMutations[source].activeRunIds.join(",")}`,
+  );
 }
 
 export const SourceTokens = {

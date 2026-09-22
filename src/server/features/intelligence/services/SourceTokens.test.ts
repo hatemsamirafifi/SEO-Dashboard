@@ -2,7 +2,15 @@ import type { Client } from "@libsql/client";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const database = vi.hoisted(() => ({
   client: undefined as Client | undefined,
@@ -38,18 +46,41 @@ import { SourceTokens } from "./SourceTokens";
 // query builders (all columns), so the test database applies every drizzle
 // migration in journal order. Structural parity lives in
 // schema-parity.test.ts; here the selectors' SQL semantics execute for real.
+function isMigrationJournal(value: unknown): value is {
+  entries: Array<{ tag: string }>;
+} {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("entries" in value)) return false;
+  const entries: unknown = value.entries;
+  return (
+    Array.isArray(entries) &&
+    entries.every(
+      (entry: unknown) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        "tag" in entry &&
+        typeof entry.tag === "string",
+    )
+  );
+}
+
 function migrationFiles(): string[] {
-  const journal = JSON.parse(
+  const journal: unknown = JSON.parse(
     readFileSync(resolve(process.cwd(), "drizzle/meta/_journal.json"), "utf8"),
-  ) as { entries: Array<{ tag: string }> };
+  );
+  if (!isMigrationJournal(journal)) {
+    throw new Error("drizzle journal has an unexpected shape");
+  }
   return journal.entries.map((entry) => `drizzle/${entry.tag}.sql`);
 }
 
 function migrationStatements(file: string): string[] {
   // Block comments can span statement breakpoints (e.g. snapshot-only
   // migrations), so strip them from the whole file before splitting.
-  const withoutBlocks = readFileSync(resolve(process.cwd(), file), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const withoutBlocks = readFileSync(
+    resolve(process.cwd(), file),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
   return withoutBlocks
     .split("--> statement-breakpoint")
     .map((part) => part.replace(/--[^\n]*(\n|$)/g, "\n").trim())
@@ -248,8 +279,16 @@ describe("SourceTokens selectors", () => {
 
   it("picks the latest backlink snapshot with id tiebreak", async () => {
     await db.insert(backlinkSnapshots).values([
-      { projectId: "project-1", domain: "x.com", capturedAt: "2026-01-01T00:00:00.000Z" },
-      { projectId: "project-1", domain: "x.com", capturedAt: "2026-01-02T00:00:00.000Z" },
+      {
+        projectId: "project-1",
+        domain: "x.com",
+        capturedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        projectId: "project-1",
+        domain: "x.com",
+        capturedAt: "2026-01-02T00:00:00.000Z",
+      },
     ]);
     const version = await SourceTokens.selectBacklinksVersion("project-1");
     expect(version).toMatch(/^backlinks:\d+$/);
