@@ -5,7 +5,11 @@ import { opportunities, opportunityEvents } from "@/db/schema";
 export type OpportunityRow = typeof opportunities.$inferSelect;
 export type OpportunityEventRow = typeof opportunityEvents.$inferSelect;
 
-export type OpportunityStatus = "open" | "in_progress" | "completed" | "dismissed";
+export type OpportunityStatus =
+  | "open"
+  | "in_progress"
+  | "completed"
+  | "dismissed";
 
 const ACTIVE_STATUSES: OpportunityStatus[] = ["open", "in_progress"];
 
@@ -81,7 +85,8 @@ async function listByProject(
   filters?: { status?: OpportunityStatus; type?: string },
 ): Promise<OpportunityRow[]> {
   const conditions = [eq(opportunities.projectId, projectId)];
-  if (filters?.status) conditions.push(eq(opportunities.status, filters.status));
+  if (filters?.status)
+    conditions.push(eq(opportunities.status, filters.status));
   if (filters?.type) conditions.push(eq(opportunities.type, filters.type));
   return db
     .select()
@@ -106,7 +111,9 @@ async function getByIdForProject(
   const rows = await db
     .select()
     .from(opportunities)
-    .where(and(eq(opportunities.id, id), eq(opportunities.projectId, projectId)))
+    .where(
+      and(eq(opportunities.id, id), eq(opportunities.projectId, projectId)),
+    )
     .limit(1);
   return rows[0] ?? null;
 }

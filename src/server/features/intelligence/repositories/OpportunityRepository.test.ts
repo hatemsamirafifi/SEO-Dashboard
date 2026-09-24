@@ -151,8 +151,7 @@ describe("OpportunityRepository", () => {
       id: "evt-2",
     });
 
-    const events =
-      await OpportunityRepository.listEventsByOccurrence("occ-1");
+    const events = await OpportunityRepository.listEventsByOccurrence("occ-1");
     expect(events).toHaveLength(1);
     expect(events[0]?.id).toBe("evt-1");
   });

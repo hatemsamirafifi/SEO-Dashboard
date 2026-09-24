@@ -69,7 +69,8 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
   organic_traffic_change: {
     type: "traffic",
     title: (finding) => {
-      const before = metricNumber(finding.evidence.metrics, "clicksBefore") ?? 0;
+      const before =
+        metricNumber(finding.evidence.metrics, "clicksBefore") ?? 0;
       const after = metricNumber(finding.evidence.metrics, "clicksAfter") ?? 0;
       const ratio = metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
       const direction = ratio < 0 ? "fell" : "grew";
@@ -159,10 +160,10 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
       const keyword = finding.entity.keyword;
       const drop = metricNumber(finding.evidence.metrics, "dropPositions") ?? 0;
       const device = finding.entity.device;
+      const deviceSuffix = typeof device === "string" ? ` (${device})` : "";
       return (
         `"${typeof keyword === "string" ? keyword : finding.entityKey}" dropped ` +
-        `${Math.round(drop)} positions` +
-        `${typeof device === "string" ? ` (${device})` : ""}`
+        `${Math.round(drop)} positions${deviceSuffix}`
       );
     },
     recommendation: () =>
@@ -218,9 +219,10 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
     title: (finding) => {
       const issueType = finding.entity.issueType;
       const page = finding.entity.page;
+      const pageRef = typeof page === "string" ? page : finding.entityKey;
       return (
         `Critical ${typeof issueType === "string" ? issueType : "issue"} on ` +
-        `${typeof page === "string" ? page : finding.entityKey}`
+        pageRef
       );
     },
     recommendation: (finding) => {
@@ -275,9 +277,7 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
         trafficPotential: logScaleVolume(backlinksBase),
         proximity: null,
         decline:
-          backlinksBase > 0
-            ? Math.min(1, lost / backlinksBase / 0.1)
-            : null,
+          backlinksBase > 0 ? Math.min(1, lost / backlinksBase / 0.1) : null,
         businessIntent: null,
         conversionSignal: null,
       };
@@ -288,13 +288,30 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
 /** Impact score via the shared renormalizer; null = no materialization. */
 export function scoreImpact(factors: ImpactFactors): number | null {
   const scored: ScoredFactor[] = [
-    { weight: OPPORTUNITY_WEIGHTS.trafficPotential, value: factors.trafficPotential },
+    {
+      weight: OPPORTUNITY_WEIGHTS.trafficPotential,
+      value: factors.trafficPotential,
+    },
     { weight: OPPORTUNITY_WEIGHTS.proximity, value: factors.proximity },
     { weight: OPPORTUNITY_WEIGHTS.decline, value: factors.decline },
-    { weight: OPPORTUNITY_WEIGHTS.businessIntent, value: factors.businessIntent },
-    { weight: OPPORTUNITY_WEIGHTS.conversionSignal, value: factors.conversionSignal },
+    {
+      weight: OPPORTUNITY_WEIGHTS.businessIntent,
+      value: factors.businessIntent,
+    },
+    {
+      weight: OPPORTUNITY_WEIGHTS.conversionSignal,
+      value: factors.conversionSignal,
+    },
   ];
   return renormalizedScore(scored);
+}
+
+function metricValue(
+  record: Record<string, string | number | boolean>,
+  key: string,
+): number | null {
+  const value: unknown = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export type DecayConfidenceInputs = {
@@ -322,21 +339,15 @@ export function decayConfidence(finding: Finding): {
   const inputs = finding.evidence.confidenceInputs;
   const thresholds = finding.evidence.thresholdsApplied;
   const metrics = finding.evidence.metrics;
-  const num = (
-    record: Record<string, string | number | boolean>,
-    key: string,
-  ): number | null => {
-    const value: unknown = record[key];
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
-  };
-  const decline = num(metrics, "declineRatio") ?? 0;
-  const baseline = num(metrics, "clicksPrevious") ?? 0;
-  const floor = num(thresholds, "minVolume") ?? 50;
+  const decline = metricValue(metrics, "declineRatio") ?? 0;
+  const baseline = metricValue(metrics, "clicksPrevious") ?? 0;
+  const floor = metricValue(thresholds, "minVolume") ?? 50;
   if (baseline < floor) return null;
-  const dayRatio = num(inputs, "coverageDayRatio") ?? 1;
+  const dayRatio = metricValue(inputs, "coverageDayRatio") ?? 1;
   const rankAgrees = inputs.rankAgrees === true;
-  const rankUnavailable =
-    finding.evidence.partialData.includes("rank_corroboration_unavailable");
+  const rankUnavailable = finding.evidence.partialData.includes(
+    "rank_corroboration_unavailable",
+  );
   const moves = rankAgrees ? 1 : rankUnavailable ? 0.5 : 0;
   const confidenceInputs: DecayConfidenceInputs = {
     coverage: Math.min(1, Math.max(0, dayRatio)),

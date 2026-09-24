@@ -143,13 +143,15 @@ describe("scoreImpact renormalization", () => {
 });
 
 describe("decayConfidence (§10 eight-input function)", () => {
-  function decayFinding(
-    overrides: Partial<Finding> = {},
-  ): Finding {
+  function decayFinding(overrides: Partial<Finding> = {}): Finding {
     return finding("content_decay", {
       entity: { page: "/guide" },
       evidence: {
-        metrics: { declineRatio: -0.45, clicksPrevious: 320, clicksCurrent: 176 },
+        metrics: {
+          declineRatio: -0.45,
+          clicksPrevious: 320,
+          clicksCurrent: 176,
+        },
         sources: ["gsc"],
         thresholdsApplied: { minVolume: 50 },
         correlations: [],
@@ -205,7 +207,11 @@ describe("decayConfidence (§10 eight-input function)", () => {
     const total = decayConfidence(
       decayFinding({
         evidence: {
-          metrics: { declineRatio: -0.95, clicksPrevious: 400, clicksCurrent: 20 },
+          metrics: {
+            declineRatio: -0.95,
+            clicksPrevious: 400,
+            clicksCurrent: 20,
+          },
           sources: ["gsc"],
           thresholdsApplied: { minVolume: 50 },
           correlations: [],
@@ -267,7 +273,11 @@ describe("opportunity templates", () => {
       content_decay: finding("content_decay", {
         entity: { page: "/guide" },
         evidence: {
-          metrics: { declineRatio: -0.45, clicksCurrent: 176, clicksPrevious: 320 },
+          metrics: {
+            declineRatio: -0.45,
+            clicksCurrent: 176,
+            clicksPrevious: 320,
+          },
           sources: ["gsc"],
           thresholdsApplied: {},
           correlations: [],

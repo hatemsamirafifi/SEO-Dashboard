@@ -271,7 +271,8 @@ async function executeDetection(input: {
       runId: parked.id,
     });
     const recomposed = await ScanLedgerRepository.getRun(parked.id);
-    if (!recomposed) throw new Error(`Intelligence run not found: ${parked.id}`);
+    if (!recomposed)
+      throw new Error(`Intelligence run not found: ${parked.id}`);
     advanced = recomposed;
     console.log(
       `[intelligence:scan] materialized project ${input.projectId} ` +
