@@ -228,6 +228,7 @@ describe("decayConfidence (§10 eight-input function)", () => {
 
 describe("opportunity templates", () => {
   const detectorKeys = [
+    "ga4_organic_change",
     "organic_traffic_change",
     "low_ctr_query",
     "content_decay",
@@ -247,6 +248,17 @@ describe("opportunity templates", () => {
 
   it("emits non-empty observational copy without banned causal verbs", () => {
     const samples: Record<string, Finding> = {
+      ga4_organic_change: finding("ga4_organic_change", {
+        evidence: {
+          metrics: { sessionsBefore: 1000, sessionsAfter: 670, changeRatio: -0.33 },
+          sources: ["ga4"],
+          thresholdsApplied: {},
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: {},
+        },
+      }),
       organic_traffic_change: finding("organic_traffic_change", {
         evidence: {
           metrics: { clicksBefore: 1240, clicksAfter: 845, changeRatio: -0.32 },

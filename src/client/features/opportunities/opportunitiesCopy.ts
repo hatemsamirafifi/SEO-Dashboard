@@ -14,6 +14,7 @@ export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
 
 export const OPPORTUNITY_TYPES = [
   "traffic",
+  "ga4_traffic",
   "ctr",
   "decay",
   "ranking",
@@ -43,6 +44,7 @@ export const STATUS_META: Record<
 
 export const TYPE_META: Record<OpportunityType, { label: string }> = {
   traffic: { label: "Traffic change" },
+  ga4_traffic: { label: "GA4 traffic change" },
   ctr: { label: "Low CTR" },
   decay: { label: "Content decay" },
   ranking: { label: "Ranking drop" },

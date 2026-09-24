@@ -66,6 +66,39 @@ function formatInt(value: number): string {
 }
 
 export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
+  ga4_organic_change: {
+    type: "ga4_traffic",
+    title: (finding) => {
+      const before =
+        metricNumber(finding.evidence.metrics, "sessionsBefore") ?? 0;
+      const after =
+        metricNumber(finding.evidence.metrics, "sessionsAfter") ?? 0;
+      const ratio =
+        metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
+      const direction = ratio < 0 ? "fell" : "grew";
+      return (
+        `GA4 sessions ${direction} ${Math.abs(ratio * 100).toFixed(1)}% ` +
+        `(${formatInt(before)} → ${formatInt(after)})`
+      );
+    },
+    recommendation: () =>
+      "Compare the window against deployments, campaigns, and consent-mode " +
+      "changes; confirm the drop in Search Console before treating it as an " +
+      "SEO issue.",
+    keywordOf: () => null,
+    pageOf: () => null,
+    factorsOf: (finding) => ({
+      trafficPotential: logScaleVolume(
+        metricNumber(finding.evidence.metrics, "sessionsAfter") ?? 0,
+      ),
+      proximity: null,
+      decline: declineOf(
+        metricNumber(finding.evidence.metrics, "changeRatio") ?? 0,
+      ),
+      businessIntent: null,
+      conversionSignal: null,
+    }),
+  },
   organic_traffic_change: {
     type: "traffic",
     title: (finding) => {

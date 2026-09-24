@@ -52,7 +52,7 @@ describe("detector registry", () => {
     }
   });
 
-  it("registers exactly the seven PR7 detectors, one per condition", () => {
+  it("registers exactly the PR7 detectors plus the GA4 change detector", () => {
     const keys = listDetectors()
       .map((detector) => detector.detectorKey)
       .toSorted();
@@ -60,6 +60,7 @@ describe("detector registry", () => {
       "backlink_change",
       "cannibalization",
       "content_decay",
+      "ga4_organic_change",
       "low_ctr_query",
       "organic_traffic_change",
       "ranking_drop",

@@ -1,4 +1,5 @@
 import type { DetectorContext } from "./types";
+import { fetchGa4ChangeInput } from "./ga4OrganicChange";
 import { fetchTrafficChangeInput } from "./organicTrafficChange";
 import { fetchLowCtrInput } from "./lowCtrQuery";
 import { fetchDecayInput } from "./contentDecay";
@@ -21,6 +22,8 @@ export async function fetchDetectorInput(
   ctx: DetectorContext,
 ): Promise<unknown> {
   switch (detectorKey) {
+    case "ga4_organic_change":
+      return fetchGa4ChangeInput(projectId, ctx);
     case "organic_traffic_change":
       return fetchTrafficChangeInput(projectId, ctx);
     case "low_ctr_query":

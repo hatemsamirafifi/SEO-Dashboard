@@ -1,4 +1,5 @@
 import type { DetectorDef } from "./types";
+import { ga4OrganicChangeDetector } from "./ga4OrganicChange";
 import { organicTrafficChangeDetector } from "./organicTrafficChange";
 import { lowCtrQueryDetector } from "./lowCtrQuery";
 import { contentDecayDetector } from "./contentDecay";
@@ -13,6 +14,7 @@ import { backlinkChangeDetector } from "./backlinkChange";
  * GA4-gated detectors land in Task 10 and register here.
  */
 const DETECTORS: DetectorDef[] = [
+  ga4OrganicChangeDetector,
   organicTrafficChangeDetector,
   lowCtrQueryDetector,
   contentDecayDetector,
