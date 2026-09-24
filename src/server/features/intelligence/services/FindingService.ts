@@ -13,6 +13,7 @@ import {
 } from "../repositories/ScanLedgerRepository";
 import { runDetectionStage, type DetectorInputFetcher } from "./detectionStage";
 import { fetchDetectorInput } from "../detectors/inputs";
+import { OpportunityMaterializer } from "./OpportunityMaterializer";
 import {
   SourceTokens,
   describeActiveMutations,
@@ -260,9 +261,34 @@ async function executeDetection(input: {
       input_hash8: shortHash(inputHash),
     },
   });
+
+  // Stage 2 runs inline: the artifact is frozen, so materialization reads
+  // R2 + opportunity rows only. A crash between the park above and the
+  // advance below resumes at `materializing` (never re-detects).
+  let advanced = parked;
+  try {
+    const materialized = await OpportunityMaterializer.materializeRun({
+      runId: parked.id,
+    });
+    const recomposed = await ScanLedgerRepository.getRun(parked.id);
+    if (!recomposed) throw new Error(`Intelligence run not found: ${parked.id}`);
+    advanced = recomposed;
+    console.log(
+      `[intelligence:scan] materialized project ${input.projectId} ` +
+        `run=${input.run.id} opportunities=${materialized.materializedIds.length} ` +
+        `stage=composing`,
+    );
+  } catch (error) {
+    const failed = await ScanLedgerRepository.failRun(input.run.id, {
+      error: `MATERIALIZE_FAILED: ${error instanceof Error ? error.message : String(error)}`,
+      errorClass: "MATERIALIZE_FAILED",
+      errorStage: "materializing",
+    });
+    return { ok: false, deferred: false, run: failed };
+  }
   return {
     ok: true,
-    run: parked,
+    run: advanced,
     inputHash,
     findingsCount: pointers.findingsCount,
   };
@@ -303,9 +329,10 @@ export async function runScan(input: {
 
 /**
  * Resume a crashed run. Detecting without a manifest pointer means nothing
- * froze: re-run detection on the existing row. Materializing/composing runs
- * are parked for their stage owners (Tasks 8/11) — resume returns deferred
- * WITHOUT re-detecting frozen bytes. Terminal runs are not resumed.
+ * froze: re-run detection on the existing row. Materializing with a manifest
+ * pointer re-runs ONLY Stage 2 from frozen bytes (idempotent upserts, never
+ * re-detection). Composing runs stay parked for Task 11; terminal runs are
+ * not resumed.
  */
 export async function resumeScan(
   runId: string,
@@ -323,11 +350,31 @@ export async function resumeScan(
     return { ok: false, deferred: true, reason: "terminal", stage: run.status };
   }
   if (run.manifestKey !== null) {
+    if (run.currentStage !== "materializing") {
+      return {
+        ok: false,
+        deferred: true,
+        reason: "frozen_artifact_owned_by_stage",
+        stage: run.currentStage,
+      };
+    }
+    try {
+      await OpportunityMaterializer.materializeRun({ runId: run.id });
+    } catch (error) {
+      const failed = await ScanLedgerRepository.failRun(run.id, {
+        error: `MATERIALIZE_FAILED: ${error instanceof Error ? error.message : String(error)}`,
+        errorClass: "MATERIALIZE_FAILED",
+        errorStage: "materializing",
+      });
+      return { ok: false, deferred: false, run: failed };
+    }
+    const advanced = await ScanLedgerRepository.getRun(run.id);
+    if (!advanced) throw new Error(`Intelligence run not found: ${runId}`);
     return {
-      ok: false,
-      deferred: true,
-      reason: "frozen_artifact_owned_by_stage",
-      stage: run.currentStage,
+      ok: true,
+      run: advanced,
+      inputHash: advanced.inputHash ?? "",
+      findingsCount: advanced.findingsCount,
     };
   }
   const owner = await ProjectRepository.getProjectById(run.projectId);

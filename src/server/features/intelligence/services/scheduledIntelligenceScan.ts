@@ -10,10 +10,14 @@ import { FindingService, SCAN_FLOOR_MS, SCAN_FORCE_MS } from "./FindingService";
 
 /**
  * Intelligence scan scheduler (final-plan §8). Tick cost per project: one
- * indexed ledger read (latest successful run) + in-memory token assembly —
+ * indexed ledger read (latest hashed run) + in-memory token assembly —
  * no metric reads unless both predicates pass. Two independent predicates:
- * `changed = inputHash != lastSuccessfulInputHash` AND
+ * `changed = inputHash != lastBaselineInputHash` AND
  * `now >= nextEligibleAt` (4h floor), plus a 24h safety force.
+ *
+ * The baseline is the latest hashed non-failed run (composing runs count):
+ * nothing reaches `completed` until Task 11 owns compose, so gating only on
+ * terminal runs would rescan stable sources every 15-minute tick.
  */
 export async function runScheduledIntelligenceScan(): Promise<void> {
   let targets: Array<{ projectId: string; organizationId: string }>;
@@ -36,16 +40,17 @@ export async function runScheduledIntelligenceScan(): Promise<void> {
         );
         continue;
       }
-      const lastSuccess = await ScanLedgerRepository.getLatestSuccessfulRun(
+      const baseline = await ScanLedgerRepository.getLatestHashedRun(
         target.projectId,
       );
       const now = Date.now();
-      if (lastSuccess?.completedAt) {
-        const completedMs = Date.parse(lastSuccess.completedAt);
+      const baselineAt = baseline?.completedAt ?? baseline?.updatedAt;
+      if (baseline?.inputHash && baselineAt) {
+        const baselineMs = Date.parse(baselineAt);
         const inputHash = await hashSourceState(state);
-        const changed = inputHash !== lastSuccess.inputHash;
-        const eligible = now >= completedMs + SCAN_FLOOR_MS;
-        const forced = now >= completedMs + SCAN_FORCE_MS;
+        const changed = inputHash !== baseline.inputHash;
+        const eligible = now >= baselineMs + SCAN_FLOOR_MS;
+        const forced = now >= baselineMs + SCAN_FORCE_MS;
         if (!((changed && eligible) || forced)) {
           continue;
         }
@@ -61,7 +66,7 @@ export async function runScheduledIntelligenceScan(): Promise<void> {
       });
       if (outcome.ok) {
         console.log(
-          `[cron:intelligence] Scan parked at materializing for project ${target.projectId}: ` +
+          `[cron:intelligence] Scan advanced to composing for project ${target.projectId}: ` +
             `${outcome.findingsCount} findings`,
         );
       } else if (!outcome.ok && outcome.deferred === "active_mutation") {

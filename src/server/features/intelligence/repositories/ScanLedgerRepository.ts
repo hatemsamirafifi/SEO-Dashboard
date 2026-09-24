@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { intelligenceRunDetectors, intelligenceRuns } from "@/db/schema";
 import { runBatch } from "@/db/runBatch";
@@ -327,15 +327,76 @@ async function commitStageOnePointer(input: {
   return updated;
 }
 
+/**
+ * Latest run carrying a committed input hash that did not fail — the
+ * scheduler's 4h-floor baseline. Runs parked at `composing` (Task 11 owns
+ * the compose stage) count: their input hash is committed and valid, so
+ * rescanning identical sources inside the floor would only duplicate work.
+ */
+async function getLatestHashedRun(
+  projectId: string,
+): Promise<IntelligenceRunRow | null> {
+  const rows = await db
+    .select()
+    .from(intelligenceRuns)
+    .where(
+      and(
+        eq(intelligenceRuns.projectId, projectId),
+        isNotNull(intelligenceRuns.inputHash),
+        ne(intelligenceRuns.status, "failed"),
+      ),
+    )
+    .orderBy(desc(intelligenceRuns.startedAt))
+    .limit(5);
+  return rows[0] ?? null;
+}
+
+/**
+ * Advances a materialized run to `composing`, recording the materialized
+ * occurrence IDs in `stage_state_json` (Task 11 compose input). The
+ * opportunity writes that precede this call are individually idempotent, so
+ * a crash between them and this advance resumes cleanly.
+ */
+async function completeMaterializeStage(input: {
+  id: string;
+  opportunityIds: string[];
+}): Promise<IntelligenceRunRow> {
+  const run = await getRun(input.id);
+  if (!run) throw new Error(`Intelligence run not found: ${input.id}`);
+  if (run.currentStage !== "materializing") {
+    throw new InvalidStageTransitionError(
+      `Stage-2 completion requires materializing stage, found ${run.currentStage}`,
+    );
+  }
+  await runBatch((tx) => [
+    tx
+      .update(intelligenceRuns)
+      .set({
+        stageStateJson: JSON.stringify({
+          materializedOpportunityIds: input.opportunityIds,
+        }),
+        currentStage: "composing",
+        status: "composing",
+        updatedAt: nowIso(),
+      })
+      .where(eq(intelligenceRuns.id, input.id)),
+  ]);
+  const updated = await getRun(input.id);
+  if (!updated) throw new Error(`Intelligence run not found: ${input.id}`);
+  return updated;
+}
+
 export const ScanLedgerRepository = {
   createRun,
   getRun,
   getLatestRun,
   getLatestSuccessfulRun,
+  getLatestHashedRun,
   listRecentRuns,
   transitionStage,
   recordDetectorOutcome,
   getDetectorOutcomes,
   failRun,
   commitStageOnePointer,
+  completeMaterializeStage,
 };
