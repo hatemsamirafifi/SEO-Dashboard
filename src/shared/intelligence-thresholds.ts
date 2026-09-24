@@ -5,7 +5,10 @@
  * near-miss distributions to calibrate without code-path changes (§23.5).
  */
 
-export const THRESHOLD_VERSION = 1;
+// Bumped 1 → 2 in PR7: low-CTR, cannibalization, and technical detectors
+// gained explicit stability/importance windows (previously implicit).
+// No production artifacts exist yet, so no migration is required.
+export const THRESHOLD_VERSION = 2;
 
 export type DetectorThresholds = Record<
   string,
@@ -25,6 +28,8 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     declineRatio: 0.2,
   },
   low_ctr_query: {
+    minWindowDays: 28,
+    minCoverageRatio: 0.8,
     minImpressions: 100,
     positionBandMin: 5,
     positionBandMax: 20,
@@ -41,10 +46,14 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     topNTier: 20,
   },
   cannibalization: {
+    minWindowDays: 28,
+    minCoverageRatio: 0.8,
     minUrls: 2,
     minImpressions: 50,
   },
   technical_on_important_page: {
+    minWindowDays: 28,
+    minCoverageRatio: 0.8,
     topN: 50,
     severity: "critical",
   },
