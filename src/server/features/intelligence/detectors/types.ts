@@ -64,6 +64,22 @@ export type FindingDraft = {
 };
 
 /**
+ * Reads an injected numeric threshold. Thresholds are injected, never
+ * hardcoded: a missing or mistyped threshold is a loud config error (failed
+ * detector), never a silent default.
+ */
+export function thresholdNumber(
+  thresholds: DetectorThresholds,
+  key: string,
+): number {
+  const value: unknown = thresholds[key];
+  if (typeof value !== "number") {
+    throw new Error(`Detector threshold missing or not numeric: ${key}`);
+  }
+  return value;
+}
+
+/**
  * Thrown by input fetchers when required source coverage is insufficient
  * (FAILED/missing grain coverage, too few snapshots, no completed audit).
  * The detection stage records the detector as `skipped` with the reason —

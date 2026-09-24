@@ -1,4 +1,5 @@
 import { GscSearchPerformanceRepository } from "@/server/features/gsc/repositories/GscSearchPerformanceRepository";
+import { canonicalKeyword } from "@/shared/intelligence";
 import {
   InsufficientCoverageError,
   thresholdNumber,
@@ -6,11 +7,7 @@ import {
   type DetectorDef,
   type FindingDraft,
 } from "./types";
-import {
-  coverageRatio,
-  splitWindows,
-  type GscWindow,
-} from "./gscWindows";
+import { coverageRatio, splitWindows, type GscWindow } from "./gscWindows";
 
 /**
  * `low_ctr_query` (final-plan §4): queries with strong visibility but weak
@@ -57,12 +54,12 @@ export async function fetchLowCtrInput(
 ): Promise<LowCtrInput> {
   const windowDays = thresholdNumber(ctx.thresholds, "minWindowDays");
   const minCoverage = thresholdNumber(ctx.thresholds, "minCoverageRatio");
-  const latestDate =
-    await GscSearchPerformanceRepository.getLatestFactDate(projectId, "query");
+  const latestDate = await GscSearchPerformanceRepository.getLatestFactDate(
+    projectId,
+    "query",
+  );
   if (!latestDate) {
-    throw new InsufficientCoverageError(
-      "low_ctr_query: no GSC query facts",
-    );
+    throw new InsufficientCoverageError("low_ctr_query: no GSC query facts");
   }
   const { current, previous } = splitWindows(latestDate, windowDays);
   const rows = await GscSearchPerformanceRepository.getDailyGrainFacts(
@@ -83,7 +80,7 @@ export async function fetchLowCtrInput(
   const byQuery = new Map<string, LowCtrQueryRow>();
   for (const row of rows) {
     if (row.date < current.from || row.date > current.to) continue;
-    const query = (row.query ?? row.grainKey).toLowerCase();
+    const query = canonicalKeyword(row.query ?? row.grainKey);
     const existing = byQuery.get(query) ?? {
       query,
       impressions: 0,
@@ -104,8 +101,7 @@ export async function fetchLowCtrInput(
     periodTo: current.to,
     rows: [...byQuery.values()].map((entry) => ({
       ...entry,
-      position:
-        entry.impressions > 0 ? entry.position / entry.impressions : 0,
+      position: entry.impressions > 0 ? entry.position / entry.impressions : 0,
     })),
     windowDays,
     thresholds: {

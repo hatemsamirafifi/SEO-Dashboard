@@ -12,6 +12,7 @@ import {
   type IntelligenceRunRow,
 } from "../repositories/ScanLedgerRepository";
 import { runDetectionStage, type DetectorInputFetcher } from "./detectionStage";
+import { fetchDetectorInput } from "../detectors/inputs";
 import {
   SourceTokens,
   describeActiveMutations,
@@ -132,6 +133,14 @@ async function executeDetection(input: {
     toStatus: "detecting",
   });
 
+  // Production default: the explicit per-detector input dispatcher. Tests
+  // inject their own fetcher; unknown keys preserve the "no input fetcher"
+  // skip path.
+  const fetchInput: DetectorInputFetcher =
+    input.fetchInput ??
+    ((detectorKey, ctx) =>
+      fetchDetectorInput(detectorKey, input.projectId, ctx));
+
   for (let attempt = 0; attempt <= DETECTION_MAX_RETRIES; attempt += 1) {
     const beforeHash = await hashSourceState(input.before);
     const stageFindings = await runDetectionStage({
@@ -139,7 +148,7 @@ async function executeDetection(input: {
       organizationId: input.organizationId,
       runId: input.run.id,
       state: input.before,
-      fetchInput: input.fetchInput,
+      fetchInput,
     });
     const after = await SourceTokens.assembleDetectionSourceState(
       input.projectId,

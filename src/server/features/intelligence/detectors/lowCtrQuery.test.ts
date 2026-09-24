@@ -12,11 +12,7 @@ vi.mock("@/db", () => ({
   ),
 }));
 
-import {
-  detectLowCtr,
-  isLowCtrInput,
-  type LowCtrInput,
-} from "./lowCtrQuery";
+import { detectLowCtr, isLowCtrInput, type LowCtrInput } from "./lowCtrQuery";
 
 function ctx() {
   return {

@@ -1,13 +1,26 @@
 import type { DetectorDef } from "./types";
+import { organicTrafficChangeDetector } from "./organicTrafficChange";
+import { lowCtrQueryDetector } from "./lowCtrQuery";
+import { contentDecayDetector } from "./contentDecay";
+import { rankingDropDetector } from "./rankingDrop";
+import { cannibalizationDetector } from "./cannibalization";
+import { technicalOnImportantPageDetector } from "./technicalOnImportantPage";
+import { backlinkChangeDetector } from "./backlinkChange";
 
 /**
  * Explicit versioned detector list — no auto-glob (mirrors the explicitness
  * of `getSeoDataRouter`). Each SEO condition has exactly one detector;
- * detectors land in Tasks 7/10 and register here. The list ships empty in
- * Task 6 so the Stage-1 scan path, artifact flow, and scheduler are proven
- * before any detector exists.
+ * GA4-gated detectors land in Task 10 and register here.
  */
-const DETECTORS: DetectorDef[] = [];
+const DETECTORS: DetectorDef[] = [
+  organicTrafficChangeDetector,
+  lowCtrQueryDetector,
+  contentDecayDetector,
+  rankingDropDetector,
+  cannibalizationDetector,
+  technicalOnImportantPageDetector,
+  backlinkChangeDetector,
+];
 
 export function listDetectors(): DetectorDef[] {
   return [...DETECTORS];

@@ -30,7 +30,9 @@ function ctx() {
   };
 }
 
-function input(overrides: Partial<TrafficChangeInput> = {}): TrafficChangeInput {
+function input(
+  overrides: Partial<TrafficChangeInput> = {},
+): TrafficChangeInput {
   return {
     periodFrom: "2026-01-08",
     periodTo: "2026-01-14",
@@ -68,7 +70,12 @@ describe("organic_traffic_change", () => {
       ctx(),
       input({
         current: { clicks: 1600, impressions: 18000, days: 7, expectedDays: 7 },
-        previous: { clicks: 1240, impressions: 15000, days: 7, expectedDays: 7 },
+        previous: {
+          clicks: 1240,
+          impressions: 15000,
+          days: 7,
+          expectedDays: 7,
+        },
       }),
     );
     expect(findings).toHaveLength(1);

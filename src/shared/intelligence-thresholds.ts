@@ -37,6 +37,7 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
   },
   content_decay: {
     minWindowDays: 28,
+    minCoverageRatio: 0.8,
     declineRatio: 0.3,
     minVolume: 50,
     persistenceWindows: 2,
@@ -64,5 +65,7 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
 };
 
 export function defaultThresholdsFor(detectorKey: string): DetectorThresholds {
-  return { ...(DEFAULT_DETECTOR_THRESHOLDS[detectorKey] ?? {}) };
+  // Spread of an absent key is a no-op ({}), so unknown detectors get an
+  // empty set and fail loudly at thresholdNumber instead of silently.
+  return { ...DEFAULT_DETECTOR_THRESHOLDS[detectorKey] };
 }

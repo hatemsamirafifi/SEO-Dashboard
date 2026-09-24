@@ -84,24 +84,22 @@ export async function fetchTrafficChangeInput(
 ): Promise<TrafficChangeInput> {
   const windowDays = thresholdNumber(ctx.thresholds, "minWindowDays");
   const minCoverage = thresholdNumber(ctx.thresholds, "minCoverageRatio");
-  const latestDate =
-    await GscSearchPerformanceRepository.getLatestFactDate(
-      projectId,
-      "summary",
-    );
+  const latestDate = await GscSearchPerformanceRepository.getLatestFactDate(
+    projectId,
+    "summary",
+  );
   if (!latestDate) {
     throw new InsufficientCoverageError(
       "organic_traffic_change: no GSC summary facts",
     );
   }
   const { current, previous } = splitWindows(latestDate, windowDays);
-  const rows =
-    await GscSearchPerformanceRepository.getDailyGrainFacts(
-      projectId,
-      "summary",
-      previous.from,
-      current.to,
-    );
+  const rows = await GscSearchPerformanceRepository.getDailyGrainFacts(
+    projectId,
+    "summary",
+    previous.from,
+    current.to,
+  );
   for (const window of [current, previous]) {
     if (coverageRatio(rows, window) < minCoverage) {
       throw new InsufficientCoverageError(
@@ -184,8 +182,7 @@ export function detectOrganicTrafficChange(
       detectedAt: new Date().toISOString(),
       confidenceScore: fullCoverage ? 70 : 60,
       coverageFlags: {
-        summaryCoverageCurrent:
-          input.current.days / input.current.expectedDays,
+        summaryCoverageCurrent: input.current.days / input.current.expectedDays,
         summaryCoveragePrevious:
           input.previous.days / input.previous.expectedDays,
       },

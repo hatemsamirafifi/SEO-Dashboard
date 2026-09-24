@@ -60,7 +60,7 @@ describe("ranking_drop", () => {
   it("emits a top-tier drop with device+market identity", () => {
     const findings = detectRankingDrop(ctx(), input());
     expect(findings).toHaveLength(1);
-    expect(findings[0]?.entityKey).toBe("running shoes::desktop::2840");
+    expect(findings[0]?.entityKey).toBe("rank:running shoes:desktop:2840");
     expect(findings[0]?.evidence.metrics.dropPositions).toBe(7);
     expect(findings[0]?.evidence.sourceRefs?.rankSnapshotIds).toEqual([1, 2]);
     expect(findings[0]?.evidence.partialData).toContain(

@@ -20,15 +20,19 @@ import { normalizeGa4LandingPage } from "./ga4";
 // Canonical JSON + hashing (content addressing, version tokens)
 // ---------------------------------------------------------------------------
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 /** Canonical JSON: object keys sorted recursively so hashes are stable. */
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
   }
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
+  if (isJsonRecord(value)) {
+    const entries = Object.entries(value)
       .filter(([, entryValue]) => entryValue !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+      .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
     return `{${entries
       .map(
         ([key, entryValue]) =>
@@ -100,7 +104,7 @@ export function canonicalCannibalizationPair(
   secondUrl: string,
   query: string,
 ): string {
-  const pages = [canonicalUrl(firstUrl), canonicalUrl(secondUrl)].sort();
+  const pages = [canonicalUrl(firstUrl), canonicalUrl(secondUrl)].toSorted();
   return `cannibalization:${canonicalKeyword(query)}:${pages[0]}:${pages[1]}`;
 }
 
@@ -143,10 +147,7 @@ export function buildOpportunityLogicalKey(
 }
 
 /** `insight_key = composerKey:groupKey`. */
-export function buildInsightKey(
-  composerKey: string,
-  groupKey: string,
-): string {
+export function buildInsightKey(composerKey: string, groupKey: string): string {
   return `${composerKey}:${groupKey}`;
 }
 
@@ -305,11 +306,11 @@ const correlationSchema = z
 
 const findingEvidenceSchema = z
   .object({
-    metrics: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
-    periods: z
-      .object({ from: z.string(), to: z.string() })
-      .strict()
-      .optional(),
+    metrics: z.record(
+      z.string(),
+      z.union([z.string(), z.number(), z.boolean()]),
+    ),
+    periods: z.object({ from: z.string(), to: z.string() }).strict().optional(),
     sources: z.array(sourceNameSchema),
     sourceRefs: sourceRefsSchema.optional(),
     thresholdsApplied: z.record(
@@ -372,10 +373,7 @@ export const insightSchema = z
     recommendation: z.string().optional(),
     evidenceSummary: z.string().min(1),
     entityRefs: z.array(z.string()),
-    periods: z
-      .object({ from: z.string(), to: z.string() })
-      .strict()
-      .optional(),
+    periods: z.object({ from: z.string(), to: z.string() }).strict().optional(),
     sources: z.array(sourceNameSchema),
     findingKeys: z.array(z.string()),
     opportunityIds: z.array(z.string()),

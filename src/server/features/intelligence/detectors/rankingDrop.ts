@@ -1,5 +1,6 @@
 import { GscSearchPerformanceRepository } from "@/server/features/gsc/repositories/GscSearchPerformanceRepository";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import { canonicalKeyword, canonicalRankKey } from "@/shared/intelligence";
 import {
   InsufficientCoverageError,
   thresholdNumber,
@@ -17,6 +18,15 @@ import { addDaysISO } from "./gscWindows";
  */
 
 const QUALIFYING_STATUSES = ["completed"];
+
+type RankSnapshotRow = Awaited<
+  ReturnType<typeof RankTrackingRepository.getSnapshotsForRun>
+>[number];
+
+/** CHECK_FAILED / NOT_CHECKED snapshots are noise, never input. */
+function isUsableSnapshot(snap: RankSnapshotRow): boolean {
+  return snap.rankingStatus === "RANKED" || snap.rankingStatus === "NO_RESULT";
+}
 
 export type RankDropPair = {
   trackingKeywordId: string;
@@ -61,9 +71,7 @@ type RankRun = {
   completedAt: string | null;
 };
 
-async function qualifyingRunPairs(
-  projectId: string,
-): Promise<
+async function qualifyingRunPairs(projectId: string): Promise<
   Array<{
     configId: string;
     locationCode: number;
@@ -71,8 +79,7 @@ async function qualifyingRunPairs(
     prior: RankRun;
   }>
 > {
-  const configs =
-    await RankTrackingRepository.getConfigsForProject(projectId);
+  const configs = await RankTrackingRepository.getConfigsForProject(projectId);
   const pairs: Array<{
     configId: string;
     locationCode: number;
@@ -89,16 +96,23 @@ async function qualifyingRunPairs(
       if (QUALIFYING_STATUSES.includes(run.status)) {
         qualifying.push(run);
       } else if (run.status === "partial") {
-        const snapshots =
-          await RankTrackingRepository.getSnapshotsForRun(run.id);
+        const snapshots = await RankTrackingRepository.getSnapshotsForRun(
+          run.id,
+        );
         if (snapshots.length > 0) qualifying.push(run);
       }
       // failed/empty/cancelled/pending/running never qualify — ignored.
       if (qualifying.length >= 2) break;
     }
     if (qualifying.length < 2) continue;
-    const [latest, prior] = qualifying as [RankRun, RankRun];
-    pairs.push({ configId: config.id, locationCode: config.locationCode, latest, prior });
+    const [latest, prior] = qualifying;
+    if (!latest || !prior) continue;
+    pairs.push({
+      configId: config.id,
+      locationCode: config.locationCode,
+      latest,
+      prior,
+    });
   }
   return pairs;
 }
@@ -119,18 +133,14 @@ export async function fetchRankDropInput(
       RankTrackingRepository.getSnapshotsForRun(pair.latest.id),
       RankTrackingRepository.getSnapshotsForRun(pair.prior.id),
     ]);
-    const usable = (snap: (typeof latestSnaps)[number]) =>
-      snap.rankingStatus === "RANKED" || snap.rankingStatus === "NO_RESULT";
-    const priorByKey = new Map<string, (typeof priorSnaps)[number]>();
+    const priorByKey = new Map<string, RankSnapshotRow>();
     for (const snap of priorSnaps) {
-      if (!usable(snap)) continue;
+      if (!isUsableSnapshot(snap)) continue;
       priorByKey.set(`${snap.trackingKeywordId}::${snap.device}`, snap);
     }
     for (const snap of latestSnaps) {
-      if (!usable(snap)) continue;
-      const prior = priorByKey.get(
-        `${snap.trackingKeywordId}::${snap.device}`,
-      );
+      if (!isUsableSnapshot(snap)) continue;
+      const prior = priorByKey.get(`${snap.trackingKeywordId}::${snap.device}`);
       if (!prior || prior.position == null) continue;
       allPairs.push({
         trackingKeywordId: snap.trackingKeywordId,
@@ -152,25 +162,23 @@ export async function fetchRankDropInput(
   const clicksAgreementByKeyword: Record<string, boolean> = {};
   let gscAvailable = false;
   try {
-    const latestDate =
-      await GscSearchPerformanceRepository.getLatestFactDate(
-        projectId,
-        "query",
-      );
+    const latestDate = await GscSearchPerformanceRepository.getLatestFactDate(
+      projectId,
+      "query",
+    );
     if (latestDate) {
       gscAvailable = true;
       const from = addDaysISO(latestDate, -55);
-      const rows =
-        await GscSearchPerformanceRepository.getDailyGrainFacts(
-          projectId,
-          "query",
-          from,
-          latestDate,
-        );
+      const rows = await GscSearchPerformanceRepository.getDailyGrainFacts(
+        projectId,
+        "query",
+        from,
+        latestDate,
+      );
       const midpoint = addDaysISO(latestDate, -28);
       const sums = new Map<string, { recent: number; older: number }>();
       for (const row of rows) {
-        const key = (row.query ?? row.grainKey).toLowerCase();
+        const key = canonicalKeyword(row.query ?? row.grainKey);
         const entry = sums.get(key) ?? { recent: 0, older: 0 };
         if (row.date > midpoint) entry.recent += row.clicks;
         else entry.older += row.clicks;
@@ -210,9 +218,13 @@ export function detectRankingDrop(
     const current = pair.currentPosition ?? 101;
     const drop = current - pair.previousPosition;
     if (drop < dropPositions) continue;
-    const keywordKey = pair.keyword.toLowerCase();
-    const agrees = input.clicksAgreementByKeyword[keywordKey] === true;
-    const entityKey = `${keywordKey}::${pair.device}::${pair.locationCode}`;
+    const keywordKey = canonicalKeyword(pair.keyword);
+    const agrees = input.clicksAgreementByKeyword[keywordKey] ?? false;
+    const entityKey = canonicalRankKey(
+      pair.keyword,
+      pair.device,
+      String(pair.locationCode),
+    );
     findings.push({
       entityKey,
       entity: {
@@ -243,7 +255,9 @@ export function detectRankingDrop(
         thresholdsApplied: input.thresholds,
         correlations: [],
         evidenceType: "observational",
-        partialData: input.gscAvailable ? [] : ["gsc_corroboration_unavailable"],
+        partialData: input.gscAvailable
+          ? []
+          : ["gsc_corroboration_unavailable"],
         confidenceInputs: { gscClicksAgree: agrees },
       },
       detectedAt: new Date().toISOString(),

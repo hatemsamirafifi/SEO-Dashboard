@@ -38,7 +38,11 @@ vi.mock("@/db/runBatch", () => ({
 import { runDetectionStage } from "./detectionStage";
 import { ScanLedgerRepository } from "../repositories/ScanLedgerRepository";
 import type { DetectionSourceState } from "./SourceTokens";
-import type { DetectorDef, FindingDraft } from "../detectors/types";
+import {
+  InsufficientCoverageError,
+  type DetectorDef,
+  type FindingDraft,
+} from "../detectors/types";
 
 function state(
   overrides: Partial<DetectionSourceState> = {},
@@ -215,5 +219,67 @@ describe("runDetectionStage", () => {
     const rows = await ScanLedgerRepository.getDetectorOutcomes(run.id);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe("skipped");
+  });
+
+  it("drops below-floor drafts but records the detector completed", async () => {
+    const run = await ScanLedgerRepository.createRun({
+      projectId: "project-1",
+      organizationId: "org-1",
+      triggeredBy: "manual",
+    });
+
+    const findings = await runDetectionStage({
+      projectId: "project-1",
+      organizationId: "org-1",
+      runId: run.id,
+      state: stateWithVersions(),
+      detectors: [
+        detector({
+          detectorKey: "test_floor",
+          requiredSources: ["gsc"],
+          minConfidenceToEmit: 70,
+          detect: () => [
+            { ...draft("low"), confidenceScore: 55 },
+            { ...draft("high"), confidenceScore: 80 },
+          ],
+        }),
+      ],
+      fetchInput: async () => ({ rows: [] }),
+    });
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.entityKey).toBe("high");
+    const rows = await ScanLedgerRepository.getDetectorOutcomes(run.id);
+    expect(rows[0]).toMatchObject({ status: "completed", findingsCount: 1 });
+  });
+
+  it("maps fetcher coverage errors to skipped, not failed", async () => {
+    const run = await ScanLedgerRepository.createRun({
+      projectId: "project-1",
+      organizationId: "org-1",
+      triggeredBy: "manual",
+    });
+
+    const findings = await runDetectionStage({
+      projectId: "project-1",
+      organizationId: "org-1",
+      runId: run.id,
+      state: stateWithVersions(),
+      detectors: [
+        detector({
+          detectorKey: "test_gated",
+          requiredSources: ["gsc"],
+          detect: () => [draft("entity-1")],
+        }),
+      ],
+      fetchInput: async () => {
+        throw new InsufficientCoverageError("grain coverage below 0.8");
+      },
+    });
+
+    expect(findings).toHaveLength(0);
+    const rows = await ScanLedgerRepository.getDetectorOutcomes(run.id);
+    expect(rows[0]?.status).toBe("skipped");
+    expect(rows[0]?.skipReason).toContain("INSUFFICIENT_COVERAGE");
   });
 });

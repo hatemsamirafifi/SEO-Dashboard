@@ -192,9 +192,9 @@ describe("canonical keys", () => {
     const first = await buildFindingKey(base);
     expect(first).toHaveLength(64);
     expect(await buildFindingKey(base)).toBe(first);
-    expect(
-      await buildFindingKey({ ...base, periodTo: "2026-01-08" }),
-    ).not.toBe(first);
+    expect(await buildFindingKey({ ...base, periodTo: "2026-01-08" })).not.toBe(
+      first,
+    );
     expect(buildOpportunityLogicalKey("d", "e")).toBe("d:e");
     expect(buildInsightKey("c", "g")).toBe("c:g");
   });
@@ -253,11 +253,13 @@ describe("scoring helpers", () => {
         lastDetectedAt: "2026-01-01T00:00:00.000Z",
       },
     ];
-    expect([...rows].sort(compareOpportunities)[0]?.priority).toBe("Critical");
+    expect([...rows].toSorted(compareOpportunities)[0]?.priority).toBe(
+      "Critical",
+    );
     expect(
       [...rows]
         .filter((row) => row.priority === "High")
-        .sort(compareOpportunities)[0]?.impactScore,
+        .toSorted(compareOpportunities)[0]?.impactScore,
     ).toBe(90);
   });
 
@@ -281,8 +283,6 @@ describe("scoring helpers", () => {
     expect(renormalizedScore(full)).toBe(50);
     expect(renormalizedScore(missing)).toBe(50);
     expect(renormalizedScore([])).toBeNull();
-    expect(
-      renormalizedScore([{ weight: 10, value: null }]),
-    ).toBeNull();
+    expect(renormalizedScore([{ weight: 10, value: null }])).toBeNull();
   });
 });

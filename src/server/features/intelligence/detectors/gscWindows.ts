@@ -58,7 +58,9 @@ export function inWindow(date: string, window: GscWindow): boolean {
 
 /** Inclusive day count of a window. */
 export function windowDayCount(window: GscWindow): number {
-  return Math.round((parseDay(window.to) - parseDay(window.from)) / 86_400_000) + 1;
+  return (
+    Math.round((parseDay(window.to) - parseDay(window.from)) / 86_400_000) + 1
+  );
 }
 
 /** Sorted distinct fact dates inside a window. */
@@ -74,10 +76,7 @@ export function distinctDatesIn(
 }
 
 /** Day-presence ratio of rows inside a window (0–1). */
-export function coverageRatio(
-  rows: GscDailyFact[],
-  window: GscWindow,
-): number {
+export function coverageRatio(rows: GscDailyFact[], window: GscWindow): number {
   return distinctDatesIn(rows, window).length / windowDayCount(window);
 }
 

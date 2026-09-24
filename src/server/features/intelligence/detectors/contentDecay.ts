@@ -1,3 +1,4 @@
+import { canonicalUrl } from "@/shared/intelligence";
 import { GscSearchPerformanceRepository } from "@/server/features/gsc/repositories/GscSearchPerformanceRepository";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import {
@@ -7,10 +8,7 @@ import {
   type DetectorDef,
   type FindingDraft,
 } from "./types";
-import {
-  consecutiveWindows,
-  coverageRatio,
-} from "./gscWindows";
+import { consecutiveWindows, coverageRatio } from "./gscWindows";
 
 /**
  * `content_decay` (final-plan §4): pages with large sustained click declines
@@ -37,6 +35,10 @@ export type DecayInput = {
   thresholds: Record<string, string | number | boolean>;
 };
 
+export function average(values: number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
 export function isDecayInput(value: unknown): value is DecayInput {
   return (
     typeof value === "object" &&
@@ -62,8 +64,10 @@ export async function fetchDecayInput(
 ): Promise<DecayInput> {
   const windowDays = thresholdNumber(ctx.thresholds, "minWindowDays");
   const minCoverage = thresholdNumber(ctx.thresholds, "minCoverageRatio");
-  const latestDate =
-    await GscSearchPerformanceRepository.getLatestFactDate(projectId, "page");
+  const latestDate = await GscSearchPerformanceRepository.getLatestFactDate(
+    projectId,
+    "page",
+  );
   if (!latestDate) {
     throw new InsufficientCoverageError("content_decay: no GSC page facts");
   }
@@ -92,22 +96,28 @@ export async function fetchDecayInput(
   }
   const byPage = new Map<
     string,
-    { windows: Array<{ clicks: number; impressions: number; days: number }>; factIds: string[] }
+    {
+      windows: Array<{ clicks: number; impressions: number; days: number }>;
+      factIds: string[];
+    }
   >();
   const windows = [current, previous, oldest];
   for (const row of rows) {
     if (!row.page) continue;
+    // Canonical page identity: UTM/query variants of one page collapse to
+    // one entity, agreeing with technical keys and opportunity keys.
+    const page = canonicalUrl(row.page);
     const index = windows.findIndex(
       (window) => row.date >= window.from && row.date <= window.to,
     );
     if (index === -1) continue;
-    let entry = byPage.get(row.page);
+    let entry = byPage.get(page);
     if (!entry) {
       entry = {
         windows: windows.map(() => ({ clicks: 0, impressions: 0, days: 0 })),
         factIds: [],
       };
-      byPage.set(row.page, entry);
+      byPage.set(page, entry);
     }
     const bucket = entry.windows[index];
     if (!bucket) continue;
@@ -120,8 +130,7 @@ export async function fetchDecayInput(
   // most recent qualifying runs. Rank unconfigured → unavailable, no penalty.
   const rankAgreementByUrl: Record<string, boolean> = {};
   let rankAvailable = false;
-  const configs =
-    await RankTrackingRepository.getConfigsForProject(projectId);
+  const configs = await RankTrackingRepository.getConfigsForProject(projectId);
   for (const config of configs) {
     const runs = await RankTrackingRepository.getRecentRunsForConfig(
       config.id,
@@ -132,14 +141,16 @@ export async function fetchDecayInput(
       if (run.status === "completed") {
         qualifying.push(run);
       } else if (run.status === "partial") {
-        const snapshots =
-          await RankTrackingRepository.getSnapshotsForRun(run.id);
+        const snapshots = await RankTrackingRepository.getSnapshotsForRun(
+          run.id,
+        );
         if (snapshots.length > 0) qualifying.push(run);
       }
       if (qualifying.length >= 2) break;
     }
     if (qualifying.length < 2) continue;
-    const [latest, prior] = qualifying as [typeof runs[number], typeof runs[number]];
+    const [latest, prior] = qualifying;
+    if (!latest || !prior) continue;
     const [latestSnaps, priorSnaps] = await Promise.all([
       RankTrackingRepository.getSnapshotsForRun(latest.id),
       RankTrackingRepository.getSnapshotsForRun(prior.id),
@@ -147,24 +158,24 @@ export async function fetchDecayInput(
     const priorByUrl = new Map<string, number[]>();
     for (const snap of priorSnaps) {
       if (snap.url == null || snap.position == null) continue;
-      const list = priorByUrl.get(snap.url) ?? [];
+      const key = canonicalUrl(snap.url);
+      const list = priorByUrl.get(key) ?? [];
       list.push(snap.position);
-      priorByUrl.set(snap.url, list);
+      priorByUrl.set(key, list);
     }
     const latestByUrl = new Map<string, number[]>();
     for (const snap of latestSnaps) {
       if (snap.url == null || snap.position == null) continue;
-      const list = latestByUrl.get(snap.url) ?? [];
+      const key = canonicalUrl(snap.url);
+      const list = latestByUrl.get(key) ?? [];
       list.push(snap.position);
-      latestByUrl.set(snap.url, list);
+      latestByUrl.set(key, list);
     }
     for (const [url, latestPositions] of latestByUrl) {
       const priorPositions = priorByUrl.get(url);
       if (!priorPositions || priorPositions.length === 0) continue;
       rankAvailable = true;
-      const avg = (values: number[]) =>
-        values.reduce((a, b) => a + b, 0) / values.length;
-      if (avg(latestPositions) > avg(priorPositions)) {
+      if (average(latestPositions) > average(priorPositions)) {
         rankAgreementByUrl[url] = true;
       }
     }
@@ -199,6 +210,9 @@ export function detectDecay(
   const minCoverage = thresholdNumber(ctx.thresholds, "minCoverageRatio");
   const findings: FindingDraft[] = [];
   for (const row of input.rows) {
+    // Canonicalize defensively: fetchers pre-canonicalize, but direct
+    // callers (tests, future composers) may pass raw URLs.
+    const page = canonicalUrl(row.page);
     const [current, previous, oldest] = row.windows;
     if (!current || !previous || !oldest) continue;
     // Truncated entities excluded per-entity: day presence below the ratio
@@ -210,14 +224,18 @@ export function detectDecay(
     );
     if (dayRatio < minCoverage) continue;
     // Volume floor suppresses (not skips): thin pages cannot decay.
-    if (previous.clicks < minVolume || oldest.clicks < 1 || current.clicks < 1) {
+    if (
+      previous.clicks < minVolume ||
+      oldest.clicks < 1 ||
+      current.clicks < 1
+    ) {
       continue;
     }
     const recentDecline = (current.clicks - previous.clicks) / previous.clicks;
     const olderDecline = (previous.clicks - oldest.clicks) / oldest.clicks;
     // Sustained: current decline past the ratio AND same direction before.
     if (recentDecline > -declineRatio || olderDecline > 0) continue;
-    const rankAgrees = input.rankAgreementByUrl[row.page] === true;
+    const rankAgrees = input.rankAgreementByUrl[page] ?? false;
     const largeSustained = recentDecline <= -0.5;
     let confidence = 55;
     if (rankAgrees) confidence += 15;
@@ -231,10 +249,10 @@ export function detectDecay(
       ? []
       : ["rank_corroboration_unavailable"];
     findings.push({
-      entityKey: row.page,
-      entity: { page: row.page },
+      entityKey: page,
+      entity: { page },
       explanationFact:
-        `Page ${row.page} lost ${Math.abs(recentDecline * 100).toFixed(1)}% of clicks ` +
+        `Page ${page} lost ${Math.abs(recentDecline * 100).toFixed(1)}% of clicks ` +
         `(${previous.clicks.toLocaleString("en-US")} → ${current.clicks.toLocaleString("en-US")}) ` +
         `from ${input.periodFrom}..${input.periodTo} vs the prior ${input.windowDays} days, ` +
         `declining for two consecutive windows${rankAgrees ? ", confirmed by ranking declines" : ""}.`,
