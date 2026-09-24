@@ -3,7 +3,11 @@ import { buildFindingKey, type Finding } from "@/shared/intelligence";
 import { defaultThresholdsFor } from "@/shared/intelligence-thresholds";
 import { ScanLedgerRepository } from "../repositories/ScanLedgerRepository";
 import { listDetectors } from "../detectors/registry";
-import type { DetectorContext, DetectorDef } from "../detectors/types";
+import {
+  InsufficientCoverageError,
+  type DetectorContext,
+  type DetectorDef,
+} from "../detectors/types";
 import type { DetectionSourceState } from "./SourceTokens";
 
 /** Fetches one detector's pre-fetched input. Detector-specific fetchers
@@ -68,7 +72,12 @@ export async function runDetectionStage(input: {
         continue;
       }
       const drafts = detector.detect(ctx, detectorInput);
+      const emittedBefore = findings.length;
       for (const draft of drafts) {
+        // Framework-level floor: below-min-confidence drafts never emit.
+        if (draft.confidenceScore < detector.minConfidenceToEmit) {
+          continue;
+        }
         findings.push({
           findingKey: await buildFindingKey({
             projectId: input.projectId,
@@ -83,6 +92,7 @@ export async function runDetectionStage(input: {
           projectId: input.projectId,
           entityKey: draft.entityKey,
           entity: draft.entity,
+          explanationFact: draft.explanationFact,
           evidence: draft.evidence,
           detectedAt: draft.detectedAt || detectedAt,
           confidenceScore: draft.confidenceScore,
@@ -93,9 +103,18 @@ export async function runDetectionStage(input: {
         runId: input.runId,
         detectorKey: detector.detectorKey,
         status: "completed",
-        findingsCount: drafts.length,
+        findingsCount: findings.length - emittedBefore,
       });
     } catch (error) {
+      if (error instanceof InsufficientCoverageError) {
+        await ScanLedgerRepository.recordDetectorOutcome({
+          runId: input.runId,
+          detectorKey: detector.detectorKey,
+          status: "skipped",
+          skipReason: error.message,
+        });
+        continue;
+      }
       await ScanLedgerRepository.recordDetectorOutcome({
         runId: input.runId,
         detectorKey: detector.detectorKey,

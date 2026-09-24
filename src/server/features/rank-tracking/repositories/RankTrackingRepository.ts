@@ -185,6 +185,20 @@ async function getLatestRunForConfig(configId: string) {
 }
 
 /**
+ * Most recent runs for a config, newest first. Detector input layer filters
+ * these to qualifying runs (completed, or partial with committed snapshots);
+ * failed/empty runs never qualify as detection windows.
+ */
+async function getRecentRunsForConfig(configId: string, limit: number) {
+  return db
+    .select()
+    .from(rankCheckRuns)
+    .where(eq(rankCheckRuns.configId, configId))
+    .orderBy(desc(rankCheckRuns.startedAt))
+    .limit(limit);
+}
+
+/**
  * Returns the currently active (pending or running) run for a config, if any.
  * At most one such row exists, enforced by the partial unique index.
  */
@@ -382,6 +396,7 @@ export const RankTrackingRepository = {
   updateRun,
   getRunById,
   getLatestRunForConfig,
+  getRecentRunsForConfig,
   getActiveRunForConfig,
   insertSnapshots,
   getSnapshotsForRun,

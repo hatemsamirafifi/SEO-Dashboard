@@ -40,6 +40,30 @@ describe("intelligence structural locks", () => {
     expect(content.includes("causedBy")).toBe(false);
   });
 
+  it("requires explanationFact on findings (fact/recommendation split)", () => {
+    const withoutFact = {
+      findingKey: "c".repeat(64),
+      detectorKey: "low_ctr_query",
+      detectorVersion: 1,
+      projectId: "p1",
+      entityKey: "q",
+      entity: { query: "q" },
+      evidence: {
+        metrics: {},
+        sources: ["gsc"],
+        thresholdsApplied: {},
+        correlations: [],
+        evidenceType: "observational",
+        partialData: [],
+        confidenceInputs: {},
+      },
+      detectedAt: "2026-01-01T00:00:00.000Z",
+      confidenceScore: 80,
+      coverageFlags: {},
+    };
+    expect(findingSchema.safeParse(withoutFact).success).toBe(false);
+  });
+
   it("rejects findings with non-observational evidence", () => {
     const base = {
       findingKey: "a".repeat(64),
@@ -48,6 +72,7 @@ describe("intelligence structural locks", () => {
       projectId: "p1",
       entityKey: "q",
       entity: {},
+      explanationFact: "f",
       evidence: {
         metrics: {},
         sources: ["gsc"],
@@ -94,6 +119,7 @@ describe("intelligence structural locks", () => {
       projectId: "p1",
       entityKey: "q",
       entity: { query: "q" },
+      explanationFact: "Query q has low CTR.",
       evidence: {
         metrics: { clicks: 10 },
         sources: ["gsc"],

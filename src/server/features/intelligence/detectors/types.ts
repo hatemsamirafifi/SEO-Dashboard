@@ -36,6 +36,8 @@ export type DetectorContext = {
 export type FindingDraft = {
   entityKey: string;
   entity: Record<string, string | number | boolean | undefined>;
+  /** Fact-only prose (no recommendation, no causal verbs — observational). */
+  explanationFact: string;
   evidence: {
     metrics: Record<string, string | number | boolean>;
     periods?: { from: string; to: string };
@@ -60,6 +62,19 @@ export type FindingDraft = {
   confidenceScore: number;
   coverageFlags: Record<string, string | number | boolean>;
 };
+
+/**
+ * Thrown by input fetchers when required source coverage is insufficient
+ * (FAILED/missing grain coverage, too few snapshots, no completed audit).
+ * The detection stage records the detector as `skipped` with the reason —
+ * distinct from detector bugs, which record `failed`.
+ */
+export class InsufficientCoverageError extends Error {
+  constructor(reason: string) {
+    super(`INSUFFICIENT_COVERAGE: ${reason}`);
+    this.name = "InsufficientCoverageError";
+  }
+}
 
 /**
  * Detector definition: stable key (part of finding/opportunity identity),

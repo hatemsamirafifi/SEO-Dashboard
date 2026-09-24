@@ -337,6 +337,9 @@ export const findingSchema = z
       z.string(),
       z.union([z.string(), z.number(), z.boolean()]).optional(),
     ),
+    // Detectors emit fact-only prose; recommendations are added exclusively
+    // by the materializer/composer (final-plan §4 fact/recommendation split).
+    explanationFact: z.string().min(1),
     evidence: findingEvidenceSchema,
     detectedAt: z.string().min(1),
     confidenceScore: z.number().min(0).max(100),

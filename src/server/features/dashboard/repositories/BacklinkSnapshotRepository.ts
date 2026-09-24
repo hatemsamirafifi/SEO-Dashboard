@@ -57,8 +57,25 @@ async function getFreshForProjectDomain(params: {
   return row;
 }
 
+/**
+ * Most recent snapshots for a project, newest first. The backlink detector
+ * diffs the two newest rows inside its freshness window (labeled heuristic).
+ */
+async function getRecentForProject(
+  projectId: string,
+  limit: number,
+): Promise<BacklinkSnapshot[]> {
+  return db
+    .select()
+    .from(backlinkSnapshots)
+    .where(eq(backlinkSnapshots.projectId, projectId))
+    .orderBy(desc(backlinkSnapshots.id))
+    .limit(limit);
+}
+
 export const BacklinkSnapshotRepository = {
   getLatestForProject,
+  getRecentForProject,
   getFreshForProjectDomain,
   insert,
 };

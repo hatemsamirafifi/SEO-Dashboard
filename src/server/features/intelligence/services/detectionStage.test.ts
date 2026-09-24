@@ -82,6 +82,7 @@ function draft(entityKey: string): FindingDraft {
   return {
     entityKey,
     entity: { query: entityKey },
+    explanationFact: `Entity ${entityKey} crossed its threshold.`,
     evidence: {
       metrics: { clicks: 10 },
       periods: { from: "2026-01-01", to: "2026-01-07" },

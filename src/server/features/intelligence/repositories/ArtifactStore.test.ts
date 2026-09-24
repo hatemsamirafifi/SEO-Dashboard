@@ -31,6 +31,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
     projectId: "project-1",
     entityKey: "entity-1",
     entity: { query: "entity-1" },
+    explanationFact: "Entity entity-1 has low CTR.",
     evidence: {
       metrics: { clicks: 10 },
       sources: ["gsc"],
