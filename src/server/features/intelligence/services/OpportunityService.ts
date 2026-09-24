@@ -2,10 +2,16 @@ import { waitUntil } from "cloudflare:workers";
 import { AppError } from "@/server/lib/errors";
 import { captureServerEvent } from "@/server/lib/posthog";
 import {
+  OPPORTUNITY_WEIGHTS,
+  type ImpactFactorName,
+} from "@/shared/opportunity-weights";
+import {
   PRIORITIES,
   compareOpportunities,
+  renormalizedScore,
   stableHash,
   type OpportunityPriority,
+  type ScoredFactor,
 } from "@/shared/intelligence";
 import {
   OpportunityRepository,
@@ -41,25 +47,143 @@ function toComparable(row: OpportunityRow): {
   };
 }
 
+export type ImpactBreakdownRow = {
+  factor: ImpactFactorName;
+  weight: number;
+  value: number | null;
+};
+
+export type ImpactBreakdown = {
+  rows: ImpactBreakdownRow[];
+  /** Renormalized divisor (sum of available weights). */
+  divisor: number;
+  /** Recomputed score; null when no factor is available. */
+  score: number | null;
+};
+
+export type OpportunityWithBreakdown = OpportunityRow & {
+  impactBreakdown: ImpactBreakdown | null;
+  confidenceInputs: Record<string, string | number | boolean> | null;
+};
+
+const IMPACT_FACTOR_NAMES = [
+  "trafficPotential",
+  "proximity",
+  "decline",
+  "businessIntent",
+  "conversionSignal",
+] as const;
+
+function isStringRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function factorField(obj: Record<string, unknown>, key: string): number | null {
+  const value: unknown = obj[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseFactors(
+  json: string | null,
+): Record<ImpactFactorName, number | null> | null {
+  if (!json) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (!isStringRecord(parsed)) return null;
+  return {
+    trafficPotential: factorField(parsed, "trafficPotential"),
+    proximity: factorField(parsed, "proximity"),
+    decline: factorField(parsed, "decline"),
+    businessIntent: factorField(parsed, "businessIntent"),
+    conversionSignal: factorField(parsed, "conversionSignal"),
+  };
+}
+
+function parseStringRecord(
+  json: string | null,
+): Record<string, string | number | boolean> | null {
+  if (!json) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const out: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (
+      typeof value !== "string" &&
+      typeof value !== "number" &&
+      typeof value !== "boolean"
+    ) {
+      return null;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Recomputes the "why" breakdown from stored factors + versioned weights.
+ * The score must equal the stored impactScore (asserted in tests); a null
+ * breakdown means the stored factors are missing or corrupt.
+ */
+export function buildImpactBreakdown(
+  factorsJson: string | null,
+): ImpactBreakdown | null {
+  const factors = parseFactors(factorsJson);
+  if (!factors) return null;
+  const rows: ImpactBreakdownRow[] = IMPACT_FACTOR_NAMES.map((factor) => ({
+    factor,
+    weight: OPPORTUNITY_WEIGHTS[factor],
+    value: factors[factor],
+  }));
+  const scored: ScoredFactor[] = rows.map((row) => ({
+    weight: row.weight,
+    value: row.value,
+  }));
+  return {
+    rows,
+    divisor: rows.reduce(
+      (sum, row) => sum + (row.value === null ? 0 : row.weight),
+      0,
+    ),
+    score: renormalizedScore(scored),
+  };
+}
+
+function withBreakdown(row: OpportunityRow): OpportunityWithBreakdown {
+  return {
+    ...row,
+    impactBreakdown: buildImpactBreakdown(row.impactFactorsJson),
+    confidenceInputs: parseStringRecord(row.confidenceInputsJson),
+  };
+}
+
 export async function listOpportunities(input: {
   projectId: string;
   status?: OpportunityStatus;
   type?: string;
-}): Promise<OpportunityRow[]> {
+}): Promise<OpportunityWithBreakdown[]> {
   const rows = await OpportunityRepository.listByProject(input.projectId, {
     status: input.status,
     type: input.type,
   });
-  return [...rows].toSorted((a, b) =>
-    compareOpportunities(toComparable(a), toComparable(b)),
-  );
+  return [...rows]
+    .toSorted((a, b) => compareOpportunities(toComparable(a), toComparable(b)))
+    .map(withBreakdown);
 }
 
 export async function getOpportunity(input: {
   id: string;
   projectId: string;
 }): Promise<{
-  opportunity: OpportunityRow;
+  opportunity: OpportunityWithBreakdown;
   events: Awaited<
     ReturnType<typeof OpportunityRepository.listEventsByOccurrence>
   >;
@@ -72,7 +196,7 @@ export async function getOpportunity(input: {
   const events = await OpportunityRepository.listEventsByOccurrence(
     opportunity.id,
   );
-  return { opportunity, events };
+  return { opportunity: withBreakdown(opportunity), events };
 }
 
 const ALLOWED_TRANSITIONS: Record<string, OpportunityStatus[]> = {

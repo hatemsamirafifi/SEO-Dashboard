@@ -157,6 +157,46 @@ describe("OpportunityService.listOpportunities", () => {
   });
 });
 
+describe("OpportunityService impact breakdown", () => {
+  it("recomputes the stored score from factors plus weights", async () => {
+    // (30×0.6 + 20×0.8) / 50 = 0.68 → 68
+    const id = await seed(
+      occurrence({
+        id: "occ-why",
+        impactScore: 68,
+        impactFactorsJson: JSON.stringify({
+          trafficPotential: 0.6,
+          proximity: null,
+          decline: 0.8,
+          businessIntent: null,
+          conversionSignal: null,
+        }),
+        confidenceInputsJson: JSON.stringify({ coverage: 1 }),
+      }),
+    );
+    const found = await OpportunityService.getOpportunity({
+      id,
+      projectId: "project-1",
+    });
+    expect(found?.opportunity.impactBreakdown?.score).toBe(68);
+    expect(found?.opportunity.impactBreakdown?.divisor).toBe(50);
+    expect(found?.opportunity.impactBreakdown?.rows).toHaveLength(5);
+    expect(found?.opportunity.confidenceInputs).toMatchObject({
+      coverage: 1,
+    });
+  });
+
+  it("returns a null breakdown for missing factors", async () => {
+    const id = await seed(occurrence({ id: "occ-nofactors" }));
+    const found = await OpportunityService.getOpportunity({
+      id,
+      projectId: "project-1",
+    });
+    expect(found?.opportunity.impactBreakdown).toBeNull();
+    expect(found?.opportunity.confidenceInputs).toBeNull();
+  });
+});
+
 describe("OpportunityService.getOpportunity", () => {
   it("returns the row with its events, null across projects", async () => {
     const id = await seed(occurrence({ id: "occ-1" }));

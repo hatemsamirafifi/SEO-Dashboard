@@ -166,19 +166,25 @@ describe("observational causality lock (final-plan §10)", () => {
   // MVP automated output is correlation-only: no detector fact and no
   // materializer recommendation may carry causal phrasing. Only future
   // provider-confirmed / manual-assertion evidence classes unlock it.
+  // Leading boundaries matter: "failed to load" is legitimate UI copy,
+  // not the causal "led to" phrasing.
   const BANNED_CAUSAL = [
     /\bcaused\b/i,
     /\bcauses\b/i,
     /\bcausing\b/i,
-    /because of/i,
-    /due to/i,
-    /led to/i,
-    /resulted in/i,
+    /\bbecause of/i,
+    /\bdue to/i,
+    /\bled to/i,
+    /\bresulted in/i,
     /\btriggered\b/i,
   ];
   const COPY_FILES = [
     ...DETECTOR_FILES,
     "src/server/features/intelligence/services/opportunityTemplates.ts",
+    "src/client/features/opportunities/opportunitiesCopy.ts",
+    "src/client/features/opportunities/OpportunitiesPage.tsx",
+    "src/client/features/opportunities/OpportunityDetail.tsx",
+    "src/client/features/opportunities/OpportunityDetailSections.tsx",
   ];
   it("contains zero banned causal verbs in detector/template sources", () => {
     const violations: string[] = [];
@@ -208,6 +214,11 @@ describe("intelligence structural locks", () => {
     "src/db/pg/opportunities.schema.ts",
     "drizzle/0054_mighty_mole_man.sql",
     "drizzle-pg/0032_nosy_leader.sql",
+    "src/client/features/opportunities/opportunitiesCopy.ts",
+    "src/client/features/opportunities/OpportunitiesPage.tsx",
+    "src/client/features/opportunities/OpportunityDetail.tsx",
+    "src/client/features/opportunities/OpportunityDetailSections.tsx",
+    "src/client/navigation/items.ts",
     "src/server/features/intelligence/services/SourceTokens.ts",
     "src/shared/intelligence.ts",
     "src/shared/intelligence-thresholds.ts",

@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Search,
   Sparkles,
+  Target,
   TrendingUp,
 } from "lucide-react";
 import { linkOptions } from "@tanstack/react-router";
@@ -47,6 +48,11 @@ const projectNavItems = [
     to: "/p/$projectId/analytics" as const,
     label: "Analytics",
     icon: ChartNoAxesColumn,
+  },
+  {
+    to: "/p/$projectId/opportunities" as const,
+    label: "Opportunities",
+    icon: Target,
   },
   {
     to: "/p/$projectId/domain" as const,
@@ -124,6 +130,7 @@ export function getProjectNavGroups(projectId: string) {
       items: [
         byPath("/p/$projectId/search-performance"),
         byPath("/p/$projectId/analytics"),
+        byPath("/p/$projectId/opportunities"),
         byPath("/p/$projectId/rank-tracking"),
         byPath("/p/$projectId/saved"),
         byPath("/p/$projectId/audit"),
