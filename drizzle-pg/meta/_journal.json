@@ -184,6 +184,13 @@
       "when": 1790028042101,
       "tag": "0031_closed_blindfold",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790284504210,
+      "tag": "0032_nosy_leader",
+      "breakpoints": true
     }
   ]
 }
