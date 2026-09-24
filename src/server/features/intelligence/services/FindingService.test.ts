@@ -104,15 +104,18 @@ function stateWithVersions(): DetectionSourceState {
 beforeAll(async () => {
   if (!database.client) throw new Error("Test database was not initialized");
   await database.client.execute("PRAGMA foreign_keys = OFF");
-  const migration = readFileSync(
-    resolve(process.cwd(), "drizzle/0053_minor_korath.sql"),
-    "utf8",
-  );
-  for (const statement of migration
-    .split("--> statement-breakpoint")
-    .map((part) => part.trim())
-    .filter(Boolean)) {
-    await database.client.execute(statement);
+  // Stage-2 materialization writes opportunity rows: both ledger migrations.
+  for (const file of [
+    "drizzle/0053_minor_korath.sql",
+    "drizzle/0054_mighty_mole_man.sql",
+  ]) {
+    const migration = readFileSync(resolve(process.cwd(), file), "utf8");
+    for (const statement of migration
+      .split("--> statement-breakpoint")
+      .map((part) => part.trim())
+      .filter(Boolean)) {
+      await database.client.execute(statement);
+    }
   }
   await database.client.execute(
     `CREATE TABLE IF NOT EXISTS projects (
@@ -133,6 +136,8 @@ beforeEach(async () => {
   r2.objects.clear();
   vi.restoreAllMocks();
   for (const table of [
+    "opportunity_events",
+    "opportunities",
     "intelligence_run_detectors",
     "intelligence_runs",
     "projects",
@@ -169,7 +174,7 @@ describe("FindingService.runScan", () => {
     expect(r2.objects.size).toBe(0);
   });
 
-  it("parks a stable empty-registry scan at materializing with a frozen manifest", async () => {
+  it("runs detection then Stage 2, ending at composing with a frozen manifest", async () => {
     vi.spyOn(SourceTokens, "assembleDetectionSourceState").mockResolvedValue(
       state(),
     );
@@ -182,7 +187,8 @@ describe("FindingService.runScan", () => {
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.run.currentStage).toBe("materializing");
+    expect(outcome.run.currentStage).toBe("composing");
+    expect(outcome.run.status).toBe("composing");
     expect(outcome.findingsCount).toBe(0);
     expect(outcome.inputHash).toHaveLength(64);
     const manifestKey = outcome.run.manifestKey;
@@ -222,7 +228,7 @@ describe("FindingService.runScan", () => {
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.run.currentStage).toBe("materializing");
+    expect(outcome.run.currentStage).toBe("composing");
     expect(assemble).toHaveBeenCalledTimes(3);
   });
 
@@ -301,7 +307,57 @@ describe("FindingService.resumeScan", () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.run.id).toBe(run.id);
-    expect(outcome.run.currentStage).toBe("materializing");
+    expect(outcome.run.currentStage).toBe("composing");
+  });
+
+  it("materializes a crashed-at-materializing run without re-detecting", async () => {
+    vi.spyOn(SourceTokens, "assembleDetectionSourceState").mockResolvedValue(
+      state(),
+    );
+    const run = await ScanLedgerRepository.createRun({
+      projectId: "project-1",
+      organizationId: "org-1",
+      triggeredBy: "cron",
+    });
+    await ScanLedgerRepository.transitionStage({
+      id: run.id,
+      toStage: "detecting",
+      toStatus: "detecting",
+    });
+    // Freeze an empty artifact directly (simulating a crash after the
+    // Stage-1 park, before Stage 2 ran).
+    const { ArtifactStore } = await import("../repositories/ArtifactStore");
+    const pointers = await ArtifactStore.writeArtifact({
+      projectId: "project-1",
+      runId: run.id,
+      findings: [],
+      inputHash: "d".repeat(64),
+      inputSourceVersions: {},
+      detectorVersions: {},
+      thresholdVersion: 2,
+    });
+    await ScanLedgerRepository.commitStageOnePointer({
+      id: run.id,
+      inputHash: "d".repeat(64),
+      inputSourceVersionsJson: "{}",
+      detectorVersionsJson: "{}",
+      thresholdVersion: 2,
+      manifestKey: pointers.manifestKey,
+      manifestHash: pointers.manifestHash,
+      findingsSchemaVersion: 3,
+      findingsCount: 0,
+      detectionAttemptMetaJson: "[]",
+    });
+    const objectsBefore = r2.objects.size;
+
+    const outcome = await FindingService.resumeScan(run.id);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.run.currentStage).toBe("composing");
+    // Frozen bytes untouched; opportunities materialized from them.
+    expect(r2.objects.size).toBe(objectsBefore);
+    expect(outcome.run.status).toBe("composing");
   });
 
   it("defers without re-detecting once the artifact is frozen", async () => {

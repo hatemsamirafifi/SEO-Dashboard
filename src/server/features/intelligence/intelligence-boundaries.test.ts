@@ -162,10 +162,52 @@ describe("no-duplicate-logic (final-plan §19)", () => {
   });
 });
 
+describe("observational causality lock (final-plan §10)", () => {
+  // MVP automated output is correlation-only: no detector fact and no
+  // materializer recommendation may carry causal phrasing. Only future
+  // provider-confirmed / manual-assertion evidence classes unlock it.
+  const BANNED_CAUSAL = [
+    /\bcaused\b/i,
+    /\bcauses\b/i,
+    /\bcausing\b/i,
+    /because of/i,
+    /due to/i,
+    /led to/i,
+    /resulted in/i,
+    /\btriggered\b/i,
+  ];
+  const COPY_FILES = [
+    ...DETECTOR_FILES,
+    "src/server/features/intelligence/services/opportunityTemplates.ts",
+  ];
+  it("contains zero banned causal verbs in detector/template sources", () => {
+    const violations: string[] = [];
+    for (const file of COPY_FILES) {
+      const content = readSurface(file);
+      for (const pattern of BANNED_CAUSAL) {
+        if (pattern.test(content)) {
+          violations.push(`${file}: ${pattern}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+});
+
 describe("intelligence structural locks", () => {
   const surface = [
     ...STAGE_ONE_FILES,
     ...DETECTOR_FILES,
+    "src/server/features/intelligence/services/opportunityTemplates.ts",
+    "src/server/features/intelligence/services/OpportunityMaterializer.ts",
+    "src/server/features/intelligence/services/OpportunityService.ts",
+    "src/server/features/intelligence/repositories/OpportunityRepository.ts",
+    "src/serverFunctions/opportunities.ts",
+    "src/types/schemas/opportunities.ts",
+    "src/db/opportunities.schema.ts",
+    "src/db/pg/opportunities.schema.ts",
+    "drizzle/0054_mighty_mole_man.sql",
+    "drizzle-pg/0032_nosy_leader.sql",
     "src/server/features/intelligence/services/SourceTokens.ts",
     "src/shared/intelligence.ts",
     "src/shared/intelligence-thresholds.ts",

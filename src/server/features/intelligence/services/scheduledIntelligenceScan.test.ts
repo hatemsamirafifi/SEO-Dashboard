@@ -229,4 +229,46 @@ describe("runScheduledIntelligenceScan", () => {
     await runScheduledIntelligenceScan();
     expect(runScan).toHaveBeenCalledTimes(1);
   });
+
+  it("treats a composing-parked run as the floor baseline", async () => {
+    await database.client?.execute(
+      "INSERT INTO projects (id, organization_id, name) VALUES ('project-1', 'org-1', 'Test')",
+    );
+    const stable = state({
+      versions: {
+        gsc: "sync-1",
+        ga4: null,
+        rank: null,
+        audit: null,
+        backlinks: null,
+      },
+      sourceSet: ["gsc"],
+    });
+    vi.spyOn(SourceTokens, "assembleDetectionSourceState").mockResolvedValue(
+      stable,
+    );
+    const run = await ScanLedgerRepository.createRun({
+      projectId: "project-1",
+      organizationId: "org-1",
+      triggeredBy: "cron",
+    });
+    await ScanLedgerRepository.transitionStage({
+      id: run.id,
+      toStage: "detecting",
+      toStatus: "detecting",
+    });
+    // Parked at composing (Task 11 owns compose): hashed, never terminal.
+    const { hashSourceState } = await import("./SourceTokens");
+    const inputHash = await hashSourceState(stable);
+    await database.client?.execute(
+      `UPDATE intelligence_runs SET status = 'composing', current_stage = 'composing',
+       input_hash = '${inputHash}', updated_at = '${new Date().toISOString()}'
+       WHERE id = '${run.id}'`,
+    );
+    const runScan = vi.spyOn(FindingService, "runScan");
+
+    // Unchanged sources inside the floor → skip (no 15-minute rescan storm).
+    await runScheduledIntelligenceScan();
+    expect(runScan).not.toHaveBeenCalled();
+  });
 });
