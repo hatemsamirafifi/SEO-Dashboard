@@ -4,7 +4,10 @@ import { AppError } from "@/server/lib/errors";
 import { captureServerEvent } from "@/server/lib/posthog";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { AutopilotRepository } from "../repositories/AutopilotRepository";
+import { ensureAutopilotWorkflowsRegistered } from "./autopilotWorkflows";
 import { driveRunToCompletion, type StepRunner } from "./stepExecutor";
+
+ensureAutopilotWorkflowsRegistered();
 import {
   getAutopilotWorkflow,
   type AutopilotWorkflowDef,

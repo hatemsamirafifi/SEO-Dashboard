@@ -245,18 +245,11 @@ describe("reports snapshot discipline (final-plan §12)", () => {
   });
 });
 
-const AUTOPILOT_FILES = [
-  "src/server/features/autopilot/repositories/AutopilotRepository.ts",
-  "src/server/features/autopilot/services/autopilotTypes.ts",
-  "src/server/features/autopilot/services/autopilotBudgets.ts",
-  "src/server/features/autopilot/services/stepSupport.ts",
-  "src/server/features/autopilot/services/stepExecutor.ts",
-  "src/server/features/autopilot/services/synthesisFirewall.ts",
-  "src/server/features/autopilot/services/AutopilotService.ts",
-  "src/server/workflows/AutopilotWorkflow.ts",
-  "src/serverFunctions/autopilot.ts",
-  "src/types/schemas/autopilot.ts",
-];
+import {
+  AUTOPILOT_COPY_FILES,
+  AUTOPILOT_FILES,
+  AUTOPILOT_LOCK_FILES,
+} from "./boundarySurfaces";
 
 describe("autopilot stage discipline (final-plan §13)", () => {
   // The executor may pin sources (SourceTokens assemble/hash) and read its
@@ -332,10 +325,7 @@ describe("observational causality lock (final-plan §10)", () => {
     "src/client/features/reports/PublicReportPage.tsx",
     "src/client/features/reports/BrandingSettings.tsx",
     "src/client/features/reports/ExportReportButtons.tsx",
-    "src/server/features/autopilot/services/stepSupport.ts",
-    "src/server/features/autopilot/services/stepExecutor.ts",
-    "src/server/features/autopilot/services/AutopilotService.ts",
-    "src/server/workflows/AutopilotWorkflow.ts",
+    ...AUTOPILOT_COPY_FILES,
   ];
   it("contains zero banned causal verbs in detector/template sources", () => {
     const violations: string[] = [];
@@ -427,22 +417,7 @@ describe("intelligence structural locks", () => {
     "src/server/features/reports/services/printHtml.ts",
     "src/server/features/reports/services/ExportService.ts",
     "src/routes/api/report-export.ts",
-    "src/server/features/autopilot/repositories/AutopilotRepository.ts",
-    "src/server/features/autopilot/services/autopilotTypes.ts",
-    "src/server/features/autopilot/services/autopilotBudgets.ts",
-    "src/server/features/autopilot/services/stepSupport.ts",
-    "src/server/features/autopilot/services/stepExecutor.ts",
-    "src/server/features/autopilot/services/synthesisFirewall.ts",
-    "src/server/features/autopilot/services/AutopilotService.ts",
-    "src/server/workflows/AutopilotWorkflow.ts",
-    "src/serverFunctions/autopilot.ts",
-    "src/types/schemas/autopilot.ts",
-    "src/db/autopilot.schema.ts",
-    "src/db/pg/autopilot.schema.ts",
-    "drizzle/0058_glorious_terror.sql",
-    "drizzle/0059_faithful_bulldozer.sql",
-    "drizzle-pg/0036_giant_piledriver.sql",
-    "drizzle-pg/0037_flashy_gressill.sql",
+    ...AUTOPILOT_LOCK_FILES,
     "wrangler.jsonc",
     "src/server.ts",
     "src/server/features/intelligence/services/SourceTokens.ts",
