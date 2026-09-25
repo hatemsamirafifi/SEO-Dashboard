@@ -104,10 +104,11 @@ function stateWithVersions(): DetectionSourceState {
 beforeAll(async () => {
   if (!database.client) throw new Error("Test database was not initialized");
   await database.client.execute("PRAGMA foreign_keys = OFF");
-  // Stage-2 materialization writes opportunity rows: both ledger migrations.
+  // Stage-2/3 write opportunity + insight rows: all ledger migrations.
   for (const file of [
     "drizzle/0053_minor_korath.sql",
     "drizzle/0054_mighty_mole_man.sql",
+    "drizzle/0055_certain_infant_terrible.sql",
   ]) {
     const migration = readFileSync(resolve(process.cwd(), file), "utf8");
     for (const statement of migration
@@ -136,6 +137,8 @@ beforeEach(async () => {
   r2.objects.clear();
   vi.restoreAllMocks();
   for (const table of [
+    "insight_user_preferences",
+    "dashboard_insights",
     "opportunity_events",
     "opportunities",
     "intelligence_run_detectors",
@@ -174,7 +177,7 @@ describe("FindingService.runScan", () => {
     expect(r2.objects.size).toBe(0);
   });
 
-  it("runs detection then Stage 2, ending at composing with a frozen manifest", async () => {
+  it("runs all three stages inline, ending completed with a frozen manifest", async () => {
     vi.spyOn(SourceTokens, "assembleDetectionSourceState").mockResolvedValue(
       state(),
     );
@@ -188,7 +191,8 @@ describe("FindingService.runScan", () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.run.currentStage).toBe("composing");
-    expect(outcome.run.status).toBe("composing");
+    expect(outcome.run.status).toBe("completed");
+    expect(outcome.run.completedAt).not.toBeNull();
     expect(outcome.findingsCount).toBe(0);
     expect(outcome.inputHash).toHaveLength(64);
     const manifestKey = outcome.run.manifestKey;
@@ -229,6 +233,9 @@ describe("FindingService.runScan", () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.run.currentStage).toBe("composing");
+    // GSC reads fail in this fixture DB, so detectors fail and the run
+    // lands partial — terminal either way.
+    expect(outcome.run.status).toBe("partial");
     expect(assemble).toHaveBeenCalledTimes(3);
   });
 
@@ -307,7 +314,7 @@ describe("FindingService.resumeScan", () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.run.id).toBe(run.id);
-    expect(outcome.run.currentStage).toBe("composing");
+    expect(outcome.run.status).toBe("completed");
   });
 
   it("materializes a crashed-at-materializing run without re-detecting", async () => {
@@ -354,33 +361,60 @@ describe("FindingService.resumeScan", () => {
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.run.currentStage).toBe("composing");
-    // Frozen bytes untouched; opportunities materialized from them.
+    expect(outcome.run.status).toBe("completed");
+    // Frozen bytes untouched through materialize + compose.
     expect(r2.objects.size).toBe(objectsBefore);
-    expect(outcome.run.status).toBe("composing");
   });
 
-  it("defers without re-detecting once the artifact is frozen", async () => {
+  it("composes a crashed-at-composing run without re-detecting", async () => {
     vi.spyOn(SourceTokens, "assembleDetectionSourceState").mockResolvedValue(
       state(),
     );
-    const first = await FindingService.runScan({
+    const run = await ScanLedgerRepository.createRun({
       projectId: "project-1",
       organizationId: "org-1",
       triggeredBy: "cron",
     });
-    expect(first.ok).toBe(true);
-    if (!first.ok) return;
+    await ScanLedgerRepository.transitionStage({
+      id: run.id,
+      toStage: "detecting",
+      toStatus: "detecting",
+    });
+    const { ArtifactStore } = await import("../repositories/ArtifactStore");
+    const pointers = await ArtifactStore.writeArtifact({
+      projectId: "project-1",
+      runId: run.id,
+      findings: [],
+      inputHash: "d".repeat(64),
+      inputSourceVersions: {},
+      detectorVersions: {},
+      thresholdVersion: 2,
+    });
+    await ScanLedgerRepository.commitStageOnePointer({
+      id: run.id,
+      inputHash: "d".repeat(64),
+      inputSourceVersionsJson: "{}",
+      detectorVersionsJson: "{}",
+      thresholdVersion: 2,
+      manifestKey: pointers.manifestKey,
+      manifestHash: pointers.manifestHash,
+      findingsSchemaVersion: 3,
+      findingsCount: 0,
+      detectionAttemptMetaJson: "[]",
+    });
+    // Simulate a crash after Stage 2 committed (opportunities exist, no
+    // insights yet): the parked run sits at composing.
+    await ScanLedgerRepository.completeMaterializeStage({
+      id: run.id,
+      opportunityIds: [],
+    });
     const objectsBefore = r2.objects.size;
 
-    const outcome = await FindingService.resumeScan(first.run.id);
+    const outcome = await FindingService.resumeScan(run.id);
 
-    expect(outcome).toMatchObject({
-      ok: false,
-      deferred: true,
-      reason: "frozen_artifact_owned_by_stage",
-    });
-    // No new artifact bytes: frozen bytes are never rewritten.
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.run.status).toBe("completed");
     expect(r2.objects.size).toBe(objectsBefore);
   });
 

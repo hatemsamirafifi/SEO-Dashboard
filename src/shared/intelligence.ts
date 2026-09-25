@@ -360,6 +360,8 @@ export const insightSeveritySchema = z.enum([
   "info",
 ]);
 
+export type InsightSeverity = z.infer<typeof insightSeveritySchema>;
+
 /**
  * Insight — user-facing interpretation of ≥1 findings. No lifecycle status.
  */

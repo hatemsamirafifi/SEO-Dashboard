@@ -230,22 +230,56 @@ describe("runScheduledIntelligenceScan", () => {
     expect(runScan).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a composing-parked run as the floor baseline", async () => {
+  it("resumes stuck non-terminal runs instead of scanning", async () => {
     await database.client?.execute(
       "INSERT INTO projects (id, organization_id, name) VALUES ('project-1', 'org-1', 'Test')",
     );
-    const stable = state({
-      versions: {
-        gsc: "sync-1",
-        ga4: null,
-        rank: null,
-        audit: null,
-        backlinks: null,
-      },
-      sourceSet: ["gsc"],
+    const run = await ScanLedgerRepository.createRun({
+      projectId: "project-1",
+      organizationId: "org-1",
+      triggeredBy: "cron",
     });
-    vi.spyOn(SourceTokens, "assembleDetectionSourceState").mockResolvedValue(
-      stable,
+    const old = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    await database.client?.execute(
+      `UPDATE intelligence_runs SET started_at = '${old}' WHERE id = '${run.id}'`,
+    );
+    const runScan = vi.spyOn(FindingService, "runScan");
+    const resumeScan = vi
+      .spyOn(FindingService, "resumeScan")
+      .mockResolvedValue({
+        ok: true,
+        run: runRowFixture(),
+        inputHash: "x",
+        findingsCount: 0,
+      });
+
+    await runScheduledIntelligenceScan();
+
+    expect(resumeScan).toHaveBeenCalledWith(run.id);
+    expect(runScan).not.toHaveBeenCalled();
+  });
+
+  it("skips fresh non-terminal runs as in flight", async () => {
+    await database.client?.execute(
+      "INSERT INTO projects (id, organization_id, name) VALUES ('project-1', 'org-1', 'Test')",
+    );
+    await ScanLedgerRepository.createRun({
+      projectId: "project-1",
+      organizationId: "org-1",
+      triggeredBy: "cron",
+    });
+    const runScan = vi.spyOn(FindingService, "runScan");
+    const resumeScan = vi.spyOn(FindingService, "resumeScan");
+
+    await runScheduledIntelligenceScan();
+
+    expect(runScan).not.toHaveBeenCalled();
+    expect(resumeScan).not.toHaveBeenCalled();
+  });
+
+  it("resumes stuck composing runs left by earlier versions", async () => {
+    await database.client?.execute(
+      "INSERT INTO projects (id, organization_id, name) VALUES ('project-1', 'org-1', 'Test')",
     );
     const run = await ScanLedgerRepository.createRun({
       projectId: "project-1",
@@ -257,18 +291,24 @@ describe("runScheduledIntelligenceScan", () => {
       toStage: "detecting",
       toStatus: "detecting",
     });
-    // Parked at composing (Task 11 owns compose): hashed, never terminal.
-    const { hashSourceState } = await import("./SourceTokens");
-    const inputHash = await hashSourceState(stable);
+    const old = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     await database.client?.execute(
-      `UPDATE intelligence_runs SET status = 'composing', current_stage = 'composing',
-       input_hash = '${inputHash}', updated_at = '${new Date().toISOString()}'
-       WHERE id = '${run.id}'`,
+      `UPDATE intelligence_runs SET current_stage = 'composing', status = 'composing',
+       input_hash = 'abc', started_at = '${old}' WHERE id = '${run.id}'`,
     );
     const runScan = vi.spyOn(FindingService, "runScan");
+    const resumeScan = vi
+      .spyOn(FindingService, "resumeScan")
+      .mockResolvedValue({
+        ok: true,
+        run: runRowFixture(),
+        inputHash: "abc",
+        findingsCount: 0,
+      });
 
-    // Unchanged sources inside the floor → skip (no 15-minute rescan storm).
     await runScheduledIntelligenceScan();
+
+    expect(resumeScan).toHaveBeenCalledWith(run.id);
     expect(runScan).not.toHaveBeenCalled();
   });
 });

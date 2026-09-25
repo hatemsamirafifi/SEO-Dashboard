@@ -6,7 +6,14 @@ import {
   hashSourceState,
   describeActiveMutations,
 } from "./SourceTokens";
-import { FindingService, SCAN_FLOOR_MS, SCAN_FORCE_MS } from "./FindingService";
+import {
+  FindingService,
+  SCAN_FLOOR_MS,
+  SCAN_FORCE_MS,
+} from "./FindingService";
+
+/** Non-terminal runs older than this are treated as crashed, not in flight. */
+export const STUCK_RUN_MS = 30 * 60 * 1000;
 
 /**
  * Intelligence scan scheduler (final-plan §8). Tick cost per project: one
@@ -30,6 +37,24 @@ export async function runScheduledIntelligenceScan(): Promise<void> {
 
   for (const target of targets) {
     try {
+      // Crash recovery first: a stuck non-terminal run resumes where it
+      // parked (never re-detects); a fresh one is in flight — skip tick.
+      const latest = await ScanLedgerRepository.getLatestRun(target.projectId);
+      if (
+        latest &&
+        latest.status !== "completed" &&
+        latest.status !== "partial" &&
+        latest.status !== "failed"
+      ) {
+        const ageMs = Date.now() - Date.parse(latest.startedAt);
+        if (ageMs >= STUCK_RUN_MS) {
+          console.log(
+            `[cron:intelligence] Resuming stuck run ${latest.id} for project ${target.projectId}`,
+          );
+          await FindingService.resumeScan(latest.id);
+        }
+        continue;
+      }
       const state = await SourceTokens.assembleDetectionSourceState(
         target.projectId,
       );
