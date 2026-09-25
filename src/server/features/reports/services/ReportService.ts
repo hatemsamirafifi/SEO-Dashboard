@@ -2,6 +2,8 @@ import { waitUntil } from "cloudflare:workers";
 import { AppError } from "@/server/lib/errors";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { ScanLedgerRepository } from "@/server/features/intelligence/repositories/ScanLedgerRepository";
+import { SharingRepository } from "../repositories/SharingRepository";
+import { resolveBrandingSnapshot } from "./BrandingService";
 import {
   hashSourceState,
   SourceTokens,
@@ -15,7 +17,10 @@ import {
   type ReportProvenance,
   type ReportType,
 } from "@/shared/reports";
-import { ReportRepository, type ReportRow } from "../repositories/ReportRepository";
+import {
+  ReportRepository,
+  type ReportRow,
+} from "../repositories/ReportRepository";
 import {
   collectInsights,
   collectOpportunities,
@@ -32,7 +37,10 @@ function validatePeriod(period: { from: string; to: string }): void {
     !ISO_DATE.test(period.to) ||
     period.from > period.to
   ) {
-    throw new AppError("VALIDATION_ERROR", "Report period must be from≤to ISO dates");
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Report period must be from≤to ISO dates",
+    );
   }
 }
 
@@ -59,29 +67,32 @@ async function collectAttempt(input: {
   const sections = sectionsForReportType(input.type);
   const needs = (key: (typeof sections)[number]): boolean =>
     sections.includes(key);
-  const [searchVisibility, trafficParts, overviewParts, opportunities, insights] =
-    await Promise.all([
-      needs("search_visibility")
-        ? collectSearchVisibility(input.projectId, input.from, input.to)
-        : null,
-      needs("traffic") || needs("conversions")
-        ? collectTrafficAndConversions(
-            input.projectId,
-            input.organizationId,
-            input.from,
-            input.to,
-          )
-        : null,
-      needs("rankings") || needs("technical") || needs("backlinks")
-        ? collectOverviewParts(input.projectId, input.domain)
-        : null,
-      needs("opportunities")
-        ? collectOpportunities(input.projectId)
-        : Promise.resolve([]),
-      needs("insights")
-        ? collectInsights(input.projectId)
-        : Promise.resolve([]),
-    ]);
+  const [
+    searchVisibility,
+    trafficParts,
+    overviewParts,
+    opportunities,
+    insights,
+  ] = await Promise.all([
+    needs("search_visibility")
+      ? collectSearchVisibility(input.projectId, input.from, input.to)
+      : null,
+    needs("traffic") || needs("conversions")
+      ? collectTrafficAndConversions(
+          input.projectId,
+          input.organizationId,
+          input.from,
+          input.to,
+        )
+      : null,
+    needs("rankings") || needs("technical") || needs("backlinks")
+      ? collectOverviewParts(input.projectId, input.domain)
+      : null,
+    needs("opportunities")
+      ? collectOpportunities(input.projectId)
+      : Promise.resolve([]),
+    needs("insights") ? collectInsights(input.projectId) : Promise.resolve([]),
+  ]);
   return {
     searchVisibility: searchVisibility ?? {
       status: { available: false, reason: "not_selected" },
@@ -226,6 +237,12 @@ export async function generateReport(input: {
     },
   });
 
+  // Agency+client combination frozen at generation time (Task 13): later
+  // branding edits never move existing snapshots.
+  const branding = await resolveBrandingSnapshot({
+    organizationId: input.organizationId,
+    projectId: input.projectId,
+  });
   const row = await ReportRepository.insertRow({
     id: crypto.randomUUID(),
     projectId: input.projectId,
@@ -236,6 +253,15 @@ export async function generateReport(input: {
     payloadSnapshotJson: JSON.stringify(payload),
     consistencyStatus,
     intelligenceRunId: intelligence.intelligenceRunId,
+    brandingSnapshotJson: JSON.stringify(branding),
+  });
+  await SharingRepository.insertEvent({
+    id: crypto.randomUUID(),
+    reportId: row.id,
+    organizationId: input.organizationId,
+    type: "created",
+    userId: input.userId ?? null,
+    metadataJson: null,
   });
   waitUntil(
     captureServerEvent({
@@ -253,7 +279,7 @@ export async function generateReport(input: {
   return row;
 }
 
-function parsePayload(row: ReportRow): ReportPayload {
+export function parseReportPayload(row: ReportRow): ReportPayload {
   let parsed: unknown;
   try {
     parsed = JSON.parse(row.payloadSnapshotJson);
@@ -278,7 +304,7 @@ export async function getReport(input: {
     input.projectId,
   );
   if (!report) return null;
-  return { report, payload: parsePayload(report) };
+  return { report, payload: parseReportPayload(report) };
 }
 
 export async function deleteReport(input: {

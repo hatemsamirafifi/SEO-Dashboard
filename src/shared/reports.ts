@@ -38,12 +38,7 @@ export const REPORT_TYPE_SECTIONS: Record<ReportType, ReportSectionKey[]> = {
   search_performance: ["search_visibility", "insights", "opportunities"],
   rank_tracking: ["rankings", "insights", "opportunities"],
   technical: ["technical", "insights", "opportunities"],
-  executive: [
-    "search_visibility",
-    "traffic",
-    "opportunities",
-    "insights",
-  ],
+  executive: ["search_visibility", "traffic", "opportunities", "insights"],
 };
 
 export function sectionsForReportType(type: ReportType): ReportSectionKey[] {
@@ -73,6 +68,44 @@ export const reportProvenanceSchema = z.object({
   generatedAt: z.string(),
 });
 export type ReportProvenance = z.infer<typeof reportProvenanceSchema>;
+
+/**
+ * Frozen agency+client combination (final-plan §12). Stored in the separate
+ * `branding_snapshot_json` column — the payload version stays untouched.
+ * Profile notes are internal-only and never enter the snapshot.
+ */
+export const brandingSnapshotSchema = z.object({
+  agency: z
+    .object({
+      name: z.string(),
+      logoR2Key: z.string().nullable(),
+      accentColor: z.string().nullable(),
+      footerText: z.string().nullable(),
+    })
+    .nullable(),
+  client: z
+    .object({
+      name: z.string(),
+      logoR2Key: z.string().nullable(),
+      titleOverride: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type BrandingSnapshot = z.infer<typeof brandingSnapshotSchema>;
+
+export function parseBrandingSnapshot(
+  json: string | null,
+): BrandingSnapshot | null {
+  if (!json) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  const result = brandingSnapshotSchema.safeParse(parsed);
+  return result.success ? result.data : null;
+}
 
 /**
  * The single consistency banner string. Every renderer (Web, PDF,
