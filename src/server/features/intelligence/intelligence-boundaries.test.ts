@@ -245,6 +245,58 @@ describe("reports snapshot discipline (final-plan §12)", () => {
   });
 });
 
+const AUTOPILOT_FILES = [
+  "src/server/features/autopilot/repositories/AutopilotRepository.ts",
+  "src/server/features/autopilot/services/autopilotTypes.ts",
+  "src/server/features/autopilot/services/autopilotBudgets.ts",
+  "src/server/features/autopilot/services/stepSupport.ts",
+  "src/server/features/autopilot/services/stepExecutor.ts",
+  "src/server/features/autopilot/services/synthesisFirewall.ts",
+  "src/server/features/autopilot/services/AutopilotService.ts",
+  "src/server/workflows/AutopilotWorkflow.ts",
+  "src/serverFunctions/autopilot.ts",
+  "src/types/schemas/autopilot.ts",
+];
+
+describe("autopilot stage discipline (final-plan §13)", () => {
+  // The executor may pin sources (SourceTokens assemble/hash) and read its
+  // own ledger — never detectors, thresholds, weights, source-metric
+  // repositories, or raw fact tables. Synthesis modules (Task 16) additionally
+  // pass through the assertSynthesisInput firewall (behavior-tested).
+  it("imports no detector, threshold, weight, or source-metric modules", () => {
+    for (const file of AUTOPILOT_FILES) {
+      const content = readSurface(file);
+      for (const banned of BANNED_DETECTOR_IMPORTS) {
+        expect(
+          content.includes(banned),
+          `${file} must not import ${banned}`,
+        ).toBe(false);
+      }
+      for (const pattern of SOURCE_REPOSITORY_IMPORTS) {
+        expect(
+          pattern.test(content),
+          `${file} must not import source repositories (${pattern})`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("reads no raw fact tables", () => {
+    for (const file of AUTOPILOT_FILES) {
+      const content = readSurface(file);
+      for (const line of content.split("\n")) {
+        if (!line.includes('from "@/db/schema"')) continue;
+        for (const table of REPORTS_FACT_TABLES) {
+          expect(
+            line.includes(table),
+            `${file} must not import fact table ${table}`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+});
+
 describe("observational causality lock (final-plan §10)", () => {
   // MVP automated output is correlation-only: no detector fact and no
   // materializer recommendation may carry causal phrasing. Only future
@@ -280,6 +332,10 @@ describe("observational causality lock (final-plan §10)", () => {
     "src/client/features/reports/PublicReportPage.tsx",
     "src/client/features/reports/BrandingSettings.tsx",
     "src/client/features/reports/ExportReportButtons.tsx",
+    "src/server/features/autopilot/services/stepSupport.ts",
+    "src/server/features/autopilot/services/stepExecutor.ts",
+    "src/server/features/autopilot/services/AutopilotService.ts",
+    "src/server/workflows/AutopilotWorkflow.ts",
   ];
   it("contains zero banned causal verbs in detector/template sources", () => {
     const violations: string[] = [];
@@ -371,6 +427,24 @@ describe("intelligence structural locks", () => {
     "src/server/features/reports/services/printHtml.ts",
     "src/server/features/reports/services/ExportService.ts",
     "src/routes/api/report-export.ts",
+    "src/server/features/autopilot/repositories/AutopilotRepository.ts",
+    "src/server/features/autopilot/services/autopilotTypes.ts",
+    "src/server/features/autopilot/services/autopilotBudgets.ts",
+    "src/server/features/autopilot/services/stepSupport.ts",
+    "src/server/features/autopilot/services/stepExecutor.ts",
+    "src/server/features/autopilot/services/synthesisFirewall.ts",
+    "src/server/features/autopilot/services/AutopilotService.ts",
+    "src/server/workflows/AutopilotWorkflow.ts",
+    "src/serverFunctions/autopilot.ts",
+    "src/types/schemas/autopilot.ts",
+    "src/db/autopilot.schema.ts",
+    "src/db/pg/autopilot.schema.ts",
+    "drizzle/0058_glorious_terror.sql",
+    "drizzle/0059_faithful_bulldozer.sql",
+    "drizzle-pg/0036_giant_piledriver.sql",
+    "drizzle-pg/0037_flashy_gressill.sql",
+    "wrangler.jsonc",
+    "src/server.ts",
     "src/server/features/intelligence/services/SourceTokens.ts",
     "src/shared/intelligence.ts",
     "src/shared/intelligence-thresholds.ts",
