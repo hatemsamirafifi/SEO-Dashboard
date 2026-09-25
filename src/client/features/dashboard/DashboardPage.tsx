@@ -14,6 +14,7 @@ import {
   BacklinkPulseCard,
   GscCard,
 } from "@/client/features/dashboard/DashboardCards";
+import { InsightSections } from "@/client/features/insights/InsightSections";
 import { McpConnectCard } from "@/client/features/dashboard/McpConnectCard";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import type { DashboardActivation } from "@/server/features/dashboard/services/DashboardService";
@@ -308,6 +309,8 @@ export function DashboardPage({ projectId }: { projectId: string }) {
         <h1 className="text-2xl font-semibold">Dashboard</h1>
 
         <OnboardingChecklist projectId={projectId} activation={activation} />
+
+        <InsightSections projectId={projectId} />
 
         {/* Every card is half width on large screens (only the checklist spans).
           Cards with data render before setup pitches and empty states. */}

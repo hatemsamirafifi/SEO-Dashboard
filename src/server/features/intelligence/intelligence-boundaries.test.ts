@@ -23,6 +23,12 @@ const STAGE_ONE_FILES = [
   "src/server/features/intelligence/detectors/types.ts",
   "src/server/features/intelligence/detectors/registry.ts",
   "src/serverFunctions/intelligence.ts",
+  // Stage-3 read model: artifact + ledger + own tables only (connection
+  // metadata for the GA4 flag lives in the server-function handler).
+  "src/server/features/intelligence/services/InsightComposer.ts",
+  "src/server/features/intelligence/services/insightGroups.ts",
+  "src/server/features/intelligence/services/InsightService.ts",
+  "src/server/features/intelligence/repositories/InsightRepository.ts",
 ];
 
 // Detector implementations + inputs.ts legitimately import source
@@ -185,6 +191,7 @@ describe("observational causality lock (final-plan §10)", () => {
   const COPY_FILES = [
     ...DETECTOR_FILES,
     "src/server/features/intelligence/services/opportunityTemplates.ts",
+    "src/server/features/intelligence/services/insightGroups.ts",
     "src/client/features/opportunities/opportunitiesCopy.ts",
     "src/client/features/opportunities/OpportunitiesPage.tsx",
     "src/client/features/opportunities/OpportunityDetail.tsx",
@@ -223,6 +230,21 @@ describe("intelligence structural locks", () => {
     "src/client/features/opportunities/OpportunityDetail.tsx",
     "src/client/features/opportunities/OpportunityDetailSections.tsx",
     "src/client/navigation/items.ts",
+    "src/client/features/insights/insightsCopy.ts",
+    "src/client/features/insights/InsightSections.tsx",
+    "src/client/features/dashboard/DashboardPage.tsx",
+    "src/client/components/SourceBadge.tsx",
+    "src/client/components/StaleBanner.tsx",
+    "src/server/features/intelligence/services/insightGroups.ts",
+    "src/server/features/intelligence/services/InsightComposer.ts",
+    "src/server/features/intelligence/services/InsightService.ts",
+    "src/server/features/intelligence/repositories/InsightRepository.ts",
+    "src/types/schemas/dashboard.ts",
+    "src/serverFunctions/dashboard.ts",
+    "src/db/insights.schema.ts",
+    "src/db/pg/insights.schema.ts",
+    "drizzle/0055_certain_infant_terrible.sql",
+    "drizzle-pg/0033_puzzling_hitman.sql",
     "src/server/features/intelligence/services/SourceTokens.ts",
     "src/shared/intelligence.ts",
     "src/shared/intelligence-thresholds.ts",

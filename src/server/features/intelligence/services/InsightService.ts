@@ -17,7 +17,27 @@ export const INSIGHT_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 export type DashboardInsightView = InsightRow & {
   /** Dismissed an older version — resurfaced with an "updated" badge. */
   updatedSinceDismiss: boolean;
+  findingKeys: string[];
+  opportunityIds: string[];
+  entityRefs: string[];
+  sources: string[];
 };
+
+function parseStringList(json: string | null): string[] {
+  if (!json) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: string[] = [];
+  for (const entry of parsed) {
+    if (typeof entry === "string") out.push(entry);
+  }
+  return out;
+}
 
 export type DashboardBanner = {
   skipped: Array<{ detectorKey: string; reason: string | null }>;
@@ -65,6 +85,10 @@ export async function getDashboardInsights(input: {
       ...row,
       updatedSinceDismiss:
         dismissedVersion > 0 && dismissedVersion < row.contentVersion,
+      findingKeys: parseStringList(row.findingKeysJson),
+      opportunityIds: parseStringList(row.opportunityIdsJson),
+      entityRefs: parseStringList(row.entityRefsJson),
+      sources: parseStringList(row.sourcesJson),
     });
   }
 
