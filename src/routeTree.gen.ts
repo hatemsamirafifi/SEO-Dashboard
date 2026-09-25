@@ -42,6 +42,7 @@ import { Route as ProjectPProjectIdSettingsRouteImport } from './routes/_project
 import { Route as ProjectPProjectIdSearchPerformanceRouteImport } from './routes/_project/p/$projectId/search-performance'
 import { Route as ProjectPProjectIdSavedRouteImport } from './routes/_project/p/$projectId/saved'
 import { Route as ProjectPProjectIdSamRouteImport } from './routes/_project/p/$projectId/sam'
+import { Route as ProjectPProjectIdReportsRouteImport } from './routes/_project/p/$projectId/reports'
 import { Route as ProjectPProjectIdRankTrackingRouteImport } from './routes/_project/p/$projectId/rank-tracking'
 import { Route as ProjectPProjectIdPromptExplorerRouteImport } from './routes/_project/p/$projectId/prompt-explorer'
 import { Route as ProjectPProjectIdOpportunitiesRouteImport } from './routes/_project/p/$projectId/opportunities'
@@ -51,9 +52,11 @@ import { Route as ProjectPProjectIdBrandLookupRouteImport } from './routes/_proj
 import { Route as ProjectPProjectIdBacklinksRouteImport } from './routes/_project/p/$projectId/backlinks'
 import { Route as ProjectPProjectIdAuditRouteImport } from './routes/_project/p/$projectId/audit'
 import { Route as ProjectPProjectIdAnalyticsRouteImport } from './routes/_project/p/$projectId/analytics'
+import { Route as ProjectPProjectIdReportsIndexRouteImport } from './routes/_project/p/$projectId/reports/index'
 import { Route as ProjectPProjectIdRankTrackingIndexRouteImport } from './routes/_project/p/$projectId/rank-tracking/index'
 import { Route as ProjectPProjectIdOpportunitiesIndexRouteImport } from './routes/_project/p/$projectId/opportunities/index'
 import { Route as ProjectPProjectIdAuditIndexRouteImport } from './routes/_project/p/$projectId/audit/index'
+import { Route as ProjectPProjectIdReportsReportIdRouteImport } from './routes/_project/p/$projectId/reports/$reportId'
 import { Route as ProjectPProjectIdRankTrackingConfigIdRouteImport } from './routes/_project/p/$projectId/rank-tracking/$configId'
 import { Route as ProjectPProjectIdOpportunitiesOpportunityIdRouteImport } from './routes/_project/p/$projectId/opportunities/$opportunityId'
 import { Route as ProjectPProjectIdAuditIssuesResultIdRouteImport } from './routes/_project/p/$projectId/audit/issues/$resultId'
@@ -225,6 +228,12 @@ const ProjectPProjectIdSamRoute = ProjectPProjectIdSamRouteImport.update({
   path: '/sam',
   getParentRoute: () => ProjectPProjectIdRouteRoute,
 } as any)
+const ProjectPProjectIdReportsRoute =
+  ProjectPProjectIdReportsRouteImport.update({
+    id: '/reports',
+    path: '/reports',
+    getParentRoute: () => ProjectPProjectIdRouteRoute,
+  } as any)
 const ProjectPProjectIdRankTrackingRoute =
   ProjectPProjectIdRankTrackingRouteImport.update({
     id: '/rank-tracking',
@@ -277,6 +286,12 @@ const ProjectPProjectIdAnalyticsRoute =
     path: '/analytics',
     getParentRoute: () => ProjectPProjectIdRouteRoute,
   } as any)
+const ProjectPProjectIdReportsIndexRoute =
+  ProjectPProjectIdReportsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => ProjectPProjectIdReportsRoute,
+  } as any)
 const ProjectPProjectIdRankTrackingIndexRoute =
   ProjectPProjectIdRankTrackingIndexRouteImport.update({
     id: '/',
@@ -294,6 +309,12 @@ const ProjectPProjectIdAuditIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => ProjectPProjectIdAuditRoute,
+  } as any)
+const ProjectPProjectIdReportsReportIdRoute =
+  ProjectPProjectIdReportsReportIdRouteImport.update({
+    id: '/$reportId',
+    path: '/$reportId',
+    getParentRoute: () => ProjectPProjectIdReportsRoute,
   } as any)
 const ProjectPProjectIdRankTrackingConfigIdRoute =
   ProjectPProjectIdRankTrackingConfigIdRouteImport.update({
@@ -346,6 +367,7 @@ export interface FileRoutesByFullPath {
   '/p/$projectId/opportunities': typeof ProjectPProjectIdOpportunitiesRouteWithChildren
   '/p/$projectId/prompt-explorer': typeof ProjectPProjectIdPromptExplorerRoute
   '/p/$projectId/rank-tracking': typeof ProjectPProjectIdRankTrackingRouteWithChildren
+  '/p/$projectId/reports': typeof ProjectPProjectIdReportsRouteWithChildren
   '/p/$projectId/sam': typeof ProjectPProjectIdSamRoute
   '/p/$projectId/saved': typeof ProjectPProjectIdSavedRoute
   '/p/$projectId/search-performance': typeof ProjectPProjectIdSearchPerformanceRoute
@@ -355,9 +377,11 @@ export interface FileRoutesByFullPath {
   '/p/$projectId/': typeof ProjectPProjectIdIndexRoute
   '/p/$projectId/opportunities/$opportunityId': typeof ProjectPProjectIdOpportunitiesOpportunityIdRoute
   '/p/$projectId/rank-tracking/$configId': typeof ProjectPProjectIdRankTrackingConfigIdRoute
+  '/p/$projectId/reports/$reportId': typeof ProjectPProjectIdReportsReportIdRoute
   '/p/$projectId/audit/': typeof ProjectPProjectIdAuditIndexRoute
   '/p/$projectId/opportunities/': typeof ProjectPProjectIdOpportunitiesIndexRoute
   '/p/$projectId/rank-tracking/': typeof ProjectPProjectIdRankTrackingIndexRoute
+  '/p/$projectId/reports/': typeof ProjectPProjectIdReportsIndexRoute
   '/p/$projectId/audit/issues/$resultId': typeof ProjectPProjectIdAuditIssuesResultIdRoute
 }
 export interface FileRoutesByTo {
@@ -397,9 +421,11 @@ export interface FileRoutesByTo {
   '/p/$projectId': typeof ProjectPProjectIdIndexRoute
   '/p/$projectId/opportunities/$opportunityId': typeof ProjectPProjectIdOpportunitiesOpportunityIdRoute
   '/p/$projectId/rank-tracking/$configId': typeof ProjectPProjectIdRankTrackingConfigIdRoute
+  '/p/$projectId/reports/$reportId': typeof ProjectPProjectIdReportsReportIdRoute
   '/p/$projectId/audit': typeof ProjectPProjectIdAuditIndexRoute
   '/p/$projectId/opportunities': typeof ProjectPProjectIdOpportunitiesIndexRoute
   '/p/$projectId/rank-tracking': typeof ProjectPProjectIdRankTrackingIndexRoute
+  '/p/$projectId/reports': typeof ProjectPProjectIdReportsIndexRoute
   '/p/$projectId/audit/issues/$resultId': typeof ProjectPProjectIdAuditIssuesResultIdRoute
 }
 export interface FileRoutesById {
@@ -439,6 +465,7 @@ export interface FileRoutesById {
   '/_project/p/$projectId/opportunities': typeof ProjectPProjectIdOpportunitiesRouteWithChildren
   '/_project/p/$projectId/prompt-explorer': typeof ProjectPProjectIdPromptExplorerRoute
   '/_project/p/$projectId/rank-tracking': typeof ProjectPProjectIdRankTrackingRouteWithChildren
+  '/_project/p/$projectId/reports': typeof ProjectPProjectIdReportsRouteWithChildren
   '/_project/p/$projectId/sam': typeof ProjectPProjectIdSamRoute
   '/_project/p/$projectId/saved': typeof ProjectPProjectIdSavedRoute
   '/_project/p/$projectId/search-performance': typeof ProjectPProjectIdSearchPerformanceRoute
@@ -448,9 +475,11 @@ export interface FileRoutesById {
   '/_project/p/$projectId/': typeof ProjectPProjectIdIndexRoute
   '/_project/p/$projectId/opportunities/$opportunityId': typeof ProjectPProjectIdOpportunitiesOpportunityIdRoute
   '/_project/p/$projectId/rank-tracking/$configId': typeof ProjectPProjectIdRankTrackingConfigIdRoute
+  '/_project/p/$projectId/reports/$reportId': typeof ProjectPProjectIdReportsReportIdRoute
   '/_project/p/$projectId/audit/': typeof ProjectPProjectIdAuditIndexRoute
   '/_project/p/$projectId/opportunities/': typeof ProjectPProjectIdOpportunitiesIndexRoute
   '/_project/p/$projectId/rank-tracking/': typeof ProjectPProjectIdRankTrackingIndexRoute
+  '/_project/p/$projectId/reports/': typeof ProjectPProjectIdReportsIndexRoute
   '/_project/p/$projectId/audit/issues/$resultId': typeof ProjectPProjectIdAuditIssuesResultIdRoute
 }
 export interface FileRouteTypes {
@@ -487,6 +516,7 @@ export interface FileRouteTypes {
     | '/p/$projectId/opportunities'
     | '/p/$projectId/prompt-explorer'
     | '/p/$projectId/rank-tracking'
+    | '/p/$projectId/reports'
     | '/p/$projectId/sam'
     | '/p/$projectId/saved'
     | '/p/$projectId/search-performance'
@@ -496,9 +526,11 @@ export interface FileRouteTypes {
     | '/p/$projectId/'
     | '/p/$projectId/opportunities/$opportunityId'
     | '/p/$projectId/rank-tracking/$configId'
+    | '/p/$projectId/reports/$reportId'
     | '/p/$projectId/audit/'
     | '/p/$projectId/opportunities/'
     | '/p/$projectId/rank-tracking/'
+    | '/p/$projectId/reports/'
     | '/p/$projectId/audit/issues/$resultId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -538,9 +570,11 @@ export interface FileRouteTypes {
     | '/p/$projectId'
     | '/p/$projectId/opportunities/$opportunityId'
     | '/p/$projectId/rank-tracking/$configId'
+    | '/p/$projectId/reports/$reportId'
     | '/p/$projectId/audit'
     | '/p/$projectId/opportunities'
     | '/p/$projectId/rank-tracking'
+    | '/p/$projectId/reports'
     | '/p/$projectId/audit/issues/$resultId'
   id:
     | '__root__'
@@ -579,6 +613,7 @@ export interface FileRouteTypes {
     | '/_project/p/$projectId/opportunities'
     | '/_project/p/$projectId/prompt-explorer'
     | '/_project/p/$projectId/rank-tracking'
+    | '/_project/p/$projectId/reports'
     | '/_project/p/$projectId/sam'
     | '/_project/p/$projectId/saved'
     | '/_project/p/$projectId/search-performance'
@@ -588,9 +623,11 @@ export interface FileRouteTypes {
     | '/_project/p/$projectId/'
     | '/_project/p/$projectId/opportunities/$opportunityId'
     | '/_project/p/$projectId/rank-tracking/$configId'
+    | '/_project/p/$projectId/reports/$reportId'
     | '/_project/p/$projectId/audit/'
     | '/_project/p/$projectId/opportunities/'
     | '/_project/p/$projectId/rank-tracking/'
+    | '/_project/p/$projectId/reports/'
     | '/_project/p/$projectId/audit/issues/$resultId'
   fileRoutesById: FileRoutesById
 }
@@ -843,6 +880,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectPProjectIdSamRouteImport
       parentRoute: typeof ProjectPProjectIdRouteRoute
     }
+    '/_project/p/$projectId/reports': {
+      id: '/_project/p/$projectId/reports'
+      path: '/reports'
+      fullPath: '/p/$projectId/reports'
+      preLoaderRoute: typeof ProjectPProjectIdReportsRouteImport
+      parentRoute: typeof ProjectPProjectIdRouteRoute
+    }
     '/_project/p/$projectId/rank-tracking': {
       id: '/_project/p/$projectId/rank-tracking'
       path: '/rank-tracking'
@@ -906,6 +950,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectPProjectIdAnalyticsRouteImport
       parentRoute: typeof ProjectPProjectIdRouteRoute
     }
+    '/_project/p/$projectId/reports/': {
+      id: '/_project/p/$projectId/reports/'
+      path: '/'
+      fullPath: '/p/$projectId/reports/'
+      preLoaderRoute: typeof ProjectPProjectIdReportsIndexRouteImport
+      parentRoute: typeof ProjectPProjectIdReportsRoute
+    }
     '/_project/p/$projectId/rank-tracking/': {
       id: '/_project/p/$projectId/rank-tracking/'
       path: '/'
@@ -926,6 +977,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/p/$projectId/audit/'
       preLoaderRoute: typeof ProjectPProjectIdAuditIndexRouteImport
       parentRoute: typeof ProjectPProjectIdAuditRoute
+    }
+    '/_project/p/$projectId/reports/$reportId': {
+      id: '/_project/p/$projectId/reports/$reportId'
+      path: '/$reportId'
+      fullPath: '/p/$projectId/reports/$reportId'
+      preLoaderRoute: typeof ProjectPProjectIdReportsReportIdRouteImport
+      parentRoute: typeof ProjectPProjectIdReportsRoute
     }
     '/_project/p/$projectId/rank-tracking/$configId': {
       id: '/_project/p/$projectId/rank-tracking/$configId'
@@ -1030,6 +1088,23 @@ const ProjectPProjectIdRankTrackingRouteWithChildren =
     ProjectPProjectIdRankTrackingRouteChildren,
   )
 
+interface ProjectPProjectIdReportsRouteChildren {
+  ProjectPProjectIdReportsReportIdRoute: typeof ProjectPProjectIdReportsReportIdRoute
+  ProjectPProjectIdReportsIndexRoute: typeof ProjectPProjectIdReportsIndexRoute
+}
+
+const ProjectPProjectIdReportsRouteChildren: ProjectPProjectIdReportsRouteChildren =
+  {
+    ProjectPProjectIdReportsReportIdRoute:
+      ProjectPProjectIdReportsReportIdRoute,
+    ProjectPProjectIdReportsIndexRoute: ProjectPProjectIdReportsIndexRoute,
+  }
+
+const ProjectPProjectIdReportsRouteWithChildren =
+  ProjectPProjectIdReportsRoute._addFileChildren(
+    ProjectPProjectIdReportsRouteChildren,
+  )
+
 interface ProjectPProjectIdRouteRouteChildren {
   ProjectPProjectIdAnalyticsRoute: typeof ProjectPProjectIdAnalyticsRoute
   ProjectPProjectIdAuditRoute: typeof ProjectPProjectIdAuditRouteWithChildren
@@ -1040,6 +1115,7 @@ interface ProjectPProjectIdRouteRouteChildren {
   ProjectPProjectIdOpportunitiesRoute: typeof ProjectPProjectIdOpportunitiesRouteWithChildren
   ProjectPProjectIdPromptExplorerRoute: typeof ProjectPProjectIdPromptExplorerRoute
   ProjectPProjectIdRankTrackingRoute: typeof ProjectPProjectIdRankTrackingRouteWithChildren
+  ProjectPProjectIdReportsRoute: typeof ProjectPProjectIdReportsRouteWithChildren
   ProjectPProjectIdSamRoute: typeof ProjectPProjectIdSamRoute
   ProjectPProjectIdSavedRoute: typeof ProjectPProjectIdSavedRoute
   ProjectPProjectIdSearchPerformanceRoute: typeof ProjectPProjectIdSearchPerformanceRoute
@@ -1060,6 +1136,7 @@ const ProjectPProjectIdRouteRouteChildren: ProjectPProjectIdRouteRouteChildren =
     ProjectPProjectIdPromptExplorerRoute: ProjectPProjectIdPromptExplorerRoute,
     ProjectPProjectIdRankTrackingRoute:
       ProjectPProjectIdRankTrackingRouteWithChildren,
+    ProjectPProjectIdReportsRoute: ProjectPProjectIdReportsRouteWithChildren,
     ProjectPProjectIdSamRoute: ProjectPProjectIdSamRoute,
     ProjectPProjectIdSavedRoute: ProjectPProjectIdSavedRoute,
     ProjectPProjectIdSearchPerformanceRoute:

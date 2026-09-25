@@ -117,6 +117,39 @@ const BANNED_DETECTOR_IMPORTS = [
   "opportunity-weights",
 ];
 
+const REPORTS_FILES = [
+  "src/shared/reports.ts",
+  "src/server/features/reports/repositories/ReportRepository.ts",
+  "src/server/features/reports/services/reportSections.ts",
+  "src/server/features/reports/services/ReportService.ts",
+  "src/serverFunctions/reports.ts",
+  "src/types/schemas/reports.ts",
+];
+
+// Live data paths reports must never touch: snapshots freeze stored
+// aggregates, so provider clients, the router, visit-triggered refresh, and
+// raw fact-table imports are all banned (aggregate repository readers only).
+const BANNED_REPORTS_IMPORTS = [
+  "ga4Client",
+  "gscClient",
+  "getSeoDataRouter",
+  "ensureBacklinkSnapshot",
+];
+
+const REPORTS_FACT_TABLES = [
+  "gscSearchPerformance",
+  "ga4DailySummary",
+  "ga4DailyLandingPages",
+  "ga4DailyEvents",
+  "ga4SyncCoverage",
+  "rankSnapshots",
+  "rankCheckRuns",
+  "rankTrackingConfigs",
+  "auditIssues",
+  "backlinkSnapshots",
+  "audits",
+];
+
 function sourceFilesRecursive(dir: string): string[] {
   const entries = readdirSync(dir);
   const files: string[] = [];
@@ -172,6 +205,35 @@ describe("no-duplicate-logic (final-plan §19)", () => {
   });
 });
 
+describe("reports snapshot discipline (final-plan §12)", () => {
+  it("never imports live clients or visit-triggered refresh", () => {
+    for (const file of REPORTS_FILES) {
+      const content = readSurface(file);
+      for (const banned of BANNED_REPORTS_IMPORTS) {
+        expect(
+          content.includes(banned),
+          `${file} must not reference live path ${banned}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("reads metrics through aggregate readers, never raw fact tables", () => {
+    for (const file of REPORTS_FILES) {
+      const content = readSurface(file);
+      for (const line of content.split("\n")) {
+        if (!line.includes('from "@/db/schema"')) continue;
+        for (const table of REPORTS_FACT_TABLES) {
+          expect(
+            line.includes(table),
+            `${file} must not import fact table ${table}`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+});
+
 describe("observational causality lock (final-plan §10)", () => {
   // MVP automated output is correlation-only: no detector fact and no
   // materializer recommendation may carry causal phrasing. Only future
@@ -196,6 +258,12 @@ describe("observational causality lock (final-plan §10)", () => {
     "src/client/features/opportunities/OpportunitiesPage.tsx",
     "src/client/features/opportunities/OpportunityDetail.tsx",
     "src/client/features/opportunities/OpportunityDetailSections.tsx",
+    "src/shared/reports.ts",
+    "src/server/features/reports/services/ReportService.ts",
+    "src/server/features/reports/services/reportSections.ts",
+    "src/client/features/reports/reportsCopy.ts",
+    "src/client/features/reports/ReportsPage.tsx",
+    "src/client/features/reports/ReportDetail.tsx",
   ];
   it("contains zero banned causal verbs in detector/template sources", () => {
     const violations: string[] = [];
@@ -245,6 +313,22 @@ describe("intelligence structural locks", () => {
     "src/db/pg/insights.schema.ts",
     "drizzle/0055_certain_infant_terrible.sql",
     "drizzle-pg/0033_puzzling_hitman.sql",
+    "src/shared/reports.ts",
+    "src/server/features/reports/repositories/ReportRepository.ts",
+    "src/server/features/reports/services/reportSections.ts",
+    "src/server/features/reports/services/ReportService.ts",
+    "src/serverFunctions/reports.ts",
+    "src/types/schemas/reports.ts",
+    "src/db/reports.schema.ts",
+    "src/db/pg/reports.schema.ts",
+    "drizzle/0056_majestic_forgotten_one.sql",
+    "drizzle-pg/0034_shocking_masked_marvel.sql",
+    "src/client/features/reports/reportsCopy.ts",
+    "src/client/features/reports/ReportsPage.tsx",
+    "src/client/features/reports/ReportDetail.tsx",
+    "src/routes/_project/p/$projectId/reports.tsx",
+    "src/routes/_project/p/$projectId/reports/index.tsx",
+    "src/routes/_project/p/$projectId/reports/$reportId.tsx",
     "src/server/features/intelligence/services/SourceTokens.ts",
     "src/shared/intelligence.ts",
     "src/shared/intelligence-thresholds.ts",

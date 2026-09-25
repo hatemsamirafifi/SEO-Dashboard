@@ -3,6 +3,7 @@ import {
   Bot,
   ChartNoAxesColumn,
   ClipboardCheck,
+  FileText,
   Globe,
   LayoutDashboard,
   Link2,
@@ -53,6 +54,11 @@ const projectNavItems = [
     to: "/p/$projectId/opportunities" as const,
     label: "Opportunities",
     icon: Target,
+  },
+  {
+    to: "/p/$projectId/reports" as const,
+    label: "Reports",
+    icon: FileText,
   },
   {
     to: "/p/$projectId/domain" as const,
@@ -131,6 +137,7 @@ export function getProjectNavGroups(projectId: string) {
         byPath("/p/$projectId/search-performance"),
         byPath("/p/$projectId/analytics"),
         byPath("/p/$projectId/opportunities"),
+        byPath("/p/$projectId/reports"),
         byPath("/p/$projectId/rank-tracking"),
         byPath("/p/$projectId/saved"),
         byPath("/p/$projectId/audit"),
