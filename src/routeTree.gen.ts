@@ -18,6 +18,7 @@ import { Route as ProjectRouteRouteImport } from './routes/_project/route'
 import { Route as AppRouteRouteImport } from './routes/_app/route'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as RTokenRouteImport } from './routes/r/$token'
+import { Route as ApiReportExportRouteImport } from './routes/api/report-export'
 import { Route as ApiPublicReportRouteImport } from './routes/api/public-report'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiBrandLogoRouteImport } from './routes/api/brand-logo'
@@ -103,6 +104,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const RTokenRoute = RTokenRouteImport.update({
   id: '/r/$token',
   path: '/r/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiReportExportRoute = ApiReportExportRouteImport.update({
+  id: '/api/report-export',
+  path: '/api/report-export',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicReportRoute = ApiPublicReportRouteImport.update({
@@ -371,6 +377,7 @@ export interface FileRoutesByFullPath {
   '/api/brand-logo': typeof ApiBrandLogoRoute
   '/api/health': typeof ApiHealthRoute
   '/api/public-report': typeof ApiPublicReportRoute
+  '/api/report-export': typeof ApiReportExportRoute
   '/r/$token': typeof RTokenRoute
   '/p/$projectId': typeof ProjectPProjectIdRouteRouteWithChildren
   '/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
@@ -423,6 +430,7 @@ export interface FileRoutesByTo {
   '/api/brand-logo': typeof ApiBrandLogoRoute
   '/api/health': typeof ApiHealthRoute
   '/api/public-report': typeof ApiPublicReportRoute
+  '/api/report-export': typeof ApiReportExportRoute
   '/r/$token': typeof RTokenRoute
   '/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
   '/help/openrouter-api-key': typeof AppHelpOpenrouterApiKeyRoute
@@ -474,6 +482,7 @@ export interface FileRoutesById {
   '/api/brand-logo': typeof ApiBrandLogoRoute
   '/api/health': typeof ApiHealthRoute
   '/api/public-report': typeof ApiPublicReportRoute
+  '/api/report-export': typeof ApiReportExportRoute
   '/r/$token': typeof RTokenRoute
   '/_app/': typeof AppIndexRoute
   '/_project/p/$projectId': typeof ProjectPProjectIdRouteRouteWithChildren
@@ -529,6 +538,7 @@ export interface FileRouteTypes {
     | '/api/brand-logo'
     | '/api/health'
     | '/api/public-report'
+    | '/api/report-export'
     | '/r/$token'
     | '/p/$projectId'
     | '/help/dataforseo-api-key'
@@ -581,6 +591,7 @@ export interface FileRouteTypes {
     | '/api/brand-logo'
     | '/api/health'
     | '/api/public-report'
+    | '/api/report-export'
     | '/r/$token'
     | '/help/dataforseo-api-key'
     | '/help/openrouter-api-key'
@@ -631,6 +642,7 @@ export interface FileRouteTypes {
     | '/api/brand-logo'
     | '/api/health'
     | '/api/public-report'
+    | '/api/report-export'
     | '/r/$token'
     | '/_app/'
     | '/_project/p/$projectId'
@@ -679,6 +691,7 @@ export interface RootRouteChildren {
   ApiBrandLogoRoute: typeof ApiBrandLogoRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiPublicReportRoute: typeof ApiPublicReportRoute
+  ApiReportExportRoute: typeof ApiReportExportRoute
   RTokenRoute: typeof RTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAutumnSplatRoute: typeof ApiAutumnSplatRoute
@@ -749,6 +762,13 @@ declare module '@tanstack/react-router' {
       path: '/r/$token'
       fullPath: '/r/$token'
       preLoaderRoute: typeof RTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/report-export': {
+      id: '/api/report-export'
+      path: '/api/report-export'
+      fullPath: '/api/report-export'
+      preLoaderRoute: typeof ApiReportExportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public-report': {
@@ -1265,6 +1285,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBrandLogoRoute: ApiBrandLogoRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiPublicReportRoute: ApiPublicReportRoute,
+  ApiReportExportRoute: ApiReportExportRoute,
   RTokenRoute: RTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAutumnSplatRoute: ApiAutumnSplatRoute,

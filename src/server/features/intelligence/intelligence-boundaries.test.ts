@@ -127,6 +127,10 @@ const REPORTS_FILES = [
   "src/server/features/reports/services/ShareService.ts",
   "src/server/features/reports/services/BrandingService.ts",
   "src/server/features/reports/services/brandLogo.ts",
+  "src/server/features/reports/services/printModel.ts",
+  "src/server/features/reports/services/pdfDocument.ts",
+  "src/server/features/reports/services/printHtml.ts",
+  "src/server/features/reports/services/ExportService.ts",
   "src/serverFunctions/reports.ts",
   "src/serverFunctions/branding.ts",
   "src/types/schemas/reports.ts",
@@ -275,6 +279,7 @@ describe("observational causality lock (final-plan §10)", () => {
     "src/client/features/reports/ShareReportModal.tsx",
     "src/client/features/reports/PublicReportPage.tsx",
     "src/client/features/reports/BrandingSettings.tsx",
+    "src/client/features/reports/ExportReportButtons.tsx",
   ];
   it("contains zero banned causal verbs in detector/template sources", () => {
     const violations: string[] = [];
@@ -359,7 +364,13 @@ describe("intelligence structural locks", () => {
     "src/client/features/reports/ShareReportModal.tsx",
     "src/client/features/reports/PublicReportPage.tsx",
     "src/client/features/reports/BrandingSettings.tsx",
+    "src/client/features/reports/ExportReportButtons.tsx",
     "src/client/features/projects/ProjectSettings.tsx",
+    "src/server/features/reports/services/printModel.ts",
+    "src/server/features/reports/services/pdfDocument.ts",
+    "src/server/features/reports/services/printHtml.ts",
+    "src/server/features/reports/services/ExportService.ts",
+    "src/routes/api/report-export.ts",
     "src/server/features/intelligence/services/SourceTokens.ts",
     "src/shared/intelligence.ts",
     "src/shared/intelligence-thresholds.ts",

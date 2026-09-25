@@ -15,6 +15,7 @@ import {
   ProvenanceBlock,
   ReportBody,
 } from "@/client/features/reports/ReportSections";
+import { ExportReportButtons } from "@/client/features/reports/ExportReportButtons";
 import { ShareReportModal } from "@/client/features/reports/ShareReportModal";
 
 export function ReportDetail({
@@ -79,6 +80,7 @@ export function ReportDetail({
 
       <ConsistencyBanner payload={payload} />
       <ProvenanceBlock payload={payload} />
+      <ExportReportButtons projectId={projectId} reportId={reportId} />
       <ReportBody payload={payload} />
 
       <ShareReportModal
