@@ -42,3 +42,13 @@ export const listReportSharesSchema = z
 export const revokeReportShareSchema = z
   .object({ projectId: z.string().min(1), shareId: z.string().min(1) })
   .strict();
+
+export const exportFormatSchema = z.enum(["pdf", "html"]);
+
+export const exportReportSchema = z
+  .object({
+    projectId: z.string().min(1),
+    reportId: z.string().min(1),
+    format: exportFormatSchema,
+  })
+  .strict();

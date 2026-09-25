@@ -1,9 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { AppError } from "@/server/lib/errors";
+import { ExportService } from "@/server/features/reports/services/ExportService";
 import { ReportService } from "@/server/features/reports/services/ReportService";
 import { ShareService } from "@/server/features/reports/services/ShareService";
 import {
   createReportShareSchema,
+  exportReportSchema,
   generateReportSchema,
   listReportSharesSchema,
   listReportsSchema,
@@ -103,5 +105,29 @@ export const revokeReportShare = createServerFn({ method: "POST" })
       projectId: context.projectId,
       organizationId: context.organizationId,
       userId: context.userId,
+    }),
+  );
+
+export const exportReportPdf = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(exportReportSchema)
+  .handler(async ({ context, data }) =>
+    ExportService.requestExport({
+      reportId: data.reportId,
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      userId: context.userId,
+      format: data.format,
+    }),
+  );
+
+export const getExportStatus = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(exportReportSchema)
+  .handler(async ({ context, data }) =>
+    ExportService.getExportStatus({
+      reportId: data.reportId,
+      projectId: context.projectId,
+      format: data.format,
     }),
   );

@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   createReportShare: vi.fn(),
   getReportShares: vi.fn(),
   revokeReportShare: vi.fn(),
+  requestExport: vi.fn(),
+  getExportStatus: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -50,10 +52,19 @@ vi.mock("@/server/features/reports/services/ShareService", () => ({
   },
 }));
 
+vi.mock("@/server/features/reports/services/ExportService", () => ({
+  ExportService: {
+    requestExport: mocks.requestExport,
+    getExportStatus: mocks.getExportStatus,
+  },
+}));
+
 import {
   createReportShare,
   deleteReport,
+  exportReportPdf,
   generateReport,
+  getExportStatus,
   getReport,
   getReportShares,
   listReports,
@@ -123,6 +134,8 @@ describe("reports server-function project authorization", () => {
     mocks.createReportShare.mockReset();
     mocks.getReportShares.mockReset();
     mocks.revokeReportShare.mockReset();
+    mocks.requestExport.mockReset();
+    mocks.getExportStatus.mockReset();
   });
 
   it.each([
@@ -153,6 +166,16 @@ describe("reports server-function project authorization", () => {
       revokeReportShare,
       { projectId: "other-project", shareId: "share-1" },
     ],
+    [
+      "exportReportPdf",
+      exportReportPdf,
+      { projectId: "other-project", reportId: "rep-1", format: "pdf" },
+    ],
+    [
+      "getExportStatus",
+      getExportStatus,
+      { projectId: "other-project", reportId: "rep-1", format: "pdf" },
+    ],
   ])(
     "rejects wrong-organization access before %s runs",
     async (_name, fn, data) => {
@@ -166,6 +189,8 @@ describe("reports server-function project authorization", () => {
       expect(mocks.createReportShare).not.toHaveBeenCalled();
       expect(mocks.getReportShares).not.toHaveBeenCalled();
       expect(mocks.revokeReportShare).not.toHaveBeenCalled();
+      expect(mocks.requestExport).not.toHaveBeenCalled();
+      expect(mocks.getExportStatus).not.toHaveBeenCalled();
     },
   );
 
