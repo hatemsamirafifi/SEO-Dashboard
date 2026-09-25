@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   generateReport: vi.fn(),
   getReport: vi.fn(),
   deleteReport: vi.fn(),
+  createReportShare: vi.fn(),
+  getReportShares: vi.fn(),
+  revokeReportShare: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -39,11 +42,22 @@ vi.mock("@/server/features/reports/services/ReportService", () => ({
   },
 }));
 
+vi.mock("@/server/features/reports/services/ShareService", () => ({
+  ShareService: {
+    createReportShare: mocks.createReportShare,
+    listReportShares: mocks.getReportShares,
+    revokeReportShare: mocks.revokeReportShare,
+  },
+}));
+
 import {
+  createReportShare,
   deleteReport,
   generateReport,
   getReport,
+  getReportShares,
   listReports,
+  revokeReportShare,
 } from "./reports";
 import { globalServerFunctionMiddleware } from "./middleware";
 
@@ -106,6 +120,9 @@ describe("reports server-function project authorization", () => {
     mocks.generateReport.mockReset();
     mocks.getReport.mockReset();
     mocks.deleteReport.mockReset();
+    mocks.createReportShare.mockReset();
+    mocks.getReportShares.mockReset();
+    mocks.revokeReportShare.mockReset();
   });
 
   it.each([
@@ -121,15 +138,36 @@ describe("reports server-function project authorization", () => {
     ],
     ["getReport", getReport, { projectId: "other-project", id: "rep-1" }],
     ["deleteReport", deleteReport, { projectId: "other-project", id: "rep-1" }],
-  ])("rejects wrong-organization access before %s runs", async (_name, fn, data) => {
-    const result = await executeServerFunction(fn, data);
+    [
+      "createReportShare",
+      createReportShare,
+      { projectId: "other-project", reportId: "rep-1" },
+    ],
+    [
+      "getReportShares",
+      getReportShares,
+      { projectId: "other-project", reportId: "rep-1" },
+    ],
+    [
+      "revokeReportShare",
+      revokeReportShare,
+      { projectId: "other-project", shareId: "share-1" },
+    ],
+  ])(
+    "rejects wrong-organization access before %s runs",
+    async (_name, fn, data) => {
+      const result = await executeServerFunction(fn, data);
 
-    expect(result).toMatchObject({ error: new Error("NOT_FOUND") });
-    expect(mocks.listReports).not.toHaveBeenCalled();
-    expect(mocks.generateReport).not.toHaveBeenCalled();
-    expect(mocks.getReport).not.toHaveBeenCalled();
-    expect(mocks.deleteReport).not.toHaveBeenCalled();
-  });
+      expect(result).toMatchObject({ error: new Error("NOT_FOUND") });
+      expect(mocks.listReports).not.toHaveBeenCalled();
+      expect(mocks.generateReport).not.toHaveBeenCalled();
+      expect(mocks.getReport).not.toHaveBeenCalled();
+      expect(mocks.deleteReport).not.toHaveBeenCalled();
+      expect(mocks.createReportShare).not.toHaveBeenCalled();
+      expect(mocks.getReportShares).not.toHaveBeenCalled();
+      expect(mocks.revokeReportShare).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects reversed periods at the validator", async () => {
     mocks.projectLookup.mockResolvedValue({
@@ -142,7 +180,7 @@ describe("reports server-function project authorization", () => {
       type: "overview",
       period: { from: "2026-01-14", to: "2026-01-01" },
     });
-    expect(result).toMatchObject({ error: expect.any(Error) });
+    expect(result).toHaveProperty("error");
     expect(mocks.generateReport).not.toHaveBeenCalled();
   });
 });

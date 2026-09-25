@@ -25,6 +25,8 @@ data, or sensitive paths.
 - [ ] `2026-07-10T21:28:46Z` — `codex` — `pnpm --dir badseo run typecheck` works through the root toolchain but `pnpm --dir badseo run build` can't find Vite because `badseo/node_modules` is absent. Document or enforce the package-local install before validating the `badseo/` subpackage.
 - [ ] `2026-07-10T21:32:10Z` — `codex` — Formatting the `badseo/` workspace with `pnpm exec prettier` fails because Prettier is only available from the repository root. Document the root-only formatter command or expose a workspace-local formatting script.
 
+- [ ] `2026-09-25T20:50:00Z` — `opencode` — The `__executeServer` test harness silently echoes the input context (`{"context":{}}`) instead of running handlers for `requireAuthenticatedContext`-only server functions (verified against production `getProjects`); only `requireProjectContext` functions execute. Org-scoped function wiring is therefore untestable in-harness and must be covered at the service level. Worth documenting the gap (or a workaround) so the next author doesn't burn time isolating it.
+
 ## Resolved
 
 Move fixed entries here, mark them checked, and append the resolving date or commit.

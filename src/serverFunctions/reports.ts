@@ -1,10 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { AppError } from "@/server/lib/errors";
 import { ReportService } from "@/server/features/reports/services/ReportService";
+import { ShareService } from "@/server/features/reports/services/ShareService";
 import {
+  createReportShareSchema,
   generateReportSchema,
+  listReportSharesSchema,
   listReportsSchema,
   reportByIdSchema,
+  revokeReportShareSchema,
 } from "@/types/schemas/reports";
 import { requireProjectContext } from "./middleware";
 
@@ -65,3 +69,39 @@ export const deleteReport = createServerFn({ method: "POST" })
     }
     return { ok: true as const };
   });
+
+export const createReportShare = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(createReportShareSchema)
+  .handler(async ({ context, data }) =>
+    ShareService.createReportShare({
+      reportId: data.reportId,
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      userId: context.userId,
+      expiresAt: data.expiresAt,
+    }),
+  );
+
+export const getReportShares = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(listReportSharesSchema)
+  .handler(async ({ context, data }) => {
+    const shares = await ShareService.listReportShares({
+      reportId: data.reportId,
+      projectId: context.projectId,
+    });
+    return { shares };
+  });
+
+export const revokeReportShare = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(revokeReportShareSchema)
+  .handler(async ({ context, data }) =>
+    ShareService.revokeReportShare({
+      shareId: data.shareId,
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      userId: context.userId,
+    }),
+  );

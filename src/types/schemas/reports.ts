@@ -26,3 +26,19 @@ export const reportByIdSchema = z
 export const listReportsSchema = z
   .object({ projectId: z.string().min(1) })
   .strict();
+
+export const createReportShareSchema = z
+  .object({
+    projectId: z.string().min(1),
+    reportId: z.string().min(1),
+    expiresAt: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const listReportSharesSchema = z
+  .object({ projectId: z.string().min(1), reportId: z.string().min(1) })
+  .strict();
+
+export const revokeReportShareSchema = z
+  .object({ projectId: z.string().min(1), shareId: z.string().min(1) })
+  .strict();
