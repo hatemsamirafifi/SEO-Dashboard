@@ -18,6 +18,7 @@ export const reports = pgTable(
     payloadSnapshotJson: text("payload_snapshot_json").notNull(),
     consistencyStatus: text("consistency_status").notNull(),
     intelligenceRunId: text("intelligence_run_id"),
+    brandingSnapshotJson: text("branding_snapshot_json"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(current_timestamp)`),

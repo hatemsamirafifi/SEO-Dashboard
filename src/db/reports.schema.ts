@@ -24,6 +24,9 @@ export const reports = sqliteTable(
     // consistent|concurrent_mutation — mirrors payload provenance.
     consistencyStatus: text("consistency_status").notNull(),
     intelligenceRunId: text("intelligence_run_id"),
+    // Frozen agency+client combination (Task 13); null for pre-branding rows,
+    // which render the default header. Never updated after insert.
+    brandingSnapshotJson: text("branding_snapshot_json"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(current_timestamp)`),

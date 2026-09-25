@@ -205,6 +205,13 @@
       "when": 1790354057966,
       "tag": "0034_shocking_masked_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790357081345,
+      "tag": "0035_complex_sandman",
+      "breakpoints": true
     }
   ]
 }
