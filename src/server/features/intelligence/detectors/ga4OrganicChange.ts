@@ -76,8 +76,10 @@ export async function fetchGa4ChangeInput(
 ): Promise<Ga4ChangeInput> {
   const windowDays = thresholdNumber(ctx.thresholds, "minWindowDays");
   const minCoverage = thresholdNumber(ctx.thresholds, "minCoverageRatio");
-  const connection =
-    await Ga4ConnectionRepository.getByProjectId(projectId);
+  const connection = await Ga4ConnectionRepository.getByProjectId(
+    projectId,
+    ctx.organizationId,
+  );
   if (!connection) {
     throw new InsufficientCoverageError(
       "ga4_organic_change: no GA4 connection",
@@ -200,8 +202,7 @@ export function detectGa4Change(
       detectedAt: new Date().toISOString(),
       confidenceScore: fullCoverage ? 70 : 60,
       coverageFlags: {
-        summaryCoverageCurrent:
-          input.current.days / input.current.expectedDays,
+        summaryCoverageCurrent: input.current.days / input.current.expectedDays,
         summaryCoveragePrevious:
           input.previous.days / input.previous.expectedDays,
       },

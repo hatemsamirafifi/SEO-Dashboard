@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
-import {
-  joinUrlEvidence,
-  summarizeJoinCoverage,
-} from "./AnalyticsJoinService";
+import { joinUrlEvidence, summarizeJoinCoverage } from "./AnalyticsJoinService";
 
 describe("AnalyticsJoinService", () => {
   it("merges UTM variants but keeps path forms separate (documented)", () => {
     const rows = joinUrlEvidence({
-      gsc: [{ url: "https://example.com/guide?utm=x", clicks: 100, impressions: 1000 }],
+      gsc: [
+        {
+          url: "https://example.com/guide?utm=x",
+          clicks: 100,
+          impressions: 1000,
+        },
+      ],
       ga4: [
         { landingPage: "/guide", currentSessions: 50, previousSessions: 80 },
       ],
@@ -44,7 +47,11 @@ describe("AnalyticsJoinService", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.gscClicks).toBe(15);
     expect(rows[0]?.rankWorsened).toBe(true);
-    expect(rows[0]?.present).toMatchObject({ gsc: true, ga4: false, rank: true });
+    expect(rows[0]?.present).toMatchObject({
+      gsc: true,
+      ga4: false,
+      rank: true,
+    });
   });
 
   it("summarizes per-source join coverage", () => {
