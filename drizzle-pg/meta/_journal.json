@@ -191,6 +191,13 @@
       "when": 1790284504210,
       "tag": "0032_nosy_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790349238731,
+      "tag": "0033_puzzling_hitman",
+      "breakpoints": true
     }
   ]
 }

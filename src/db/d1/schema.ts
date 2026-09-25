@@ -9,6 +9,7 @@ export * from "../billing.schema";
 export * from "../gsc.schema";
 export * from "../ga4.schema";
 export * from "../intelligence.schema";
+export * from "../insights.schema";
 export * from "../opportunities.schema";
 export * from "../reddit-attribution.schema";
 export * from "../telemetry.schema";
