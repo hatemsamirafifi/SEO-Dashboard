@@ -9,6 +9,7 @@ import * as sqliteGa4 from "./ga4.schema";
 import * as sqliteIntelligence from "./intelligence.schema";
 import * as sqliteInsights from "./insights.schema";
 import * as sqliteOpportunities from "./opportunities.schema";
+import * as sqliteReports from "./reports.schema";
 import * as sqliteReddit from "./reddit-attribution.schema";
 import * as sqliteTelemetry from "./telemetry.schema";
 import * as pgApp from "./pg/app.schema";
@@ -21,6 +22,7 @@ import * as pgGa4 from "./pg/ga4.schema";
 import * as pgIntelligence from "./pg/intelligence.schema";
 import * as pgInsights from "./pg/insights.schema";
 import * as pgOpportunities from "./pg/opportunities.schema";
+import * as pgReports from "./pg/reports.schema";
 import * as pgReddit from "./pg/reddit-attribution.schema";
 import * as pgTelemetry from "./pg/telemetry.schema";
 
@@ -44,6 +46,7 @@ type AppSchema = typeof sqliteApp &
   typeof sqliteIntelligence &
   typeof sqliteInsights &
   typeof sqliteOpportunities &
+  typeof sqliteReports &
   typeof sqliteReddit &
   typeof sqliteTelemetry;
 
@@ -60,6 +63,7 @@ const runtimeSchema =
         ...pgIntelligence,
         ...pgInsights,
         ...pgOpportunities,
+        ...pgReports,
         ...pgReddit,
         ...pgTelemetry,
       }
@@ -74,6 +78,7 @@ const runtimeSchema =
         ...sqliteIntelligence,
         ...sqliteInsights,
         ...sqliteOpportunities,
+        ...sqliteReports,
         ...sqliteReddit,
         ...sqliteTelemetry,
       };
@@ -127,6 +132,7 @@ export const {
   insightUserPreferences,
   opportunities,
   opportunityEvents,
+  reports,
   gscSearchPerformance,
   gscSearchPerformanceSyncs,
   redditAttributions,
