@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Suspense, useCallback, useEffect } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { Loader2, Plus, Wrench } from "lucide-react";
 import { createSamSession } from "@/serverFunctions/sam";
 import {
@@ -8,6 +8,7 @@ import {
   samSessionsQueryOptions,
 } from "@/client/features/sam/samQueries";
 import { useSamAccess } from "./useSamAccess";
+import { SamAutopilotTab } from "./SamAutopilotTab";
 import { SamSetupGate } from "./SamSetupGate";
 import { SamConversation } from "./SamConversation";
 
@@ -26,6 +27,7 @@ export function SamChat({
 }) {
   const navigate = useNavigate();
   const access = useSamAccess(projectId);
+  const [tab, setTab] = useState<"chat" | "autopilot">("chat");
   const sessionsQuery = useQuery(samSessionsQueryOptions(projectId));
   const sessions = sessionsQuery.data ?? [];
 
@@ -56,6 +58,34 @@ export function SamChat({
     goToSession(firstSessionId);
   }, [activeSessionId, firstSessionId, goToSession]);
 
+  const tabBar = (
+    <div className="flex justify-center gap-1 border-b border-base-300 px-4 py-2">
+      {(["chat", "autopilot"] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => setTab(value)}
+          className={`btn btn-xs ${tab === value ? "btn-primary" : "btn-ghost"}`}
+        >
+          {value === "chat" ? "Chat" : "Autopilot"}
+        </button>
+      ))}
+    </div>
+  );
+
+  // Autopilot runs deterministic engine reads plus local summary shaping, so
+  // it stays available even when the chat provider key is missing.
+  if (tab === "autopilot") {
+    return (
+      <div className="flex h-full flex-col">
+        {tabBar}
+        <div className="min-h-0 flex-1">
+          <SamAutopilotTab projectId={projectId} />
+        </div>
+      </div>
+    );
+  }
+
   // SAM cannot answer a turn without OPENROUTER_API_KEY, so surface setup
   // instructions instead of letting a chat fail mid-stream. Only shown once the
   // check confirms the key is missing (self-hosted) — never as a blocking
@@ -76,24 +106,27 @@ export function SamChat({
 
   if (activeSessionId) {
     return (
-      <div className="flex h-full min-h-0">
-        {/* useAgentChat suspends while it fetches the session's history; this
-            boundary keeps that suspension inside the chat panel instead of
-            letting it bubble up and swap out the whole shell — which read as
-            a full page refresh on every session switch. */}
-        <Suspense
-          fallback={
-            <div className="flex flex-1 items-center justify-center">
-              <Loader2 className="size-5 animate-spin text-base-content/40" />
-            </div>
-          }
-        >
-          <SamConversation
-            key={activeSessionId}
-            projectId={projectId}
-            sessionId={activeSessionId}
-          />
-        </Suspense>
+      <div className="flex h-full flex-col">
+        {tabBar}
+        <div className="flex min-h-0 flex-1">
+          {/* useAgentChat suspends while it fetches the session's history; this
+              boundary keeps that suspension inside the chat panel instead of
+              letting it bubble up and swap out the whole shell — which read as
+              a full page refresh on every session switch. */}
+          <Suspense
+            fallback={
+              <div className="flex flex-1 items-center justify-center">
+                <Loader2 className="size-5 animate-spin text-base-content/40" />
+              </div>
+            }
+          >
+            <SamConversation
+              key={activeSessionId}
+              projectId={projectId}
+              sessionId={activeSessionId}
+            />
+          </Suspense>
+        </div>
       </div>
     );
   }
@@ -109,30 +142,33 @@ export function SamChat({
   }
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-      <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-        <Wrench className="size-6" />
+    <div className="flex h-full flex-col">
+      {tabBar}
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+        <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Wrench className="size-6" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-lg font-medium">What should we work on?</p>
+          <p className="max-w-sm text-sm text-base-content/60">
+            SAM is your in-app SEO agent with access to every OpenSEO research
+            tool. Start a chat to get going.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm gap-1"
+          disabled={createSession.isPending}
+          onClick={() => createSession.mutate()}
+        >
+          {createSession.isPending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Plus className="size-4" />
+          )}
+          New chat
+        </button>
       </div>
-      <div className="space-y-1">
-        <p className="text-lg font-medium">What should we work on?</p>
-        <p className="max-w-sm text-sm text-base-content/60">
-          SAM is your in-app SEO agent with access to every OpenSEO research
-          tool. Start a chat to get going.
-        </p>
-      </div>
-      <button
-        type="button"
-        className="btn btn-primary btn-sm gap-1"
-        disabled={createSession.isPending}
-        onClick={() => createSession.mutate()}
-      >
-        {createSession.isPending ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <Plus className="size-4" />
-        )}
-        New chat
-      </button>
     </div>
   );
 }

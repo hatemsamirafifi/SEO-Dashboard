@@ -28,6 +28,18 @@ export const AUTOPILOT_COPY_FILES = [
   "src/server/workflows/AutopilotWorkflow.ts",
 ];
 
+export const MCP_UI_COPY_FILES = [
+  "src/shared/autopilot.ts",
+  "src/server/mcp/tools/intelligence-tools.ts",
+  "src/server/mcp/tools/analytics-tools.ts",
+  "src/server/mcp/tools/report-autopilot-tools.ts",
+  "src/server/mcp/server.ts",
+  "src/client/features/sam/SamAutopilotTab.tsx",
+  "src/client/features/sam/samAutopilotQueries.ts",
+  "src/client/features/sam/autopilotEvidence.ts",
+  "src/client/features/sam/SamChat.tsx",
+];
+
 export const AUTOPILOT_LOCK_FILES = [
   "src/server/features/autopilot/repositories/AutopilotRepository.ts",
   "src/server/features/autopilot/services/autopilotTypes.ts",

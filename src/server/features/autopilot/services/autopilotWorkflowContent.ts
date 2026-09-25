@@ -1,3 +1,4 @@
+import type { AutopilotWorkflowType } from "@/shared/autopilot";
 import { compareOpportunities } from "@/shared/intelligence";
 import type { AutopilotStepContext } from "./autopilotTypes";
 
@@ -6,12 +7,10 @@ import type { AutopilotStepContext } from "./autopilotTypes";
 // builders. No repository imports here — collection lives in
 // autopilotWorkflows.ts so this module stays a pure function surface.
 
-export const AUTOPILOT_WORKFLOW_TYPES = [
-  "growth_plan",
-  "quick_wins",
-  "traffic_drop",
-] as const;
-export type AutopilotWorkflowType = (typeof AUTOPILOT_WORKFLOW_TYPES)[number];
+export {
+  AUTOPILOT_WORKFLOW_TYPES,
+  type AutopilotWorkflowType,
+} from "@/shared/autopilot";
 
 export const WORKFLOW_PROMPTS: Record<AutopilotWorkflowType, string> = {
   growth_plan:

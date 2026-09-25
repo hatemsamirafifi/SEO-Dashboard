@@ -249,6 +249,7 @@ import {
   AUTOPILOT_COPY_FILES,
   AUTOPILOT_FILES,
   AUTOPILOT_LOCK_FILES,
+  MCP_UI_COPY_FILES,
 } from "./boundarySurfaces";
 
 describe("autopilot stage discipline (final-plan §13)", () => {
@@ -326,6 +327,7 @@ describe("observational causality lock (final-plan §10)", () => {
     "src/client/features/reports/BrandingSettings.tsx",
     "src/client/features/reports/ExportReportButtons.tsx",
     ...AUTOPILOT_COPY_FILES,
+    ...MCP_UI_COPY_FILES,
   ];
   it("contains zero banned causal verbs in detector/template sources", () => {
     const violations: string[] = [];
