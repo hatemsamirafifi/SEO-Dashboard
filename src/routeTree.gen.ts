@@ -17,7 +17,10 @@ import { Route as AuthRouteImport } from './routes/_auth'
 import { Route as ProjectRouteRouteImport } from './routes/_project/route'
 import { Route as AppRouteRouteImport } from './routes/_app/route'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as RTokenRouteImport } from './routes/r/$token'
+import { Route as ApiPublicReportRouteImport } from './routes/api/public-report'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiBrandLogoRouteImport } from './routes/api/brand-logo'
 import { Route as AuthenticatedSubscribeRouteImport } from './routes/_authenticated.subscribe'
 import { Route as AuthenticatedOauthConsentRouteImport } from './routes/_authenticated.oauth-consent'
 import { Route as AuthSignUpRouteImport } from './routes/_auth.sign-up'
@@ -97,9 +100,24 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const RTokenRoute = RTokenRouteImport.update({
+  id: '/r/$token',
+  path: '/r/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicReportRoute = ApiPublicReportRouteImport.update({
+  id: '/api/public-report',
+  path: '/api/public-report',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBrandLogoRoute = ApiBrandLogoRouteImport.update({
+  id: '/api/brand-logo',
+  path: '/api/brand-logo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedSubscribeRoute = AuthenticatedSubscribeRouteImport.update({
@@ -350,7 +368,10 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof AuthSignUpRoute
   '/oauth-consent': typeof AuthenticatedOauthConsentRoute
   '/subscribe': typeof AuthenticatedSubscribeRoute
+  '/api/brand-logo': typeof ApiBrandLogoRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/public-report': typeof ApiPublicReportRoute
+  '/r/$token': typeof RTokenRoute
   '/p/$projectId': typeof ProjectPProjectIdRouteRouteWithChildren
   '/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
   '/help/openrouter-api-key': typeof AppHelpOpenrouterApiKeyRoute
@@ -399,7 +420,10 @@ export interface FileRoutesByTo {
   '/sign-up': typeof AuthSignUpRoute
   '/oauth-consent': typeof AuthenticatedOauthConsentRoute
   '/subscribe': typeof AuthenticatedSubscribeRoute
+  '/api/brand-logo': typeof ApiBrandLogoRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/public-report': typeof ApiPublicReportRoute
+  '/r/$token': typeof RTokenRoute
   '/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
   '/help/openrouter-api-key': typeof AppHelpOpenrouterApiKeyRoute
   '/onboarding/chat': typeof AuthenticatedOnboardingChatRoute
@@ -447,7 +471,10 @@ export interface FileRoutesById {
   '/_auth/sign-up': typeof AuthSignUpRoute
   '/_authenticated/oauth-consent': typeof AuthenticatedOauthConsentRoute
   '/_authenticated/subscribe': typeof AuthenticatedSubscribeRoute
+  '/api/brand-logo': typeof ApiBrandLogoRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/public-report': typeof ApiPublicReportRoute
+  '/r/$token': typeof RTokenRoute
   '/_app/': typeof AppIndexRoute
   '/_project/p/$projectId': typeof ProjectPProjectIdRouteRouteWithChildren
   '/_app/help/dataforseo-api-key': typeof AppHelpDataforseoApiKeyRoute
@@ -499,7 +526,10 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/oauth-consent'
     | '/subscribe'
+    | '/api/brand-logo'
     | '/api/health'
+    | '/api/public-report'
+    | '/r/$token'
     | '/p/$projectId'
     | '/help/dataforseo-api-key'
     | '/help/openrouter-api-key'
@@ -548,7 +578,10 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/oauth-consent'
     | '/subscribe'
+    | '/api/brand-logo'
     | '/api/health'
+    | '/api/public-report'
+    | '/r/$token'
     | '/help/dataforseo-api-key'
     | '/help/openrouter-api-key'
     | '/onboarding/chat'
@@ -595,7 +628,10 @@ export interface FileRouteTypes {
     | '/_auth/sign-up'
     | '/_authenticated/oauth-consent'
     | '/_authenticated/subscribe'
+    | '/api/brand-logo'
     | '/api/health'
+    | '/api/public-report'
+    | '/r/$token'
     | '/_app/'
     | '/_project/p/$projectId'
     | '/_app/help/dataforseo-api-key'
@@ -640,7 +676,10 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   VerifyEmailRoute: typeof VerifyEmailRoute
   Char91DotwellKnownChar93OpenaiAppsChallengeRoute: typeof Char91DotwellKnownChar93OpenaiAppsChallengeRoute
+  ApiBrandLogoRoute: typeof ApiBrandLogoRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiPublicReportRoute: typeof ApiPublicReportRoute
+  RTokenRoute: typeof RTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAutumnSplatRoute: typeof ApiAutumnSplatRoute
   ApiGa4OauthCallbackRoute: typeof ApiGa4OauthCallbackRoute
@@ -705,11 +744,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/r/$token': {
+      id: '/r/$token'
+      path: '/r/$token'
+      fullPath: '/r/$token'
+      preLoaderRoute: typeof RTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public-report': {
+      id: '/api/public-report'
+      path: '/api/public-report'
+      fullPath: '/api/public-report'
+      preLoaderRoute: typeof ApiPublicReportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/health': {
       id: '/api/health'
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/brand-logo': {
+      id: '/api/brand-logo'
+      path: '/api/brand-logo'
+      fullPath: '/api/brand-logo'
+      preLoaderRoute: typeof ApiBrandLogoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/subscribe': {
@@ -1202,7 +1262,10 @@ const rootRouteChildren: RootRouteChildren = {
   VerifyEmailRoute: VerifyEmailRoute,
   Char91DotwellKnownChar93OpenaiAppsChallengeRoute:
     Char91DotwellKnownChar93OpenaiAppsChallengeRoute,
+  ApiBrandLogoRoute: ApiBrandLogoRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiPublicReportRoute: ApiPublicReportRoute,
+  RTokenRoute: RTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAutumnSplatRoute: ApiAutumnSplatRoute,
   ApiGa4OauthCallbackRoute: ApiGa4OauthCallbackRoute,

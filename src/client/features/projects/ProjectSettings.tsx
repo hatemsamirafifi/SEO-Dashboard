@@ -5,6 +5,10 @@ import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { SearchConsoleConnectionCard } from "@/client/features/gsc/SearchConsoleConnectionCard";
 import { AnalyticsConnectionCard } from "@/client/features/ga4/AnalyticsConnectionCard";
+import {
+  AgencyBrandingSection,
+  ClientProfileSection,
+} from "@/client/features/reports/BrandingSettings";
 import { ProjectMarketFields } from "@/client/features/projects/ProjectMarketFields";
 import { ProjectAiSettingsSection } from "@/client/features/ai/ProjectAiSettingsSection";
 import { GlobalDebugTraceSettingsSection } from "@/client/features/tracing/GlobalDebugTraceSettingsSection";
@@ -92,6 +96,20 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       <section id="ai-agent" className="space-y-3 scroll-mt-6">
         <h2 className="text-sm font-medium text-base-content/50">AI agent</h2>
         <ProjectAiSettingsSection projectId={projectId} />
+      </section>
+
+      <section id="agency-branding" className="space-y-3 scroll-mt-6">
+        <h2 className="text-sm font-medium text-base-content/50">
+          Agency branding
+        </h2>
+        <AgencyBrandingSection />
+      </section>
+
+      <section id="client-profile" className="space-y-3 scroll-mt-6">
+        <h2 className="text-sm font-medium text-base-content/50">
+          Client profile
+        </h2>
+        <ClientProfileSection projectId={projectId} />
       </section>
 
       <section id="debug-trace" className="space-y-3 scroll-mt-6">
