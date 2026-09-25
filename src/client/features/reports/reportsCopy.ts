@@ -1,5 +1,8 @@
 import {
   REPORT_TYPES,
+  REPORT_TYPE_LABELS,
+  REPORT_SECTION_TITLES,
+  unavailableSectionNote,
   type ReportSectionKey,
   type ReportType,
 } from "@/shared/reports";
@@ -39,10 +42,11 @@ export const REPORT_TYPE_OPTIONS: Array<{
     description: "Visibility and traffic summary with top opportunities.",
   },
 ];
-
 export function reportTypeLabel(type: string): string {
   return (
-    REPORT_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type
+    REPORT_TYPE_OPTIONS.find((option) => option.value === type)?.label ??
+    (REPORT_TYPE_LABELS as Record<string, string>)[type] ??
+    type
   );
 }
 
@@ -52,16 +56,8 @@ export function assertReportType(value: string): asserts value is ReportType {
   }
 }
 
-export const SECTION_TITLES: Record<ReportSectionKey, string> = {
-  search_visibility: "Search visibility",
-  traffic: "Traffic",
-  conversions: "Conversions",
-  rankings: "Rankings",
-  technical: "Technical health",
-  backlinks: "Backlinks",
-  opportunities: "Opportunities",
-  insights: "Insights",
-};
+export const SECTION_TITLES: Record<ReportSectionKey, string> =
+  REPORT_SECTION_TITLES;
 
 export function consistencyLabel(status: string): string {
   return status === "concurrent_mutation"
@@ -76,18 +72,7 @@ export function consistencyBadgeClass(status: string): string {
 }
 
 export function availabilityNote(reason: string | null): string | null {
-  switch (reason) {
-    case "not_connected":
-      return "Not connected — connect this source to include its data.";
-    case "no_coverage":
-      return "No coverage for this period.";
-    case "provider_failed":
-      return "Collection failed — this section is unavailable.";
-    case "no_data":
-      return "No data yet.";
-    default:
-      return null;
-  }
+  return unavailableSectionNote(reason);
 }
 
 export function formatDateTime(value: string | null): string {

@@ -45,6 +45,42 @@ export function sectionsForReportType(type: ReportType): ReportSectionKey[] {
   return REPORT_TYPE_SECTIONS[type];
 }
 
+// Presentation labels shared by the server renderers (PDF/print HTML) and
+// the client. Single-sourced so the three surfaces cannot drift apart.
+export const REPORT_TYPE_LABELS: Record<ReportType, string> = {
+  overview: "Overview",
+  search_performance: "Search performance",
+  rank_tracking: "Rank tracking",
+  technical: "Technical",
+  executive: "Executive",
+};
+
+export const REPORT_SECTION_TITLES: Record<ReportSectionKey, string> = {
+  search_visibility: "Search visibility",
+  traffic: "Traffic",
+  conversions: "Conversions",
+  rankings: "Rankings",
+  technical: "Technical health",
+  backlinks: "Backlinks",
+  opportunities: "Opportunities",
+  insights: "Insights",
+};
+
+export function unavailableSectionNote(reason: string | null): string | null {
+  switch (reason) {
+    case "not_connected":
+      return "Not connected — connect this source to include its data.";
+    case "no_coverage":
+      return "No coverage for this period.";
+    case "provider_failed":
+      return "Collection failed — this section is unavailable.";
+    case "no_data":
+      return "No data yet.";
+    default:
+      return null;
+  }
+}
+
 export const CONSISTENCY_STATUSES = [
   "consistent",
   "concurrent_mutation",
