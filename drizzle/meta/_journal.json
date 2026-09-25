@@ -373,6 +373,13 @@
       "when": 1790364111616,
       "tag": "0058_glorious_terror",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1790364212124,
+      "tag": "0059_faithful_bulldozer",
+      "breakpoints": true
     }
   ]
 }

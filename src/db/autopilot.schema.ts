@@ -105,6 +105,8 @@ export const autopilotSteps = sqliteTable(
     evidenceHash: text("evidence_hash"),
     effectiveSourceVersionsJson: text("effective_source_versions_json"),
     collectionAttempts: integer("collection_attempts").notNull().default(0),
+    // Budget units consumed by this step (LLM tool calls); restored on resume.
+    toolCalls: integer("tool_calls").notNull().default(0),
     reusedFromAttempt: text("reused_from_attempt"),
     idempotencyKey: text("idempotency_key"),
     error: text("error"),
