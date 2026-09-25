@@ -366,6 +366,13 @@
       "when": 1790357076270,
       "tag": "0057_round_midnight",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1790364111616,
+      "tag": "0058_glorious_terror",
+      "breakpoints": true
     }
   ]
 }

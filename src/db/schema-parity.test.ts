@@ -15,6 +15,7 @@ import * as sqliteInsights from "./insights.schema";
 import * as sqliteOpportunities from "./opportunities.schema";
 import * as sqliteReports from "./reports.schema";
 import * as sqliteReportSharing from "./report-sharing.schema";
+import * as sqliteAutopilot from "./autopilot.schema";
 import * as sqliteReddit from "./reddit-attribution.schema";
 import * as sqliteTelemetry from "./telemetry.schema";
 import * as pgApp from "./pg/app.schema";
@@ -28,6 +29,7 @@ import * as pgInsights from "./pg/insights.schema";
 import * as pgOpportunities from "./pg/opportunities.schema";
 import * as pgReports from "./pg/reports.schema";
 import * as pgReportSharing from "./pg/report-sharing.schema";
+import * as pgAutopilot from "./pg/autopilot.schema";
 import * as pgReddit from "./pg/reddit-attribution.schema";
 import * as pgTelemetry from "./pg/telemetry.schema";
 
@@ -156,6 +158,7 @@ const sqliteAppTables = tablesFrom(
   sqliteOpportunities,
   sqliteReports,
   sqliteReportSharing,
+  sqliteAutopilot,
   sqliteReddit,
   sqliteTelemetry,
 );
@@ -170,6 +173,7 @@ const pgAppTables = tablesFrom(
   pgOpportunities,
   pgReports,
   pgReportSharing,
+  pgAutopilot,
   pgReddit,
   pgTelemetry,
 );
