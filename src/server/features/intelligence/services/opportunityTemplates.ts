@@ -73,8 +73,7 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
         metricNumber(finding.evidence.metrics, "sessionsBefore") ?? 0;
       const after =
         metricNumber(finding.evidence.metrics, "sessionsAfter") ?? 0;
-      const ratio =
-        metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
+      const ratio = metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
       const direction = ratio < 0 ? "fell" : "grew";
       return (
         `GA4 sessions ${direction} ${Math.abs(ratio * 100).toFixed(1)}% ` +
@@ -360,10 +359,11 @@ export type DecayConfidenceInputs = {
 
 /**
  * Content-decay opportunity confidence (final-plan §10 capped multi-input
- * function). Rank/session moves absent → 0.5 neutral; directional agreement
- * weighs 0.10 + shares the rank signal with rankSessionMoves at 0.05, so
- * rank-driven contribution caps at exactly 15 points — agreement alone can
- * never reach High. Volume below the floor suppresses (returns null).
+ * function). Witnesses absent → 0.5 neutral; directional agreement (rank
+ * and/or GA4 sessions) weighs 0.10 + shares the rank signal with
+ * rankSessionMoves at 0.05, so witness-driven contribution caps at exactly
+ * 15 points — agreement alone can never reach High. Volume below the floor
+ * suppresses (returns null).
  */
 export function decayConfidence(finding: Finding): {
   score: number | null;
@@ -378,10 +378,18 @@ export function decayConfidence(finding: Finding): {
   if (baseline < floor) return null;
   const dayRatio = metricValue(inputs, "coverageDayRatio") ?? 1;
   const rankAgrees = inputs.rankAgrees === true;
+  const ga4Agrees = inputs.ga4Agrees === true;
   const rankUnavailable = finding.evidence.partialData.includes(
     "rank_corroboration_unavailable",
   );
+  const ga4Unavailable = finding.evidence.partialData.includes(
+    "ga4_corroboration_unavailable",
+  );
   const moves = rankAgrees ? 1 : rankUnavailable ? 0.5 : 0;
+  // Directional agreement folds both witnesses; neutral only when neither
+  // witness was available. Rank-driven weight total stays exactly 15.
+  const agreement =
+    rankAgrees || ga4Agrees ? 1 : rankUnavailable && ga4Unavailable ? 0.5 : 0;
   const confidenceInputs: DecayConfidenceInputs = {
     coverage: Math.min(1, Math.max(0, dayRatio)),
     volume: Math.min(1, baseline / 500),
@@ -390,7 +398,7 @@ export function decayConfidence(finding: Finding): {
     rankSessionMoves: moves,
     entityConsistency: 1,
     truncationStatus: Math.min(1, Math.max(0, dayRatio)),
-    agreement: moves,
+    agreement,
   };
   const score = Math.round(
     100 *

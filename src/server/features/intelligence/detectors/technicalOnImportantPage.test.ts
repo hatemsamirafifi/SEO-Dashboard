@@ -40,8 +40,10 @@ function input(overrides: Partial<TechnicalInput> = {}): TechnicalInput {
         pageUrl: "https://example.com/pricing",
         pageClicks: 1240,
         pageImpressions: 30000,
+        ga4Vote: false,
       },
     ],
+    ga4Available: false,
     thresholds: { minWindowDays: 28, topN: 50, severity: "critical" },
     ...overrides,
   };
@@ -59,6 +61,29 @@ describe("technical_on_important_page", () => {
       "ga4_landing_vote_pending",
     );
     expect(findings[0]?.explanationFact).toContain("1,240 clicks");
+  });
+
+  it("lifts confidence on a GA4 second vote", () => {
+    const findings = detectTechnical(
+      ctx(),
+      input({
+        issues: [
+          {
+            issueType: "missing_title",
+            pageUrl: "https://example.com/pricing",
+            pageClicks: 1240,
+            pageImpressions: 30000,
+            ga4Vote: true,
+          },
+        ],
+        ga4Available: true,
+      }),
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.confidenceScore).toBe(80);
+    expect(findings[0]?.evidence.sources).toEqual(["audit", "gsc", "ga4"]);
+    expect(findings[0]?.evidence.partialData).toEqual([]);
+    expect(findings[0]?.explanationFact).toContain("top GA4 landing page");
   });
 
   it("stays silent when no important page carries a critical issue", () => {

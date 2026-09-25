@@ -53,12 +53,17 @@ import type { DetectorContext } from "./types";
 import {
   seedAudit,
   seedBacklinksFresh,
+  seedGa4Landing,
+  seedGa4Summary,
   seedPageFacts,
   seedQueryFacts,
   seedQueryPageFacts,
   seedRank,
   seedSummaryFacts,
 } from "./detectorTestSeeds";
+import { isGa4ChangeInput } from "./ga4OrganicChange";
+import { isDecayInput } from "./contentDecay";
+import { isTechnicalInput } from "./technicalOnImportantPage";
 
 function ctxFor(detectorKey: string): DetectorContext {
   return {
@@ -110,6 +115,10 @@ const TABLES = [
   "audit_issues",
   "audits",
   "backlink_snapshots",
+  "ga4_daily_summary",
+  "ga4_daily_landing_pages",
+  "ga4_sync_coverage",
+  "ga4_connections",
   "projects",
   "organization",
 ];
@@ -213,10 +222,96 @@ describe("fetchDetectorInput dispatcher", () => {
       ),
     ).rejects.toBeInstanceOf(InsufficientCoverageError);
   });
+
+  it("throws for GA4 change without a connection (absent-GA4 degradation)", async () => {
+    await expect(
+      fetchDetectorInput(
+        "ga4_organic_change",
+        "project-1",
+        ctxFor("ga4_organic_change"),
+      ),
+    ).rejects.toBeInstanceOf(InsufficientCoverageError);
+  });
+
+  it("aggregates GA4 sessions across covered windows", async () => {
+    await seedGa4Summary();
+    const input: unknown = await fetchDetectorInput(
+      "ga4_organic_change",
+      "project-1",
+      ctxFor("ga4_organic_change"),
+    );
+    if (!isGa4ChangeInput(input)) throw new Error("expected ga4 input");
+    expect(input).toMatchObject({
+      periodFrom: "2026-01-08",
+      periodTo: "2026-01-14",
+      previousFrom: "2026-01-01",
+      previousTo: "2026-01-07",
+      propertyId: "properties/123",
+    });
+    expect(input.previous.sessions).toBe(700);
+    expect(input.current.sessions).toBe(420);
+  });
+
+  it("resolves decay GA4 agreement without rank witnesses", async () => {
+    await seedPageFacts();
+    await seedGa4Landing();
+    const input: unknown = await fetchDetectorInput(
+      "content_decay",
+      "project-1",
+      ctxFor("content_decay"),
+    );
+    if (!isDecayInput(input)) throw new Error("expected decay input");
+    expect(input.ga4Available).toBe(true);
+    expect(input.ga4AgreementByUrl["/https://example.com/guide"]).toBe(true);
+    expect(input.rankAvailable).toBe(false);
+  });
+
+  it("degrades decay gracefully without any GA4 rows", async () => {
+    await seedPageFacts();
+    const input: unknown = await fetchDetectorInput(
+      "content_decay",
+      "project-1",
+      ctxFor("content_decay"),
+    );
+    if (!isDecayInput(input)) throw new Error("expected decay input");
+    expect(input.ga4Available).toBe(false);
+    expect(input.ga4AgreementByUrl).toEqual({});
+  });
+
+  it("casts the GA4 second vote on important pages", async () => {
+    await seedAudit();
+    await seedPageFacts();
+    await seedGa4Landing();
+    const input: unknown = await fetchDetectorInput(
+      "technical_on_important_page",
+      "project-1",
+      ctxFor("technical_on_important_page"),
+    );
+    if (!isTechnicalInput(input)) throw new Error("expected technical input");
+    expect(input.ga4Available).toBe(true);
+    const pricing = input.issues.find((issue) =>
+      issue.pageUrl.includes("pricing"),
+    );
+    expect(pricing?.ga4Vote).toBe(true);
+  });
+
+  it("keeps the technical vote pending without GA4", async () => {
+    await seedAudit();
+    await seedPageFacts();
+    const input: unknown = await fetchDetectorInput(
+      "technical_on_important_page",
+      "project-1",
+      ctxFor("technical_on_important_page"),
+    );
+    if (!isTechnicalInput(input)) throw new Error("expected technical input");
+    expect(input.ga4Available).toBe(false);
+    expect(input.issues).toHaveLength(1);
+    expect(input.issues[0]?.ga4Vote).toBe(false);
+  });
 });
 
 describe("full-scan integration over seeded sources", () => {
-  it("completes all seven detectors with one finding each", async () => {
+  it("completes all eight detectors with one finding each", async () => {
     await seedSummaryFacts();
     await seedQueryFacts();
     await seedPageFacts();
@@ -224,6 +319,8 @@ describe("full-scan integration over seeded sources", () => {
     await seedRank();
     await seedAudit();
     await seedBacklinksFresh();
+    await seedGa4Summary();
+    await seedGa4Landing();
 
     const run = await ScanLedgerRepository.createRun({
       projectId: "project-1",
@@ -237,12 +334,12 @@ describe("full-scan integration over seeded sources", () => {
       state: {
         versions: {
           gsc: "sync-1",
-          ga4: null,
+          ga4: "ga4sync-1",
           rank: "run-2",
           audit: "audit-1",
           backlinks: "backlinks:2",
         },
-        sourceSet: ["gsc", "rank", "audit", "backlinks"],
+        sourceSet: ["audit", "backlinks", "ga4", "gsc", "rank"],
         detectorVersions: {},
         thresholdVersion: 2,
         activeMutations: {
@@ -258,11 +355,14 @@ describe("full-scan integration over seeded sources", () => {
         fetchDetectorInput(detectorKey, "project-1", ctx),
     });
 
-    expect(findings).toHaveLength(7);
+    expect(findings).toHaveLength(8);
     const byDetector = Object.fromEntries(
       findings.map((finding) => [finding.detectorKey, finding]),
     );
+    expect(byDetector.ga4_organic_change?.entityKey).toBe("site");
+    expect(byDetector.ga4_organic_change?.evidence.sources).toEqual(["ga4"]);
     expect(byDetector.organic_traffic_change?.entityKey).toBe("site");
+    expect(byDetector.content_decay?.evidence.sources).toEqual(["gsc", "ga4"]);
     expect(byDetector.low_ctr_query?.entityKey).toBe("best running shoes");
     expect(byDetector.content_decay?.entityKey).toBe(
       "/https://example.com/guide",
@@ -282,7 +382,7 @@ describe("full-scan integration over seeded sources", () => {
       expect(finding.confidenceScore).toBeGreaterThanOrEqual(40);
     }
     const outcomes = await ScanLedgerRepository.getDetectorOutcomes(run.id);
-    expect(outcomes).toHaveLength(7);
+    expect(outcomes).toHaveLength(8);
     for (const outcome of outcomes) {
       expect(outcome.status).toBe("completed");
     }

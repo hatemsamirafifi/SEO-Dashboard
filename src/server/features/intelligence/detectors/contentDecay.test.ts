@@ -55,6 +55,8 @@ function input(overrides: Partial<DecayInput> = {}): DecayInput {
     rows: [row("https://example.com/guide", [176, 320, 400])],
     rankAgreementByUrl: {},
     rankAvailable: false,
+    ga4AgreementByUrl: {},
+    ga4Available: false,
     thresholds: {
       minWindowDays: 28,
       minCoverageRatio: 0.8,
@@ -66,7 +68,7 @@ function input(overrides: Partial<DecayInput> = {}): DecayInput {
 }
 
 describe("content_decay", () => {
-  it("emits on a sustained decline, capped Medium without rank", () => {
+  it("emits on a sustained decline, capped Medium without witnesses", () => {
     const findings = detectDecay(ctx(), input());
     expect(findings).toHaveLength(1);
     // Canonical page identity (shared with technical keys and joins).
@@ -80,6 +82,26 @@ describe("content_decay", () => {
     expect(findings[0]?.evidence.partialData).toContain(
       "rank_corroboration_unavailable",
     );
+    expect(findings[0]?.evidence.partialData).toContain(
+      "ga4_corroboration_unavailable",
+    );
+    expect(findings[0]?.evidence.sources).toEqual(["gsc"]);
+  });
+
+  it("reaches High on large sustained deltas with GA4 agreement alone", () => {
+    const findings = detectDecay(
+      ctx(),
+      input({
+        rows: [row("https://example.com/big", [100, 300, 400])],
+        ga4AgreementByUrl: { "/https://example.com/big": true },
+        ga4Available: true,
+        rankAvailable: true,
+      }),
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.confidenceScore).toBeGreaterThanOrEqual(70);
+    expect(findings[0]?.evidence.sources).toEqual(["gsc", "ga4"]);
+    expect(findings[0]?.explanationFact).toContain("GA4 session declines");
   });
 
   it("reaches High on large sustained deltas with rank agreement", () => {

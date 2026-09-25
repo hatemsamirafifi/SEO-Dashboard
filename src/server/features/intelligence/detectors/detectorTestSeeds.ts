@@ -3,6 +3,10 @@ import {
   audits,
   auditIssues,
   backlinkSnapshots,
+  ga4Connections,
+  ga4DailyLandingPages,
+  ga4DailySummary,
+  ga4SyncCoverage,
   gscSearchPerformance,
   rankCheckRuns,
   rankSnapshots,
@@ -231,6 +235,95 @@ export async function seedAudit() {
     issueType: "missing_title",
     severity: "critical",
   });
+}
+
+/** GA4 connection (idempotent — summary and landing seeds share it). */
+export async function seedGa4Connection() {
+  await db
+    .insert(ga4Connections)
+    .values({
+      id: "ga4-conn-1",
+      projectId: "project-1",
+      organizationId: "org-1",
+      propertyId: "properties/123",
+      propertyDisplayName: "Test property",
+      connectedByUserId: "user-1",
+      ga4AccountId: "accounts/1",
+    })
+    .onConflictDoNothing();
+}
+
+async function seedGa4Coverage(
+  propertyId: string,
+  grain: string,
+  from: string,
+  days: number,
+) {
+  const rows = [];
+  for (let i = 0; i < days; i += 1) {
+    const date = addDays(from, i);
+    rows.push({
+      id: `cov-${grain}-${date}`,
+      projectId: "project-1",
+      propertyId,
+      date,
+      grain,
+      status: "success_with_data",
+    });
+  }
+  for (let i = 0; i < rows.length; i += 30) {
+    await db.insert(ga4SyncCoverage).values(rows.slice(i, i + 30));
+  }
+}
+
+export async function seedGa4Summary() {
+  await seedGa4Connection();
+  const rows = [];
+  for (let i = 0; i < 14; i += 1) {
+    const date = addDays("2026-01-01", i);
+    rows.push({
+      id: `ga4sum-${date}`,
+      projectId: "project-1",
+      propertyId: "properties/123",
+      date,
+      sessions: i < 7 ? 100 : 60,
+    });
+  }
+  await db.insert(ga4DailySummary).values(rows);
+  await seedGa4Coverage("properties/123", "summary", "2026-01-01", 14);
+}
+
+/**
+ * 56 landing days for the decay guide (previous 90/d, current 50/d) and a
+ * flat pricing page (importance vote). Full-URL landing rows so canonical
+ * keys align with the GSC/rank witnesses (documented join divergence).
+ */
+export async function seedGa4Landing() {
+  await seedGa4Connection();
+  const rows = [];
+  for (let i = 0; i < 56; i += 1) {
+    const date = addDays("2025-11-20", i);
+    rows.push({
+      id: `ga4lp-guide-${date}`,
+      projectId: "project-1",
+      propertyId: "properties/123",
+      date,
+      landingPage: "https://example.com/guide",
+      sessions: i < 28 ? 90 : 50,
+    });
+    rows.push({
+      id: `ga4lp-pricing-${date}`,
+      projectId: "project-1",
+      propertyId: "properties/123",
+      date,
+      landingPage: "https://example.com/pricing",
+      sessions: 40,
+    });
+  }
+  for (let i = 0; i < rows.length; i += 30) {
+    await db.insert(ga4DailyLandingPages).values(rows.slice(i, i + 30));
+  }
+  await seedGa4Coverage("properties/123", "landing_pages", "2025-11-20", 56);
 }
 
 /** Two snapshots inside the freshness window with net movement. */

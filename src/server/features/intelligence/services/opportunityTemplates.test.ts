@@ -163,8 +163,26 @@ describe("decayConfidence (§10 eight-input function)", () => {
     });
   }
 
-  it("persists all eight inputs and caps rank contribution at 15", () => {
-    const result = decayConfidence(decayFinding());
+  it("persists all eight inputs and caps witness contribution at 15", () => {
+    const unwitnessed = decayFinding({
+      evidence: {
+        metrics: {
+          declineRatio: -0.45,
+          clicksPrevious: 320,
+          clicksCurrent: 176,
+        },
+        sources: ["gsc"],
+        thresholdsApplied: { minVolume: 50 },
+        correlations: [],
+        evidenceType: "observational",
+        partialData: [
+          "rank_corroboration_unavailable",
+          "ga4_corroboration_unavailable",
+        ],
+        confidenceInputs: { coverageDayRatio: 1, rankAgrees: false },
+      },
+    });
+    const result = decayConfidence(unwitnessed);
     expect(result).not.toBeNull();
     const inputs = result?.inputs;
     expect(Object.keys(inputs ?? {}).toSorted()).toEqual([
@@ -177,12 +195,16 @@ describe("decayConfidence (§10 eight-input function)", () => {
       "truncationStatus",
       "volume",
     ]);
-    // Absent rank → 0.5 neutral on both rank-driven inputs.
+    // Both witnesses absent → 0.5 neutral on witness-driven inputs.
     expect(inputs?.rankSessionMoves).toBe(0.5);
     expect(inputs?.agreement).toBe(0.5);
-    // Rank-driven weight total is exactly 15 points (0.05 + 0.10).
-    const maxRankContribution = Math.round(100 * (0.05 * 1 + 0.1 * 1));
-    expect(maxRankContribution).toBe(15);
+    // Witness-driven weight total is exactly 15 points (0.05 + 0.10).
+    const maxWitnessContribution = Math.round(100 * (0.05 * 1 + 0.1 * 1));
+    expect(maxWitnessContribution).toBe(15);
+    // GA4 available but disagreeing is a genuine zero, not neutral.
+    const ga4Silent = decayConfidence(decayFinding());
+    expect(ga4Silent?.inputs.agreement).toBe(0);
+    expect(ga4Silent?.inputs.rankSessionMoves).toBe(0.5);
   });
 
   it("suppresses below the volume floor", () => {
@@ -200,6 +222,32 @@ describe("decayConfidence (§10 eight-input function)", () => {
       }),
     );
     expect(result).toBeNull();
+  });
+
+  it("folds the GA4 witness into agreement, neutral only when both absent", () => {
+    const ga4Only = decayConfidence(
+      decayFinding({
+        evidence: {
+          metrics: {
+            declineRatio: -0.45,
+            clicksPrevious: 320,
+            clicksCurrent: 176,
+          },
+          sources: ["gsc", "ga4"],
+          thresholdsApplied: { minVolume: 50 },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: ["rank_corroboration_unavailable"],
+          confidenceInputs: {
+            coverageDayRatio: 1,
+            rankAgrees: false,
+            ga4Agrees: true,
+          },
+        },
+      }),
+    );
+    expect(ga4Only?.inputs.agreement).toBe(1);
+    expect(ga4Only?.inputs.rankSessionMoves).toBe(0.5);
   });
 
   it("saturates magnitude at a 50% decline", () => {
@@ -250,7 +298,11 @@ describe("opportunity templates", () => {
     const samples: Record<string, Finding> = {
       ga4_organic_change: finding("ga4_organic_change", {
         evidence: {
-          metrics: { sessionsBefore: 1000, sessionsAfter: 670, changeRatio: -0.33 },
+          metrics: {
+            sessionsBefore: 1000,
+            sessionsAfter: 670,
+            changeRatio: -0.33,
+          },
           sources: ["ga4"],
           thresholdsApplied: {},
           correlations: [],

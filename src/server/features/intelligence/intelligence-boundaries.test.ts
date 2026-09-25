@@ -15,6 +15,9 @@ const STAGE_ONE_FILES = [
   "src/server/features/intelligence/services/FindingService.ts",
   "src/server/features/intelligence/services/detectionStage.ts",
   "src/server/features/intelligence/services/scheduledIntelligenceScan.ts",
+  // Pure scan-time join: pre-fetched rows in, merged rows out. Imports no
+  // repositories by design (fetchers read; the joiner matches).
+  "src/server/features/intelligence/services/AnalyticsJoinService.ts",
   "src/server/features/intelligence/repositories/ScanLedgerRepository.ts",
   "src/server/features/intelligence/repositories/ArtifactStore.ts",
   "src/server/features/intelligence/detectors/types.ts",
@@ -34,6 +37,7 @@ const NO_SOURCE_IMPORT_FILES = STAGE_ONE_FILES.filter(
 const DETECTOR_FILES = [
   "src/server/features/intelligence/detectors/inputs.ts",
   "src/server/features/intelligence/detectors/gscWindows.ts",
+  "src/server/features/intelligence/detectors/ga4OrganicChange.ts",
   "src/server/features/intelligence/detectors/organicTrafficChange.ts",
   "src/server/features/intelligence/detectors/lowCtrQuery.ts",
   "src/server/features/intelligence/detectors/contentDecay.ts",

@@ -1,4 +1,6 @@
 import { canonicalUrl } from "@/shared/intelligence";
+import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4ConnectionRepository";
+import { Ga4SyncRepository } from "@/server/features/ga4/repositories/Ga4SyncRepository";
 import { GscSearchPerformanceRepository } from "@/server/features/gsc/repositories/GscSearchPerformanceRepository";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import {
@@ -8,14 +10,19 @@ import {
   type DetectorDef,
   type FindingDraft,
 } from "./types";
-import { consecutiveWindows, coverageRatio } from "./gscWindows";
+import {
+  consecutiveWindows,
+  coverageRatio,
+  type GscWindow,
+} from "./gscWindows";
 
 /**
  * `content_decay` (final-plan §4): pages with large sustained click declines
  * over consecutive windows. Rank corroboration (same-URL position worsening)
- * lifts confidence; GA4 absence caps at Medium unless the GSC+rank signal is
- * large and sustained. Truncated/low-volume entities are excluded per-entity,
- * never as whole-detector skips.
+ * and GA4 session corroboration (same-URL session declines) lift confidence;
+ * without any agreement on a large sustained delta, confidence caps at
+ * Medium. Truncated/low-volume entities are excluded per-entity, never as
+ * whole-detector skips.
  */
 
 export type DecayPageRow = {
@@ -32,6 +39,8 @@ export type DecayInput = {
   rows: DecayPageRow[];
   rankAgreementByUrl: Record<string, boolean>;
   rankAvailable: boolean;
+  ga4AgreementByUrl: Record<string, boolean>;
+  ga4Available: boolean;
   thresholds: Record<string, string | number | boolean>;
 };
 
@@ -56,6 +65,78 @@ export function isDecayInput(value: unknown): value is DecayInput {
     typeof value.thresholds === "object" &&
     value.thresholds !== null
   );
+}
+
+/**
+ * GA4 session corroboration leg (PR10): matching per-URL session declines
+ * over the two recent windows. Unconnected, under-covered, or erroring
+ * projects degrade (unavailable + note) — corroboration never throws.
+ */
+async function fetchGa4SessionAgreement(input: {
+  projectId: string;
+  organizationId: string;
+  current: GscWindow;
+  previous: GscWindow;
+  windowDays: number;
+  minCoverage: number;
+}): Promise<{ available: boolean; agreementByUrl: Record<string, boolean> }> {
+  const unavailable = { available: false, agreementByUrl: {} };
+  try {
+    const connection = await Ga4ConnectionRepository.getByProjectId(
+      input.projectId,
+      input.organizationId,
+    );
+    if (!connection) return unavailable;
+    const coverage = await Ga4SyncRepository.getGrainCoverage(
+      input.projectId,
+      connection.propertyId,
+      "landing_pages",
+      input.previous.from,
+      input.current.to,
+    );
+    const coveredIn = (from: string, to: string): number =>
+      coverage.coveredDates.filter((date) => date >= from && date <= to)
+        .length;
+    if (
+      coveredIn(input.current.from, input.current.to) / input.windowDays <
+        input.minCoverage ||
+      coveredIn(input.previous.from, input.previous.to) / input.windowDays <
+        input.minCoverage
+    ) {
+      return unavailable;
+    }
+    const [currentGroups, previousGroups] = await Promise.all([
+      Ga4SyncRepository.getLandingGroups(
+        input.projectId,
+        connection.propertyId,
+        input.current.from,
+        input.current.to,
+        { limit: 500 },
+      ),
+      Ga4SyncRepository.getLandingGroups(
+        input.projectId,
+        connection.propertyId,
+        input.previous.from,
+        input.previous.to,
+        { limit: 500 },
+      ),
+    ]);
+    const previousByUrl = new Map<string, number>();
+    for (const group of previousGroups) {
+      previousByUrl.set(canonicalUrl(group.landingPage), group.sessions);
+    }
+    const agreementByUrl: Record<string, boolean> = {};
+    for (const group of currentGroups) {
+      const key = canonicalUrl(group.landingPage);
+      const older = previousByUrl.get(key) ?? 0;
+      if (older > 0 && group.sessions < older) {
+        agreementByUrl[key] = true;
+      }
+    }
+    return { available: true, agreementByUrl };
+  } catch {
+    return unavailable;
+  }
 }
 
 export async function fetchDecayInput(
@@ -180,6 +261,15 @@ export async function fetchDecayInput(
       }
     }
   }
+  const { available: ga4Available, agreementByUrl: ga4AgreementByUrl } =
+    await fetchGa4SessionAgreement({
+      projectId,
+      organizationId: ctx.organizationId,
+      current,
+      previous,
+      windowDays,
+      minCoverage,
+    });
   return {
     periodFrom: current.from,
     periodTo: current.to,
@@ -192,6 +282,8 @@ export async function fetchDecayInput(
     })),
     rankAgreementByUrl,
     rankAvailable,
+    ga4AgreementByUrl,
+    ga4Available,
     thresholds: {
       minWindowDays: windowDays,
       minCoverageRatio: minCoverage,
@@ -236,18 +328,28 @@ export function detectDecay(
     // Sustained: current decline past the ratio AND same direction before.
     if (recentDecline > -declineRatio || olderDecline > 0) continue;
     const rankAgrees = input.rankAgreementByUrl[page] ?? false;
+    const ga4Agrees = input.ga4AgreementByUrl[page] ?? false;
     const largeSustained = recentDecline <= -0.5;
     let confidence = 55;
-    if (rankAgrees) confidence += 15;
-    if (largeSustained && rankAgrees) confidence += 10;
-    // GA4 absent in PR7: Medium cap unless GSC+rank agree on a large
-    // sustained delta. (GA4 engagement corroboration lands in PR10.)
-    if (!(largeSustained && rankAgrees)) {
+    if (rankAgrees || ga4Agrees) confidence += 15;
+    if (largeSustained && (rankAgrees || ga4Agrees)) confidence += 10;
+    // Medium cap unless a large sustained delta carries corroboration
+    // from rank, GA4 sessions, or both.
+    if (!(largeSustained && (rankAgrees || ga4Agrees))) {
       confidence = Math.min(confidence, 69);
     }
-    const partialData = input.rankAvailable
-      ? []
-      : ["rank_corroboration_unavailable"];
+    const partialData: string[] = [];
+    if (!input.rankAvailable)
+      partialData.push("rank_corroboration_unavailable");
+    if (!input.ga4Available) partialData.push("ga4_corroboration_unavailable");
+    const corroborationNote =
+      rankAgrees && ga4Agrees
+        ? ", confirmed by ranking declines with matching GA4 session declines"
+        : rankAgrees
+          ? ", confirmed by ranking declines"
+          : ga4Agrees
+            ? ", with matching GA4 session declines"
+            : "";
     findings.push({
       entityKey: page,
       entity: { page },
@@ -255,7 +357,7 @@ export function detectDecay(
         `Page ${page} lost ${Math.abs(recentDecline * 100).toFixed(1)}% of clicks ` +
         `(${previous.clicks.toLocaleString("en-US")} → ${current.clicks.toLocaleString("en-US")}) ` +
         `from ${input.periodFrom}..${input.periodTo} vs the prior ${input.windowDays} days, ` +
-        `declining for two consecutive windows${rankAgrees ? ", confirmed by ranking declines" : ""}.`,
+        `declining for two consecutive windows${corroborationNote}.`,
       evidence: {
         metrics: {
           clicksCurrent: current.clicks,
@@ -265,7 +367,7 @@ export function detectDecay(
           olderDecline,
         },
         periods: { from: input.periodFrom, to: input.periodTo },
-        sources: ["gsc"],
+        sources: ga4Agrees ? ["gsc", "ga4"] : ["gsc"],
         sourceRefs: { gscFactIds: row.factIds },
         thresholdsApplied: input.thresholds,
         correlations: [],
@@ -274,6 +376,7 @@ export function detectDecay(
         confidenceInputs: {
           coverageDayRatio: dayRatio,
           rankAgrees,
+          ga4Agrees,
           largeSustained,
           baselineVolume: previous.clicks,
         },
