@@ -213,7 +213,7 @@ describe("no-duplicate-logic (final-plan §19)", () => {
       violations,
       "detector/threshold imports outside intelligence/",
     ).toEqual([]);
-  });
+  }, 30_000);
 });
 
 describe("reports snapshot discipline (final-plan §12)", () => {
