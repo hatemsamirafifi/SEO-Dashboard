@@ -4,6 +4,25 @@ import {
   type DetectionSourceState,
   type SourceVersions,
 } from "@/server/features/intelligence/services/SourceTokens";
+import {
+  AUTOPILOT_ATTEMPT_STATUSES,
+  AUTOPILOT_RUN_STATUSES,
+  AUTOPILOT_STEP_KINDS,
+  type AutopilotAttemptStatus,
+  type AutopilotRunStatus,
+  type AutopilotStepKind,
+  type AutopilotStepStatus,
+} from "@/shared/autopilot";
+
+export {
+  AUTOPILOT_ATTEMPT_STATUSES,
+  AUTOPILOT_RUN_STATUSES,
+  AUTOPILOT_STEP_KINDS,
+  type AutopilotAttemptStatus,
+  type AutopilotRunStatus,
+  type AutopilotStepKind,
+  type AutopilotStepStatus,
+};
 
 // Autopilot runtime contracts (final-plan §13). PR15 ships the executor and
 // the registration seam; workflow DEFINITIONS (step lists + prompts) are
@@ -15,32 +34,6 @@ export const AUTOPILOT_MAX_TOOL_CALLS = 20;
 export const AUTOPILOT_WALL_CLOCK_MS = 15 * 60 * 1000;
 /** Source-changed invalidations before the run fails outright. */
 export const AUTOPILOT_MAX_ATTEMPTS = 3;
-
-export const AUTOPILOT_RUN_STATUSES = [
-  "pending",
-  "running",
-  "completed",
-  "failed",
-  "cancelled",
-] as const;
-export type AutopilotRunStatus = (typeof AUTOPILOT_RUN_STATUSES)[number];
-
-export const AUTOPILOT_ATTEMPT_STATUSES = [
-  "pending",
-  "running",
-  "completed",
-  "failed",
-  "invalidated",
-] as const;
-
-export const AUTOPILOT_STEP_KINDS = [
-  "collect",
-  "correlate",
-  "transform",
-  "synthesize",
-  "side_effect",
-] as const;
-export type AutopilotStepKind = (typeof AUTOPILOT_STEP_KINDS)[number];
 
 export type AttemptPin = Pick<
   DetectionSourceState,

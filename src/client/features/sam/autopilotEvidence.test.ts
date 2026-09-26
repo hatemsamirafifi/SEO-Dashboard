@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type {
+  AutopilotStepKind,
+  AutopilotStepStatus,
+} from "@/shared/autopilot";
 import {
   attemptNote,
   correlationRows,
@@ -12,11 +16,13 @@ import {
 function step(
   seq: number,
   evidence: Record<string, unknown> | null,
-  status = "completed",
+  status: AutopilotStepStatus = "completed",
 ): AutopilotStepLike {
+  const kind: AutopilotStepKind =
+    seq === 2 ? "synthesize" : seq === 1 ? "correlate" : "collect";
   return {
     seq,
-    kind: seq === 2 ? "synthesize" : seq === 1 ? "correlate" : "collect",
+    kind,
     name: `step-${seq}`,
     status,
     evidenceJson: evidence ? JSON.stringify(evidence) : null,
@@ -84,7 +90,8 @@ describe("autopilotEvidence", () => {
       }),
     ).toContain("set aside");
     expect(runStatusLabel("running")).toBe("Running");
-    expect(runStatusLabel("weird")).toBe("weird");
+    expect(runStatusLabel("pending")).toBe("Queued");
+    expect(runStatusLabel("cancelled")).toBe("Cancelled");
     expect(shouldPollRun("running")).toBe(true);
     expect(shouldPollRun("completed")).toBe(false);
   });

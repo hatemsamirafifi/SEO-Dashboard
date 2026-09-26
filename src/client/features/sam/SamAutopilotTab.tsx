@@ -8,6 +8,7 @@ import {
   AUTOPILOT_WORKFLOW_TYPES,
   isAutopilotRunActive,
   isAutopilotWorkflowType,
+  type AutopilotRunStatus,
   type AutopilotWorkflowType,
 } from "@/shared/autopilot";
 import {
@@ -30,8 +31,8 @@ import {
 
 type RunRow = {
   id: string;
-  workflowType: string;
-  status: string;
+  workflowType: AutopilotWorkflowType;
+  status: AutopilotRunStatus;
 };
 
 /**
@@ -166,7 +167,10 @@ export function SamAutopilotTab({ projectId }: { projectId: string }) {
                       : "border-base-300"
                   }`}
                 >
-                  <span className="font-medium">{run.workflowType}</span>
+                  <span className="font-medium">
+                    {AUTOPILOT_WORKFLOW_LABELS[run.workflowType] ??
+                      run.workflowType}
+                  </span>
                   <span className="text-xs text-base-content/60">
                     {runStatusLabel(run.status)}
                   </span>
@@ -220,7 +224,9 @@ function RunDetail({
     <div className="flex flex-col gap-3 rounded-lg border border-base-300 p-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">
-          {view.run.workflowType} · {runStatusLabel(view.run.status)}
+          {AUTOPILOT_WORKFLOW_LABELS[view.run.workflowType] ??
+            view.run.workflowType}{" "}
+          · {runStatusLabel(view.run.status)}
         </p>
         <div className="flex gap-2">
           {active ? (

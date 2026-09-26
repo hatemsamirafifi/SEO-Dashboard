@@ -1,9 +1,13 @@
 import type { PrintModel } from "./printModel";
 
-// Portable PDF 1.4 emitter (final-plan §23.4: no browser binding, no PDF
-// dependency). Helvetica standard fonts, single-byte ASCII content (see
-// asciiPrintable), byte-exact xref offsets. A future browser adapter can
-// replace renderPdfDocument without touching export flow or tests.
+// Portable PDF 1.4 emitter — deliberate Task-14 architectural decision
+// (final-plan §23 risk 4: Browser Rendering availability is not guaranteed on
+// every deploy path, so a dependency-free portable emitter is required and a
+// print-CSS floor is guaranteed regardless of the vendor-spike outcome).
+// Helvetica standard fonts, single-byte ASCII content (see asciiPrintable),
+// byte-exact xref offsets. No PDF/browser dependency is added intentionally.
+// A future browser adapter can replace renderPdfDocument without touching the
+// export flow or tests.
 
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;

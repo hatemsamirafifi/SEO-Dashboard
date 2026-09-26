@@ -1,28 +1,45 @@
-import { isAutopilotRunActive } from "@/shared/autopilot";
+import {
+  isAutopilotRunActive,
+  type AutopilotAttemptStatus,
+  type AutopilotRunStatus,
+  type AutopilotStepKind,
+  type AutopilotStepStatus,
+  type AutopilotWorkflowType,
+} from "@/shared/autopilot";
 
 // Pure autopilot-run readers for the SAM Autopilot tab (final-plan §13/§17).
 // Frozen step evidence is parsed here so the component stays declarative and
 // these readers stay unit-testable. Wording stays observational.
+//
+// Trust note: autopilot step evidence is same-trust-tier persisted data. The
+// only writers are our internal step runners (stepSupport runCollectStep /
+// runSimpleStep serialize the workflow's own deterministic builders, and
+// reuseInvariantStep copies a prior completed row verbatim). No external,
+// legacy-import, or manual-mutation path writes this column: workflow defs
+// build evidence from engine rows + deterministic helpers, and the MCP/server
+// surfaces never accept caller-supplied evidenceJson. The guarded parse below
+// therefore tolerates corrupt historical rows (returns {} / skips) rather than
+// treating this column as an external trust boundary requiring Zod.
 
 export type AutopilotStepLike = {
   seq: number;
-  kind: string;
+  kind: AutopilotStepKind;
   name: string;
-  status: string;
+  status: AutopilotStepStatus;
   evidenceJson: string | null;
 };
 
 export type AutopilotAttemptLike = {
   id: string;
   attemptNumber: number;
-  status: string;
+  status: AutopilotAttemptStatus;
   invalidationReason: string | null;
 };
 
 export type AutopilotRunLike = {
   id: string;
-  workflowType: string;
-  status: string;
+  workflowType: AutopilotWorkflowType;
+  status: AutopilotRunStatus;
   evidenceHash: string | null;
 };
 
@@ -129,23 +146,19 @@ export function attemptNote(attempt: AutopilotAttemptLike): string {
   return `Attempt ${attempt.attemptNumber}: ${attempt.status}.`;
 }
 
-export function shouldPollRun(status: string): boolean {
+export function shouldPollRun(status: AutopilotRunStatus): boolean {
   return isAutopilotRunActive(status);
 }
 
-export function runStatusLabel(status: string): string {
-  switch (status) {
-    case "pending":
-      return "Queued";
-    case "running":
-      return "Running";
-    case "completed":
-      return "Completed";
-    case "failed":
-      return "Failed";
-    case "cancelled":
-      return "Cancelled";
-    default:
-      return status;
-  }
+export const AUTOPILOT_RUN_STATUS_LABELS: Record<AutopilotRunStatus, string> =
+  {
+    pending: "Queued",
+    running: "Running",
+    completed: "Completed",
+    failed: "Failed",
+    cancelled: "Cancelled",
+  };
+
+export function runStatusLabel(status: AutopilotRunStatus): string {
+  return AUTOPILOT_RUN_STATUS_LABELS[status];
 }

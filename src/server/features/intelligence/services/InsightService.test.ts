@@ -196,6 +196,100 @@ describe("InsightService.getDashboardInsights", () => {
     expect(other.insights).toHaveLength(1);
   });
 
+  it("implements dismissed-OR-snoozed visibility (truth table)", async () => {
+    // 1. not dismissed + not snoozed -> visible
+    await seed(insightRow({ id: "ins-visible", insightKey: "k:visible" }));
+    // 2. dismissed + not snoozed -> hidden
+    await seed(insightRow({ id: "ins-dismissed", insightKey: "k:dismissed" }));
+    // 3. not dismissed + snoozed -> hidden
+    await seed(insightRow({ id: "ins-snoozed", insightKey: "k:snoozed" }));
+    // 4. dismissed + snoozed -> hidden
+    await seed(insightRow({ id: "ins-both", insightKey: "k:both" }));
+
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    for (const [key, dismissedContentVersion, snoozedUntil] of [
+      ["k:dismissed", 1, null],
+      ["k:snoozed", 0, future],
+      ["k:both", 1, future],
+    ] as const) {
+      await InsightRepository.upsertPreference({
+        userId: "user-1",
+        projectId: "project-1",
+        insightKey: key,
+        dismissedContentVersion,
+        snoozedUntil,
+        hash: `pref-${key}`,
+      });
+    }
+
+    const result = await InsightService.getDashboardInsights(baseInput());
+    expect(result.insights.map((row) => row.insightKey)).toEqual(["k:visible"]);
+    expect(result.dismissedCount).toBe(3);
+  });
+
+  it("treats lower dismissed versions and expired snoozes as visible, with snooze overriding newer content version", async () => {
+    // Lower dismissed version (contentVersion 3 > dismissedVersion 2) -> visible
+    await seed(
+      insightRow({ id: "ins-1", insightKey: "k:stale-dismiss", contentVersion: 3 }),
+    );
+    // Expired snooze in past -> visible
+    await seed(insightRow({ id: "ins-2", insightKey: "k:expired-snooze" }));
+    // Snooze timestamp exactly expired -> visible
+    await seed(insightRow({ id: "ins-3", insightKey: "k:exact-expiry" }));
+    // Newer content version but independently snoozed -> hidden
+    await seed(
+      insightRow({ id: "ins-4", insightKey: "k:new-version-snoozed", contentVersion: 2 }),
+    );
+
+    const now = Date.now();
+    const past = new Date(now - 1_000).toISOString();
+    const exactNow = new Date(now - 1).toISOString();
+    const future = new Date(now + 86_400_000).toISOString();
+
+    await InsightRepository.upsertPreference({
+      userId: "user-1",
+      projectId: "project-1",
+      insightKey: "k:stale-dismiss",
+      dismissedContentVersion: 2,
+      snoozedUntil: null,
+      hash: "pref-stale",
+    });
+    await InsightRepository.upsertPreference({
+      userId: "user-1",
+      projectId: "project-1",
+      insightKey: "k:expired-snooze",
+      dismissedContentVersion: 0,
+      snoozedUntil: past,
+      hash: "pref-past",
+    });
+    await InsightRepository.upsertPreference({
+      userId: "user-1",
+      projectId: "project-1",
+      insightKey: "k:exact-expiry",
+      dismissedContentVersion: 0,
+      snoozedUntil: exactNow,
+      hash: "pref-exact",
+    });
+    await InsightRepository.upsertPreference({
+      userId: "user-1",
+      projectId: "project-1",
+      insightKey: "k:new-version-snoozed",
+      dismissedContentVersion: 1,
+      snoozedUntil: future,
+      hash: "pref-new-snoozed",
+    });
+
+    const result = await InsightService.getDashboardInsights(baseInput());
+    expect(
+      result.insights.map((row) => row.insightKey).toSorted(),
+    ).toEqual(["k:exact-expiry", "k:expired-snooze", "k:stale-dismiss"]);
+    expect(result.dismissedCount).toBe(1);
+    const staleDismissInsight = result.insights.find(
+      (row) => row.insightKey === "k:stale-dismiss",
+    );
+    expect(staleDismissInsight?.updatedSinceDismiss).toBe(true);
+  });
+
   it("assembles skip/fail banners from the latest run", async () => {
     const run = await ScanLedgerRepository.createRun({
       projectId: "project-1",
