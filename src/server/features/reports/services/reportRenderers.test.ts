@@ -19,7 +19,7 @@ function validateXref(bytes: string): { objects: number; pages: number } {
   const lines = bytes.split("\n");
   const xrefIndex = lines.findIndex((line) => line === "xref");
   expect(xrefIndex).toBeGreaterThan(-1);
-  const [zero, total] = lines[xrefIndex + 1]!.split(" ").map(Number);
+  const [zero, total] = lines[xrefIndex + 1].split(" ").map(Number);
   expect(zero).toBe(0);
   const entries = lines.slice(xrefIndex + 2, xrefIndex + 2 + total);
   expect(entries).toHaveLength(total);
