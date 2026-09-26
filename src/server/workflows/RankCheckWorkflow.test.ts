@@ -24,12 +24,8 @@ interface RunUpdateCall {
 
 const repoMocks = vi.hoisted(() => ({
   getRunById: vi.fn(),
-  updateRun: vi.fn<
-    (runId: string, data: RunUpdateCall) => Promise<void>
-  >(),
-  getKeywordsForConfig: vi.fn<
-    (configId: string) => Promise<KeywordEntry[]>
-  >(),
+  updateRun: vi.fn<(runId: string, data: RunUpdateCall) => Promise<void>>(),
+  getKeywordsForConfig: vi.fn<(configId: string) => Promise<KeywordEntry[]>>(),
   insertSnapshots: vi.fn(),
   getSnapshotsForRun: vi.fn(),
   getConfigById: vi.fn(),
@@ -37,9 +33,8 @@ const repoMocks = vi.hoisted(() => ({
 }));
 
 const pathsMocks = vi.hoisted(() => ({
-  runLiveCheck: vi.fn<
-    (step: unknown, ctx: CheckContextCall) => Promise<void>
-  >(),
+  runLiveCheck:
+    vi.fn<(step: unknown, ctx: CheckContextCall) => Promise<string | null>>(),
   runQueuedCheck: vi.fn(),
 }));
 
@@ -86,6 +81,9 @@ vi.mock("@/server/workflows/pgStep", () => ({
 }));
 vi.mock("@/server/lib/dataforseo", () => ({
   createDataforseoClient: () => ({}),
+}));
+vi.mock("@/server/features/serp/providerResolver", () => ({
+  createRankSerpResolver: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("@/server/lib/posthog", () => ({
   captureServerEvent: vi.fn(),
@@ -137,8 +135,9 @@ async function runWorkflow(params: {
     sleepUntil: () => Promise.resolve(),
     // Never invoked by the workflow under test; typed to satisfy the engine's
     // WorkflowStep surface without importing real runtime code.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- unused stub cast to the engine's step signature
-    waitForEvent: (() => Promise.resolve({} as never)) as unknown as WorkflowStep["waitForEvent"],
+    waitForEvent: (():
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- placeholder value for a stub that is never awaited by the workflow under test
+      Promise<never> => Promise.resolve({} as never)) as unknown as WorkflowStep["waitForEvent"],
   };
   const payload: WorkflowEventPayload = {
     runId: "run_1",
@@ -194,7 +193,7 @@ describe("RankCheckWorkflow scope enforcement", () => {
     repoMocks.getSnapshotsForRun.mockResolvedValue([]);
     repoMocks.updateRun.mockResolvedValue(undefined);
     repoMocks.updateConfig.mockResolvedValue(undefined);
-    pathsMocks.runLiveCheck.mockResolvedValue(undefined);
+    pathsMocks.runLiveCheck.mockResolvedValue(null);
     pathsMocks.runQueuedCheck.mockResolvedValue({
       queueTasks: 0,
       queueCollected: 0,
@@ -233,5 +232,89 @@ describe("RankCheckWorkflow scope enforcement", () => {
     ).rejects.toThrow("No keywords to track");
     expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
     expect(guardModule.failRunIfActive).toHaveBeenCalled();
+  });
+
+  it("finalizes as 'failed' when all snapshots are CHECK_FAILED", async () => {
+    const selected = ["keyword_1", "keyword_2"];
+    repoMocks.getSnapshotsForRun.mockResolvedValue([
+      {
+        trackingKeywordId: "keyword_1",
+        rankingStatus: "CHECK_FAILED",
+        position: null,
+      },
+      {
+        trackingKeywordId: "keyword_2",
+        rankingStatus: "CHECK_FAILED",
+        position: null,
+      },
+    ]);
+    pathsMocks.runLiveCheck.mockResolvedValue(
+      "DataForSEO task error (40201): temporarily paused access",
+    );
+
+    await runWorkflow({ keywordIds: selected });
+
+    expect(repoMocks.updateRun).toHaveBeenCalledWith(
+      "run_1",
+      expect.objectContaining({
+        status: "failed",
+        keywordsChecked: 0,
+      }),
+    );
+  });
+
+  it("finalizes as 'partial' when snapshots contain a mixture of valid and CHECK_FAILED", async () => {
+    const selected = ["keyword_1", "keyword_2"];
+    repoMocks.getSnapshotsForRun.mockResolvedValue([
+      {
+        trackingKeywordId: "keyword_1",
+        rankingStatus: "RANKED",
+        position: 4,
+      },
+      {
+        trackingKeywordId: "keyword_2",
+        rankingStatus: "CHECK_FAILED",
+        position: null,
+      },
+    ]);
+    pathsMocks.runLiveCheck.mockResolvedValue(
+      "DataForSEO task error (40201): temporarily paused access",
+    );
+
+    await runWorkflow({ keywordIds: selected });
+
+    expect(repoMocks.updateRun).toHaveBeenCalledWith(
+      "run_1",
+      expect.objectContaining({
+        status: "partial",
+        keywordsChecked: 1,
+      }),
+    );
+  });
+
+  it("finalizes as 'completed' when all snapshots are valid (RANKED or NO_RESULT)", async () => {
+    const selected = ["keyword_1", "keyword_2"];
+    repoMocks.getSnapshotsForRun.mockResolvedValue([
+      {
+        trackingKeywordId: "keyword_1",
+        rankingStatus: "RANKED",
+        position: 4,
+      },
+      {
+        trackingKeywordId: "keyword_2",
+        rankingStatus: "NO_RESULT",
+        position: null,
+      },
+    ]);
+
+    await runWorkflow({ keywordIds: selected });
+
+    expect(repoMocks.updateRun).toHaveBeenCalledWith(
+      "run_1",
+      expect.objectContaining({
+        status: "completed",
+        keywordsChecked: 2,
+      }),
+    );
   });
 });

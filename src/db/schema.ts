@@ -155,6 +155,7 @@ export const {
   redditAttributions,
   telemetryState,
   seoProviderSettings,
+  rankProviderCalls,
 } = schema;
 
 export const rankTrackingSnapshots = rankSnapshots;

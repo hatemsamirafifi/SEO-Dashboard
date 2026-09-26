@@ -8,7 +8,7 @@ import { parseDataforseoDiagnosticsFromErrorMessage } from "@/shared/dataforseoD
 
 /**
  * Pure, testable decision logic for the rank-check Global Debug Trace
- * lifecycle. No React, no store access — the hooks call these helpers and
+ * lifecycle. No React, no store access ΓÇö the hooks call these helpers and
  * the store stays a dumb append-only log.
  *
  * Honesty rules enforced here:
@@ -23,6 +23,13 @@ import { parseDataforseoDiagnosticsFromErrorMessage } from "@/shared/dataforseoD
  */
 
 export type RankCheckDevices = "both" | "desktop" | "mobile";
+
+function providerLabel(provider: string | null | undefined): string {
+  if (provider === "dataforseo") return "DataForSEO";
+  if (provider === "serper") return "Serper.dev";
+  if (provider === "zenserp") return "Zenserp";
+  return provider ?? "DataForSEO";
+}
 
 /** Number of DataForSEO live tasks the manual workflow issues per keyword. */
 export function providerTaskCount(
@@ -55,19 +62,26 @@ export function busyBlockedReason(state: CheckBusyState): string {
 }
 
 export interface ClassifiedRunError {
-  errorClass: "CREDITS_UNAVAILABLE" | "OPERATION_FAILED";
+  errorClass:
+    | "CREDITS_UNAVAILABLE"
+    | "OPERATION_FAILED"
+    | "DATAFORSEO_ACCOUNT_PAUSED";
   budget: "BLOCKED" | "PASS";
   blockedReason?: string;
 }
 
 /**
  * Classifies a rank-run failure message using only its text evidence.
- * Credit/budget wording → CREDITS_UNAVAILABLE + BLOCKED; everything else
- * stays a generic OPERATION_FAILED with budget PASS (unknown ≠ blocked).
+ * Credit/budget wording ΓåÆ CREDITS_UNAVAILABLE + BLOCKED; everything else
+ * stays a generic OPERATION_FAILED or specific DATAFORSEO_ACCOUNT_PAUSED with budget PASS.
  */
 export function classifyRunError(message: string): ClassifiedRunError {
+  const isPaused = /40201|paused access|unusual activity/i.test(message);
+  if (isPaused) {
+    return { errorClass: "DATAFORSEO_ACCOUNT_PAUSED", budget: "PASS" };
+  }
   const isBudget =
-    /credit|budget|payment|402|insufficient|upgrade|top up|topup/i.test(
+    /credit|budget|payment|\b402\b|40200|insufficient|upgrade|top up|topup/i.test(
       message,
     );
   if (isBudget) {
@@ -87,6 +101,31 @@ export interface RankRunForTrace {
   keywordsTotal: number;
   errorMessage?: string | null;
   startedAt?: string | null;
+  providerCalls?: Array<{
+    provider: string;
+    endpoint: string;
+    status: "success" | "failed" | "insufficient_depth" | "skipped";
+    httpStatus?: number | null;
+    errorCode?: string | null;
+    durationMs: number;
+    resultCount?: number | null;
+    requestedDepth?: number;
+    inspectedDepth?: number | null;
+    pagesRequested?: number;
+    resultCompleteness?: string;
+    dispatched?: boolean;
+    circuitBreakerEnabled?: boolean;
+    attempt?: number | null;
+    maxRetries?: number | null;
+    retryable?: boolean | null;
+    retryAfterMs?: number | null;
+    skipReason?: string | null;
+    circuitReason?: string | null;
+    circuitOpenedAt?: string | null;
+    circuitExpiresAt?: string | null;
+    trackingKeywordId?: string;
+    device?: string;
+  }>;
 }
 
 export interface RankRowForTrace {
@@ -96,11 +135,21 @@ export interface RankRowForTrace {
     position?: number | null;
     previousPosition?: number | null;
     checkedAt?: string | null;
+    status?: string | null;
+    rankingStatus?: string | null;
+    errorMessage?: string | null;
+    providerStatusCode?: number | null;
+    provider?: string | null;
   } | null;
   mobile?: {
     position?: number | null;
     previousPosition?: number | null;
     checkedAt?: string | null;
+    status?: string | null;
+    rankingStatus?: string | null;
+    errorMessage?: string | null;
+    providerStatusCode?: number | null;
+    provider?: string | null;
   } | null;
 }
 
@@ -119,7 +168,7 @@ function isFreshSnapshot(
 }
 
 export type RankCompletionPatch = Partial<GlobalTraceOperation> & {
-  status: "success" | "failed";
+  status: "success" | "failed" | "cancelled";
   children: GlobalTraceKeywordChild[];
 };
 
@@ -147,16 +196,68 @@ export function buildRankCompletionPatch(input: {
     );
 
     if (fresh.length === 0) {
+      if (run.status === "cancelled") {
+        return {
+          keywordId: id,
+          keyword: row?.keyword,
+          status: "cancelled" as const,
+          rankingStatus: "NOT_CHECKED" as const,
+          error: "Cancelled before check",
+        };
+      }
+
+      const hasProviderMarker = run.errorMessage
+        ? PROVIDER_MARKER_RE.test(run.errorMessage)
+        : false;
+      const diag = hasProviderMarker
+        ? parseDataforseoDiagnosticsFromErrorMessage(run.errorMessage)
+        : null;
+      return {
+        keywordId: id,
+        keyword: row?.keyword,
+        status: "failed" as const,
+        rankingStatus: "CHECK_FAILED" as const,
+        provider: providerLabel(
+          row?.desktop?.provider ?? row?.mobile?.provider,
+        ),
+        httpStatus: diag?.httpStatus ?? undefined,
+        taskStatus: diag?.dataforseoStatusCode ?? undefined,
+        // Scrubbed: the run message crosses into a visible trace record.
+        error: run.errorMessage
+          ? scrubGlobalTraceText(run.errorMessage)
+          : "No snapshot recorded for this run",
+      };
+    }
+
+    const failedDevice = fresh.find(
+      (d) => d.status === "failed" || d.rankingStatus === "CHECK_FAILED",
+    );
+
+    if (failedDevice) {
+      const childErrMsg = failedDevice.errorMessage || run.errorMessage;
+      const hasProviderMarker = childErrMsg
+        ? PROVIDER_MARKER_RE.test(childErrMsg)
+        : false;
+      const diag = hasProviderMarker
+        ? parseDataforseoDiagnosticsFromErrorMessage(childErrMsg)
+        : null;
+      const taskStatus =
+        failedDevice.providerStatusCode ??
+        diag?.dataforseoStatusCode ??
+        undefined;
+      const httpStatus = diag?.httpStatus ?? undefined;
+
       return {
         keywordId: id,
         keyword: row?.keyword,
         status: "failed" as const,
         rankingStatus: "CHECK_FAILED" as const,
         provider: "DataForSEO",
-        // Scrubbed: the run message crosses into a visible trace record.
-        error: run.errorMessage
-          ? scrubGlobalTraceText(run.errorMessage)
-          : "No snapshot recorded for this run",
+        httpStatus,
+        taskStatus,
+        error: childErrMsg
+          ? scrubGlobalTraceText(childErrMsg)
+          : "Rank check attempt failed",
       };
     }
 
@@ -171,7 +272,10 @@ export function buildRankCompletionPatch(input: {
         positionAfter != null ? ("success" as const) : ("no_result" as const),
       rankingStatus:
         positionAfter != null ? ("RANKED" as const) : ("NO_RESULT" as const),
-      provider: "DataForSEO",
+      provider: providerLabel(
+        fresh.find((device) => device.position != null)?.provider ??
+          fresh[0]?.provider,
+      ),
       positionBefore,
       positionAfter,
     };
@@ -180,16 +284,26 @@ export function buildRankCompletionPatch(input: {
   const succeeded = children.filter(
     (c) => c.status === "success" || c.status === "no_result",
   ).length;
-  const failed = children.length - succeeded;
+  const cancelled = children.filter((c) => c.status === "cancelled").length;
+  const failed = children.length - succeeded - cancelled;
 
+  const isCancelledRun = run.status === "cancelled";
   const runFailed = run.status === "failed";
-  const status: "success" | "failed" =
-    runFailed || failed > 0 ? "failed" : "success";
+  const status: "success" | "failed" | "cancelled" = isCancelledRun
+    ? "cancelled"
+    : runFailed || failed > 0
+      ? "failed"
+      : "success";
 
   const patch: RankCompletionPatch = {
     status,
     rankChecksSucceeded: succeeded,
     rankChecksFailed: failed,
+    rankChecksSkipped: cancelled,
+    completedBeforeCancellation: isCancelledRun
+      ? succeeded + failed
+      : undefined,
+    remainingItems: isCancelledRun ? cancelled : undefined,
     children,
     counters: {
       checked: run.keywordsChecked,
@@ -197,8 +311,94 @@ export function buildRankCompletionPatch(input: {
     },
   };
 
+  if (run.providerCalls) {
+    const dispatchedCalls = run.providerCalls.filter(
+      (call) => call.dispatched !== false,
+    );
+    patch.providerCalls = dispatchedCalls.length;
+    patch.providersConsidered = new Set(
+      run.providerCalls.map((call) => call.provider),
+    ).size;
+    const breakdown = new Map<string, number>();
+    for (const call of dispatchedCalls) {
+      const label = providerLabel(call.provider);
+      breakdown.set(label, (breakdown.get(label) ?? 0) + 1);
+    }
+    patch.providerBreakdown = [...breakdown].map(([provider, count]) => ({
+      provider,
+      count,
+    }));
+    patch.providers = run.providerCalls.map((call) => ({
+      provider: providerLabel(call.provider),
+      endpoint: call.endpoint,
+      httpStatus: call.httpStatus,
+      statusMessage: call.errorCode ?? call.status,
+      durationMs: call.durationMs,
+      billing: "Paid",
+      metered: true,
+      cost: call.provider === "dataforseo" ? undefined : "Not available",
+      resultCount: call.resultCount ?? undefined,
+      requestedDepth: call.requestedDepth,
+      inspectedDepth: call.inspectedDepth,
+      pagesRequested: call.pagesRequested,
+      resultCompleteness: call.resultCompleteness,
+      dispatched: call.dispatched,
+      circuitBreakerEnabled: call.circuitBreakerEnabled,
+      attempt: call.attempt ?? undefined,
+      maxRetries: call.maxRetries ?? undefined,
+      retryable: call.retryable ?? undefined,
+      retryAfterMs: call.retryAfterMs ?? undefined,
+      skipReason:
+        call.skipReason ??
+        (call.status === "skipped" ? call.errorCode : undefined),
+      circuitReason: call.circuitReason,
+      circuitOpenedAt: call.circuitOpenedAt,
+      circuitExpiresAt: call.circuitExpiresAt,
+    }));
+    const attemptsByTarget = new Map<string, number>();
+    const retryDetails = dispatchedCalls.flatMap((call) => {
+      const target = `${call.trackingKeywordId ?? "unknown"}:${call.device ?? "unknown"}`;
+      const attempt = (attemptsByTarget.get(target) ?? 0) + 1;
+      attemptsByTarget.set(target, attempt);
+      return attempt > 1
+        ? [
+            {
+              attempt,
+              provider: providerLabel(call.provider),
+              httpStatus: call.httpStatus,
+              durationMs: call.durationMs,
+              error: call.errorCode ?? undefined,
+            },
+          ]
+        : [];
+    });
+    patch.retry = {
+      attempted: retryDetails.length > 0,
+      count: retryDetails.length,
+      details: retryDetails,
+    };
+  }
+
+  if (isCancelledRun) {
+    const executedKeywordCount = succeeded + failed;
+    const completedTasksCount = rows
+      .filter((r) => targetIds.includes(r.trackingKeywordId))
+      .reduce((acc, r) => {
+        const dCount = [r.desktop, r.mobile].filter((d) =>
+          isFreshSnapshot(d?.checkedAt, run.startedAt),
+        ).length;
+        return acc + dCount;
+      }, 0);
+
+    patch.providerCalls = Math.max(executedKeywordCount, completedTasksCount);
+    patch.billing = "Paid";
+    patch.errorMessage = run.errorMessage
+      ? scrubGlobalTraceText(run.errorMessage)
+      : "Operation cancelled by user";
+  }
+
   // Defense in depth: the run message crosses from the server record into a
-  // developer-visible trace — scrub credential-shaped substrings even though
+  // developer-visible trace ΓÇö scrub credential-shaped substrings even though
   // the producer already emits pre-scrubbed canonical messages.
   const rawMessage = run.errorMessage || "Rank check failed";
   if (run.errorMessage) {
@@ -237,16 +437,17 @@ export function buildRankCompletionPatch(input: {
 
 /**
  * Canonical provider markers emitted by the DataForSEO HTTP seam
- * (`DataForSEO HTTP <status> on <path>…`) and the task envelope
- * (`DataForSEO task error (<code>): …`). Only when one is present do we map
- * provider/endpoint/HTTP/task/transport into the trace — otherwise the
+ * (`DataForSEO HTTP <status> on <path>ΓÇª`) and the task envelope
+ * (`DataForSEO task error (<code>): ΓÇª`). Only when one is present do we map
+ * provider/endpoint/HTTP/task/transport into the trace ΓÇö otherwise the
  * caller keeps its generic classification and nothing is fabricated.
  *
- * Distinguishes: HTTP 5xx (TRANSIENT_UPSTREAM) ≠ task error inside HTTP 200
- * (TASK_ERROR / CREDITS_UNAVAILABLE) ≠ 402 ≠ 429. Returns true when applied.
+ * Distinguishes: HTTP 5xx (TRANSIENT_UPSTREAM) Γëá task error inside HTTP 200
+ * (TASK_ERROR / CREDITS_UNAVAILABLE / DATAFORSEO_ACCOUNT_PAUSED) Γëá 402 Γëá 429.
+ * Returns true when applied.
  */
 const PROVIDER_MARKER_RE =
-  /DataForSEO HTTP \d{3}|DataForSEO task error \(\d+\)/;
+  /DataForSEO HTTP \d{3}|DataForSEO task error \(\d+\)/i;
 
 function applyProviderDiagnostics(
   patch: RankCompletionPatch,
@@ -255,6 +456,7 @@ function applyProviderDiagnostics(
 ): boolean {
   if (!PROVIDER_MARKER_RE.test(rawMessage)) return false;
   const d = parseDataforseoDiagnosticsFromErrorMessage(rawMessage);
+  const isCreditBlocked = d.errorClass === "CREDITS_UNAVAILABLE";
   const providerCall: GlobalTraceProviderCall = {
     provider: d.provider,
     endpoint: d.endpoint,
@@ -264,15 +466,15 @@ function applyProviderDiagnostics(
     transport: d.transport,
     billing: "Paid",
     metered: true,
-    budgetGuard: d.errorClass === "CREDITS_UNAVAILABLE" ? "BLOCKED" : "PASS",
+    budgetGuard: isCreditBlocked ? "BLOCKED" : "PASS",
   };
   patch.providers = [providerCall];
   patch.httpStatus = d.httpStatus ?? undefined;
   patch.errorClass = d.errorClass;
-  if (d.errorClass === "CREDITS_UNAVAILABLE") {
-    patch.budget = "BLOCKED";
+  patch.budget = isCreditBlocked ? "BLOCKED" : "PASS";
+  if (isCreditBlocked) {
     patch.blockedReason = scrubGlobalTraceText(rawMessage);
-    // A credit block with no snapshot means no billable call completed.
+    // A credit block before any snapshot means no billable call completed.
     // Never zero the count when snapshots prove calls happened.
     if (succeeded === 0) {
       patch.providerCalls = 0;

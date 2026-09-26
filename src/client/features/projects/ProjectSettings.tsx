@@ -4,14 +4,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { SearchConsoleConnectionCard } from "@/client/features/gsc/SearchConsoleConnectionCard";
-import { AnalyticsConnectionCard } from "@/client/features/ga4/AnalyticsConnectionCard";
-import {
-  AgencyBrandingSection,
-  ClientProfileSection,
-} from "@/client/features/reports/BrandingSettings";
 import { ProjectMarketFields } from "@/client/features/projects/ProjectMarketFields";
 import { ProjectAiSettingsSection } from "@/client/features/ai/ProjectAiSettingsSection";
 import { GlobalDebugTraceSettingsSection } from "@/client/features/tracing/GlobalDebugTraceSettingsSection";
+import { SerpProvidersSettingsSection } from "@/client/features/settings/SerpProvidersSettingsSection";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   traceSettingsMutation,
@@ -86,34 +82,22 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         <SearchConsoleConnectionCard projectId={projectId} />
       </section>
 
-      <section id="google-analytics" className="space-y-3 scroll-mt-6">
-        <h2 className="text-sm font-medium text-base-content/50">
-          Google Analytics
-        </h2>
-        <AnalyticsConnectionCard projectId={projectId} />
-      </section>
-
       <section id="ai-agent" className="space-y-3 scroll-mt-6">
         <h2 className="text-sm font-medium text-base-content/50">AI agent</h2>
         <ProjectAiSettingsSection projectId={projectId} />
       </section>
 
-      <section id="agency-branding" className="space-y-3 scroll-mt-6">
+      <section id="serp-providers" className="space-y-3 scroll-mt-6">
         <h2 className="text-sm font-medium text-base-content/50">
-          Agency branding
+          SERP Providers
         </h2>
-        <AgencyBrandingSection />
-      </section>
-
-      <section id="client-profile" className="space-y-3 scroll-mt-6">
-        <h2 className="text-sm font-medium text-base-content/50">
-          Client profile
-        </h2>
-        <ClientProfileSection projectId={projectId} />
+        <SerpProvidersSettingsSection projectId={projectId} />
       </section>
 
       <section id="debug-trace" className="space-y-3 scroll-mt-6">
-        <h2 className="text-sm font-medium text-base-content/50">Debug Trace</h2>
+        <h2 className="text-sm font-medium text-base-content/50">
+          Debug Trace
+        </h2>
         <GlobalDebugTraceSettingsSection projectId={projectId} />
       </section>
 

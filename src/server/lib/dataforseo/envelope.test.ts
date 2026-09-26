@@ -175,4 +175,39 @@ describe("assertOk", () => {
       }
     }
   });
+
+  it("throws DATAFORSEO_ACCESS_PAUSED for task status 40201 even when billing metadata is present", () => {
+    const task = {
+      status_code: 40201,
+      status_message: "We noticed some unusual activity in your DataForSEO account",
+      path: ["v3", "dataforseo_labs", "google", "keyword_suggestions", "live"],
+      cost: 0,
+      result_count: 0,
+    };
+    try {
+      assertOk({ status_code: 20000, tasks: [task] });
+      throw new Error("expected assertOk to throw");
+    } catch (error) {
+      expect(error).not.toBeInstanceOf(DataforseoChargedTaskError);
+      expect(error).toMatchObject({
+        code: "DATAFORSEO_ACCESS_PAUSED",
+        message: "We noticed some unusual activity in your DataForSEO account",
+      });
+    }
+  });
+
+  it("throws DATAFORSEO_ACCESS_PAUSED for top-level status 40201", () => {
+    try {
+      assertOk({
+        status_code: 40201,
+        status_message: "Account access temporarily paused.",
+      });
+      throw new Error("expected assertOk to throw");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "DATAFORSEO_ACCESS_PAUSED",
+        message: "Account access temporarily paused.",
+      });
+    }
+  });
 });

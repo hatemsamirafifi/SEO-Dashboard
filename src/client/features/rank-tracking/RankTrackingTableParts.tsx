@@ -4,6 +4,7 @@ import { buildCsv, downloadCsv } from "@/client/lib/csv";
 import { exportTableToSheets } from "@/client/lib/exportToSheets";
 import { captureClientEvent } from "@/client/lib/posthog";
 import { formatLocationLabel } from "@/shared/keyword-locations";
+import { getErrorMessage } from "@/client/lib/error-messages";
 import type {
   RankTrackingDeviceResult,
   RankTrackingRow,
@@ -56,11 +57,14 @@ export function SerpFeatureTags({ features }: { features: string[] }) {
 export function DeviceRankCell({
   result,
   isChecking = false,
+  serpDepth,
 }: {
   result: RankTrackingDeviceResult;
   isChecking?: boolean;
+  serpDepth?: number;
 }) {
   const { position, previousPosition, checkedAt, status } = result;
+  const depthLabel = serpDepth ? `top ${serpDepth}` : "tracked search depth";
 
   if (isChecking || status === "checking") {
     return (
@@ -71,13 +75,21 @@ export function DeviceRankCell({
     );
   }
 
-  if (status === "failed") {
+  if (status === "failed" || result.rankingStatus === "CHECK_FAILED") {
+    const errorMsg =
+      (result.errorCode ? getErrorMessage(result.errorCode) : null) ||
+      result.errorMessage ||
+      result.providerStatus ||
+      "Ranking unavailable";
+    const errorTooltip = result.latestValidPosition
+      ? `${errorMsg} (Last valid: #${result.latestValidPosition})`
+      : errorMsg;
     return (
       <span
         className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold bg-error/20 text-error"
-        title="Rank check failed"
+        title={errorTooltip}
       >
-        Check failed
+        Ranking unavailable
       </span>
     );
   }
@@ -88,7 +100,7 @@ export function DeviceRankCell({
       return (
         <span
           className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-base-200 text-base-content/70"
-          title="Checked: Domain is not ranking in top 100 Google organic results"
+          title={`Checked: Domain is not ranking in ${depthLabel} Google organic results`}
         >
           No ranking found
         </span>
@@ -114,7 +126,7 @@ export function DeviceRankCell({
         <span className="text-base-content/30">→</span>
         <span
           className="font-mono rounded px-1.5 py-0.5 text-xs font-semibold bg-error/20 text-error"
-          title="Dropped out of top 100"
+          title={`Dropped out of ${depthLabel}`}
         >
           lost
         </span>
@@ -151,16 +163,30 @@ export function DeviceRankCell({
 export function DeviceUrlCell({
   result,
   domain,
+  serpDepth,
 }: {
   result: RankTrackingDeviceResult;
   domain: string;
+  serpDepth?: number;
 }) {
+  const depthLabel = serpDepth ? `top ${serpDepth}` : "tracked search depth";
+  if (result.status === "failed" || result.rankingStatus === "CHECK_FAILED") {
+    return (
+      <span
+        className="text-xs text-base-content/40 italic"
+        title="URL unavailable because rank check failed"
+      >
+        —
+      </span>
+    );
+  }
+
   if (!result.rankingUrl) {
     if (result.status === "not_ranking" || result.checkedAt) {
       return (
         <span
           className="text-xs text-base-content/40 italic"
-          title="No ranking URL in top 100"
+          title={`No ranking URL in ${depthLabel}`}
         >
           No ranking URL
         </span>

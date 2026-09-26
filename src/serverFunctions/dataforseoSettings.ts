@@ -58,6 +58,9 @@ const savePatchSchema = z.object({
   login: z.string().max(200).optional(),
   password: z.string().max(200).optional(),
   enabled: z.boolean().optional(),
+  circuitBreakerEnabled: z.boolean().optional(),
+  maxRetries: z.number().int().min(0).max(5).optional(),
+  priority: z.number().int().min(1).max(3).optional(),
 });
 
 export const saveDataforseoSettingsFn = createServerFn({ method: "POST" })

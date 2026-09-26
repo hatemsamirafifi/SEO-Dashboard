@@ -1,4 +1,5 @@
 import { globalTraceStore } from "./globalTraceStore";
+import { getErrorCode } from "@/client/lib/error-messages";
 import {
   scrubGlobalTraceText,
   type GlobalTraceFeature,
@@ -83,6 +84,8 @@ function sanitizeTracePatch(
 }
 
 function errorCode(error: unknown): string | undefined {
+  const canonical = getErrorCode(error);
+  if (canonical) return canonical;
   if (typeof error === "object" && error !== null && "code" in error) {
     const code: unknown = (error as { code?: unknown }).code;
     if (typeof code === "string" && /^[A-Z0-9_]{2,64}$/.test(code)) {
@@ -98,9 +101,35 @@ function errorText(error: unknown): string {
   return "Operation failed";
 }
 
+export function isAbortError(error: unknown): boolean {
+  if (error instanceof Error) {
+    if (error.name === "AbortError") return true;
+    if (error.message.toLowerCase().includes("aborted")) return true;
+    if ("code" in error && (error as { code?: unknown }).code === "ABORT_ERR") {
+      return true;
+    }
+  }
+  if (typeof error === "object" && error !== null) {
+    if (
+      "name" in error &&
+      (error as { name?: unknown }).name === "AbortError"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function defaultTraceErrorPatch(
   error: unknown,
 ): Partial<GlobalTraceOperation> {
+  if (isAbortError(error)) {
+    return {
+      status: "cancelled",
+      errorClass: "CANCELLED",
+      errorMessage: "Operation cancelled by user",
+    };
+  }
   return {
     status: "failed",
     errorClass: errorCode(error) ?? "OPERATION_FAILED",
@@ -139,11 +168,13 @@ export async function traceServerCall<T>(
     });
     return result;
   } catch (error) {
+    const isCancelled = isAbortError(error);
     const patch = sanitizeTracePatch(
       input.mapError?.(error) ?? defaultTraceErrorPatch(error),
     );
+    const targetStatus = patch.status ?? (isCancelled ? "cancelled" : "failed");
     globalTraceStore.completeOperation(operationId, {
-      status: "failed",
+      status: targetStatus,
       ...patch,
     });
     throw error;

@@ -1,10 +1,4 @@
-import {
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  Loader2,
-  XCircle,
-} from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import type {
   DataforseoConnectionTestResult,
   DataforseoApiStatusResult,
@@ -21,105 +15,6 @@ export function formatSource(src?: string): string {
     default:
       return "Not configured";
   }
-}
-
-export function DataforseoStatusCard({
-  testResult,
-  isConfigured,
-  isEnabled,
-  source,
-  lastChecked,
-}: {
-  testResult: DataforseoConnectionTestResult | null;
-  isConfigured: boolean;
-  isEnabled: boolean;
-  source?: string;
-  lastChecked: Date | null;
-}) {
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 rounded-lg bg-base-200/50 p-3.5 text-xs">
-      <div>
-        <span className="text-base-content/50 block font-medium">Status</span>
-        <div className="mt-1 flex items-center gap-1.5 font-medium">
-          {testResult ? (
-            testResult.ok ? (
-              <span className="flex items-center gap-1 text-success">
-                <span className="inline-block size-2 rounded-full bg-success" />
-                Connected
-              </span>
-            ) : testResult.reason === "CREDITS_UNAVAILABLE" ? (
-              <span className="flex items-center gap-1 text-warning">
-                <AlertTriangle className="size-3" />
-                Credits unavailable
-              </span>
-            ) : testResult.reason === "INVALID_CREDENTIALS" ? (
-              <span className="flex items-center gap-1 text-error">
-                <XCircle className="size-3" />
-                Auth failed
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-error">
-                <XCircle className="size-3" />
-                Failed
-              </span>
-            )
-          ) : !isConfigured ? (
-            <span className="text-base-content/50">○ Not configured</span>
-          ) : !isEnabled ? (
-            <span className="text-base-content/50">○ Disabled</span>
-          ) : (
-            <span className="flex items-center gap-1 text-success">
-              <span className="inline-block size-2 rounded-full bg-success" />
-              Configured
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div>
-        <span className="text-base-content/50 block font-medium">Source</span>
-        <div className="mt-1 font-medium">
-          {source === "environment" ? (
-            <span className="text-base-content/80">Environment</span>
-          ) : (
-            <span className="text-base-content/80">{formatSource(source)}</span>
-          )}
-        </div>
-      </div>
-
-      <div>
-        <span className="text-base-content/50 block font-medium">Balance</span>
-        <div className="mt-1 font-medium tabular-nums">
-          {testResult?.balance !== null && testResult?.balance !== undefined ? (
-            <span className="text-success font-semibold">
-              ${testResult.balance.toFixed(2)}
-            </span>
-          ) : testResult?.ok ? (
-            <span className="text-base-content/60">Unavailable</span>
-          ) : (
-            <span className="text-base-content/40">—</span>
-          )}
-        </div>
-      </div>
-
-      <div>
-        <span className="text-base-content/50 block font-medium">
-          Last checked
-        </span>
-        <div className="mt-1 text-base-content/70">
-          {lastChecked ? (
-            lastChecked.toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            })
-          ) : (
-            <span className="text-base-content/40">Not checked</span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export function DataforseoTestAlert({
@@ -171,6 +66,8 @@ export function DataforseoCredentialsForm({
   onEnabledChange,
   loginMasked,
   passwordConfigured,
+  priority,
+  onPriorityChange,
 }: {
   loginInput: string;
   onLoginChange: (val: string) => void;
@@ -180,6 +77,8 @@ export function DataforseoCredentialsForm({
   onEnabledChange: (val: boolean) => void;
   loginMasked?: string | null;
   passwordConfigured?: boolean;
+  priority: number;
+  onPriorityChange: (value: number) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -235,6 +134,22 @@ export function DataforseoCredentialsForm({
             : "Required for first-time configuration. Encrypted at rest."}
         </p>
       </div>
+
+      {/* Enabled Toggle */}
+      <label className="flex items-center justify-between gap-4">
+        <span className="text-xs font-medium text-base-content/80">
+          Priority
+        </span>
+        <input
+          type="number"
+          min={1}
+          max={3}
+          value={priority}
+          onChange={(event) => onPriorityChange(Number(event.target.value))}
+          className="input input-bordered input-sm w-20"
+          aria-label="DataForSEO priority"
+        />
+      </label>
 
       {/* Enabled Toggle */}
       <div className="flex items-center justify-between pt-1">

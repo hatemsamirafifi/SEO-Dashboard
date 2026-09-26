@@ -7,6 +7,7 @@ import { NonRetryableError } from "cloudflare:workflows";
 import { withPgClient } from "@/db";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import { getLatestRankingFactsForConfig } from "@/server/features/rank-tracking/repositories/missingRankingQueries";
 import { failRunIfActive } from "@/server/features/rank-tracking/services/rankCheckRunGuards";
 import {
   runLiveCheck,
@@ -22,8 +23,12 @@ import {
   AUTUMN_SEO_DATA_BALANCE_FEATURE_ID,
   AUTUMN_SEO_DATA_TOPUP_BALANCE_FEATURE_ID,
 } from "@/shared/billing";
-import { estimateRankCheckCredits } from "@/shared/rank-tracking";
+import {
+  classifyKeywordFromPairFacts,
+  estimateRankCheckCredits,
+} from "@/shared/rank-tracking";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
+import { createRankSerpResolver } from "@/server/features/serp/providerResolver";
 
 const SINGLE_ATTEMPT_STEP_CONFIG = {
   retries: { limit: 0, delay: "1 second" as const },
@@ -43,6 +48,9 @@ interface RankCheckParams {
   serpDepth: number;
   trigger: "manual" | "scheduled";
   keywordIds?: string[];
+  /** "Check missing rankings" mode: keywordIds were pre-resolved to the
+   * eligible set at trigger time; prepare re-resolves against fresh state. */
+  missingRankings?: boolean;
 }
 
 async function prepareRankCheckKeywords(input: {
@@ -53,11 +61,18 @@ async function prepareRankCheckKeywords(input: {
   serpDepth: number;
   trigger: RankCheckParams["trigger"];
   keywordIds?: string[];
+  missingRankings?: boolean;
 }) {
   // If stale-cleanup marked our run failed before we got here, bail out
   // rather than resurrecting a superseded run.
   const run = await RankTrackingRepository.getRunById(input.runId);
-  if (!run || run.status === "failed" || run.status === "completed") {
+  if (
+    !run ||
+    run.status === "failed" ||
+    run.status === "completed" ||
+    run.status === "partial" ||
+    run.status === "cancelled"
+  ) {
     throw new NonRetryableError(
       `Run ${input.runId} is no longer active (status=${run?.status ?? "missing"})`,
     );
@@ -74,6 +89,26 @@ async function prepareRankCheckKeywords(input: {
   if (input.keywordIds && input.keywordIds.length > 0) {
     const idSet = new Set(input.keywordIds);
     trackingKeywords = trackingKeywords.filter((kw) => idSet.has(kw.id));
+  }
+
+  // Missing-rankings mode re-resolves eligibility against fresh snapshot
+  // state at execution time: a keyword that recovered on every tracked
+  // device between trigger and execution is dropped here, before any
+  // provider call is made. Pair-level, matching the trigger-time rule — a
+  // keyword with a ranked device but a missing device stays in the run.
+  if (
+    input.missingRankings &&
+    input.keywordIds &&
+    input.keywordIds.length > 0
+  ) {
+    const facts = await getLatestRankingFactsForConfig(
+      input.configId,
+      trackingKeywords.map((kw) => kw.id),
+    );
+    trackingKeywords = trackingKeywords.filter(
+      (kw) =>
+        classifyKeywordFromPairFacts(facts, kw.id, input.devices).eligible,
+    );
   }
 
   if (trackingKeywords.length === 0) {
@@ -136,7 +171,12 @@ async function finalizeRankCheckRun(input: {
   // decision with a completed status — a replacement run may already be
   // underway.
   const run = await RankTrackingRepository.getRunById(input.runId);
-  if (!run || run.status === "failed" || run.status === "completed") {
+  if (
+    !run ||
+    run.status === "failed" ||
+    run.status === "completed" ||
+    run.status === "partial"
+  ) {
     console.warn(
       `[rank-check] ${input.runId} no longer active (status=${run?.status ?? "missing"}), skipping finalization`,
     );
@@ -146,39 +186,78 @@ async function finalizeRankCheckRun(input: {
   const nowIso = new Date().toISOString();
 
   // Snapshots were written incrementally by each batch step.
-  // Count from DB to get the authoritative keyword count.
+  // Derive authoritative counts strictly from per-keyword snapshot outcomes.
   const snapshots = await RankTrackingRepository.getSnapshotsForRun(
     input.runId,
   );
-  const keywordsChecked = new Set(snapshots.map((s) => s.trackingKeywordId))
-    .size;
+  const successfulSnapshots = snapshots.filter(
+    (s) => s.rankingStatus === "RANKED" || s.rankingStatus === "NO_RESULT",
+  );
+  const failedSnapshots = snapshots.filter(
+    (s) => s.rankingStatus === "CHECK_FAILED",
+  );
+  const successfulKeywords = new Set(
+    successfulSnapshots.map((s) => s.trackingKeywordId),
+  ).size;
+  const failedKeywords = new Set(
+    failedSnapshots.map((s) => s.trackingKeywordId),
+  ).size;
+  const allAttemptedKeywords = new Set(
+    snapshots.map((s) => s.trackingKeywordId),
+  ).size;
 
-  const keywordsTotal = run.keywordsTotal || keywordsChecked;
-  const incompleteCount = keywordsTotal - keywordsChecked;
+  // If the run was cancelled by user, preserve 'cancelled' status and update truthful checked count
+  if (run.status === "cancelled") {
+    await RankTrackingRepository.updateRun(input.runId, {
+      status: "cancelled",
+      keywordsChecked: successfulKeywords,
+      completedAt: run.completedAt ?? nowIso,
+      errorMessage: run.errorMessage ?? "Cancelled by user",
+    });
+    return;
+  }
 
+  const keywordsTotal = run.keywordsTotal || allAttemptedKeywords;
+  const unattemptedCount = Math.max(0, keywordsTotal - allAttemptedKeywords);
+
+  let status: "completed" | "partial" | "failed" = "completed";
   let errorMessage: string | undefined;
-  if (input.batchError) {
-    errorMessage = `Completed ${keywordsChecked} of ${keywordsTotal} keyword(s). Error: ${input.batchError}`;
-  } else if (incompleteCount > 0) {
-    errorMessage = `${incompleteCount} keyword(s) could not be checked`;
+
+  if (
+    successfulKeywords === 0 &&
+    (failedKeywords > 0 || unattemptedCount > 0 || input.batchError)
+  ) {
+    status = "failed";
+    errorMessage = input.batchError
+      ? `Completed 0 of ${keywordsTotal} keyword(s). Error: ${input.batchError}`
+      : `${keywordsTotal} keyword(s) could not be checked`;
+  } else if (failedKeywords > 0 || unattemptedCount > 0 || input.batchError) {
+    status = "partial";
+    errorMessage = input.batchError
+      ? `Completed ${successfulKeywords} of ${keywordsTotal} keyword(s). Error: ${input.batchError}`
+      : `${failedKeywords + unattemptedCount} keyword(s) could not be checked`;
+  } else {
+    status = "completed";
   }
 
   // Flipping status away from 'pending'/'running' is what releases the
   // partial-index slot for the next run.
   await RankTrackingRepository.updateRun(input.runId, {
-    status: "completed",
-    keywordsChecked,
+    status,
+    keywordsChecked: successfulKeywords,
     completedAt: nowIso,
     ...(errorMessage ? { errorMessage } : {}),
   });
 
-  // Clear any previous skip reason on success.
+  // Clear any previous skip reason on success or partial success.
   // Note: nextCheckAt is NOT set here — the cron handler advances it eagerly
   // before starting the workflow to prevent retry storms.
-  await RankTrackingRepository.updateConfig(input.configId, input.projectId, {
-    lastCheckedAt: nowIso,
-    lastSkipReason: null,
-  });
+  if (status !== "failed") {
+    await RankTrackingRepository.updateConfig(input.configId, input.projectId, {
+      lastCheckedAt: nowIso,
+      lastSkipReason: null,
+    });
+  }
 
   // One-line summary per run so fallback rates are visible in Workers Logs.
   // Keys match the PostHog event properties for log/event correlation.
@@ -190,7 +269,7 @@ async function finalizeRankCheckRun(input: {
     ? ` error="${errorMessage.replace(/\s+/g, " ").slice(0, 200)}"`
     : "";
   console.log(
-    `[rank-check] ${input.runId} completed org=${input.billingCustomer.organizationId} project=${input.projectId} trigger=${input.trigger} keywords=${keywordsChecked}/${keywordsTotal}${queueSummary}${errorSummary}`,
+    `[rank-check] ${input.runId} completed org=${input.billingCustomer.organizationId} project=${input.projectId} trigger=${input.trigger} keywords=${successfulKeywords}/${keywordsTotal}${queueSummary}${errorSummary}`,
   );
 
   await captureServerEvent({
@@ -199,9 +278,9 @@ async function finalizeRankCheckRun(input: {
     organizationId: input.billingCustomer.organizationId,
     properties: {
       project_id: input.projectId,
-      status: "completed",
+      status,
       trigger: input.trigger,
-      keywords_checked: keywordsChecked,
+      keywords_checked: successfulKeywords,
       ...(input.queueStats
         ? {
             queue_tasks: input.queueStats.queueTasks,
@@ -275,9 +354,15 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       serpDepth,
       trigger,
       keywordIds,
+      missingRankings,
     } = event.payload;
 
     const client = createDataforseoClient(billingCustomer);
+    const rankSerp = await createRankSerpResolver({
+      client,
+      organizationId: billingCustomer.organizationId,
+      projectId,
+    });
 
     // Guard: skip if config was archived after the workflow was triggered
     const configCheck = await pgStep(
@@ -315,6 +400,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
             serpDepth,
             trigger,
             keywordIds,
+            missingRankings,
           }),
       );
 
@@ -328,6 +414,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       try {
         const checkContext = {
           client,
+          rankSerp,
           keywords,
           devices,
           serpDepth,

@@ -55,7 +55,13 @@ export function computeScorecards(
   let visVolume = 0; // Σ volume over keywords with known volume
 
   for (const row of rows) {
-    const { position, previousPosition } = row[device];
+    const { position, previousPosition, status, rankingStatus } = row[device];
+
+    // CHECK_FAILED is an attempt outcome, not a valid ranking observation.
+    // Exclude from ranking counts, visibility deltas, and movement classifications.
+    if (status === "failed" || rankingStatus === "CHECK_FAILED") {
+      continue;
+    }
 
     if (position !== null) {
       countCurrent += 1;

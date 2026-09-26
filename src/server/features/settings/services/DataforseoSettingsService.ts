@@ -14,6 +14,16 @@ import {
   type SeoProviderSettingsRow,
 } from "@/server/features/settings/repositories/SeoProviderSettingsRepository";
 import { AppError } from "@/server/lib/errors";
+import {
+  closeProviderCircuit,
+  fingerprintProviderCredential,
+  getProviderCircuitState,
+  getProviderCircuitView,
+  openProviderCircuit,
+  type ProviderCircuitIdentity,
+  type ProviderCircuitView,
+} from "@/server/features/serp/circuitBreaker";
+import { clampProviderRetries } from "@/server/features/serp/retryPolicy";
 
 export type DataForSeoConfigSource =
   | "project"
@@ -23,16 +33,22 @@ export type DataForSeoConfigSource =
 
 export type DataForSeoConfig = {
   enabled: boolean;
+  circuitBreakerEnabled: boolean;
+  maxRetries: number;
   login?: string;
   password?: string;
   source: DataForSeoConfigSource;
   configured: boolean;
+  priority: number;
 };
 
 export type DataforseoSettingsView = {
   provider: "dataforseo";
   configured: boolean;
   enabled: boolean;
+  circuitBreakerEnabled: boolean;
+  maxRetries: number;
+  priority: number;
   source: DataForSeoConfigSource;
   loginMasked: string | null;
   passwordConfigured: boolean;
@@ -40,9 +56,13 @@ export type DataforseoSettingsView = {
   override: {
     configured: boolean;
     enabled: boolean;
+    circuitBreakerEnabled: boolean;
+    maxRetries: number;
+    priority: number;
     loginMasked: string | null;
     passwordConfigured: boolean;
   } | null;
+  circuit: ProviderCircuitView;
 };
 
 export type SaveDataforseoSettingsInput = {
@@ -52,6 +72,9 @@ export type SaveDataforseoSettingsInput = {
     login?: string;
     password?: string;
     enabled?: boolean;
+    circuitBreakerEnabled?: boolean;
+    maxRetries?: number;
+    priority?: number;
   };
 };
 
@@ -60,6 +83,7 @@ export type DataforseoConnectionTestResult = {
   status: number;
   reason:
     | "CONNECTED"
+    | "DATAFORSEO_ACCOUNT_PAUSED"
     | "INVALID_CREDENTIALS"
     | "CREDITS_UNAVAILABLE"
     | "RATE_LIMITED"
@@ -102,6 +126,45 @@ export type DataforseoApiStatusResult = {
 const DATAFORSEO_API_BASE = "https://api.dataforseo.com";
 const TEST_CONNECTION_TIMEOUT_MS = 15_000;
 
+function inheritedPriority(
+  projectRow: SeoProviderSettingsRow | null,
+  orgRow: SeoProviderSettingsRow | null,
+): number {
+  return projectRow?.priority ?? orgRow?.priority ?? 1;
+}
+
+function inheritedCircuitBreakerEnabled(
+  projectRow: SeoProviderSettingsRow | null,
+  orgRow: SeoProviderSettingsRow | null,
+  envDefault: boolean,
+): boolean {
+  const settingsRow = projectRow ?? orgRow;
+  return settingsRow?.circuitBreakerEnabled ?? envDefault;
+}
+
+function inheritedMaxRetries(
+  projectRow: SeoProviderSettingsRow | null,
+  orgRow: SeoProviderSettingsRow | null,
+  envDefault: number,
+): number {
+  const settingsRow = projectRow ?? orgRow;
+  return clampProviderRetries(settingsRow?.maxRetries ?? envDefault);
+}
+
+function recordFailedProbe(
+  identity: ProviderCircuitIdentity,
+  reason: DataforseoConnectionTestResult["reason"],
+) {
+  const deterministic = [
+    "DATAFORSEO_ACCOUNT_PAUSED",
+    "INVALID_CREDENTIALS",
+    "CREDITS_UNAVAILABLE",
+  ].includes(reason);
+  if (deterministic || getProviderCircuitState(identity)) {
+    openProviderCircuit(identity, reason);
+  }
+}
+
 /**
  * Resolve effective DataForSEO configuration according to repository precedence:
  * Project override -> Organization row -> Environment fallback -> None.
@@ -113,51 +176,59 @@ export async function resolveEffectiveDataforseoConfig(params?: {
 }): Promise<DataForSeoConfig> {
   const projectId = params?.projectId ?? null;
   const organizationId = params?.organizationId ?? null;
-
-  // 1. Project-level override
-  if (projectId) {
-    const projectRow =
-      await SeoProviderSettingsRepository.getProjectProviderSettingsRow(
+  const projectRow = projectId
+    ? await SeoProviderSettingsRepository.getProjectProviderSettingsRow(
         projectId,
         "dataforseo",
-      );
-    if (projectRow) {
-      const creds = await decryptDataforseoCredentials(
-        projectRow.credentialsCiphertext,
-      );
-      if (creds) {
-        return {
-          enabled: projectRow.enabled,
-          login: creds.login,
-          password: creds.password,
-          source: "project",
-          configured: true,
-        };
-      }
-      // If row exists with enabled toggle but no credentials, inherit credentials below
+      )
+    : null;
+  const orgRow = organizationId
+    ? await SeoProviderSettingsRepository.getOrganizationProviderSettingsRow(
+        organizationId,
+        "dataforseo",
+      )
+    : null;
+  const settingsRow = projectRow ?? orgRow;
+
+  // 1. Project-level override
+  if (projectRow) {
+    const creds = await decryptDataforseoCredentials(
+      projectRow.credentialsCiphertext,
+    );
+    if (creds) {
+      return {
+        enabled: projectRow.enabled,
+        circuitBreakerEnabled: projectRow.circuitBreakerEnabled,
+        maxRetries: clampProviderRetries(projectRow.maxRetries),
+        login: creds.login,
+        password: creds.password,
+        source: "project",
+        configured: true,
+        priority: projectRow.priority ?? 1,
+      };
     }
+    // If row exists with enabled toggle but no credentials, inherit credentials below
   }
 
   // 2. Organization-level configuration
-  if (organizationId) {
-    const orgRow =
-      await SeoProviderSettingsRepository.getOrganizationProviderSettingsRow(
-        organizationId,
-        "dataforseo",
-      );
-    if (orgRow) {
-      const creds = await decryptDataforseoCredentials(
-        orgRow.credentialsCiphertext,
-      );
-      if (creds) {
-        return {
-          enabled: orgRow.enabled,
-          login: creds.login,
-          password: creds.password,
-          source: "organization",
-          configured: true,
-        };
-      }
+  if (orgRow) {
+    const creds = await decryptDataforseoCredentials(
+      orgRow.credentialsCiphertext,
+    );
+    if (creds) {
+      return {
+        enabled: settingsRow?.enabled ?? orgRow.enabled,
+        circuitBreakerEnabled:
+          settingsRow?.circuitBreakerEnabled ?? orgRow.circuitBreakerEnabled,
+        maxRetries: clampProviderRetries(
+          settingsRow?.maxRetries ?? orgRow.maxRetries,
+        ),
+        login: creds.login,
+        password: creds.password,
+        source: "organization",
+        configured: true,
+        priority: settingsRow?.priority ?? orgRow.priority ?? 1,
+      };
     }
   }
 
@@ -165,15 +236,34 @@ export async function resolveEffectiveDataforseoConfig(params?: {
   const envLogin = await getOptionalEnvValue("DATAFORSEO_LOGIN");
   const envPassword = await getOptionalEnvValue("DATAFORSEO_PASSWORD");
   const envEnabledRaw = await getOptionalEnvValue("DATAFORSEO_ENABLED");
-  const envEnabled = envEnabledRaw !== "false" && envEnabledRaw !== "0";
+  const envEnabled = !["false", "0"].includes(envEnabledRaw ?? "");
+  const envCircuitBreakerRaw = await getOptionalEnvValue(
+    "DATAFORSEO_CIRCUIT_BREAKER_ENABLED",
+  );
+  const envCircuitBreakerEnabled = !["false", "0"].includes(
+    envCircuitBreakerRaw ?? "",
+  );
+  const envRetriesRaw = await getOptionalEnvValue("DATAFORSEO_MAX_RETRIES");
+  const envRetries = clampProviderRetries(
+    envRetriesRaw === null || envRetriesRaw === undefined
+      ? 2
+      : Number(envRetriesRaw),
+  );
 
   if (envLogin && envPassword) {
     return {
-      enabled: envEnabled,
+      enabled: settingsRow?.enabled ?? envEnabled,
+      circuitBreakerEnabled: inheritedCircuitBreakerEnabled(
+        projectRow,
+        orgRow,
+        envCircuitBreakerEnabled,
+      ),
+      maxRetries: inheritedMaxRetries(projectRow, orgRow, envRetries),
       login: envLogin.trim(),
       password: envPassword.trim(),
       source: "environment",
       configured: true,
+      priority: inheritedPriority(projectRow, orgRow),
     };
   }
 
@@ -182,20 +272,34 @@ export async function resolveEffectiveDataforseoConfig(params?: {
     const parsed = parseLegacyDataforseoApiKey(envApiKey);
     if (parsed) {
       return {
-        enabled: envEnabled,
+        enabled: settingsRow?.enabled ?? envEnabled,
+        circuitBreakerEnabled: inheritedCircuitBreakerEnabled(
+          projectRow,
+          orgRow,
+          envCircuitBreakerEnabled,
+        ),
+        maxRetries: inheritedMaxRetries(projectRow, orgRow, envRetries),
         login: parsed.login,
         password: parsed.password,
         source: "environment",
         configured: true,
+        priority: inheritedPriority(projectRow, orgRow),
       };
     }
   }
 
   // 4. Not configured
   return {
-    enabled: false,
+    enabled: settingsRow?.enabled ?? false,
+    circuitBreakerEnabled: inheritedCircuitBreakerEnabled(
+      projectRow,
+      orgRow,
+      envCircuitBreakerEnabled,
+    ),
+    maxRetries: inheritedMaxRetries(projectRow, orgRow, envRetries),
     source: "none",
     configured: false,
+    priority: inheritedPriority(projectRow, orgRow),
   };
 }
 
@@ -237,20 +341,37 @@ export async function getDataforseoSettingsView(input: {
     override = {
       configured: Boolean(creds),
       enabled: targetRow.enabled,
+      circuitBreakerEnabled: targetRow.circuitBreakerEnabled,
+      maxRetries: clampProviderRetries(targetRow.maxRetries),
+      priority: targetRow.priority ?? 1,
       loginMasked: creds ? maskDataforseoLogin(creds.login) : null,
       passwordConfigured: Boolean(creds?.password),
     };
   }
 
+  const credentialFingerprint = await fingerprintProviderCredential(
+    "dataforseo",
+    [effective.login, effective.password],
+  );
+
   return {
     provider: "dataforseo",
     configured: effective.configured,
     enabled: effective.enabled,
+    circuitBreakerEnabled: effective.circuitBreakerEnabled,
+    maxRetries: effective.maxRetries,
+    priority: effective.priority,
     source: effective.source,
     loginMasked: maskDataforseoLogin(effective.login),
     passwordConfigured: Boolean(effective.password),
     scope: projectId ? "project" : "organization",
     override,
+    circuit: getProviderCircuitView({
+      provider: "dataforseo",
+      organizationId,
+      projectId: effective.source === "project" ? projectId : null,
+      credentialFingerprint,
+    }),
   };
 }
 
@@ -325,6 +446,12 @@ export async function saveDataforseoSettings(
     patch.enabled !== undefined
       ? patch.enabled
       : (existingRow?.enabled ?? true);
+  const circuitBreakerEnabled =
+    patch.circuitBreakerEnabled ?? existingRow?.circuitBreakerEnabled ?? true;
+  const maxRetries = clampProviderRetries(
+    patch.maxRetries ?? existingRow?.maxRetries ?? 2,
+  );
+  const priority = patch.priority ?? existingRow?.priority ?? 1;
 
   if (isProject && projectId) {
     await SeoProviderSettingsRepository.upsertProjectProviderSettingsRow(
@@ -332,6 +459,9 @@ export async function saveDataforseoSettings(
       "dataforseo",
       {
         enabled,
+        circuitBreakerEnabled,
+        maxRetries,
+        priority,
         credentialsCiphertext,
       },
     );
@@ -341,9 +471,32 @@ export async function saveDataforseoSettings(
       "dataforseo",
       {
         enabled,
+        circuitBreakerEnabled,
+        maxRetries,
+        priority,
         credentialsCiphertext,
       },
     );
+  }
+
+  // Changing the circuit-breaker setting must clear stale runtime memory: a
+  // disabled breaker should never leave an old OPEN circuit behind (bypass on
+  // disable), and a re-enabled breaker must start from a clean CLOSED state.
+  // The identity mirrors the one used by getDataforseoSettingsView.
+  if (patch.circuitBreakerEnabled !== undefined) {
+    const effective = await resolveEffectiveDataforseoConfig({
+      organizationId,
+      projectId,
+    });
+    closeProviderCircuit({
+      provider: "dataforseo",
+      organizationId,
+      projectId: effective.source === "project" ? projectId : null,
+      credentialFingerprint: await fingerprintProviderCredential("dataforseo", [
+        effective.login,
+        effective.password,
+      ]),
+    });
   }
 
   console.info("audit", {
@@ -353,6 +506,7 @@ export async function saveDataforseoSettings(
     organizationId,
     projectId: projectId ?? null,
     enabled,
+    circuitBreakerEnabled,
   });
 
   return getDataforseoSettingsView({ organizationId, projectId });
@@ -390,6 +544,46 @@ export async function removeDataforseoSettings(input: {
   return getDataforseoSettingsView({ organizationId, projectId });
 }
 
+async function resolveProbeCredentials(input: {
+  organizationId: string;
+  projectId?: string | null;
+  login?: string;
+  password?: string;
+}): Promise<{
+  credentials: DataforseoCredentials | null;
+  projectScoped: boolean;
+}> {
+  const login = input.login?.trim();
+  const password = input.password?.trim();
+  if (login && password) {
+    return {
+      credentials: { login, password },
+      projectScoped: Boolean(input.projectId),
+    };
+  }
+
+  const effective = await resolveEffectiveDataforseoConfig({
+    organizationId: input.organizationId,
+    projectId: input.projectId,
+  });
+  if (login && effective.password) {
+    return {
+      credentials: { login, password: effective.password },
+      projectScoped: Boolean(input.projectId),
+    };
+  }
+  if (effective.login && effective.password) {
+    return {
+      credentials: {
+        login: effective.login,
+        password: effective.password,
+      },
+      projectScoped: effective.source === "project",
+    };
+  }
+  return { credentials: null, projectScoped: false };
+}
+
 /**
  * Test DataForSEO connection using the free, non-billable GET /v3/appendix/user_data endpoint.
  *
@@ -407,38 +601,8 @@ export async function testDataforseoConnection(input: {
   fetchFn?: typeof fetch;
 }): Promise<DataforseoConnectionTestResult> {
   const customFetch = input.fetchFn ?? fetch;
-
-  // 1. Resolve credentials: unsaved inputs if provided, else effective config
-  let credsToTest: DataforseoCredentials | null = null;
-  if (input.login?.trim() && input.password?.trim()) {
-    credsToTest = {
-      login: input.login.trim(),
-      password: input.password.trim(),
-    };
-  } else if (input.login?.trim() && !input.password?.trim()) {
-    // User passed login without changing password: merge with existing effective password
-    const effective = await resolveEffectiveDataforseoConfig({
-      organizationId: input.organizationId,
-      projectId: input.projectId,
-    });
-    if (effective.password) {
-      credsToTest = {
-        login: input.login.trim(),
-        password: effective.password,
-      };
-    }
-  } else {
-    const effective = await resolveEffectiveDataforseoConfig({
-      organizationId: input.organizationId,
-      projectId: input.projectId,
-    });
-    if (effective.login && effective.password) {
-      credsToTest = {
-        login: effective.login,
-        password: effective.password,
-      };
-    }
-  }
+  const { credentials: credsToTest, projectScoped } =
+    await resolveProbeCredentials(input);
 
   if (!credsToTest) {
     return {
@@ -448,6 +612,23 @@ export async function testDataforseoConnection(input: {
       billingStatus: "unknown",
     };
   }
+
+  const circuitIdentity: ProviderCircuitIdentity = {
+    provider: "dataforseo",
+    organizationId: input.organizationId,
+    projectId: projectScoped ? input.projectId : null,
+    credentialFingerprint: await fingerprintProviderCredential("dataforseo", [
+      credsToTest.login,
+      credsToTest.password,
+    ]),
+  };
+
+  const failed = (
+    result: DataforseoConnectionTestResult,
+  ): DataforseoConnectionTestResult => {
+    recordFailedProbe(circuitIdentity, result.reason);
+    return result;
+  };
 
   const basicAuth = Buffer.from(
     `${credsToTest.login}:${credsToTest.password}`,
@@ -470,48 +651,48 @@ export async function testDataforseoConnection(input: {
     const durationMs = Date.now() - startedAt;
 
     if (response.status === 401) {
-      return {
+      return failed({
         ok: false,
         status: 401,
         reason: "INVALID_CREDENTIALS",
         billingStatus: "unknown",
-      };
+      });
     }
 
     if (response.status === 402) {
-      return {
+      return failed({
         ok: false,
         status: 402,
         reason: "CREDITS_UNAVAILABLE",
         billingStatus: "credits_unavailable",
-      };
+      });
     }
 
     if (response.status === 429) {
-      return {
+      return failed({
         ok: false,
         status: 429,
         reason: "RATE_LIMITED",
         billingStatus: "unknown",
-      };
+      });
     }
 
     if (response.status >= 500) {
-      return {
+      return failed({
         ok: false,
         status: response.status,
         reason: "TRANSIENT_UPSTREAM",
         billingStatus: "unknown",
-      };
+      });
     }
 
     if (!response.ok) {
-      return {
+      return failed({
         ok: false,
         status: response.status,
         reason: "TRANSIENT_UPSTREAM",
         billingStatus: "unknown",
-      };
+      });
     }
 
     // Success response parsing
@@ -543,21 +724,30 @@ export async function testDataforseoConnection(input: {
     const payload = parsedPayload.success ? parsedPayload.data : {};
 
     if (payload.status_code === 40100) {
-      return {
+      return failed({
         ok: false,
         status: 401,
         reason: "INVALID_CREDENTIALS",
         billingStatus: "unknown",
-      };
+      });
+    }
+
+    if (payload.status_code === 40201) {
+      return failed({
+        ok: false,
+        status: 402,
+        reason: "DATAFORSEO_ACCOUNT_PAUSED",
+        billingStatus: "unknown",
+      });
     }
 
     if (payload.status_code === 40200 || payload.status_code === 40210) {
-      return {
+      return failed({
         ok: false,
         status: 402,
         reason: "CREDITS_UNAVAILABLE",
         billingStatus: "credits_unavailable",
-      };
+      });
     }
 
     const task = payload.tasks?.[0];
@@ -583,6 +773,8 @@ export async function testDataforseoConnection(input: {
       durationMs,
     });
 
+    closeProviderCircuit(circuitIdentity);
+
     return {
       ok: true,
       status: 200,
@@ -591,12 +783,12 @@ export async function testDataforseoConnection(input: {
       billingStatus,
     };
   } catch {
-    return {
+    return failed({
       ok: false,
       status: 503,
       reason: "TRANSIENT_UPSTREAM",
       billingStatus: "unknown",
-    };
+    });
   }
 }
 

@@ -26,7 +26,7 @@ function completedRunIdsForConfig(configId: string) {
     .where(
       and(
         eq(rankCheckRuns.configId, configId),
-        eq(rankCheckRuns.status, "completed"),
+        inArray(rankCheckRuns.status, ["completed", "partial"]),
       ),
     );
 }
@@ -77,51 +77,60 @@ export async function getLatestPositionsMap(
     .from(rankCheckRuns)
     .where(and(...runConditions));
 
-  const validSnapshotConditions = [
-    inArray(rankSnapshots.runId, completedRunIds),
-    inArray(rankSnapshots.trackingKeywordId, keywordIds),
-    or(
-      isNull(rankSnapshots.rankingStatus),
-      ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
-    ),
-  ];
-  if (options?.excludeRunId) {
-    validSnapshotConditions.push(ne(rankSnapshots.runId, options.excludeRunId));
-  }
-  if (options?.beforeDate) {
-    validSnapshotConditions.push(lt(rankSnapshots.checkedAt, options.beforeDate));
-  }
+  // D1 caps bound parameters at 100 per statement.
+  // The query references validSnapshotConditions twice (grouped subquery + outer where),
+  // each containing chunk keyword IDs plus completedRunIds and other filter params.
+  // Chunking by 40 keeps total parameters <= 90.
+  const CHUNK_SIZE = 40;
+  for (let i = 0; i < keywordIds.length; i += CHUNK_SIZE) {
+    const chunk = keywordIds.slice(i, i + CHUNK_SIZE);
 
-  const grouped = db
-    .select({
-      trackingKeywordId: rankSnapshots.trackingKeywordId,
-      device: rankSnapshots.device,
-      targetCheckedAt: max(rankSnapshots.checkedAt).as("target_checked_at"),
-    })
-    .from(rankSnapshots)
-    .where(and(...validSnapshotConditions))
-    .groupBy(rankSnapshots.trackingKeywordId, rankSnapshots.device)
-    .as("grouped");
-
-  const rows = await db
-    .select({
-      trackingKeywordId: rankSnapshots.trackingKeywordId,
-      device: rankSnapshots.device,
-      position: rankSnapshots.position,
-    })
-    .from(rankSnapshots)
-    .innerJoin(
-      grouped,
-      and(
-        eq(rankSnapshots.trackingKeywordId, grouped.trackingKeywordId),
-        eq(rankSnapshots.device, grouped.device),
-        eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
+    const validSnapshotConditions = [
+      inArray(rankSnapshots.runId, completedRunIds),
+      inArray(rankSnapshots.trackingKeywordId, chunk),
+      or(
+        isNull(rankSnapshots.rankingStatus),
+        ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
       ),
-    )
-    .where(and(...validSnapshotConditions));
+    ];
+    if (options?.excludeRunId) {
+      validSnapshotConditions.push(ne(rankSnapshots.runId, options.excludeRunId));
+    }
+    if (options?.beforeDate) {
+      validSnapshotConditions.push(lt(rankSnapshots.checkedAt, options.beforeDate));
+    }
 
-  for (const row of rows) {
-    map.set(`${row.trackingKeywordId}:${row.device}`, row.position);
+    const grouped = db
+      .select({
+        trackingKeywordId: rankSnapshots.trackingKeywordId,
+        device: rankSnapshots.device,
+        targetCheckedAt: max(rankSnapshots.checkedAt).as("target_checked_at"),
+      })
+      .from(rankSnapshots)
+      .where(and(...validSnapshotConditions))
+      .groupBy(rankSnapshots.trackingKeywordId, rankSnapshots.device)
+      .as("grouped");
+
+    const rows = await db
+      .select({
+        trackingKeywordId: rankSnapshots.trackingKeywordId,
+        device: rankSnapshots.device,
+        position: rankSnapshots.position,
+      })
+      .from(rankSnapshots)
+      .innerJoin(
+        grouped,
+        and(
+          eq(rankSnapshots.trackingKeywordId, grouped.trackingKeywordId),
+          eq(rankSnapshots.device, grouped.device),
+          eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
+        ),
+      )
+      .where(and(...validSnapshotConditions));
+
+    for (const row of rows) {
+      map.set(`${row.trackingKeywordId}:${row.device}`, row.position);
+    }
   }
   return map;
 }
@@ -186,9 +195,16 @@ export async function getConfigTrend(
     .where(
       and(
         eq(rankCheckRuns.configId, configId),
-        eq(rankCheckRuns.status, "completed"),
+        inArray(rankCheckRuns.status, ["completed", "partial"]),
         eq(rankCheckRuns.isSubsetRun, false),
         eq(rankSnapshots.device, device),
+        or(
+          isNull(rankSnapshots.rankingStatus),
+          and(
+            ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+            ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+          ),
+        ),
         gte(rankSnapshots.checkedAt, cutoffTimestamp(sinceDays)),
       ),
     )
@@ -212,7 +228,7 @@ export async function getPositionMatrix(
     .where(
       and(
         eq(rankCheckRuns.configId, configId),
-        eq(rankCheckRuns.status, "completed"),
+        inArray(rankCheckRuns.status, ["completed", "partial"]),
         eq(rankCheckRuns.isSubsetRun, false),
       ),
     )
@@ -232,6 +248,13 @@ export async function getPositionMatrix(
       and(
         inArray(rankSnapshots.runId, recentRunIds),
         eq(rankSnapshots.device, device),
+        or(
+          isNull(rankSnapshots.rankingStatus),
+          and(
+            ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+            ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+          ),
+        ),
       ),
     )
     .orderBy(asc(rankCheckRuns.startedAt));
@@ -246,23 +269,43 @@ export async function getPositionMatrix(
  */
 export async function getSnapshotsForConfig(
   configId: string,
-  opts: { beforeDate?: string; order: "latest" | "earliest" },
+  opts: {
+    beforeDate?: string;
+    order: "latest" | "earliest";
+    validOnly?: boolean;
+  },
 ) {
-  const completedRunIds = db
+  const allowedStatuses: ("completed" | "partial" | "failed")[] = opts.validOnly
+    ? ["completed", "partial"]
+    : ["completed", "partial", "failed"];
+
+  const candidateRunIds = db
     .select({ id: rankCheckRuns.id })
     .from(rankCheckRuns)
     .where(
       and(
         eq(rankCheckRuns.configId, configId),
-        eq(rankCheckRuns.status, "completed"),
+        inArray(rankCheckRuns.status, allowedStatuses),
       ),
     );
 
   const aggFn = opts.order === "latest" ? max : min;
 
-  const conditions = [inArray(rankSnapshots.runId, completedRunIds)];
+  const conditions = [inArray(rankSnapshots.runId, candidateRunIds)];
   if (opts.beforeDate) {
     conditions.push(lte(rankSnapshots.checkedAt, opts.beforeDate));
+  }
+  if (opts.validOnly) {
+    const validCond = or(
+      isNull(rankSnapshots.rankingStatus),
+      and(
+        ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+        ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+      ),
+    );
+    if (validCond) {
+      conditions.push(validCond);
+    }
   }
 
   const grouped = db
@@ -284,8 +327,14 @@ export async function getSnapshotsForConfig(
       keyword: rankSnapshots.keyword,
       device: rankSnapshots.device,
       position: rankSnapshots.position,
+      previousPosition: rankSnapshots.previousPosition,
+      rankingStatus: rankSnapshots.rankingStatus,
       url: rankSnapshots.url,
       serpFeatures: rankSnapshots.serpFeatures,
+      provider: rankSnapshots.provider,
+      providerStatus: rankSnapshots.providerStatus,
+      providerStatusCode: rankSnapshots.providerStatusCode,
+      errorMessage: rankSnapshots.errorMessage,
       checkedAt: rankSnapshots.checkedAt,
     })
     .from(rankSnapshots)
@@ -297,18 +346,26 @@ export async function getSnapshotsForConfig(
         eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
       ),
     )
-    .where(inArray(rankSnapshots.runId, completedRunIds));
+    .where(and(...conditions));
 }
 
 export async function getLatestSnapshotsForKeywords(configId: string) {
   return getSnapshotsForConfig(configId, { order: "latest" });
 }
 
+export async function getLatestValidSnapshotsForKeywords(configId: string) {
+  return getSnapshotsForConfig(configId, { order: "latest", validOnly: true });
+}
+
 export async function getSnapshotsBeforeDate(
   configId: string,
   beforeDate: string,
 ) {
-  return getSnapshotsForConfig(configId, { beforeDate, order: "latest" });
+  return getSnapshotsForConfig(configId, {
+    beforeDate,
+    order: "latest",
+    validOnly: true,
+  });
 }
 
 export async function getEarliestSnapshotsForKeywords(
@@ -323,18 +380,31 @@ export async function getEarliestSnapshotsForKeywords(
     .where(
       and(
         eq(rankCheckRuns.configId, configId),
-        eq(rankCheckRuns.status, "completed"),
+        inArray(rankCheckRuns.status, ["completed", "partial"]),
       ),
     );
 
   // D1 caps bound parameters at 100 per statement. The query binds N keyword
-  // IDs plus 4 params from the completedRunIds subquery (referenced twice).
-  // (Postgres allows far more, but the chunking is harmless there.)
-  const CHUNK_SIZE = 90;
+  // IDs plus 5 params from completedRunIds and rankingStatus, referenced TWICE
+  // (both in the `grouped` subquery and the outer `where`).
+  // With CHUNK_SIZE = 40: (5 + 40) * 2 = 90 params <= 100 limit.
+  const CHUNK_SIZE = 40;
   const allResults: Awaited<ReturnType<typeof getSnapshotsForConfig>> = [];
 
   for (let i = 0; i < keywordIds.length; i += CHUNK_SIZE) {
     const chunk = keywordIds.slice(i, i + CHUNK_SIZE);
+
+    const validConditions = [
+      inArray(rankSnapshots.runId, completedRunIds),
+      inArray(rankSnapshots.trackingKeywordId, chunk),
+      or(
+        isNull(rankSnapshots.rankingStatus),
+        and(
+          ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+          ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+        ),
+      ),
+    ];
 
     const grouped = db
       .select({
@@ -343,12 +413,7 @@ export async function getEarliestSnapshotsForKeywords(
         targetCheckedAt: min(rankSnapshots.checkedAt).as("target_checked_at"),
       })
       .from(rankSnapshots)
-      .where(
-        and(
-          inArray(rankSnapshots.runId, completedRunIds),
-          inArray(rankSnapshots.trackingKeywordId, chunk),
-        ),
-      )
+      .where(and(...validConditions))
       .groupBy(rankSnapshots.trackingKeywordId, rankSnapshots.device)
       .as("grouped");
 
@@ -360,8 +425,14 @@ export async function getEarliestSnapshotsForKeywords(
         keyword: rankSnapshots.keyword,
         device: rankSnapshots.device,
         position: rankSnapshots.position,
+        previousPosition: rankSnapshots.previousPosition,
+        rankingStatus: rankSnapshots.rankingStatus,
         url: rankSnapshots.url,
         serpFeatures: rankSnapshots.serpFeatures,
+        provider: rankSnapshots.provider,
+        providerStatus: rankSnapshots.providerStatus,
+        providerStatusCode: rankSnapshots.providerStatusCode,
+        errorMessage: rankSnapshots.errorMessage,
         checkedAt: rankSnapshots.checkedAt,
       })
       .from(rankSnapshots)
@@ -373,7 +444,7 @@ export async function getEarliestSnapshotsForKeywords(
           eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
         ),
       )
-      .where(inArray(rankSnapshots.runId, completedRunIds));
+      .where(and(...validConditions));
 
     allResults.push(...rows);
   }

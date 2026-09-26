@@ -5,12 +5,14 @@ import {
   rankTrackingConfigs,
   rankCheckRuns,
   rankSnapshots,
+  rankProviderCalls,
   rankTrackingKeywords,
   projects,
 } from "@/db/schema";
 import { executeInBatches } from "@/db/runBatch";
 import {
   getLatestSnapshotsForKeywords,
+  getLatestValidSnapshotsForKeywords,
   getSnapshotsBeforeDate,
   getEarliestSnapshotsForKeywords,
   getKeywordHistory,
@@ -18,6 +20,7 @@ import {
   getPositionMatrix,
   getLatestPositionsMap,
 } from "./snapshotQueries";
+import { getLatestRankingFactsForConfig } from "./missingRankingQueries";
 
 // ---------------------------------------------------------------------------
 // Config CRUD
@@ -70,7 +73,7 @@ async function getConfigByProjectDomainLocation(
         eq(rankTrackingConfigs.projectId, projectId),
         eq(rankTrackingConfigs.domain, domain),
         eq(rankTrackingConfigs.locationCode, locationCode),
-        // National (NULL) and per-city configs are distinct rows — mirrors
+        // National (NULL) and per-city configs are distinct rows ΓÇö mirrors
         // the partial unique indexes, so a national config and any number of
         // city configs can coexist for the same domain.
         locationName === null
@@ -138,7 +141,7 @@ async function getDueConfigsWithOrganization(nowIso: string) {
 /**
  * Try to insert a new pending run. Returns true if inserted, false if blocked
  * by the partial unique index on (config_id) WHERE status IN ('pending',
- * 'running') — i.e. another active run exists for this config.
+ * 'running') ΓÇö i.e. another active run exists for this config.
  *
  * This is how duplicate-trigger protection is enforced: the DB rejects the
  * second insert rather than a separate lock table.
@@ -249,6 +252,25 @@ async function getSnapshotsForRun(runId: string) {
   return db.select().from(rankSnapshots).where(eq(rankSnapshots.runId, runId));
 }
 
+async function insertProviderCalls(
+  calls: Array<
+    Omit<InferInsertModel<typeof rankProviderCalls>, "id" | "createdAt">
+  >,
+) {
+  if (calls.length === 0) return;
+  await executeInBatches(calls, (tx, call) =>
+    tx.insert(rankProviderCalls).values(call),
+  );
+}
+
+async function getProviderCallsForRun(runId: string) {
+  return db
+    .select()
+    .from(rankProviderCalls)
+    .where(eq(rankProviderCalls.runId, runId))
+    .orderBy(rankProviderCalls.id);
+}
+
 // ---------------------------------------------------------------------------
 // Tracking keywords per config
 // ---------------------------------------------------------------------------
@@ -273,14 +295,19 @@ async function removeKeywordsFromConfig(
   keywordIds: string[],
   configId: string,
 ) {
-  await db
-    .delete(rankTrackingKeywords)
-    .where(
-      and(
-        inArray(rankTrackingKeywords.id, keywordIds),
-        eq(rankTrackingKeywords.configId, configId),
-      ),
-    );
+  if (keywordIds.length === 0) return;
+  const CHUNK_SIZE = 90;
+  for (let i = 0; i < keywordIds.length; i += CHUNK_SIZE) {
+    const chunk = keywordIds.slice(i, i + CHUNK_SIZE);
+    await db
+      .delete(rankTrackingKeywords)
+      .where(
+        and(
+          inArray(rankTrackingKeywords.id, chunk),
+          eq(rankTrackingKeywords.configId, configId),
+        ),
+      );
+  }
 }
 
 async function getConfigSummaries(projectId: string) {
@@ -400,6 +427,8 @@ export const RankTrackingRepository = {
   getActiveRunForConfig,
   insertSnapshots,
   getSnapshotsForRun,
+  insertProviderCalls,
+  getProviderCallsForRun,
   getKeywordsForConfig,
   addKeywordsToConfig,
   removeKeywordsFromConfig,
@@ -407,10 +436,12 @@ export const RankTrackingRepository = {
   getKeywordCountForConfig,
   getConfigSummaries,
   getLatestSnapshotsForKeywords,
+  getLatestValidSnapshotsForKeywords,
   getSnapshotsBeforeDate,
   getEarliestSnapshotsForKeywords,
   getKeywordHistory,
   getConfigTrend,
   getPositionMatrix,
   getLatestPositionsMap,
+  getLatestRankingFactsForConfig,
 };

@@ -24,7 +24,6 @@ export const GSC_GRAIN_CONFIGS: Array<{
   { grain: "query_page", dimensions: ["date", "query", "page"] },
   { grain: "country", dimensions: ["date", "country"] },
   { grain: "device", dimensions: ["date", "device"] },
-  { grain: "search_appearance", dimensions: ["date", "searchAppearance"] },
 ];
 
 export type DateChunk = {

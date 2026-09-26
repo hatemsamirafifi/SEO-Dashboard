@@ -22,7 +22,7 @@ describe("DeviceRankCell — disambiguating position '-'", () => {
     expect(html).not.toBe('<span class="text-base-content/40">-</span>');
   });
 
-  it("renders 'No ranking found' when keyword was checked but domain is not in top 100", () => {
+  it("renders 'No ranking found' when keyword was checked but domain is not in configured SERP depth", () => {
     const result: RankTrackingDeviceResult = {
       position: null,
       previousPosition: null,
@@ -32,11 +32,18 @@ describe("DeviceRankCell — disambiguating position '-'", () => {
       status: "not_ranking",
     };
 
-    const html = renderToStaticMarkup(
+    const htmlDefault = renderToStaticMarkup(
       React.createElement(DeviceRankCell, { result }),
     );
-    expect(html).toContain("No ranking found");
-    expect(html).not.toBe('<span class="text-base-content/40">-</span>');
+    expect(htmlDefault).toContain("No ranking found");
+    expect(htmlDefault).toContain("tracked search depth");
+    expect(htmlDefault).not.toBe('<span class="text-base-content/40">-</span>');
+
+    const htmlConfigured = renderToStaticMarkup(
+      React.createElement(DeviceRankCell, { result, serpDepth: 20 }),
+    );
+    expect(htmlConfigured).toContain("No ranking found");
+    expect(htmlConfigured).toContain("top 20 Google organic results");
   });
 
   it("renders 'Checking…' when check is actively in-flight", () => {
@@ -54,7 +61,7 @@ describe("DeviceRankCell — disambiguating position '-'", () => {
     expect(html).toContain("Checking…");
   });
 
-  it("renders 'Check failed' when check errored", () => {
+  it("renders 'Ranking unavailable' when check errored", () => {
     const result: RankTrackingDeviceResult = {
       position: null,
       previousPosition: null,
@@ -66,7 +73,28 @@ describe("DeviceRankCell — disambiguating position '-'", () => {
     const html = renderToStaticMarkup(
       React.createElement(DeviceRankCell, { result }),
     );
-    expect(html).toContain("Check failed");
+    expect(html).toContain("Ranking unavailable");
+  });
+
+  it("renders 'Ranking unavailable' with last valid rank in tooltip when check failed and previous rank existed", () => {
+    const result: RankTrackingDeviceResult = {
+      position: null,
+      previousPosition: 8,
+      rankingUrl: null,
+      serpFeatures: [],
+      status: "failed",
+      rankingStatus: "CHECK_FAILED",
+      latestValidPosition: 8,
+      errorCode: "DATAFORSEO_ACCOUNT_PAUSED",
+      errorMessage: "DataForSEO access is temporarily paused",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(DeviceRankCell, { result }),
+    );
+    expect(html).toContain("Ranking unavailable");
+    expect(html).toContain("Last valid: #8");
+    expect(html).not.toContain("lost");
   });
 
   it("renders '#5' when ranked at position 5 with no previous comparison", () => {
@@ -121,7 +149,7 @@ describe("DeviceRankCell — disambiguating position '-'", () => {
 });
 
 describe("DeviceUrlCell — URL handling", () => {
-  it("renders 'No ranking URL' when checked but not in top 100", () => {
+  it("renders 'No ranking URL' when checked but domain is not in configured SERP depth", () => {
     const result: RankTrackingDeviceResult = {
       position: null,
       previousPosition: null,
@@ -131,10 +159,21 @@ describe("DeviceUrlCell — URL handling", () => {
       status: "not_ranking",
     };
 
-    const html = renderToStaticMarkup(
+    const htmlDefault = renderToStaticMarkup(
       React.createElement(DeviceUrlCell, { result, domain: "powersiment.ae" }),
     );
-    expect(html).toContain("No ranking URL");
+    expect(htmlDefault).toContain("No ranking URL");
+    expect(htmlDefault).toContain("tracked search depth");
+
+    const htmlConfigured = renderToStaticMarkup(
+      React.createElement(DeviceUrlCell, {
+        result,
+        domain: "powersiment.ae",
+        serpDepth: 20,
+      }),
+    );
+    expect(htmlConfigured).toContain("No ranking URL");
+    expect(htmlConfigured).toContain("top 20");
   });
 
   it("renders URL link when ranking URL exists", () => {
@@ -151,5 +190,23 @@ describe("DeviceUrlCell — URL handling", () => {
     );
     expect(html).toContain('href="https://powersiment.ae/article"');
     expect(html).toContain("/article");
+  });
+
+  it("renders '—' with tooltip when check failed", () => {
+    const result: RankTrackingDeviceResult = {
+      position: null,
+      previousPosition: null,
+      rankingUrl: null,
+      serpFeatures: [],
+      status: "failed",
+      rankingStatus: "CHECK_FAILED",
+      errorCode: "DATAFORSEO_ACCOUNT_PAUSED",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(DeviceUrlCell, { result, domain: "powersiment.ae" }),
+    );
+    expect(html).toContain("—");
+    expect(html).not.toContain("No ranking URL");
   });
 });

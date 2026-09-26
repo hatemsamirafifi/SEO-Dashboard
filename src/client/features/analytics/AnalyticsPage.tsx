@@ -138,7 +138,9 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
 
   const overview = overviewQuery.data;
   const view = toAnalyticsPageView({
-    connectionLoading: connectionQuery.isPending || syncQuery.isPending,
+    connectionLoading:
+      connectionQuery.isPending ||
+      (connectionQuery.data?.connected === true && syncQuery.isPending),
     syncLoading: false,
     connectionError: connectionQuery.isError,
     syncError: syncQuery.isError,

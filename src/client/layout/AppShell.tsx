@@ -13,6 +13,8 @@ import { BILLING_ROUTE } from "@/shared/billing";
 import { getSeoApiKeyStatus } from "@/serverFunctions/config";
 import { getProjects } from "@/serverFunctions/projects";
 import { getLastProjectId } from "@/client/lib/active-project";
+import { GlobalDebugTracePanel } from "@/client/features/tracing/GlobalDebugTracePanel";
+import { useGlobalTrace } from "@/client/features/tracing/useGlobalTrace";
 
 const DATAFORSEO_HELP_PATH = "/help/dataforseo-api-key";
 
@@ -33,7 +35,7 @@ export function AuthenticatedAppLayout({
   // On non-project pages (e.g. /settings) there's no projectId in the URL, so
   // derive one for the nav/switcher: prefer the last-visited project, else the
   // most recent. The whole app tree is client-only (see root ClientOnly), so we
-  // can read localStorage synchronously during the first render — this lets the
+  // can read localStorage synchronously during the first render ΓÇö this lets the
   // sidebar show the full project nav on the very first paint instead of briefly
   // flashing only the always-visible Connect group while projects load.
   const projectsQuery = useQuery({
@@ -56,6 +58,9 @@ export function AuthenticatedAppLayout({
   // builds links that self-correct via the route guard once data arrives.
   const sidebarProjectId =
     projectId ?? fallbackProjectId ?? rememberedProjectId;
+  const { panelOpen, setPanelOpen } = useGlobalTrace(
+    sidebarProjectId ?? undefined,
+  );
   const shouldCheckSeoApiKeyStatus = location.pathname !== BILLING_ROUTE;
   const seoApiKeyStatusQuery = useQuery({
     queryKey: ["seoApiKeyStatus"],
@@ -158,6 +163,13 @@ export function AuthenticatedAppLayout({
         projectId={sidebarProjectId}
         suppressed={shouldShowMissingSeoApiKeyModal}
       />
+
+      {panelOpen && (
+        <GlobalDebugTracePanel
+          projectId={sidebarProjectId ?? undefined}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import type { InferSelectModel } from "drizzle-orm";
 import { z } from "zod";
 import { rankTrackingConfigs } from "@/db/schema";
 import { MAX_TRACKED_KEYWORD_LENGTH } from "@/shared/rank-tracking";
+import type { MissingRankingsBreakdown } from "@/shared/rank-tracking";
 import { domainField } from "@/types/schemas/domain";
 
 // ---------------------------------------------------------------------------
@@ -24,12 +25,16 @@ export type RankCheckTriggerResult =
       validatedCount?: number;
       validatedKeywordIds?: string[];
       unselectedCount?: number;
+      breakdown?: MissingRankingsBreakdown;
     }
   | {
       ok: false;
-      reason: "already_running";
-      blockingRunId: string | null;
+      reason: "already_running" | "no_missing_rankings";
+      blockingRunId?: string | null;
       operationId?: string;
+      /** Missing-rankings mode: 0 keywords were eligible ΓÇö NO run created. */
+      eligibleCount?: number;
+      breakdown?: MissingRankingsBreakdown;
     };
 
 export interface RankTrackingDeviceResult {
@@ -39,6 +44,18 @@ export interface RankTrackingDeviceResult {
   serpFeatures: string[];
   checkedAt?: string | null;
   status?: "not_checked" | "ranked" | "not_ranking" | "failed" | "checking";
+  rankingStatus?:
+    | "RANKED"
+    | "NO_RESULT"
+    | "CHECK_FAILED"
+    | "NOT_CHECKED"
+    | null;
+  latestValidPosition?: number | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  providerStatus?: string | null;
+  providerStatusCode?: number | null;
+  provider?: string | null;
 }
 
 export interface RankTrackingRow {
@@ -89,7 +106,21 @@ export const triggerCheckSchema = z.object({
   projectId: z.string().uuid(),
   configId: z.string().uuid(),
   keywordIds: z.array(z.string().uuid()).max(2000).optional(),
+  /** "Check missing rankings" mode: resolve eligible ids server-side. */
+  missingRankings: z.boolean().optional(),
   operationId: z.string().optional(),
+});
+
+export const missingRankingsSummarySchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid(),
+  keywordIds: z.array(z.string().uuid()).max(2000).optional(),
+});
+
+export const cancelRankCheckSchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid().optional(),
+  runId: z.string().uuid(),
 });
 
 export const comparePeriodSchema = z.enum(["1d", "7d", "30d", "90d"]);

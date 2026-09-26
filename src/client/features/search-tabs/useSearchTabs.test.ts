@@ -100,4 +100,21 @@ describe("parseStoredState", () => {
 
     expect(state.tabs).toHaveLength(0);
   });
+
+  it("keeps up to 50 tabs persisted", () => {
+    const tabs = Array.from({ length: 20 }, (_, i) =>
+      persistedTab({
+        type: "keyword",
+        keyword: `keyword ${i}`,
+        resultLimit: 150,
+        mode: "auto",
+        clickstream: false,
+      }),
+    );
+    const state = parseStoredState({
+      activeTabId: "tab-1",
+      tabs,
+    });
+    expect(state.tabs).toHaveLength(20);
+  });
 });

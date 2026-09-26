@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { type ThemePreference, useThemePreference } from "@/client/lib/theme";
 import { AiSettingsSection } from "@/client/features/ai/AiSettingsSection";
-import { DataforseoSettingsSection } from "@/client/features/settings/DataforseoSettingsSection";
+import { SerpProvidersSettingsSection } from "@/client/features/settings/SerpProvidersSettingsSection";
 import { GlobalDebugTraceSettingsSection } from "@/client/features/tracing/GlobalDebugTraceSettingsSection";
 import { traceSettingsMutation } from "@/client/features/tracing/settingsTrace";
 import { authClient, useSession } from "@/lib/auth-client";
@@ -71,11 +71,11 @@ function SettingsPage() {
           <AiSettingsSection />
         </section>
 
-        <section id="dataforseo" className="space-y-3">
+        <section id="serp-providers" className="space-y-3">
           <h2 className="text-sm font-medium text-base-content/50">
-            Data provider
+            SERP Providers
           </h2>
-          <DataforseoSettingsSection />
+          <SerpProvidersSettingsSection />
         </section>
 
         <section id="debug-trace" className="space-y-3">

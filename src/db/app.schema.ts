@@ -291,7 +291,14 @@ export const rankCheckRuns = sqliteTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     status: text("status", {
-      enum: ["pending", "running", "completed", "failed"],
+      enum: [
+        "pending",
+        "running",
+        "completed",
+        "failed",
+        "partial",
+        "cancelled",
+      ],
     })
       .notNull()
       .default("pending"),
@@ -535,6 +542,18 @@ export const seoProviderSettings = sqliteTable(
       onDelete: "cascade",
     }),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    // Per-provider circuit-breaker opt-out. Default on for backward
+    // compatibility; disabled providers are retried on every eligible request.
+    circuitBreakerEnabled: integer("circuit_breaker_enabled", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(true),
+    // Max additional attempts for temporary request failures (0-5). Total
+    // attempts = retries + 1. Deterministic account/config failures never
+    // consume retries (see serp/retryPolicy).
+    maxRetries: integer("max_retries").notNull().default(2),
+    priority: integer("priority"),
     // Encrypted JSON { login: string, password: string }
     credentials: text("credentials"),
     updatedAt: text("updated_at")
@@ -548,6 +567,69 @@ export const seoProviderSettings = sqliteTable(
     uniqueIndex("seo_provider_settings_project_idx")
       .on(table.provider, table.projectId)
       .where(sql`${table.organizationId} is null`),
+  ],
+);
+
+// One row per HTTP request actually dispatched while resolving a rank check.
+// Keeping calls relational makes provider failover, pagination, and trace
+// accounting queryable without embedding telemetry in snapshot JSON.
+export const rankProviderCalls = sqliteTable(
+  "rank_provider_calls",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runId: text("run_id")
+      .notNull()
+      .references(() => rankCheckRuns.id, { onDelete: "cascade" }),
+    trackingKeywordId: text("tracking_keyword_id").notNull(),
+    device: text("device", { enum: ["desktop", "mobile"] }).notNull(),
+    provider: text("provider").notNull(),
+    endpoint: text("endpoint").notNull(),
+    status: text("status", {
+      enum: ["success", "failed", "insufficient_depth", "skipped"],
+    }).notNull(),
+    httpStatus: integer("http_status"),
+    errorCode: text("error_code"),
+    skipReason: text("skip_reason"),
+    circuitReason: text("circuit_reason"),
+    circuitOpenedAt: text("circuit_opened_at"),
+    circuitExpiresAt: text("circuit_expires_at"),
+    // Retry-policy attribution: 1-based attempt for this provider within one
+    // resolution, configured max retries, and whether the failure that ended
+    // this call was classified retryable.
+    attempt: integer("attempt"),
+    maxRetries: integer("max_retries"),
+    retryable: integer("retryable", { mode: "boolean" }),
+    retryAfterMs: integer("retry_after_ms"),
+    durationMs: integer("duration_ms").notNull(),
+    resultCount: integer("result_count"),
+    requestedDepth: integer("requested_depth").notNull().default(0),
+    inspectedDepth: integer("inspected_depth"),
+    pagesRequested: integer("pages_requested").notNull().default(0),
+    resultCompleteness: text("result_completeness", {
+      enum: [
+        "partial",
+        "complete",
+        "target_found",
+        "insufficient_depth",
+        "not_applicable",
+      ],
+    })
+      .notNull()
+      .default("not_applicable"),
+    dispatched: integer("dispatched", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    index("rank_provider_calls_run_idx").on(table.runId, table.createdAt),
+    index("rank_provider_calls_keyword_idx").on(
+      table.runId,
+      table.trackingKeywordId,
+      table.device,
+    ),
   ],
 );
 

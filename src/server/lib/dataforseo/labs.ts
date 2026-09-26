@@ -110,7 +110,7 @@ export async function fetchRelatedKeywords(input: {
       location_code: input.locationCode,
       language_code: input.languageCode,
       limit: input.limit,
-      depth: input.depth ?? 3,
+      depth: input.depth ?? 1,
       // Clickstream-refined volumes DOUBLE the request cost, so they are
       // opt-in — see specs/0004-keyword-data-source-routing.md.
       include_clickstream_data: input.includeClickstreamData ?? false,

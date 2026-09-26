@@ -192,7 +192,6 @@ function assemble(pages: PlacedLine[][]): PdfRenderResult {
   const objects: string[] = [];
   const pageObjectNumbers: number[] = [];
   let next = 5;
-  const contents: string[] = [];
   pages.forEach((lines, index) => {
     const pageObj = next;
     next += 1;

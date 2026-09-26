@@ -1,4 +1,4 @@
-// Normalized Global OpenSEO Operation Trace types (Phase — Global Debug Trace).
+// Normalized Global OpenSEO Operation Trace types (Phase ΓÇö Global Debug Trace).
 //
 // Shared between client and server for application operations (non-SAM).
 // Covers Rank Tracking, Keyword Research, Domain Overview, Backlinks, Site Audit,
@@ -23,7 +23,14 @@ export type GlobalTraceFeature =
   | "prompt_explorer"
   | "settings";
 
-export type GlobalTraceStatus = "running" | "success" | "failed" | "blocked";
+export type GlobalTraceStatus =
+  | "pending"
+  | "running"
+  | "cancelling"
+  | "success"
+  | "failed"
+  | "cancelled"
+  | "blocked";
 
 export type GlobalTraceFilter =
   | "all"
@@ -53,13 +60,36 @@ export type GlobalTraceProviderCall = {
   resultCount?: number;
   itemsCount?: number;
   tasksError?: number;
+  requestedDepth?: number;
+  inspectedDepth?: number | null;
+  pagesRequested?: number;
+  resultCompleteness?: string;
+  dispatched?: boolean;
+  circuitBreakerEnabled?: boolean;
+  /** 1-based attempt within this provider's retry sequence. */
+  attempt?: number;
+  /** Configured maximum additional retries for this provider (0-5). */
+  maxRetries?: number;
+  /** Whether the failure that ended this call is classified retryable. */
+  retryable?: boolean;
+  /** Provider-supplied Retry-After (bounded) in ms, when present. */
+  retryAfterMs?: number | null;
+  skipReason?: string | null;
+  circuitReason?: string | null;
+  circuitOpenedAt?: string | null;
+  circuitExpiresAt?: string | null;
 };
 
 export type GlobalTraceKeywordChild = {
   keywordId: string;
   keyword?: string; // safe display label
-  status: "success" | "failed" | "blocked" | "no_result";
-  rankingStatus?: "RANKED" | "NO_RESULT" | "CHECK_FAILED" | "NOT_CHECKED";
+  status: "success" | "failed" | "blocked" | "no_result" | "cancelled";
+  rankingStatus?:
+    | "RANKED"
+    | "NO_RESULT"
+    | "CHECK_FAILED"
+    | "NOT_CHECKED"
+    | "CANCELLED";
   provider?: string;
   durationMs?: number;
   positionBefore?: number | null;
@@ -94,6 +124,14 @@ export type GlobalTraceOperation = {
   completedAt?: number;
   durationMs?: number;
 
+  // Cancellation metadata
+  supportsCancellation?: boolean;
+  rankCheckRunId?: string;
+  cancelRequestedAt?: number;
+  cancelledAt?: number;
+  completedBeforeCancellation?: number;
+  remainingItems?: number;
+
   // Selection scope (Mandatory for rank tracking selected checks)
   scope?: "selected" | "all";
   selectedCount?: number;
@@ -105,7 +143,8 @@ export type GlobalTraceOperation = {
   selectedKeywordIds?: string[];
 
   // Provider summary & breakdown
-  provider?: string; // e.g. "DataForSEO ×4"
+  provider?: string; // e.g. "DataForSEO ├ù4"
+  providersConsidered?: number;
   providerCalls?: number;
   providerBreakdown?: Array<{ provider: string; count: number }>;
   providers?: GlobalTraceProviderCall[];

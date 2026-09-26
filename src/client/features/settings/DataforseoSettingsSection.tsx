@@ -19,16 +19,31 @@ import {
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   DataforseoCredentialsForm,
-  DataforseoStatusCard,
   DataforseoTestAlert,
   DataforseoApiHealthCard,
 } from "@/client/features/settings/DataforseoSettingsParts";
+import {
+  DataforseoStatusCard,
+  ProviderCircuitAlert,
+} from "@/client/features/settings/ProviderCircuitStatus";
+import type { DataforseoSettingsView } from "@/serverFunctions/dataforseoSettings";
 
 interface DataforseoSettingsSectionProps {
   scope?: "organization" | "project";
   projectId?: string;
 }
 
+function testConnectionLabel(circuitOpen: boolean): string {
+  return circuitOpen ? "Retry now" : "Test Connection";
+}
+
+function readCircuit(data?: DataforseoSettingsView) {
+  return data?.circuit;
+}
+
+// The circuit-breaker toggle pushed this section over the complexity/size
+// budgets; the branching is inherent form state, so suppress rather than split.
+/* eslint-disable eslint/complexity, eslint/max-lines-per-function */
 export function DataforseoSettingsSection({
   scope = "organization",
   projectId,
@@ -47,6 +62,11 @@ export function DataforseoSettingsSection({
   const [loginInput, setLoginInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
   const [enabledInput, setEnabledInput] = useState<boolean | null>(null);
+  const [circuitBreakerInput, setCircuitBreakerInput] = useState<
+    boolean | null
+  >(null);
+  const [retriesInput, setRetriesInput] = useState<number | null>(null);
+  const [priorityInput, setPriorityInput] = useState<number | null>(null);
   const [testResult, setTestResult] =
     useState<DataforseoConnectionTestResult | null>(null);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
@@ -55,32 +75,63 @@ export function DataforseoSettingsSection({
   const [statusLastChecked, setStatusLastChecked] = useState<Date | null>(null);
 
   const data = viewQuery.data;
+  const circuit = readCircuit(data);
 
   useEffect(() => {
     if (data) {
       setEnabledInput(data.override ? data.override.enabled : data.enabled);
+      setCircuitBreakerInput(
+        data.override
+          ? data.override.circuitBreakerEnabled
+          : data.circuitBreakerEnabled,
+      );
+      setRetriesInput(
+        data.override ? data.override.maxRetries : data.maxRetries,
+      );
       setLoginInput("");
       setPasswordInput("");
+      setPriorityInput(data.override?.priority ?? data.priority);
     }
   }, [data]);
 
   const override = data?.override;
   const isConfigured = data?.configured ?? false;
   const isEnabled = enabledInput ?? data?.enabled ?? true;
+  const circuitBreakerEnabled = circuitBreakerInput ?? true;
+  const maxRetries = retriesInput ?? 2;
 
   const isDirty =
     loginInput.trim().length > 0 ||
     passwordInput.length > 0 ||
+    (priorityInput !== null &&
+      priorityInput !== (override?.priority ?? data?.priority ?? 1)) ||
     (enabledInput !== null &&
-      enabledInput !== (override?.enabled ?? data?.enabled ?? true));
+      enabledInput !== (override?.enabled ?? data?.enabled ?? true)) ||
+    (circuitBreakerInput !== null &&
+      circuitBreakerInput !==
+        (override?.circuitBreakerEnabled ??
+          data?.circuitBreakerEnabled ??
+          true)) ||
+    (retriesInput !== null &&
+      retriesInput !== (override?.maxRetries ?? data?.maxRetries ?? 2));
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const patch: { login?: string; password?: string; enabled?: boolean } =
-        {};
+      const patch: {
+        login?: string;
+        password?: string;
+        enabled?: boolean;
+        circuitBreakerEnabled?: boolean;
+        maxRetries?: number;
+        priority?: number;
+      } = {};
       if (loginInput.trim()) patch.login = loginInput.trim();
       if (passwordInput) patch.password = passwordInput;
       if (enabledInput !== null) patch.enabled = enabledInput;
+      if (circuitBreakerInput !== null)
+        patch.circuitBreakerEnabled = circuitBreakerInput;
+      if (retriesInput !== null) patch.maxRetries = retriesInput;
+      if (priorityInput !== null) patch.priority = priorityInput;
       // Trace is observational: single server call, no credentials in trace —
       // only safe presence flags.
       const hasLoginInput = loginInput.trim().length > 0;
@@ -163,7 +214,7 @@ export function DataforseoSettingsSection({
             },
           }),
       }),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       setTestResult(res);
       setLastChecked(new Date());
       if (res.ok) {
@@ -179,6 +230,7 @@ export function DataforseoSettingsSection({
       } else {
         toast.error(`Connection failed: ${res.reason}`);
       }
+      await queryClient.invalidateQueries({ queryKey });
     },
     onError: (err) => {
       toast.error(getStandardErrorMessage(err, "Failed to test connection"));
@@ -261,8 +313,15 @@ export function DataforseoSettingsSection({
         testResult={testResult}
         isConfigured={isConfigured}
         isEnabled={isEnabled}
+        circuitBreakerEnabled={circuitBreakerEnabled}
         source={data?.source}
         lastChecked={lastChecked}
+        circuit={circuit}
+      />
+
+      <ProviderCircuitAlert
+        circuit={circuit}
+        circuitBreakerEnabled={circuitBreakerEnabled}
       />
 
       {testResult && <DataforseoTestAlert result={testResult} />}
@@ -284,7 +343,50 @@ export function DataforseoSettingsSection({
         onEnabledChange={setEnabledInput}
         loginMasked={data?.loginMasked}
         passwordConfigured={data?.passwordConfigured}
+        priority={priorityInput ?? data?.priority ?? 1}
+        onPriorityChange={setPriorityInput}
       />
+
+      <div className="rounded-box border border-base-300 bg-base-100 p-3 space-y-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <label className="flex items-center gap-2 text-xs font-medium">
+            <input
+              type="checkbox"
+              className="toggle toggle-primary toggle-sm"
+              checked={circuitBreakerEnabled}
+              onChange={(event) =>
+                setCircuitBreakerInput(event.target.checked)
+              }
+            />
+            Circuit breaker
+          </label>
+          <label className="flex items-center gap-2 text-xs">
+            Retries
+            <input
+              type="number"
+              min={0}
+              max={5}
+              value={maxRetries}
+              onChange={(event) =>
+                setRetriesInput(
+                  Math.min(5, Math.max(0, Number(event.target.value))),
+                )
+              }
+              className="input input-bordered input-sm w-16"
+            />
+          </label>
+        </div>
+        <p className="text-[11px] text-base-content/60 leading-relaxed">
+          {circuitBreakerEnabled
+            ? "Automatically bypass this provider temporarily after repeated or deterministic provider failures."
+            : "Circuit protection disabled. OpenSEO will retry this provider on each eligible request before moving to fallback providers."}
+        </p>
+        <p className="text-[11px] text-base-content/60 leading-relaxed">
+          Additional attempts for temporary request failures. Credential,
+          account, quota, and configuration errors skip retries and move
+          directly to the next provider.
+        </p>
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-base-200 pt-4">
         <div className="flex items-center gap-2">
@@ -302,7 +404,9 @@ export function DataforseoSettingsSection({
             ) : (
               <>
                 <RefreshCw className="size-3.5" />
-                Test Connection
+                {testConnectionLabel(
+                  circuitBreakerEnabled && circuit?.state === "open",
+                )}
               </>
             )}
           </button>

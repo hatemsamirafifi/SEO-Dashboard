@@ -1,7 +1,5 @@
 import { env } from "cloudflare:workers";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
-import type { KeywordMetricRow } from "@/server/lib/dataforseo";
-import { getSeoDataRouter } from "@/server/lib/seo-data";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import { AppError } from "@/server/lib/errors";
 import type {
@@ -13,14 +11,20 @@ import {
   reconcileActiveRankCheckRun,
 } from "./rankCheckRunGuards";
 import {
-  estimateRankCheckCredits,
   computeNextCheckAt,
-  devicesCount,
   isScheduledRankTrackingInterval,
   MAX_KEYWORDS_PER_CONFIG,
   MAX_CONFIGS_PER_PROJECT,
+  type MissingRankingsBreakdown,
 } from "@/shared/rank-tracking";
+import {
+  getMissingRankingsSummary,
+  resolveMissingRankingKeywordIds,
+} from "./missingRankings";
+import { refreshKeywordMetrics } from "./keywordMetrics";
 import { resolveMarket } from "@/shared/keyword-locations";
+import { formatRankTrackingCost } from "./rankTrackingCost";
+import { formatRankTrackingRun } from "./rankTrackingRun";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -57,7 +61,7 @@ async function createConfig(input: {
       locationName,
     );
   // The (project, domain, location) row still exists when a domain is
-  // archived — archiving only flips isActive to false. So re-adding an
+  // archived ΓÇö archiving only flips isActive to false. So re-adding an
   // archived domain reactivates that row (keeping its keyword/ranking
   // history) with the freshly chosen settings, rather than colliding with
   // the unique index. An already-active row is a genuine duplicate.
@@ -70,7 +74,7 @@ async function createConfig(input: {
     );
   }
 
-  // Enforced for reactivations too, not just new rows — otherwise archiving
+  // Enforced for reactivations too, not just new rows ΓÇö otherwise archiving
   // and re-adding domains would push a project past the active-config cap.
   const allConfigs = await RankTrackingRepository.getConfigsForProject(
     input.projectId,
@@ -169,7 +173,7 @@ async function addKeywords(
 
   // Filter out keywords that already exist for this config.
   // We must do this before inserting because onConflictDoNothing silently
-  // skips duplicates but we pre-generate UUIDs — returning those phantom IDs
+  // skips duplicates but we pre-generate UUIDs ΓÇö returning those phantom IDs
   // would cause the auto-check workflow to find no keywords and fail.
   const existing = await RankTrackingRepository.getKeywordsForConfig(configId);
 
@@ -224,9 +228,8 @@ async function validateSelectedKeywordIds(
 ): Promise<string[] | null> {
   if (!keywordIds || keywordIds.length === 0) return null;
 
-  const configKeywords = await RankTrackingRepository.getKeywordsForConfig(
-    configId,
-  );
+  const configKeywords =
+    await RankTrackingRepository.getKeywordsForConfig(configId);
   const configKeywordIds = new Set(configKeywords.map((kw) => kw.id));
 
   const seen = new Set<string>();
@@ -252,6 +255,7 @@ async function triggerCheck(input: {
   projectId: string;
   billingCustomer: BillingCustomerContext;
   keywordIds?: string[];
+  missingRankings?: boolean;
   operationId?: string;
 }): Promise<RankCheckTriggerResult> {
   const config = await getValidatedConfig(input.configId, input.projectId);
@@ -269,6 +273,34 @@ async function triggerCheck(input: {
     input.keywordIds,
   );
 
+  // "Check missing rankings" mode: eligibility is resolved here ΓÇö once at
+  // trigger time for the run's keyword scope, and again inside the workflow
+  // prepare step (fresh state at execution time, so a keyword that recovered
+  // between trigger and execution is not billed). Explicit selection
+  // intersects the eligible set. Zero eligible keywords returns BEFORE any
+  // run is created ΓÇö no empty provider-execution run ever exists.
+  let effectiveKeywordIds = requestedKeywordIds ?? undefined;
+  let missingBreakdown: MissingRankingsBreakdown | null = null;
+  if (input.missingRankings) {
+    const resolution = await resolveMissingRankingKeywordIds({
+      configId: config.id,
+      devices: config.devices,
+      keywordIds: requestedKeywordIds ?? undefined,
+    });
+    missingBreakdown = resolution.breakdown;
+    if (resolution.eligibleIds.length === 0) {
+      return {
+        ok: false,
+        reason: "no_missing_rankings",
+        blockingRunId: null,
+        operationId: input.operationId,
+        eligibleCount: 0,
+        breakdown: resolution.breakdown,
+      };
+    }
+    effectiveKeywordIds = resolution.eligibleIds;
+  }
+
   const runResult = await beginRankCheckRun({
     workflow: env.RANK_CHECK_WORKFLOW,
     config,
@@ -279,27 +311,29 @@ async function triggerCheck(input: {
       organizationId: input.billingCustomer.organizationId,
       projectId: input.billingCustomer.projectId,
     },
-    keywordsTotal: requestedKeywordIds
-      ? requestedKeywordIds.length
+    keywordsTotal: effectiveKeywordIds
+      ? effectiveKeywordIds.length
       : keywords.length,
-    keywordIds: requestedKeywordIds ?? undefined,
+    keywordIds: effectiveKeywordIds,
     trigger: "manual",
     workflowStartErrorMessage: "Failed to start rank check workflow",
+    missingRankings: input.missingRankings ?? false,
   });
 
   if (runResult.ok) {
     const totalTracked = keywords.length;
-    const validatedCount = requestedKeywordIds
-      ? requestedKeywordIds.length
+    const validatedCount = effectiveKeywordIds
+      ? effectiveKeywordIds.length
       : totalTracked;
     return {
       ...runResult,
       operationId: input.operationId,
-      scope: requestedKeywordIds ? "selected" : "all",
+      scope: effectiveKeywordIds ? "selected" : "all",
       selectedCount: input.keywordIds?.length ?? totalTracked,
       validatedCount,
-      validatedKeywordIds: requestedKeywordIds ?? undefined,
+      validatedKeywordIds: effectiveKeywordIds,
       unselectedCount: totalTracked - validatedCount,
+      ...(missingBreakdown ? { breakdown: missingBreakdown } : {}),
     };
   }
 
@@ -313,75 +347,24 @@ async function getLatestRun(configId: string, projectId: string) {
   await getValidatedConfig(configId, projectId);
   const run = await RankTrackingRepository.getLatestRunForConfig(configId);
   if (!run) return null;
+  const providerCalls = await RankTrackingRepository.getProviderCallsForRun(
+    run.id,
+  );
 
   // If the DB says the run is still active, check the workflow instance.
-  // We only report staleness here — the next call to beginRankCheckRun will
+  // We only report staleness here ΓÇö the next call to beginRankCheckRun will
   // mark a stale blocker as failed before retrying its insert. Mutating from
   // this read path caused a race where the original workflow kept running
   // while a replacement was started.
   const reconciliation = await reconcileActiveRankCheckRun(run);
   if (reconciliation) {
-    return formatRun(run, {
+    return formatRankTrackingRun(run, providerCalls, {
       maybeStale: true,
       staleReason: reconciliation.errorMessage,
     });
   }
 
-  return formatRun(run);
-}
-
-// ---------------------------------------------------------------------------
-// Keyword metrics (volume, difficulty, CPC)
-// ---------------------------------------------------------------------------
-
-async function refreshKeywordMetrics(
-  configId: string,
-  projectId: string,
-  billingCustomer: BillingCustomerContext,
-): Promise<{ updated: number }> {
-  const [config, keywords] = await Promise.all([
-    getValidatedConfig(configId, projectId),
-    RankTrackingRepository.getKeywordsForConfig(configId),
-  ]);
-  if (keywords.length === 0) return { updated: 0 };
-
-  const { data: metrics } = await getSeoDataRouter().route<KeywordMetricRow[]>({
-    dataType: "keyword_metrics",
-    keywords: keywords.map((kw) => kw.keyword),
-    locationCode: config.locationCode,
-    languageCode: config.languageCode,
-    billingCustomer,
-    creditFeature: "rank_tracking",
-    constraints: {
-      projectId,
-      // Local configs must retain city-scoped volume/CPC semantics. Providers
-      // that cannot honor this constraint report unsupported and fall through.
-      ...(config.locationName ? { locationName: config.locationName } : {}),
-    },
-  });
-  const byKeyword = new Map(
-    metrics.map((metric) => [metric.keyword.toLowerCase(), metric]),
-  );
-
-  const now = new Date().toISOString();
-  const updates = keywords
-    .map((kw) => {
-      const metric = byKeyword.get(kw.keyword.toLowerCase());
-      if (!metric) return null;
-      // Rank tracking only tracks volume / difficulty / CPC.
-      return {
-        id: kw.id,
-        searchVolume: metric.searchVolume,
-        keywordDifficulty: metric.keywordDifficulty,
-        cpc: metric.cpc,
-        metricsFetchedAt: now,
-      };
-    })
-    .filter((u): u is NonNullable<typeof u> => u !== null);
-
-  if (updates.length === 0) return { updated: 0 };
-  await RankTrackingRepository.updateKeywordMetrics(updates);
-  return { updated: updates.length };
+  return formatRankTrackingRun(run, providerCalls);
 }
 
 // ---------------------------------------------------------------------------
@@ -392,19 +375,7 @@ async function estimateCost(configId: string, projectId: string) {
   const config = await getValidatedConfig(configId, projectId);
   const keywordCount =
     await RankTrackingRepository.getKeywordCountForConfig(configId);
-  // Estimates the cost of a manual "check now", which always runs live.
-  const { costUsd, costCredits } = estimateRankCheckCredits(
-    keywordCount,
-    config.devices,
-    config.serpDepth,
-    "live",
-  );
-  return {
-    costUsd,
-    costCredits,
-    keywordCount,
-    devicesCount: devicesCount(config.devices),
-  };
+  return formatRankTrackingCost(config, keywordCount);
 }
 
 // ---------------------------------------------------------------------------
@@ -424,13 +395,10 @@ async function getValidatedConfig(configId: string, projectId: string) {
 
 function normalizeDomain(domain: string): string {
   let d = domain.trim().toLowerCase();
-  // Strip protocol
+  // Strip protocol, path/query/fragment, trailing slash, and www. prefix.
   d = d.replace(/^https?:\/\//, "");
-  // Strip path, query string, and fragment
   d = d.replace(/[/?#].*$/, "");
-  // Strip trailing slash
   d = d.replace(/\/+$/, "");
-  // Strip www. prefix
   d = d.replace(/^www\./, "");
   if (!d) {
     throw new AppError("INTERNAL_ERROR", "Invalid domain");
@@ -438,26 +406,57 @@ function normalizeDomain(domain: string): string {
   return d;
 }
 
-type RunRow = NonNullable<
-  Awaited<ReturnType<typeof RankTrackingRepository.getLatestRunForConfig>>
->;
+async function cancelRun(input: {
+  configId?: string;
+  projectId: string;
+  runId: string;
+}): Promise<{
+  ok: boolean;
+  runId: string;
+  status: string;
+  alreadyTerminal?: boolean;
+}> {
+  const run = await RankTrackingRepository.getRunById(input.runId);
+  if (
+    !run ||
+    run.projectId !== input.projectId ||
+    (input.configId && run.configId !== input.configId)
+  ) {
+    throw new AppError("NOT_FOUND", "Rank check run not found");
+  }
 
-function formatRun(
-  run: RunRow,
-  stale?: { maybeStale: boolean; staleReason: string },
-) {
-  return {
-    id: run.id,
-    status: run.status,
-    keywordsTotal: run.keywordsTotal,
-    keywordsChecked: run.keywordsChecked,
-    isSubsetRun: run.isSubsetRun,
-    errorMessage: run.errorMessage,
-    startedAt: run.startedAt,
-    completedAt: run.completedAt,
-    maybeStale: stale?.maybeStale ?? false,
-    staleReason: stale?.staleReason ?? null,
-  };
+  await getValidatedConfig(run.configId, input.projectId);
+
+  // Idempotency: if already in a terminal state, return without duplicate side effects
+  if (
+    run.status === "completed" ||
+    run.status === "failed" ||
+    run.status === "partial" ||
+    run.status === "cancelled"
+  ) {
+    return {
+      ok: true,
+      runId: run.id,
+      status: run.status,
+      alreadyTerminal: true,
+    };
+  }
+
+  const nowIso = new Date().toISOString();
+  await RankTrackingRepository.updateRun(run.id, {
+    status: "cancelled",
+    errorMessage: "Cancelled by user",
+    completedAt: nowIso,
+  });
+
+  try {
+    const instance = await env.RANK_CHECK_WORKFLOW.get(run.id);
+    await instance.terminate();
+  } catch {
+    // Workflow instance may not exist or terminate is unsupported in test env
+  }
+
+  return { ok: true, runId: run.id, status: "cancelled" };
 }
 
 export const RankTrackingService = {
@@ -466,7 +465,9 @@ export const RankTrackingService = {
   addKeywords,
   removeKeywords,
   triggerCheck,
+  getMissingRankingsSummary,
   getLatestRun,
   estimateCost,
   refreshKeywordMetrics,
+  cancelRun,
 };

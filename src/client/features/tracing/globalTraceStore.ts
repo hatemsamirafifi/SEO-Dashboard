@@ -1,81 +1,34 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
 import type {
   GlobalTraceFeature,
   GlobalTraceFilter,
   GlobalTraceOperation,
   GlobalTraceStatus,
 } from "@/shared/globalTraceTypes";
+import { computeProviderBreakdown } from "./globalTraceFormat";
+import { cancellationRegistry } from "./cancellationRegistry";
+import { dispatchRankCheckServerCancel } from "./rankCheckCancelDispatch";
 import {
-  computeProviderBreakdown,
-  filterOperations,
-} from "./globalTraceFormat";
+  DIAGNOSTICS_STORAGE_KEY,
+  MAX_OPERATIONS,
+  OPERATIONS_STORAGE_KEY,
+  getInitialDiagnosticsEnabled,
+  getInitialOperations,
+  isOperationArrayGuard,
+  safeTraceId,
+  saveDiagnosticsEnabledToStorage,
+  saveOperationsToStorage,
+} from "./globalTraceStorage";
 
-const MAX_OPERATIONS = 500;
-const DIAGNOSTICS_STORAGE_KEY = "openseo_global_diagnostics_enabled";
-export const OPERATIONS_STORAGE_KEY = "openseo_global_trace_operations";
+// Re-exported for existing consumers that import from the store module.
+export { safeTraceId } from "./globalTraceStorage";
 
 type Listener = () => void;
-
-/**
- * Secure-context-safe ID generation for trace/operation records.
- * `crypto.randomUUID` only exists in secure contexts (HTTPS / localhost);
- * on plain-HTTP origins it is undefined and would throw, which must never
- * break the underlying SEO operation being traced.
- */
-export function safeTraceId(): string {
-  try {
-    if (
-      typeof crypto !== "undefined" &&
-      typeof crypto.randomUUID === "function"
-    ) {
-      return crypto.randomUUID();
-    }
-  } catch {
-    // Fall through to the Math.random fallback below.
-  }
-  return `trace_${Date.now().toString(36)}_${Math.floor(
-    Math.random() * 0xffffff,
-  ).toString(36)}`;
-}
 
 export interface GlobalTraceStoreState {
   operations: GlobalTraceOperation[];
   diagnosticsEnabled: boolean;
   activeFilter: GlobalTraceFilter;
   panelOpen: boolean;
-}
-
-function getInitialDiagnosticsEnabled(): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    const stored = window.localStorage.getItem(DIAGNOSTICS_STORAGE_KEY);
-    if (stored !== null) {
-      return stored === "true";
-    }
-  } catch {
-    // Ignore localStorage access errors
-  }
-  return true;
-}
-
-function isOperationArray(val: unknown): val is GlobalTraceOperation[] {
-  return Array.isArray(val);
-}
-
-function getInitialOperations(): GlobalTraceOperation[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(OPERATIONS_STORAGE_KEY);
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (isOperationArray(parsed)) {
-        return parsed.slice(0, MAX_OPERATIONS);
-      }
-    }
-  } catch {
-    // Ignore localStorage access errors
-  }
-  return [];
 }
 
 class GlobalTraceStore {
@@ -97,12 +50,7 @@ class GlobalTraceStore {
   }
 
   private saveOperations(ops: GlobalTraceOperation[]) {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(OPERATIONS_STORAGE_KEY, JSON.stringify(ops));
-    } catch {
-      // Ignore localStorage access errors
-    }
+    saveOperationsToStorage(ops);
   }
 
   private handleStorageEvent = (event: StorageEvent) => {
@@ -110,7 +58,7 @@ class GlobalTraceStore {
       try {
         const raw = event.newValue;
         const parsed: unknown = raw ? JSON.parse(raw) : [];
-        if (isOperationArray(parsed)) {
+        if (isOperationArrayGuard(parsed)) {
           this.state = {
             ...this.state,
             operations: parsed.slice(0, MAX_OPERATIONS),
@@ -151,13 +99,7 @@ class GlobalTraceStore {
 
   setDiagnosticsEnabled = (enabled: boolean) => {
     if (this.state.diagnosticsEnabled === enabled) return;
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(DIAGNOSTICS_STORAGE_KEY, String(enabled));
-      } catch {
-        // Ignore
-      }
-    }
+    saveDiagnosticsEnabledToStorage(enabled);
     this.state = {
       ...this.state,
       diagnosticsEnabled: enabled,
@@ -240,7 +182,7 @@ class GlobalTraceStore {
       return operationId;
     } catch {
       // Diagnostic operations must never throw (and the fallback itself
-      // must not throw either — safeTraceId never uses crypto.randomUUID
+      // must not throw either ΓÇö safeTraceId never uses crypto.randomUUID
       // without a capability check).
       return input.operationId || safeTraceId();
     }
@@ -307,10 +249,17 @@ class GlobalTraceStore {
       const durationMs =
         patch.durationMs ?? Math.max(0, completedAt - existing.startedAt);
 
+      // Once an operation reaches terminal status 'cancelled', a later completion
+      // (e.g. from an out-of-order poll or delayed promise) must not overwrite 'cancelled'.
+      const targetStatus =
+        existing.status === "cancelled"
+          ? "cancelled"
+          : (patch.status ?? "success");
+
       const updated: GlobalTraceOperation = {
         ...existing,
         ...patch,
-        status: patch.status ?? "success",
+        status: targetStatus,
         completedAt,
         durationMs,
       };
@@ -321,8 +270,8 @@ class GlobalTraceStore {
 
       if (updated.providerBreakdown && !updated.provider) {
         updated.provider = updated.providerBreakdown
-          .map((item) => `${item.provider} ×${item.count}`)
-          .join(" · ");
+          .map((item) => `${item.provider} ├ù${item.count}`)
+          .join(" ┬╖ ");
       }
 
       const newOps = [
@@ -371,8 +320,8 @@ class GlobalTraceStore {
 
       if (fullOp.providerBreakdown && !fullOp.provider) {
         fullOp.provider = fullOp.providerBreakdown
-          .map((item) => `${item.provider} ×${item.count}`)
-          .join(" · ");
+          .map((item) => `${item.provider} ├ù${item.count}`)
+          .join(" ┬╖ ");
       }
 
       let newOps = [fullOp, ...this.state.operations];
@@ -392,16 +341,119 @@ class GlobalTraceStore {
   };
 
   /**
+   * Explicitly removes a single operation from the trace log.
+   * Does NOT affect or cancel the underlying task.
+   * Returns true if found and removed, false otherwise.
+   */
+  removeOperation = (operationId: string): boolean => {
+    try {
+      const index = this.state.operations.findIndex(
+        (op) => op.operationId === operationId,
+      );
+      if (index === -1) return false;
+
+      const newOps = [
+        ...this.state.operations.slice(0, index),
+        ...this.state.operations.slice(index + 1),
+      ];
+
+      this.state = {
+        ...this.state,
+        operations: newOps,
+      };
+      this.saveOperations(newOps);
+      this.notify();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * Cancels a currently running or pending operation.
+   * Invokes the registered cancellation handler if available.
+   * Required transition: running/pending -> cancelling -> cancelled.
+   * Idempotent: safe to call multiple times; ignores terminal operations.
+   */
+  cancelOperation = async (
+    operationId: string,
+    patch?: Partial<GlobalTraceOperation>,
+  ): Promise<boolean> => {
+    try {
+      const op = this.state.operations.find(
+        (item) => item.operationId === operationId,
+      );
+      if (!op) return false;
+
+      // Only pending or running operations can be cancelled
+      if (op.status !== "running" && op.status !== "pending") {
+        return false;
+      }
+
+      const cancelRequestedAt = Date.now();
+      this.updateOperation(operationId, {
+        status: "cancelling",
+        cancelRequestedAt,
+        ...(patch?.completedBeforeCancellation !== undefined && {
+          completedBeforeCancellation: patch.completedBeforeCancellation,
+        }),
+        ...(patch?.remainingItems !== undefined && {
+          remainingItems: patch.remainingItems,
+        }),
+      });
+
+      // Invoke registered cancellation handler, if any
+      try {
+        await cancellationRegistry.invoke(operationId);
+      } catch (err) {
+        console.error(
+          `Cancellation handler for ${operationId} encountered an error:`,
+          err,
+        );
+      }
+
+      // If this is a rank_tracking operation with a runId, dispatch real server cancellation directly
+      await dispatchRankCheckServerCancel(op);
+
+      // Check current state after invocation to respect races with natural completion
+      const current = this.state.operations.find(
+        (item) => item.operationId === operationId,
+      );
+      if (!current) return true;
+
+      // If the operation already reached success or failed in the meantime, keep it
+      if (current.status === "success" || current.status === "failed") {
+        return true;
+      }
+
+      const cancelledAt = Math.max(Date.now(), cancelRequestedAt);
+      this.completeOperation(operationId, {
+        ...patch,
+        status: "cancelled",
+        cancelledAt,
+        completedAt: cancelledAt,
+        errorMessage:
+          patch?.errorMessage ?? current.errorMessage ?? "Cancelled by user",
+      });
+
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /**
    * Explicitly clears the trace.
-   * If a projectId is provided, clears only operations belonging to that project.
+   * If a projectId is provided, clears all operations visible in that scope
+   * (both project-specific operations and global/settings operations).
    * If not provided, clears all operations.
    */
   clearTrace = (projectId?: string) => {
     try {
       let newOps: GlobalTraceOperation[];
       if (projectId) {
-        newOps = this.state.operations.filter(
-          (op) => op.projectId !== projectId,
+        newOps = this.state.operations.filter((op) =>
+          Boolean(op.projectId && op.projectId !== projectId),
         );
       } else {
         newOps = [];
@@ -432,47 +484,12 @@ class GlobalTraceStore {
     return this.state.operations.find(
       (op) =>
         op.feature === feature &&
-        op.status === "running" &&
+        (op.status === "running" ||
+          op.status === "cancelling" ||
+          op.status === "pending") &&
         (!projectId || !op.projectId || op.projectId === projectId),
     );
   };
 }
 
 export const globalTraceStore = new GlobalTraceStore();
-
-export function useGlobalTrace(projectId?: string) {
-  const state = useSyncExternalStore(
-    globalTraceStore.subscribe,
-    globalTraceStore.getState,
-    globalTraceStore.getState,
-  );
-
-  const scopedOperations = useMemo(() => {
-    return projectId
-      ? state.operations.filter(
-          (op) => !op.projectId || op.projectId === projectId,
-        )
-      : state.operations;
-  }, [state.operations, projectId]);
-
-  const filteredOperations = useMemo(() => {
-    return filterOperations(scopedOperations, state.activeFilter);
-  }, [scopedOperations, state.activeFilter]);
-
-  const clearTrace = useCallback(() => {
-    globalTraceStore.clearTrace(projectId);
-  }, [projectId]);
-
-  return {
-    operations: filteredOperations,
-    allOperations: scopedOperations,
-    totalCount: scopedOperations.length,
-    diagnosticsEnabled: state.diagnosticsEnabled,
-    activeFilter: state.activeFilter,
-    panelOpen: state.panelOpen,
-    setDiagnosticsEnabled: globalTraceStore.setDiagnosticsEnabled,
-    setActiveFilter: globalTraceStore.setActiveFilter,
-    setPanelOpen: globalTraceStore.setPanelOpen,
-    clearTrace,
-  };
-}

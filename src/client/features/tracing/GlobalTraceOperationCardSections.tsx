@@ -2,7 +2,26 @@ import type {
   GlobalTraceKeywordChild,
   GlobalTraceOperation,
 } from "@/shared/globalTraceTypes";
+import type { MissingRankingsBreakdown } from "@/shared/rank-tracking";
 import { formatTraceDuration } from "./globalTraceFormat";
+
+function formatCircuitRetryAfter(expiresAt?: string | null): string | null {
+  if (!expiresAt) return null;
+  const remaining = Math.max(
+    0,
+    Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000),
+  );
+  return `${Math.floor(remaining / 60)}m ${remaining % 60}s`;
+}
+
+function childStatusClass(child: GlobalTraceKeywordChild): string {
+  if (child.rankingStatus === "RANKED" || child.status === "success")
+    return "text-success";
+  if (child.rankingStatus === "NO_RESULT" || child.status === "no_result")
+    return "text-base-content/60";
+  if (child.rankingStatus === "NOT_CHECKED") return "text-base-content/40";
+  return child.status === "blocked" ? "text-warning" : "text-error";
+}
 
 export function ScopeSection({
   operation,
@@ -16,6 +35,12 @@ export function ScopeSection({
 
   if (!hasScope) return null;
 
+  const breakdown = (
+    operation.metadata as
+      | { missingRankingsBreakdown?: MissingRankingsBreakdown }
+      | undefined
+  )?.missingRankingsBreakdown;
+
   return (
     <div className="space-y-1.5">
       <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/50">
@@ -24,8 +49,10 @@ export function ScopeSection({
       <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         <div className="rounded border border-base-200 bg-base-100 p-2">
           <div className="text-base-content/60">Scope</div>
-          <div className="font-semibold capitalize text-base-content">
-            {operation.scope ?? "Standard"}
+          <div className="font-semibold text-base-content">
+            {operation.operation === "rank_tracking.check_missing_rankings"
+              ? "Missing rankings"
+              : (operation.scope ?? "Standard")}
           </div>
         </div>
         <div className="rounded border border-base-200 bg-base-100 p-2">
@@ -43,7 +70,7 @@ export function ScopeSection({
         <div className="rounded border border-base-200 bg-base-100 p-2">
           <div className="text-base-content/60">Checks Started</div>
           <div className="font-mono font-semibold text-base-content">
-            {operation.rankChecksStarted ?? operation.validatedCount ?? 0}
+            {operation.rankChecksStarted ?? 0}
           </div>
         </div>
       </div>
@@ -54,13 +81,13 @@ export function ScopeSection({
         <div className="flex flex-wrap gap-3 pt-1 text-xs">
           {operation.rankChecksSucceeded !== undefined && (
             <span className="font-medium text-success">
-              ✓ {operation.rankChecksSucceeded} succeeded
+              Γ£ô {operation.rankChecksSucceeded} succeeded
             </span>
           )}
           {operation.rankChecksFailed !== undefined &&
             operation.rankChecksFailed > 0 && (
               <span className="font-medium text-error">
-                ✗ {operation.rankChecksFailed} failed
+                Γ£ù {operation.rankChecksFailed} failed
               </span>
             )}
           {operation.rankChecksSkipped !== undefined &&
@@ -72,6 +99,21 @@ export function ScopeSection({
         </div>
       )}
 
+      {breakdown && (
+        <div className="flex flex-wrap gap-3 pt-1 text-xs text-base-content/60">
+          <span>
+            Ranking unavailable:{" "}
+            <span className="font-mono">{breakdown.ranking_unavailable}</span>
+          </span>
+          <span>
+            Lost: <span className="font-mono">{breakdown.lost}</span>
+          </span>
+          <span>
+            No ranking:{" "}
+            <span className="font-mono">{breakdown.no_ranking}</span>
+          </span>
+        </div>
+      )}
       {operation.selectedKeywordIds &&
         operation.selectedKeywordIds.length > 0 && (
           <div className="pt-1">
@@ -104,11 +146,17 @@ export function ProviderSection({
       <h4 className="text-xs font-semibold uppercase tracking-wider text-base-content/50">
         Provider & Network
       </h4>
-      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+        <div className="rounded border border-base-200 bg-base-100 p-2">
+          <div className="text-base-content/60">Providers Considered</div>
+          <div className="font-mono font-semibold text-base-content">
+            {operation.providersConsidered ?? operation.providers?.length ?? 0}
+          </div>
+        </div>
         <div className="rounded border border-base-200 bg-base-100 p-2">
           <div className="text-base-content/60">Provider Calls</div>
           <div className="font-mono font-semibold text-base-content">
-            {operation.providerCalls ?? operation.providers?.length ?? 0}
+            {operation.providerCalls ?? 0}
           </div>
         </div>
         <div className="rounded border border-base-200 bg-base-100 p-2">
@@ -147,6 +195,15 @@ export function ProviderSection({
                 )}
               </div>
               <div className="flex items-center gap-2 text-base-content/70">
+                {p.attempt !== undefined && (
+                  <span>
+                    Attempt {p.attempt}
+                    {typeof p.maxRetries === "number"
+                      ? `/${p.maxRetries + 1}`
+                      : ""}
+                  </span>
+                )}
+                {p.dispatched === false && <span>SKIPPED</span>}
                 {p.httpStatus && <span>HTTP {p.httpStatus}</span>}
                 {p.taskStatus && <span>Task {p.taskStatus}</span>}
                 {p.transport && <span>[{p.transport}]</span>}
@@ -154,6 +211,78 @@ export function ProviderSection({
                   <span>{formatTraceDuration(p.durationMs)}</span>
                 )}
               </div>
+              {(p.requestedDepth !== undefined ||
+                p.inspectedDepth !== undefined ||
+                p.pagesRequested !== undefined ||
+                p.circuitBreakerEnabled === false ||
+                typeof p.maxRetries === "number" ||
+                p.resultCompleteness) && (
+                <div className="mt-1 flex w-full flex-wrap gap-x-3 text-[11px] text-base-content/60">
+                  {p.requestedDepth !== undefined && (
+                    <span>Requested depth: {p.requestedDepth}</span>
+                  )}
+                  {p.inspectedDepth !== undefined && (
+                    <span>Inspected depth: {p.inspectedDepth ?? "N/A"}</span>
+                  )}
+                  {p.pagesRequested !== undefined && (
+                    <span>Pages: {p.pagesRequested}</span>
+                  )}
+                  {p.resultCompleteness && (
+                    <span>Outcome: {p.resultCompleteness.toUpperCase()}</span>
+                  )}
+                  {typeof p.maxRetries === "number" && (
+                    <span>Retries configured: {p.maxRetries}</span>
+                  )}
+                  {p.dispatched !== false &&
+                    p.circuitBreakerEnabled === false && (
+                      <span>Circuit protection: Disabled</span>
+                    )}
+                </div>
+              )}
+              {p.retryable === true && p.dispatched !== false && (
+                <div className="mt-1 w-full text-[11px] text-warning">
+                  <span className="font-semibold">Retryable:</span> Yes
+                  {typeof p.retryAfterMs === "number" && p.retryAfterMs > 0 && (
+                    <> ┬╖ Retry-After: {p.retryAfterMs}ms</>
+                  )}
+                </div>
+              )}
+              {p.retryable === false && p.dispatched !== false && (
+                <div className="mt-1 w-full text-[11px] text-base-content/60">
+                  <span className="font-semibold">Retryable:</span> No ┬╖ retries
+                  skipped for this failure class
+                </div>
+              )}
+              {p.dispatched === false && p.skipReason && (
+                <div className="mt-1 w-full text-[11px] text-base-content/70">
+                  <span className="font-semibold">Reason:</span> {p.skipReason}
+                  {p.circuitBreakerEnabled === false && (
+                    <>
+                      {" ┬╖ "}
+                      <span className="font-semibold">
+                        Circuit protection:
+                      </span>{" "}
+                      Disabled
+                    </>
+                  )}
+                  {p.circuitReason && (
+                    <>
+                      {" ┬╖ "}
+                      <span className="font-semibold">
+                        Circuit reason:
+                      </span>{" "}
+                      {p.circuitReason}
+                    </>
+                  )}
+                  {formatCircuitRetryAfter(p.circuitExpiresAt) && (
+                    <>
+                      {" ┬╖ "}
+                      <span className="font-semibold">Retry after:</span>{" "}
+                      {formatCircuitRetryAfter(p.circuitExpiresAt)}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -251,12 +380,12 @@ export function ChildrenSection({
                   {child.positionBefore !== null &&
                   child.positionBefore !== undefined
                     ? `#${child.positionBefore}`
-                    : "—"}
-                  {" → "}
+                    : "ΓÇö"}
+                  {" ΓåÆ "}
                   {child.positionAfter !== null &&
                   child.positionAfter !== undefined
                     ? `#${child.positionAfter}`
-                    : "—"}
+                    : "ΓÇö"}
                 </span>
               )}
 
@@ -267,17 +396,7 @@ export function ChildrenSection({
               )}
 
               <span
-                className={`font-semibold uppercase text-[11px] ${
-                  (child.rankingStatus === "RANKED" || child.status === "success")
-                    ? "text-success"
-                    : (child.rankingStatus === "NO_RESULT" || child.status === "no_result")
-                      ? "text-base-content/60"
-                      : child.rankingStatus === "NOT_CHECKED"
-                        ? "text-base-content/40"
-                        : child.status === "blocked"
-                          ? "text-warning"
-                          : "text-error"
-                }`}
+                className={`font-semibold uppercase text-[11px] ${childStatusClass(child)}`}
               >
                 {child.rankingStatus ?? child.status}
               </span>

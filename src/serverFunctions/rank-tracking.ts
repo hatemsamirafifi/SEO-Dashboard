@@ -13,6 +13,7 @@ import {
   createConfigSchema,
   updateConfigSchema,
   triggerCheckSchema,
+  cancelRankCheckSchema,
   getLatestResultsSchema,
   getLatestRunSchema,
   estimateCostSchema,
@@ -22,6 +23,7 @@ import {
   getKeywordHistorySchema,
   getConfigTrendSchema,
   getPositionMatrixSchema,
+  missingRankingsSummarySchema,
 } from "@/types/schemas/rank-tracking";
 
 export interface RankKeywordHistoryPoint {
@@ -31,7 +33,12 @@ export interface RankKeywordHistoryPoint {
   checkedDate?: string | null;
   position: number | null;
   previousPosition?: number | null;
-  rankingStatus?: "RANKED" | "NO_RESULT" | "CHECK_FAILED" | "NOT_CHECKED" | null;
+  rankingStatus?:
+    | "RANKED"
+    | "NO_RESULT"
+    | "CHECK_FAILED"
+    | "NOT_CHECKED"
+    | null;
   url?: string | null;
   providerStatus?: string | null;
   errorMessage?: string | null;
@@ -145,6 +152,7 @@ export const triggerRankCheck = createServerFn({ method: "POST" })
       projectId: context.projectId,
       billingCustomer: context,
       keywordIds: data.keywordIds,
+      missingRankings: data.missingRankings,
       operationId: data.operationId,
     });
 
@@ -160,12 +168,35 @@ export const triggerRankCheck = createServerFn({ method: "POST" })
             run_id: result.runId,
             scope: data.keywordIds?.length ? "selected" : "all",
             selected_count: data.keywordIds?.length ?? undefined,
+            missing_rankings: data.missingRankings ?? false,
           },
         }),
       );
     }
 
     return result;
+  });
+
+export const getMissingRankingsSummary = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(missingRankingsSummarySchema)
+  .handler(async ({ data, context }) => {
+    return RankTrackingService.getMissingRankingsSummary({
+      configId: data.configId,
+      projectId: context.projectId,
+      keywordIds: data.keywordIds,
+    });
+  });
+
+export const cancelRankCheckRun = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(cancelRankCheckSchema)
+  .handler(async ({ data, context }) => {
+    return RankTrackingService.cancelRun({
+      configId: data.configId,
+      projectId: context.projectId,
+      runId: data.runId,
+    });
   });
 
 export const getLatestRankResults = createServerFn({ method: "POST" })

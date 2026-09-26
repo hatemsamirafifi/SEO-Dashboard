@@ -76,15 +76,6 @@ function parseInts(values: unknown, expected: number): number[] | null {
   return out;
 }
 
-function parseFloats(values: unknown[]): number[] | null {
-  const out: number[] = [];
-  for (const value of values) {
-    const parsed = toFloatNumber(value);
-    if (parsed === null) return null;
-    out.push(parsed);
-  }
-  return out;
-}
 
 export function truncationFor(
   response: Ga4ReportResult,
@@ -146,20 +137,20 @@ async function normalizeSummaryResponses(
     }
     coreByDate.set(date, row.metricValues);
   }
-  for (const date of new Set([...coreByDate.keys(), ...revenueByDate.keys()])) {
-    const coreInts = parseInts(coreByDate.get(date) ?? [], 8);
-    const revenueInts = parseInts(revenueByDate.get(date) ?? [], 5);
-    const floats = parseFloats([
-      coreByDate.get(date)?.[2],
-      revenueByDate.get(date)?.[0],
-      revenueByDate.get(date)?.[1],
-    ]);
-    const totalUsers = toIntNumber(coreByDate.get(date)?.[6] ?? "0");
-    const activeUsers = toIntNumber(coreByDate.get(date)?.[7] ?? "0");
+  for (const date of coreByDate.keys()) {
+    const coreMetrics = coreByDate.get(date);
+    if (!coreMetrics) {
+      failDate(failed, "summary", date);
+      failRow();
+      continue;
+    }
+    const coreInts = parseInts(coreMetrics, 8);
+    const userEngagementDuration = toFloatNumber(coreMetrics[2]);
+    const totalUsers = toIntNumber(coreMetrics[6] ?? "0");
+    const activeUsers = toIntNumber(coreMetrics[7] ?? "0");
     if (
       !coreInts ||
-      !revenueInts ||
-      !floats ||
+      userEngagementDuration === null ||
       totalUsers === null ||
       activeUsers === null
     ) {
@@ -169,8 +160,12 @@ async function normalizeSummaryResponses(
     }
     const [sessions, engagedSessions, , screenPageViews, eventCount, newUsers] =
       coreInts;
-    const [userEngagementDuration, totalRevenue, purchaseRevenue] = floats;
-    const [, , transactions, addToCarts, checkouts] = revenueInts;
+    const revMetrics = revenueByDate.get(date) ?? [];
+    const totalRevenue = toFloatNumber(revMetrics[0]) ?? 0;
+    const purchaseRevenue = toFloatNumber(revMetrics[1]) ?? 0;
+    const transactions = toIntNumber(revMetrics[2]) ?? 0;
+    const addToCarts = toIntNumber(revMetrics[3]) ?? 0;
+    const checkouts = toIntNumber(revMetrics[4]) ?? 0;
     if (totalRevenue > 0 || purchaseRevenue > 0 || transactions > 0) {
       observedRevenue = true;
     }

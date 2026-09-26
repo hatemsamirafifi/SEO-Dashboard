@@ -363,7 +363,10 @@ function DesktopSerpPanel({ controller }: Props) {
             <Globe className="size-3.5" />
             SERP Analysis
             {controller.activeSerpKeyword ? (
-              <span className="font-normal text-base-content/50 truncate">
+              <span
+                className="font-normal text-base-content/50 break-words"
+                title={controller.activeSerpKeyword}
+              >
                 : {controller.activeSerpKeyword}
               </span>
             ) : null}

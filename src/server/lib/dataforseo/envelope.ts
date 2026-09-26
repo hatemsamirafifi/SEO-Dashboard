@@ -202,13 +202,21 @@ export function assertOk<T extends DataforseoTaskLike>(
   if (response.status_code !== 20000) {
     const message = response.status_message || "DataForSEO request failed";
     const path = classifyPath ?? "";
+    const diagnostics = appFailureDiagnostics(
+      path,
+      response.status_code,
+      response.status_message,
+      null,
+    );
+    if (response.status_code === 40201) {
+      const error = new AppError("DATAFORSEO_ACCESS_PAUSED", message);
+      attachDataforseoDiagnostics(error, diagnostics);
+      throw error;
+    }
     const error =
       classify?.(response.status_code, message, path) ??
       new AppError("INTERNAL_ERROR", message);
-    attachDataforseoDiagnostics(
-      error,
-      appFailureDiagnostics(path, response.status_code, response.status_message, null),
-    );
+    attachDataforseoDiagnostics(error, diagnostics);
     throw error;
   }
 
@@ -225,23 +233,25 @@ export function assertOk<T extends DataforseoTaskLike>(
       classifyPath,
       task.path ? `/${task.path.join("/")}` : undefined,
     );
-    const error = classify?.(task.status_code, message, path ?? "");
-    if (error) {
-      attachDataforseoDiagnostics(
-        error,
-        appFailureDiagnostics(path, task.status_code, task.status_message, task),
-      );
-      throw error;
-    }
-
-    const detailedMessage = describeInvalidField(message, task);
-    const billing = tryBuildTaskBilling(task);
     const diagnostics = appFailureDiagnostics(
       path,
       task.status_code,
       task.status_message,
       task,
     );
+    if (task.status_code === 40201) {
+      const error = new AppError("DATAFORSEO_ACCESS_PAUSED", message);
+      attachDataforseoDiagnostics(error, diagnostics);
+      throw error;
+    }
+    const error = classify?.(task.status_code, message, path ?? "");
+    if (error) {
+      attachDataforseoDiagnostics(error, diagnostics);
+      throw error;
+    }
+
+    const detailedMessage = describeInvalidField(message, task);
+    const billing = tryBuildTaskBilling(task);
     if (billing) {
       const chargedError = new DataforseoChargedTaskError(
         detailedMessage,

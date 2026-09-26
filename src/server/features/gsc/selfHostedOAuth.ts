@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { symmetricEncrypt } from "better-auth/crypto";
 import { and, eq } from "drizzle-orm";
 import { decodeJwt } from "jose";

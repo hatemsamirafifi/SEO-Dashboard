@@ -9,9 +9,9 @@ export type KeywordMode = "auto" | KeywordSource;
 export type ResearchSource = KeywordSource | "google_ads";
 
 export const AUTO_KEYWORD_SOURCES: KeywordSource[] = [
-  "related",
   "suggestions",
   "ideas",
+  "related",
 ];
 
 export const MIN_NON_SEED_FOR_AUTO = 5;

@@ -72,7 +72,7 @@ export function KeywordResearchDesktopTable({
         ),
         cell: ({ row }) => (
           <span
-            className="block min-w-48 whitespace-normal break-words font-medium capitalize md:min-w-0 md:truncate"
+            className="block min-w-48 whitespace-normal break-words font-medium capitalize"
             title={row.original.keyword}
           >
             {row.original.keyword}

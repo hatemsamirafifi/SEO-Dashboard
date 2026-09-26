@@ -1,6 +1,5 @@
 import { Bug, ExternalLink } from "lucide-react";
-import { useGlobalTrace } from "./globalTraceStore";
-import { GlobalDebugTracePanel } from "./GlobalDebugTracePanel";
+import { useGlobalTrace } from "./useGlobalTrace";
 
 export function GlobalDebugTraceSettingsSection({
   projectId,
@@ -11,7 +10,6 @@ export function GlobalDebugTraceSettingsSection({
     diagnosticsEnabled,
     setDiagnosticsEnabled,
     totalCount,
-    panelOpen,
     setPanelOpen,
   } = useGlobalTrace(projectId);
 
@@ -27,7 +25,8 @@ export function GlobalDebugTraceSettingsSection({
               </h3>
             </div>
             <p className="mt-1 text-sm text-base-content/60">
-              Developer diagnostics for OpenSEO operations (rank tracking, data provider, keyword research, SEO services)
+              Developer diagnostics for OpenSEO operations (rank tracking, data
+              provider, keyword research, SEO services)
             </p>
           </div>
 
@@ -39,9 +38,7 @@ export function GlobalDebugTraceSettingsSection({
             <ExternalLink className="size-3.5" />
             Open Debug Trace
             {totalCount > 0 && (
-              <span className="badge badge-sm badge-primary">
-                {totalCount}
-              </span>
+              <span className="badge badge-sm badge-primary">{totalCount}</span>
             )}
           </button>
         </div>
@@ -54,7 +51,8 @@ export function GlobalDebugTraceSettingsSection({
               Enable diagnostics
             </span>
             <p className="text-xs text-base-content/60">
-              Captures runtime execution details, provider calls, HTTP status codes, and scope breakdown.
+              Captures runtime execution details, provider calls, HTTP status
+              codes, and scope breakdown.
             </p>
           </div>
 
@@ -72,13 +70,6 @@ export function GlobalDebugTraceSettingsSection({
           <span>Max events: 500</span>
         </div>
       </div>
-
-      {panelOpen && (
-        <GlobalDebugTracePanel
-          projectId={projectId}
-          onClose={() => setPanelOpen(false)}
-        />
-      )}
     </>
   );
 }
