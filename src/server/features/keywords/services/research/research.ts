@@ -67,7 +67,7 @@ async function fetchAutoRows(
   creditFeature?: CreditFeature,
 ): Promise<ResearchResult> {
   const attempts: SourceAttempt[] = [];
-  let lastSource: KeywordSource = "related";
+  let lastSource: KeywordSource = AUTO_KEYWORD_SOURCES[0];
   const accumulatedRows: EnrichedKeyword[] = [];
   const seenKeywords = new Set<string>();
 

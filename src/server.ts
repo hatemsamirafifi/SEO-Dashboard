@@ -8,6 +8,8 @@ import { ProjectRepository } from "@/server/features/projects/repositories/Proje
 import { SamSessionRepository } from "@/server/features/sam/SamSessionRepository";
 import { runScheduledRankChecks } from "@/server/features/rank-tracking/services/scheduledRankChecks";
 import { runScheduledGscSync } from "@/server/features/gsc/services/scheduledGscSync";
+import { runScheduledGa4Sync } from "@/server/features/ga4/services/scheduledGa4Sync";
+import { runScheduledIntelligenceScan } from "@/server/features/intelligence/services/scheduledIntelligenceScan";
 import { getOrCreateOrganizationCustomer } from "@/server/billing/subscription";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getAuthMode, isHostedAuthMode } from "@/lib/auth-mode";
@@ -174,6 +176,7 @@ function handleFetch(
 // Export Workflow classes as named exports
 export { SiteAuditWorkflow } from "./server/workflows/SiteAuditWorkflow";
 export { RankCheckWorkflow } from "./server/workflows/RankCheckWorkflow";
+export { AutopilotWorkflow } from "./server/workflows/AutopilotWorkflow";
 // Durable Object class for the onboarding strategy chat (Agents SDK).
 export { OnboardingChatAgent } from "./server/features/onboarding/OnboardingChatAgent";
 // Durable Object class for the SAM in-app agent (Agents SDK).
@@ -190,6 +193,8 @@ export default {
     await withPgClient(async () => {
       await runScheduledRankChecks(env);
       await runScheduledGscSync();
+      await runScheduledGa4Sync();
+      await runScheduledIntelligenceScan();
     });
   },
 };

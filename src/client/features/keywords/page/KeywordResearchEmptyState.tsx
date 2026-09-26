@@ -24,6 +24,7 @@ function NoResultsState({
   controller: KeywordResearchControllerState;
 }) {
   const { lastSearchKeyword, lastSearchLocationCode } = controller;
+  const currentMode = controller.controlsForm.getFieldValue("mode");
 
   return (
     <div className="pt-1">
@@ -42,8 +43,35 @@ function NoResultsState({
             <span className="font-medium text-base-content">
               {` ${LOCATIONS[lastSearchLocationCode] || "this location"}`}
             </span>
-            .
+            {currentMode !== "auto" ? ` using "${currentMode}" mode` : ""}.
           </p>
+          {currentMode !== "auto" ? (
+            <p className="text-xs text-base-content/60 pt-2">
+              Tip: If you are looking for Google's "People also search for" (تم البحث أيضاً عن), try{" "}
+              <button
+                type="button"
+                className="font-medium text-primary hover:underline"
+                onClick={() => {
+                  controller.controlsForm.setFieldValue("mode", "related");
+                  void controller.controlsForm.handleSubmit();
+                }}
+              >
+                Related searches (تم البحث أيضاً عن)
+              </button>{" "}
+              or{" "}
+              <button
+                type="button"
+                className="font-medium text-primary hover:underline"
+                onClick={() => {
+                  controller.controlsForm.setFieldValue("mode", "auto");
+                  void controller.controlsForm.handleSubmit();
+                }}
+              >
+                Auto mode
+              </button>
+              .
+            </p>
+          ) : null}
         </div>
       </div>
     </div>

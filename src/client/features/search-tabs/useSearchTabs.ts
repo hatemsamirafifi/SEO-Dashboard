@@ -23,7 +23,7 @@ const EMPTY_STATE: TabsState = {
 
 const CHANGE_EVENT = "search-tabs-change";
 const stateCache = new Map<string, TabsState>();
-const SEARCH_TABS_LIMIT = 8;
+const SEARCH_TABS_LIMIT = 50;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -221,10 +221,10 @@ export function useSearchTabs(key: string) {
           result = existing;
           return { ...current, activeTabId: existing.id };
         }
-        if (current.tabs.length >= SEARCH_TABS_LIMIT) {
-          dropped = true;
-          return current;
-        }
+        const baseTabs =
+          current.tabs.length >= SEARCH_TABS_LIMIT
+            ? current.tabs.slice(current.tabs.length - SEARCH_TABS_LIMIT + 1)
+            : current.tabs;
         const next: SearchTab = {
           id: generateTabId(),
           label,
@@ -234,7 +234,7 @@ export function useSearchTabs(key: string) {
         };
         result = next;
         return {
-          tabs: [...current.tabs, next],
+          tabs: [...baseTabs, next],
           activeTabId: next.id,
         };
       });
@@ -314,11 +314,7 @@ export function useSearchTabs(key: string) {
     [state.tabs],
   );
 
-  const canOpenTab = useCallback(
-    (input: SearchTabInput) =>
-      Boolean(findMatchingTab(input)) || state.tabs.length < SEARCH_TABS_LIMIT,
-    [findMatchingTab, state.tabs.length],
-  );
+  const canOpenTab = useCallback((_input?: SearchTabInput) => true, []);
 
   const activeTab = useMemo(
     () => state.tabs.find((tab) => tab.id === state.activeTabId) ?? null,

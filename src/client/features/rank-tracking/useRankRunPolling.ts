@@ -38,8 +38,8 @@ function findActiveTraces(
  * when a run transitions from "running" to "completed".
  * Also feeds the Global Debug Trace with real-time run progress and honest
  * completion: per-keyword children are derived from snapshot evidence only
- * (fresh snapshot + position → success, fresh snapshot + no position →
- * no_result, no snapshot → failed). Nothing is fabricated.
+ * (fresh snapshot + position ΓåÆ success, fresh snapshot + no position ΓåÆ
+ * no_result, no snapshot ΓåÆ failed). Nothing is fabricated.
  */
 export function useRankRunPolling(projectId: string, configId: string) {
   const queryClient = useQueryClient();
@@ -88,7 +88,7 @@ export function useRankRunPolling(projectId: string, configId: string) {
       }
 
       // When a run reaches a terminal state, invalidate results & finalize
-      // the correlated trace. Finalization is keyed by run id (idempotent —
+      // the correlated trace. Finalization is keyed by run id (idempotent ΓÇö
       // a second call finds no RUNNING op), so this also covers the
       // mount-after-terminal case: a page opened while/after the run
       // finished still completes its trace instead of leaving it RUNNING
@@ -131,7 +131,7 @@ async function finalizeTraceForRun(
     // Refresh the table's own results queries (prefix-matched, so every
     // compare-period variant) and await them: children must be built from
     // fresh snapshots, not the pre-run cache. This reuses the table's
-    // queries — no divergent cache keys, no extra provider calls.
+    // queries ΓÇö no divergent cache keys, no extra provider calls.
     const resultsPrefix = ["rankTrackingResults", projectId, configId];
     try {
       await queryClient.refetchQueries({
@@ -139,7 +139,7 @@ async function finalizeTraceForRun(
         type: "active",
       });
     } catch {
-      // Best effort — fall through to whatever the cache holds.
+      // Best effort ΓÇö fall through to whatever the cache holds.
     }
     void queryClient.invalidateQueries({ queryKey: resultsPrefix });
     const cached = queryClient.getQueriesData<{

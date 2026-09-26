@@ -138,7 +138,7 @@ export async function fetchResearchRowsBySource(
   const constraints = {
     source: params.source satisfies KeywordIdeasSource,
     limit: params.resultLimit,
-    ...(params.source === "related" ? { depth: 3 } : {}),
+    ...(params.source === "related" ? { depth: 1 } : {}),
     includeClickstreamData: params.includeClickstreamData,
   };
   const request = {

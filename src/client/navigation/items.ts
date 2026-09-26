@@ -1,13 +1,16 @@
 import {
   Bookmark,
   Bot,
+  ChartNoAxesColumn,
   ClipboardCheck,
+  FileText,
   Globe,
   LayoutDashboard,
   Link2,
   MessageSquare,
   Search,
   Sparkles,
+  Target,
   TrendingUp,
 } from "lucide-react";
 import { linkOptions } from "@tanstack/react-router";
@@ -41,6 +44,21 @@ const projectNavItems = [
     to: "/p/$projectId/search-performance" as const,
     label: "GSC Insights",
     icon: GoogleGlyphMuted,
+  },
+  {
+    to: "/p/$projectId/analytics" as const,
+    label: "Analytics",
+    icon: ChartNoAxesColumn,
+  },
+  {
+    to: "/p/$projectId/opportunities" as const,
+    label: "Opportunities",
+    icon: Target,
+  },
+  {
+    to: "/p/$projectId/reports" as const,
+    label: "Reports",
+    icon: FileText,
   },
   {
     to: "/p/$projectId/domain" as const,
@@ -117,6 +135,9 @@ export function getProjectNavGroups(projectId: string) {
       label: "My Site",
       items: [
         byPath("/p/$projectId/search-performance"),
+        byPath("/p/$projectId/analytics"),
+        byPath("/p/$projectId/opportunities"),
+        byPath("/p/$projectId/reports"),
         byPath("/p/$projectId/rank-tracking"),
         byPath("/p/$projectId/saved"),
         byPath("/p/$projectId/audit"),

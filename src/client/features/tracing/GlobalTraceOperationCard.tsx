@@ -84,7 +84,7 @@ function CardSummary({ operation }: { operation: GlobalTraceOperation }) {
             <span>
               : {operation.selectedCount} requested
               {operation.validatedCount !== undefined &&
-                ` · ${operation.validatedCount} validated`}
+                ` ┬╖ ${operation.validatedCount} validated`}
             </span>
           )}
         </span>
@@ -145,7 +145,7 @@ function CacheRetrySection({ operation }: { operation: GlobalTraceOperation }) {
       <div className="rounded border border-base-200 bg-base-100 p-2">
         <div className="text-base-content/60">Retry</div>
         <div className="font-semibold text-base-content">
-          {operation.retry?.attempted ? `YES ×${operation.retry.count}` : "NO"}
+          {operation.retry?.attempted ? `YES ├ù${operation.retry.count}` : "NO"}
         </div>
       </div>
       <div className="rounded border border-base-200 bg-base-100 p-2">

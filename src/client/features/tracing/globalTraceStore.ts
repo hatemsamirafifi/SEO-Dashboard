@@ -182,7 +182,7 @@ class GlobalTraceStore {
       return operationId;
     } catch {
       // Diagnostic operations must never throw (and the fallback itself
-      // must not throw either — safeTraceId never uses crypto.randomUUID
+      // must not throw either ΓÇö safeTraceId never uses crypto.randomUUID
       // without a capability check).
       return input.operationId || safeTraceId();
     }
@@ -270,8 +270,8 @@ class GlobalTraceStore {
 
       if (updated.providerBreakdown && !updated.provider) {
         updated.provider = updated.providerBreakdown
-          .map((item) => `${item.provider} ×${item.count}`)
-          .join(" · ");
+          .map((item) => `${item.provider} ├ù${item.count}`)
+          .join(" ┬╖ ");
       }
 
       const newOps = [
@@ -320,8 +320,8 @@ class GlobalTraceStore {
 
       if (fullOp.providerBreakdown && !fullOp.provider) {
         fullOp.provider = fullOp.providerBreakdown
-          .map((item) => `${item.provider} ×${item.count}`)
-          .join(" · ");
+          .map((item) => `${item.provider} ├ù${item.count}`)
+          .join(" ┬╖ ");
       }
 
       let newOps = [fullOp, ...this.state.operations];

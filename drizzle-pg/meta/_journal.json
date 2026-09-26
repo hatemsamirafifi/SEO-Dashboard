@@ -1,6 +1,7 @@
 {
   "version": "7",
   "dialect": "postgresql",
+  "id": null,
   "entries": [
     {
       "idx": 0,
@@ -196,6 +197,76 @@
       "version": "7",
       "when": 1789598172820,
       "tag": "0027_workable_the_call",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1789932332678,
+      "tag": "0028_ga4_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789934724727,
+      "tag": "0029_open_thundra",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1789948581450,
+      "tag": "0030_equal_satana",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790028042101,
+      "tag": "0031_closed_blindfold",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790284504210,
+      "tag": "0032_nosy_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790349238731,
+      "tag": "0033_puzzling_hitman",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790354057966,
+      "tag": "0034_shocking_masked_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790357081345,
+      "tag": "0035_complex_sandman",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790364117644,
+      "tag": "0036_giant_piledriver",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1790364214394,
+      "tag": "0037_flashy_gressill",
       "breakpoints": true
     }
   ]

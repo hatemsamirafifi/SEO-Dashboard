@@ -29,6 +29,21 @@ import {
   getAuditStatusTool,
   runSiteAuditTool,
 } from "@/server/mcp/tools/site-audit-tools";
+import {
+  getAnalyticsLandingPagesTool,
+  getAnalyticsOverviewTool,
+} from "@/server/mcp/tools/analytics-tools";
+import {
+  getDashboardInsightsTool,
+  getOpportunityTool,
+  listOpportunitiesTool,
+  updateOpportunityStatusTool,
+} from "@/server/mcp/tools/intelligence-tools";
+import {
+  generateReportTool,
+  getAutopilotRunTool,
+  getReportTool,
+} from "@/server/mcp/tools/report-autopilot-tools";
 import { whoamiTool } from "@/server/mcp/tools/whoami";
 
 // Each handler is wrapped with instrumentMcpToolHandler so failures reach
@@ -251,6 +266,87 @@ export function registerOpenSeoMcpTools(server: McpServer) {
       getAuditPagesTool.name,
       getAuditPagesTool.config.outputSchema,
       getAuditPagesTool.handler,
+    ),
+  );
+  server.registerTool(
+    listOpportunitiesTool.name,
+    listOpportunitiesTool.config,
+    instrumentMcpToolHandler(
+      listOpportunitiesTool.name,
+      listOpportunitiesTool.config.outputSchema,
+      listOpportunitiesTool.handler,
+    ),
+  );
+  server.registerTool(
+    getOpportunityTool.name,
+    getOpportunityTool.config,
+    instrumentMcpToolHandler(
+      getOpportunityTool.name,
+      getOpportunityTool.config.outputSchema,
+      getOpportunityTool.handler,
+    ),
+  );
+  server.registerTool(
+    updateOpportunityStatusTool.name,
+    updateOpportunityStatusTool.config,
+    instrumentMcpToolHandler(
+      updateOpportunityStatusTool.name,
+      updateOpportunityStatusTool.config.outputSchema,
+      updateOpportunityStatusTool.handler,
+    ),
+  );
+  server.registerTool(
+    getDashboardInsightsTool.name,
+    getDashboardInsightsTool.config,
+    instrumentMcpToolHandler(
+      getDashboardInsightsTool.name,
+      getDashboardInsightsTool.config.outputSchema,
+      getDashboardInsightsTool.handler,
+    ),
+  );
+  server.registerTool(
+    getAnalyticsOverviewTool.name,
+    getAnalyticsOverviewTool.config,
+    instrumentMcpToolHandler(
+      getAnalyticsOverviewTool.name,
+      getAnalyticsOverviewTool.config.outputSchema,
+      getAnalyticsOverviewTool.handler,
+    ),
+  );
+  server.registerTool(
+    getAnalyticsLandingPagesTool.name,
+    getAnalyticsLandingPagesTool.config,
+    instrumentMcpToolHandler(
+      getAnalyticsLandingPagesTool.name,
+      getAnalyticsLandingPagesTool.config.outputSchema,
+      getAnalyticsLandingPagesTool.handler,
+    ),
+  );
+  server.registerTool(
+    generateReportTool.name,
+    generateReportTool.config,
+    instrumentMcpToolHandler(
+      generateReportTool.name,
+      generateReportTool.config.outputSchema,
+      generateReportTool.handler,
+    ),
+  );
+  server.registerTool(
+    getReportTool.name,
+    getReportTool.config,
+    instrumentMcpToolHandler(
+      getReportTool.name,
+      getReportTool.config.outputSchema,
+      getReportTool.handler,
+    ),
+  );
+  server.registerTool(
+    getAutopilotRunTool.name,
+    getAutopilotRunTool.config,
+    instrumentMcpToolHandler(
+      getAutopilotRunTool.name,
+      getAutopilotRunTool.config.outputSchema,
+      getAutopilotRunTool.handler,
     ),
   );
 }

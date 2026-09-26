@@ -1,12 +1,14 @@
+/* eslint-disable max-lines */
 import { symmetricEncrypt } from "better-auth/crypto";
 import { and, eq } from "drizzle-orm";
 import { decodeJwt } from "jose";
 import { z } from "zod";
 import { db } from "@/db";
-import { account } from "@/db/schema";
+import { account, verification } from "@/db/schema";
 import { getAuth } from "@/lib/auth";
 import { AppError } from "@/server/lib/errors";
 import { GSC_OAUTH_PROVIDER_ID, GSC_OAUTH_SCOPES } from "@/shared/gsc";
+import { GA4_OAUTH_PROVIDER_ID, GA4_OAUTH_SCOPES } from "@/shared/ga4";
 import {
   getGscOAuthClientConfig,
   hasSelfHostedGscConfig,
@@ -14,6 +16,30 @@ import {
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+
+type OAuthProviderDescriptor = {
+  providerId: string;
+  stateKey: string;
+  scopes: readonly string[];
+  callbackPath: string;
+  label: string;
+  requireProjectState?: boolean;
+};
+const GSC_PROVIDER: OAuthProviderDescriptor = {
+  providerId: GSC_OAUTH_PROVIDER_ID,
+  stateKey: "gsc",
+  scopes: GSC_OAUTH_SCOPES,
+  callbackPath: "/api/gsc/oauth/callback",
+  label: "Search Console",
+};
+const GA4_PROVIDER: OAuthProviderDescriptor = {
+  providerId: GA4_OAUTH_PROVIDER_ID,
+  stateKey: "ga4",
+  scopes: GA4_OAUTH_SCOPES,
+  callbackPath: "/api/ga4/oauth/callback",
+  label: "Google Analytics",
+  requireProjectState: true,
+};
 
 type SelfHostedGscUser = {
   userId: string;
@@ -24,6 +50,8 @@ const oauthStateSchema = z.object({
   userId: z.string().min(1),
   callbackPath: z.string().min(1),
   exp: z.number().int(),
+  projectId: z.string().min(1).optional(),
+  nonce: z.string().uuid().optional(),
 });
 
 const googleTokenResponseSchema = z.object({
@@ -58,20 +86,24 @@ function base64UrlToBytes(value: string) {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-async function getStateKey(clientSecret: string) {
+async function getStateKey(clientSecret: string, stateKey: string) {
   return crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(`openseo:gsc:${clientSecret}`),
+    new TextEncoder().encode(`openseo:${stateKey}:${clientSecret}`),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"],
   );
 }
 
-async function signState(payload: string, clientSecret: string) {
+async function signState(
+  payload: string,
+  clientSecret: string,
+  stateKey: string,
+) {
   const signature = await crypto.subtle.sign(
     "HMAC",
-    await getStateKey(clientSecret),
+    await getStateKey(clientSecret, stateKey),
     new TextEncoder().encode(payload),
   );
   return bytesToBase64Url(new Uint8Array(signature));
@@ -92,6 +124,8 @@ async function createState(input: {
   userId: string;
   callbackURL: string;
   publicOrigin: string;
+  provider: OAuthProviderDescriptor;
+  projectId?: string;
 }) {
   const payload = bytesToBase64Url(
     new TextEncoder().encode(
@@ -102,14 +136,41 @@ async function createState(input: {
           input.publicOrigin,
         ),
         exp: Date.now() + 10 * 60 * 1_000,
+        ...(input.provider.requireProjectState
+          ? { projectId: input.projectId, nonce: crypto.randomUUID() }
+          : {}),
       }),
     ),
   );
-  const signature = await signState(payload, input.clientSecret);
-  return `${payload}.${signature}`;
+  const signature = await signState(
+    payload,
+    input.clientSecret,
+    input.provider.stateKey,
+  );
+  const state = `${payload}.${signature}`;
+  if (input.provider.requireProjectState) {
+    const nonce = JSON.parse(
+      new TextDecoder().decode(base64UrlToBytes(payload)),
+    ).nonce;
+    await db
+      .insert(verification)
+      .values({
+        id: nonce,
+        identifier: "ga4-oauth-state",
+        value: state,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1_000),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+  }
+  return state;
 }
 
-async function verifyState(state: string, clientSecret: string) {
+async function verifyState(
+  state: string,
+  clientSecret: string,
+  provider: OAuthProviderDescriptor,
+) {
   const [payload, signature] = state.split(".");
   if (!payload || !signature) {
     throw new AppError("VALIDATION_ERROR", "Invalid Search Console state");
@@ -117,7 +178,7 @@ async function verifyState(state: string, clientSecret: string) {
 
   const ok = await crypto.subtle.verify(
     "HMAC",
-    await getStateKey(clientSecret),
+    await getStateKey(clientSecret, provider.stateKey),
     base64UrlToBytes(signature),
     new TextEncoder().encode(payload),
   );
@@ -135,18 +196,54 @@ async function verifyState(state: string, clientSecret: string) {
   return parsed;
 }
 
-function getRedirectUri(publicOrigin: string) {
-  return `${publicOrigin}/api/gsc/oauth/callback`;
+async function consumeGa4State(
+  state: { nonce?: string; projectId?: string },
+  expectedProjectId?: string,
+) {
+  if (
+    !state.nonce ||
+    !state.projectId ||
+    (expectedProjectId && state.projectId !== expectedProjectId)
+  )
+    throw new AppError("VALIDATION_ERROR", "Invalid Google Analytics state");
+  const consumed = await db
+    .delete(verification)
+    .where(
+      and(
+        eq(verification.id, state.nonce),
+        eq(verification.identifier, "ga4-oauth-state"),
+      ),
+    )
+    .returning({ id: verification.id });
+  if (!consumed[0])
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Google Analytics state was already used",
+    );
+}
+
+function projectIdFromCallbackPath(path: string): string | undefined {
+  return /^\/p\/([^/?#]+)(?:\/|$)/.exec(path)?.[1];
+}
+
+function getRedirectUri(
+  publicOrigin: string,
+  provider: OAuthProviderDescriptor,
+) {
+  return `${publicOrigin}${provider.callbackPath}`;
 }
 
 function accessTokenExpiresAt(tokens: GoogleTokenResponse) {
   return new Date(Date.now() + (tokens.expires_in ?? 3600) * 1_000);
 }
 
-function storedScope(tokens: GoogleTokenResponse) {
+function storedScope(
+  tokens: GoogleTokenResponse,
+  provider: OAuthProviderDescriptor,
+) {
   return tokens.scope
     ? tokens.scope.trim().split(/\s+/).join(",")
-    : GSC_OAUTH_SCOPES.join(",");
+    : provider.scopes.join(",");
 }
 
 function getGoogleAccountId(tokens: GoogleTokenResponse) {
@@ -163,6 +260,8 @@ function getGoogleAccountId(tokens: GoogleTokenResponse) {
 async function upsertGrant(input: {
   user: SelfHostedGscUser;
   tokens: GoogleTokenResponse;
+  provider: OAuthProviderDescriptor;
+  projectId?: string;
 }) {
   // Encrypt tokens at rest exactly the way Better Auth's setTokenUtil does
   // (same key from BETTER_AUTH_SECRET, same crypto, same encryptOAuthTokens
@@ -181,7 +280,7 @@ async function upsertGrant(input: {
     .where(
       and(
         eq(account.userId, input.user.userId),
-        eq(account.providerId, GSC_OAUTH_PROVIDER_ID),
+        eq(account.providerId, input.provider.providerId),
         eq(account.accountId, googleAccountId),
       ),
     )
@@ -189,7 +288,7 @@ async function upsertGrant(input: {
 
   const accountValues = {
     accountId: googleAccountId,
-    providerId: GSC_OAUTH_PROVIDER_ID,
+    providerId: input.provider.providerId,
     userId: input.user.userId,
     accessToken: await encrypt(input.tokens.access_token),
     // A fresh refresh token is encrypted here; an absent one falls back to the
@@ -202,7 +301,7 @@ async function upsertGrant(input: {
       : null,
     accessTokenExpiresAt: accessTokenExpiresAt(input.tokens),
     refreshTokenExpiresAt: null,
-    scope: storedScope(input.tokens),
+    scope: storedScope(input.tokens, input.provider),
     password: null,
   };
 
@@ -250,10 +349,12 @@ async function exchangeCode(input: {
   return googleTokenResponseSchema.parse(await response.json());
 }
 
-export async function createSelfHostedGscAuthorizationUrl(input: {
+async function createSelfHostedAuthorizationUrl(input: {
   user: SelfHostedGscUser;
   callbackURL: string;
   publicOrigin: string;
+  provider: OAuthProviderDescriptor;
+  projectId?: string;
 }) {
   const config = await getGscOAuthClientConfig();
   if (!config || !(await hasSelfHostedGscConfig())) {
@@ -263,18 +364,20 @@ export async function createSelfHostedGscAuthorizationUrl(input: {
     );
   }
 
-  const redirectUri = getRedirectUri(input.publicOrigin);
+  const redirectUri = getRedirectUri(input.publicOrigin, input.provider);
   const state = await createState({
     clientSecret: config.clientSecret,
     userId: input.user.userId,
     callbackURL: input.callbackURL,
     publicOrigin: input.publicOrigin,
+    provider: input.provider,
+    projectId: input.projectId,
   });
   const url = new URL(GOOGLE_AUTH_URL);
   url.searchParams.set("client_id", config.clientId);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", GSC_OAUTH_SCOPES.join(" "));
+  url.searchParams.set("scope", input.provider.scopes.join(" "));
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "select_account consent");
   url.searchParams.set("state", state);
@@ -282,10 +385,28 @@ export async function createSelfHostedGscAuthorizationUrl(input: {
   return url.toString();
 }
 
-export async function handleSelfHostedGscOAuthCallback(input: {
+export function createSelfHostedGscAuthorizationUrl(input: {
+  user: SelfHostedGscUser;
+  callbackURL: string;
+  publicOrigin: string;
+}) {
+  return createSelfHostedAuthorizationUrl({ ...input, provider: GSC_PROVIDER });
+}
+export function createSelfHostedGa4AuthorizationUrl(input: {
+  user: SelfHostedGscUser;
+  callbackURL: string;
+  publicOrigin: string;
+  projectId: string;
+}) {
+  return createSelfHostedAuthorizationUrl({ ...input, provider: GA4_PROVIDER });
+}
+
+async function handleSelfHostedOAuthCallback(input: {
   request: Request;
   user: SelfHostedGscUser;
   publicOrigin: string;
+  provider: OAuthProviderDescriptor;
+  expectedProjectId?: string;
 }) {
   const config = await getGscOAuthClientConfig();
   if (!config) {
@@ -300,9 +421,19 @@ export async function handleSelfHostedGscOAuthCallback(input: {
     return new Response("Missing Search Console OAuth state", { status: 400 });
   }
 
-  const state = await verifyState(stateParam, config.clientSecret);
+  const state = await verifyState(
+    stateParam,
+    config.clientSecret,
+    input.provider,
+  );
   if (state.userId !== input.user.userId) {
     return new Response("Search Console OAuth user mismatch", { status: 403 });
+  }
+  if (input.provider.requireProjectState) {
+    await consumeGa4State(
+      state,
+      projectIdFromCallbackPath(state.callbackPath),
+    );
   }
 
   // state.callbackPath is a validated same-origin relative path
@@ -328,9 +459,24 @@ export async function handleSelfHostedGscOAuthCallback(input: {
     code,
     clientId: config.clientId,
     clientSecret: config.clientSecret,
-    redirectUri: getRedirectUri(input.publicOrigin),
+    redirectUri: getRedirectUri(input.publicOrigin, input.provider),
   });
-  await upsertGrant({ user: input.user, tokens });
+  await upsertGrant({ user: input.user, tokens, provider: input.provider });
 
   return redirectToCallback();
+}
+
+export function handleSelfHostedGscOAuthCallback(input: {
+  request: Request;
+  user: SelfHostedGscUser;
+  publicOrigin: string;
+}) {
+  return handleSelfHostedOAuthCallback({ ...input, provider: GSC_PROVIDER });
+}
+export function handleSelfHostedGa4OAuthCallback(input: {
+  request: Request;
+  user: SelfHostedGscUser;
+  publicOrigin: string;
+}) {
+  return handleSelfHostedOAuthCallback({ ...input, provider: GA4_PROVIDER });
 }

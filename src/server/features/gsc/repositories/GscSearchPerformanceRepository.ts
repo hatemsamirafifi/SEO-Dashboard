@@ -555,6 +555,72 @@ async function getCountries(
     });
 }
 
+/**
+ * Raw daily fact rows for one grain over an inclusive date range, ordered by
+ * date. Detector input layer (intelligence Stage 1) aggregates these itself:
+ * window sums must come from complete day sets, never from truncated rollups.
+ */
+export type GscDailyFact = {
+  id: string;
+  date: string;
+  grainKey: string;
+  query: string | null;
+  page: string | null;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+};
+
+async function getDailyGrainFacts(
+  projectId: string,
+  grain: string,
+  from: string,
+  to: string,
+): Promise<GscDailyFact[]> {
+  return db
+    .select({
+      id: gscSearchPerformance.id,
+      date: gscSearchPerformance.date,
+      grainKey: gscSearchPerformance.grainKey,
+      query: gscSearchPerformance.query,
+      page: gscSearchPerformance.page,
+      clicks: gscSearchPerformance.clicks,
+      impressions: gscSearchPerformance.impressions,
+      ctr: gscSearchPerformance.ctr,
+      position: gscSearchPerformance.position,
+    })
+    .from(gscSearchPerformance)
+    .where(
+      and(
+        eq(gscSearchPerformance.projectId, projectId),
+        eq(gscSearchPerformance.grain, grain),
+        gte(gscSearchPerformance.date, from),
+        lte(gscSearchPerformance.date, to),
+      ),
+    )
+    .orderBy(gscSearchPerformance.date);
+}
+
+/** Latest fact date for a grain (window anchor), or null when never synced. */
+async function getLatestFactDate(
+  projectId: string,
+  grain: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ date: gscSearchPerformance.date })
+    .from(gscSearchPerformance)
+    .where(
+      and(
+        eq(gscSearchPerformance.projectId, projectId),
+        eq(gscSearchPerformance.grain, grain),
+      ),
+    )
+    .orderBy(desc(gscSearchPerformance.date))
+    .limit(1);
+  return rows[0]?.date ?? null;
+}
+
 export const GscSearchPerformanceRepository = {
   upsertFacts,
   getActiveSyncRun,
@@ -567,4 +633,6 @@ export const GscSearchPerformanceRepository = {
   getStrikingDistance,
   getTableRows,
   getCountries,
+  getDailyGrainFacts,
+  getLatestFactDate,
 };

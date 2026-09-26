@@ -73,7 +73,7 @@ async function getConfigByProjectDomainLocation(
         eq(rankTrackingConfigs.projectId, projectId),
         eq(rankTrackingConfigs.domain, domain),
         eq(rankTrackingConfigs.locationCode, locationCode),
-        // National (NULL) and per-city configs are distinct rows — mirrors
+        // National (NULL) and per-city configs are distinct rows ΓÇö mirrors
         // the partial unique indexes, so a national config and any number of
         // city configs can coexist for the same domain.
         locationName === null
@@ -141,7 +141,7 @@ async function getDueConfigsWithOrganization(nowIso: string) {
 /**
  * Try to insert a new pending run. Returns true if inserted, false if blocked
  * by the partial unique index on (config_id) WHERE status IN ('pending',
- * 'running') — i.e. another active run exists for this config.
+ * 'running') ΓÇö i.e. another active run exists for this config.
  *
  * This is how duplicate-trigger protection is enforced: the DB rejects the
  * second insert rather than a separate lock table.
@@ -185,6 +185,20 @@ async function getLatestRunForConfig(configId: string) {
     .orderBy(desc(rankCheckRuns.startedAt))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Most recent runs for a config, newest first. Detector input layer filters
+ * these to qualifying runs (completed, or partial with committed snapshots);
+ * failed/empty runs never qualify as detection windows.
+ */
+async function getRecentRunsForConfig(configId: string, limit: number) {
+  return db
+    .select()
+    .from(rankCheckRuns)
+    .where(eq(rankCheckRuns.configId, configId))
+    .orderBy(desc(rankCheckRuns.startedAt))
+    .limit(limit);
 }
 
 /**
@@ -409,6 +423,7 @@ export const RankTrackingRepository = {
   updateRun,
   getRunById,
   getLatestRunForConfig,
+  getRecentRunsForConfig,
   getActiveRunForConfig,
   insertSnapshots,
   getSnapshotsForRun,

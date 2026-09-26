@@ -1,0 +1,1 @@
+ALTER TABLE "autopilot_steps" ADD COLUMN "tool_calls" integer DEFAULT 0 NOT NULL;

@@ -142,11 +142,11 @@ beforeEach(() => {
 });
 
 describe("research", () => {
-  it("stops the auto waterfall at 'related' when coverage is sufficient", async () => {
+  it("stops the auto waterfall at 'suggestions' when coverage is sufficient", async () => {
     mocks.seoDataRouter.route.mockResolvedValue(
       routerResponse("keyword_ideas", [
-        { keyword_data: labsItem("seo tools", 3600) },
-        ...fiveIdeas.map((item) => ({ keyword_data: item })),
+        labsItem("seo tools", 3600),
+        ...fiveIdeas,
       ]),
     );
     const { research } = await import("./research");
@@ -162,14 +162,13 @@ describe("research", () => {
       billingCustomer,
       creditFeature: undefined,
       constraints: {
-        source: "related",
+        source: "suggestions",
         limit: 150,
-        depth: 3,
         includeClickstreamData: false,
       },
     });
     expect(result).toMatchObject({
-      source: "related",
+      source: "suggestions",
       usedFallback: false,
       diagnostics: { requestedMode: "auto" },
     });
@@ -177,17 +176,17 @@ describe("research", () => {
     expect(mocks.createDataforseoClient).not.toHaveBeenCalled();
   });
 
-  it("falls through to suggestions and ideas when related coverage is thin", async () => {
+  it("falls through to ideas and related when suggestions coverage is thin", async () => {
     mocks.seoDataRouter.route
-      // related: seed + 2 non-seed — below the auto threshold (5 non-seed)
+      // suggestions: seed + 2 non-seed — below the auto threshold (5 non-seed)
       .mockResolvedValueOnce(
         routerResponse("keyword_ideas", [
-          { keyword_data: labsItem("seo tools", 3600) },
-          { keyword_data: labsItem("seo software", 2400) },
-          { keyword_data: labsItem("seo platform", 1900) },
+          labsItem("seo tools", 3600),
+          labsItem("seo software", 2400),
+          labsItem("seo platform", 1900),
         ]),
       )
-      // suggestions: 3 more distinct non-seed rows; accumulated coverage hits 5
+      // ideas: 3 more distinct non-seed rows; accumulated coverage hits 5
       .mockResolvedValueOnce(
         routerResponse("keyword_ideas", [
           labsItem("keyword research tool", 1600),
@@ -200,7 +199,7 @@ describe("research", () => {
     const result = await research(usResearchInput, billingCustomer);
 
     expect(mocks.seoDataRouter.route).toHaveBeenCalledTimes(2);
-    expect(mocks.seoDataRouter.route).toHaveBeenNthCalledWith(2, {
+    expect(mocks.seoDataRouter.route).toHaveBeenNthCalledWith(1, {
       dataType: "keyword_ideas",
       keyword: "seo tools",
       locationCode: 2840,
@@ -213,12 +212,50 @@ describe("research", () => {
         includeClickstreamData: false,
       },
     });
-    expect(result).toMatchObject({ source: "suggestions", usedFallback: true });
+    expect(mocks.seoDataRouter.route).toHaveBeenNthCalledWith(2, {
+      dataType: "keyword_ideas",
+      keyword: "seo tools",
+      locationCode: 2840,
+      languageCode: "en",
+      billingCustomer,
+      creditFeature: undefined,
+      constraints: {
+        source: "ideas",
+        limit: 150,
+        includeClickstreamData: false,
+      },
+    });
+    expect(result).toMatchObject({ source: "ideas", usedFallback: true });
     expect(
       mocks.seoDataRouter.route.mock.calls.some(
-        ([req]) => req.constraints?.source === "ideas",
+        ([req]) => req.constraints?.source === "related",
       ),
     ).toBe(false);
+  });
+
+  it("uses depth: 1 for related keywords to prevent semantic drift", async () => {
+    mocks.seoDataRouter.route.mockResolvedValue(
+      routerResponse("keyword_ideas", [
+        { keyword_data: labsItem("seo tools", 3600) },
+        ...fiveIdeas.map((item) => ({ keyword_data: item })),
+      ]),
+    );
+    const { research } = await import("./research");
+
+    const result = await research(
+      { ...usResearchInput, mode: "related" },
+      billingCustomer,
+    );
+
+    expect(mocks.seoDataRouter.route).toHaveBeenCalledWith(
+      expect.objectContaining({
+        constraints: expect.objectContaining({
+          source: "related",
+          depth: 1,
+        }),
+      }),
+    );
+    expect(result.source).toBe("related");
   });
 
   it("serves Google-Ads-only locations via the google_ads source constraint", async () => {
@@ -272,8 +309,8 @@ describe("research", () => {
       }
       providerFetches += 1;
       const response = routerResponse("keyword_ideas", [
-        { keyword_data: labsItem("seo tools", 3600) },
-        ...fiveIdeas.map((item) => ({ keyword_data: item })),
+        labsItem("seo tools", 3600),
+        ...fiveIdeas,
       ]);
       cache.set(key, response);
       return response;

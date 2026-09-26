@@ -4,10 +4,7 @@ import {
   isResultLimit,
   normalizeKeywordMode,
 } from "@/client/features/keywords/keywordSearchParams";
-import {
-  MAX_KEYWORDS_PER_SUBMIT,
-  RESULT_LIMITS,
-} from "@/client/features/keywords/keywordResearchTypes";
+import { RESULT_LIMITS } from "@/client/features/keywords/keywordResearchTypes";
 import { isLabsLocationCode } from "@/client/features/keywords/locations";
 import { LocationSelect } from "@/client/components/LocationSelect";
 import type { KeywordResearchControllerState } from "./types";
@@ -19,7 +16,7 @@ type Props = {
 function getTextareaRows(value: string): number {
   const newlines = (value.match(/\n/g) ?? []).length;
   const lines = newlines + 1;
-  return Math.min(MAX_KEYWORDS_PER_SUBMIT, Math.max(1, lines));
+  return Math.min(6, Math.max(1, lines));
 }
 
 export function KeywordResearchSearchBar({ controller }: Props) {
@@ -104,10 +101,10 @@ export function KeywordResearchSearchBar({ controller }: Props) {
                     field.handleChange(normalizeKeywordMode(event.target.value))
                   }
                 >
-                  <option value="auto">Auto</option>
-                  <option value="related">Related keywords</option>
-                  <option value="suggestions">Suggestions</option>
-                  <option value="ideas">Ideas</option>
+                  <option value="auto">Auto (Recommended)</option>
+                  <option value="related">Related searches (تم البحث أيضاً عن)</option>
+                  <option value="suggestions">Autocomplete suggestions</option>
+                  <option value="ideas">Keyword ideas (Planner)</option>
                 </select>
               )}
             </controlsForm.Field>
