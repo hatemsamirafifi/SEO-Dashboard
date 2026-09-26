@@ -7,6 +7,7 @@ import {
   AUTOPILOT_WORKFLOW_LABELS,
   AUTOPILOT_WORKFLOW_TYPES,
   isAutopilotRunActive,
+  isAutopilotRunStatus,
   isAutopilotWorkflowType,
   type AutopilotRunStatus,
   type AutopilotWorkflowType,
@@ -49,11 +50,12 @@ export function SamAutopilotTab({ projectId }: { projectId: string }) {
     queryKey: ["autopilotRuns", projectId],
     queryFn: () => listAutopilotRuns({ data: { projectId } }),
   });
-  const runs: RunRow[] = (runsQuery.data?.runs ?? []).map((run) => ({
-    id: run.id,
-    workflowType: run.workflowType,
-    status: run.status,
-  }));
+  const runs: RunRow[] = (runsQuery.data?.runs ?? []).flatMap((run) =>
+    isAutopilotWorkflowType(run.workflowType) &&
+    isAutopilotRunStatus(run.status)
+      ? [{ id: run.id, workflowType: run.workflowType, status: run.status }]
+      : [],
+  );
   const activeRunId = selectedRunId ?? runs[0]?.id ?? null;
 
   const runQuery = useQuery({
@@ -64,7 +66,9 @@ export function SamAutopilotTab({ projectId }: { projectId: string }) {
         : Promise.resolve(null),
     // Live step checklist: poll the durable run while it is pending/running.
     refetchInterval: (query) =>
-      query.state.data && shouldPollRun(query.state.data.run.status)
+      query.state.data &&
+      isAutopilotRunStatus(query.state.data.run.status) &&
+      shouldPollRun(query.state.data.run.status)
         ? 3000
         : false,
   });
@@ -216,7 +220,9 @@ function RunDetail({
   cancelPending: boolean;
   resumePending: boolean;
 }) {
-  const active = isAutopilotRunActive(view.run.status);
+  const active =
+    isAutopilotRunStatus(view.run.status) &&
+    isAutopilotRunActive(view.run.status);
   const cards = recommendationCards(view.steps);
   const correlations = correlationRows(view.steps);
 
@@ -224,9 +230,13 @@ function RunDetail({
     <div className="flex flex-col gap-3 rounded-lg border border-base-300 p-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">
-          {AUTOPILOT_WORKFLOW_LABELS[view.run.workflowType] ??
-            view.run.workflowType}{" "}
-          · {runStatusLabel(view.run.status)}
+          {isAutopilotWorkflowType(view.run.workflowType)
+            ? AUTOPILOT_WORKFLOW_LABELS[view.run.workflowType]
+            : view.run.workflowType}{" "}
+          ·{" "}
+          {isAutopilotRunStatus(view.run.status)
+            ? runStatusLabel(view.run.status)
+            : view.run.status}
         </p>
         <div className="flex gap-2">
           {active ? (

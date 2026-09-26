@@ -11,6 +11,15 @@ async function insertRow(values: ReportInsert): Promise<ReportRow> {
   return row;
 }
 
+async function getById(id: string): Promise<ReportRow | null> {
+  const rows = await db
+    .select()
+    .from(reports)
+    .where(eq(reports.id, id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 async function getByIdForProject(
   id: string,
   projectId: string,
@@ -44,6 +53,7 @@ async function deleteByIdForProject(
 
 export const ReportRepository = {
   insertRow,
+  getById,
   getByIdForProject,
   listByProject,
   deleteByIdForProject,

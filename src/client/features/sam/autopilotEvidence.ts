@@ -23,23 +23,23 @@ import {
 
 export type AutopilotStepLike = {
   seq: number;
-  kind: AutopilotStepKind;
+  kind: AutopilotStepKind | string;
   name: string;
-  status: AutopilotStepStatus;
+  status: AutopilotStepStatus | string;
   evidenceJson: string | null;
 };
 
 export type AutopilotAttemptLike = {
   id: string;
   attemptNumber: number;
-  status: AutopilotAttemptStatus;
+  status: AutopilotAttemptStatus | string;
   invalidationReason: string | null;
 };
 
 export type AutopilotRunLike = {
   id: string;
-  workflowType: AutopilotWorkflowType;
-  status: AutopilotRunStatus;
+  workflowType: AutopilotWorkflowType | string;
+  status: AutopilotRunStatus | string;
   evidenceHash: string | null;
 };
 

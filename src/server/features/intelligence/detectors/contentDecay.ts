@@ -221,7 +221,7 @@ export async function fetchDecayInput(
     for (const run of runs) {
       if (run.status === "completed") {
         qualifying.push(run);
-      } else if (run.status === "partial") {
+      } else if ((run.status as string) === "partial") {
         const snapshots = await RankTrackingRepository.getSnapshotsForRun(
           run.id,
         );

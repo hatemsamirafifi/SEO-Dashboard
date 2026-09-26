@@ -95,7 +95,7 @@ async function qualifyingRunPairs(projectId: string): Promise<
     for (const run of runs) {
       if (QUALIFYING_STATUSES.includes(run.status)) {
         qualifying.push(run);
-      } else if (run.status === "partial") {
+      } else if ((run.status as string) === "partial") {
         const snapshots = await RankTrackingRepository.getSnapshotsForRun(
           run.id,
         );

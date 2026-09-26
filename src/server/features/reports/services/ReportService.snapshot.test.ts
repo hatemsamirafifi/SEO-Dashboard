@@ -6,7 +6,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const database = vi.hoisted(() => ({
   client: undefined as Client | undefined,
-  db: undefined as LibSQLDatabase | undefined,
+  db: undefined as LibSQLDatabase<any> | undefined,
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {}, waitUntil: vi.fn() }));

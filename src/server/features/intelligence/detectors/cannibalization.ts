@@ -75,7 +75,7 @@ async function latestQualifyingRankRun(
   const runs = await RankTrackingRepository.getRecentRunsForConfig(configId, 6);
   for (const run of runs) {
     if (run.status === "completed") return run;
-    if (run.status === "partial") {
+    if ((run.status as string) === "partial") {
       const snapshots = await RankTrackingRepository.getSnapshotsForRun(run.id);
       if (snapshots.length > 0) return run;
     }

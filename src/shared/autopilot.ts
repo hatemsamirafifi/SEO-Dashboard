@@ -49,6 +49,12 @@ export function isAutopilotWorkflowType(
   return (AUTOPILOT_WORKFLOW_TYPES as readonly unknown[]).includes(value);
 }
 
+export function isAutopilotRunStatus(
+  value: unknown,
+): value is AutopilotRunStatus {
+  return (AUTOPILOT_RUN_STATUSES as readonly unknown[]).includes(value);
+}
+
 export const AUTOPILOT_WORKFLOW_LABELS: Record<AutopilotWorkflowType, string> =
   {
     growth_plan: "Growth plan",

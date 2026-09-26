@@ -136,7 +136,7 @@ async function selectRankVersion(projectId: string): Promise<string | null> {
         });
         break;
       }
-      if (run.status === "partial" && run.completedAt) {
+      if ((run.status as string) === "partial" && run.completedAt) {
         const snapshots = await db
           .select({ id: rankSnapshots.id })
           .from(rankSnapshots)

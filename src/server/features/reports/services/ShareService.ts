@@ -158,7 +158,7 @@ export type PublicReportView = {
     consistencyStatus: string;
   };
   payload: ReportPayload;
-  branding: BrandingSnapshot;
+  branding: BrandingSnapshot | null;
 };
 
 /**

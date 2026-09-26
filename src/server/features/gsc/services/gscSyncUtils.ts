@@ -59,6 +59,11 @@ export function splitDateRangeIntoChunks(
   return chunks;
 }
 
+export function addDaysUtc(dateStr: string, days: number): string {
+  const ms = Date.parse(`${dateStr}T00:00:00Z`) + days * 24 * 60 * 60 * 1000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 export function classifyGscSyncError(error: unknown): {
   errorClass: string;
   message: string;

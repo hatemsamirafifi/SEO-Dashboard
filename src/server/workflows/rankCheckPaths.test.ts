@@ -10,7 +10,7 @@ import { runLiveCheck } from "@/server/workflows/rankCheckPaths";
 
 const repoMocks = vi.hoisted(() => ({
   updateRun: vi.fn<() => Promise<void>>(),
-  insertSnapshots: vi.fn<() => Promise<void>>(),
+  insertSnapshots: vi.fn<(...args: any[]) => Promise<void>>(),
   getLatestPositionsMap: vi.fn<() => Promise<Map<string, number | null>>>(),
 }));
 
