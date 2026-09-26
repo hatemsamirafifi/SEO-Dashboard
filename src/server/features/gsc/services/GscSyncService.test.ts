@@ -54,6 +54,7 @@ import {
   normalizeGscRow,
   splitDateRangeIntoChunks,
 } from "./GscSyncService";
+import { addDaysUtc } from "./gscSyncUtils";
 import {
   GscApiError,
   GscTokenError,
@@ -281,24 +282,28 @@ describe("GscSyncService.runSync execution & status determination", () => {
   });
 
   it("classifies outcome as partial (not failed) when recent dates return 0 rows", async () => {
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    const startDate = addDaysUtc(todayUtc, -6);
+    const endDate = todayUtc;
+
     mocks.createSyncRun.mockResolvedValue({
       ok: true,
       sync: {
         id: "sync_2",
         syncType: "manual",
-        requestedStartDate: "2026-09-08",
-        requestedEndDate: "2026-09-14",
+        requestedStartDate: startDate,
+        requestedEndDate: endDate,
         actualLastSuccessfulDate: null,
       },
     });
 
-    // Return rows for 2026-09-08, but empty rows for subsequent recent chunks
+    // Return rows for startDate, but empty rows for subsequent recent chunks
     mocks.querySearchAnalytics.mockImplementation(
       async (_siteUrl: unknown, req: GscSearchAnalyticsRequest) => {
-        if (req.startDate === "2026-09-08") {
+        if (req.startDate === startDate) {
           return [
             {
-              keys: ["2026-09-08"],
+              keys: [startDate],
               clicks: 5,
               impressions: 50,
               ctr: 0.1,
@@ -312,14 +317,14 @@ describe("GscSyncService.runSync execution & status determination", () => {
 
     const result = await GscSyncService.runSync({
       projectId: "proj_1",
-      startDate: "2026-09-08",
-      endDate: "2026-09-14",
+      startDate,
+      endDate,
       chunkDays: 3,
     });
 
     expect(result.status).toBe("partial");
     expect(result.ok).toBe(true);
-    expect(result.lastSuccessfulDate).toBe("2026-09-08");
+    expect(result.lastSuccessfulDate).toBe(startDate);
     expect(result.error).toBeUndefined();
   });
 
