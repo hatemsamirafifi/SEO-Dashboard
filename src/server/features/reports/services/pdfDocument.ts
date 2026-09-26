@@ -19,6 +19,7 @@ const BOTTOM_Y = 64;
 const PUNCTUATION_MAP: Record<string, string> = {
   "—": "-",
   "–": "-",
+  "·": "-",
   "“": '"',
   "”": '"',
   "‘": "'",
