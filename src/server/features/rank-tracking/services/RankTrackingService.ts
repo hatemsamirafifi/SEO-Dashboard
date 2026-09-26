@@ -15,6 +15,7 @@ import {
   isScheduledRankTrackingInterval,
   MAX_KEYWORDS_PER_CONFIG,
   MAX_CONFIGS_PER_PROJECT,
+  type MissingRankingBucket,
   type MissingRankingsBreakdown,
 } from "@/shared/rank-tracking";
 import {
@@ -61,7 +62,7 @@ async function createConfig(input: {
       locationName,
     );
   // The (project, domain, location) row still exists when a domain is
-  // archived ΓÇö archiving only flips isActive to false. So re-adding an
+  // archived — archiving only flips isActive to false. So re-adding an
   // archived domain reactivates that row (keeping its keyword/ranking
   // history) with the freshly chosen settings, rather than colliding with
   // the unique index. An already-active row is a genuine duplicate.
@@ -74,7 +75,7 @@ async function createConfig(input: {
     );
   }
 
-  // Enforced for reactivations too, not just new rows ΓÇö otherwise archiving
+  // Enforced for reactivations too, not just new rows — otherwise archiving
   // and re-adding domains would push a project past the active-config cap.
   const allConfigs = await RankTrackingRepository.getConfigsForProject(
     input.projectId,
@@ -173,7 +174,7 @@ async function addKeywords(
 
   // Filter out keywords that already exist for this config.
   // We must do this before inserting because onConflictDoNothing silently
-  // skips duplicates but we pre-generate UUIDs ΓÇö returning those phantom IDs
+  // skips duplicates but we pre-generate UUIDs — returning those phantom IDs
   // would cause the auto-check workflow to find no keywords and fail.
   const existing = await RankTrackingRepository.getKeywordsForConfig(configId);
 
@@ -256,6 +257,7 @@ async function triggerCheck(input: {
   billingCustomer: BillingCustomerContext;
   keywordIds?: string[];
   missingRankings?: boolean;
+  missingRankingStates?: MissingRankingBucket[];
   operationId?: string;
 }): Promise<RankCheckTriggerResult> {
   const config = await getValidatedConfig(input.configId, input.projectId);
@@ -273,21 +275,28 @@ async function triggerCheck(input: {
     input.keywordIds,
   );
 
-  // "Check missing rankings" mode: eligibility is resolved here ΓÇö once at
+  // "Check missing rankings" mode: eligibility is resolved here — once at
   // trigger time for the run's keyword scope, and again inside the workflow
   // prepare step (fresh state at execution time, so a keyword that recovered
   // between trigger and execution is not billed). Explicit selection
   // intersects the eligible set. Zero eligible keywords returns BEFORE any
-  // run is created ΓÇö no empty provider-execution run ever exists.
+  // run is created — no empty provider-execution run ever exists.
   let effectiveKeywordIds = requestedKeywordIds ?? undefined;
   let missingBreakdown: MissingRankingsBreakdown | null = null;
+  let candidatesCount = keywords.length;
+  let missingEligibleBeforeFilter = 0;
+
   if (input.missingRankings) {
     const resolution = await resolveMissingRankingKeywordIds({
       configId: config.id,
       devices: config.devices,
       keywordIds: requestedKeywordIds ?? undefined,
+      missingRankingStates: input.missingRankingStates,
     });
     missingBreakdown = resolution.breakdown;
+    candidatesCount = resolution.candidatesCount;
+    missingEligibleBeforeFilter = resolution.totalMissingCount;
+
     if (resolution.eligibleIds.length === 0) {
       return {
         ok: false,
@@ -295,6 +304,9 @@ async function triggerCheck(input: {
         blockingRunId: null,
         operationId: input.operationId,
         eligibleCount: 0,
+        candidatesCount,
+        missingEligibleBeforeFilter,
+        selectedStates: input.missingRankingStates,
         breakdown: resolution.breakdown,
       };
     }
@@ -318,6 +330,7 @@ async function triggerCheck(input: {
     trigger: "manual",
     workflowStartErrorMessage: "Failed to start rank check workflow",
     missingRankings: input.missingRankings ?? false,
+    missingRankingStates: input.missingRankingStates,
   });
 
   if (runResult.ok) {
@@ -333,6 +346,9 @@ async function triggerCheck(input: {
       validatedCount,
       validatedKeywordIds: effectiveKeywordIds,
       unselectedCount: totalTracked - validatedCount,
+      candidatesCount,
+      missingEligibleBeforeFilter,
+      selectedStates: input.missingRankingStates,
       ...(missingBreakdown ? { breakdown: missingBreakdown } : {}),
     };
   }
@@ -352,7 +368,7 @@ async function getLatestRun(configId: string, projectId: string) {
   );
 
   // If the DB says the run is still active, check the workflow instance.
-  // We only report staleness here ΓÇö the next call to beginRankCheckRun will
+  // We only report staleness here — the next call to beginRankCheckRun will
   // mark a stale blocker as failed before retrying its insert. Mutating from
   // this read path caused a race where the original workflow kept running
   // while a replacement was started.

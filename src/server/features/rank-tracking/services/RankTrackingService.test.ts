@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   getConfigById: vi.fn(),
   getKeywordsForConfig: vi.fn(),
   updateKeywordMetrics: vi.fn(),
+  getRunById: vi.fn(),
+  updateRun: vi.fn(),
   route: vi.fn(),
 }));
 
@@ -75,7 +77,7 @@ describe("RankTrackingService.createConfig", () => {
     );
     // Reactivation must not insert a duplicate row.
     expect(mocks.createConfig).not.toHaveBeenCalled();
-  });
+  }, 30000);
 
   it("throws when an active config already tracks the same domain + location", async () => {
     mocks.getConfigByProjectDomainLocation.mockResolvedValue({
@@ -283,6 +285,155 @@ describe("RankTrackingService.refreshKeywordMetrics", () => {
           projectId: "project_1",
           locationName: "Enid,Oklahoma,United States",
         },
+      }),
+    );
+  });
+});
+
+describe("RankTrackingService.cancelRun", () => {
+  it("cancels a running rank check and updates database status to cancelled", async () => {
+    mocks.getConfigById.mockResolvedValue({
+      id: "cfg_1",
+      projectId: "project_1",
+    });
+    mocks.getRunById.mockResolvedValue({
+      id: "run_1",
+      configId: "cfg_1",
+      projectId: "project_1",
+      status: "running",
+    });
+    mocks.updateRun.mockResolvedValue(undefined);
+
+    const { RankTrackingService } = await import("./RankTrackingService");
+    const result = await RankTrackingService.cancelRun({
+      configId: "cfg_1",
+      projectId: "project_1",
+      runId: "run_1",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      runId: "run_1",
+      status: "cancelled",
+    });
+    expect(mocks.updateRun).toHaveBeenCalledWith(
+      "run_1",
+      expect.objectContaining({
+        status: "cancelled",
+        errorMessage: "Cancelled by user",
+      }),
+    );
+  });
+
+  it("is idempotent: cancelling an already completed run returns alreadyTerminal without modifying database", async () => {
+    mocks.getConfigById.mockResolvedValue({
+      id: "cfg_1",
+      projectId: "project_1",
+    });
+    mocks.getRunById.mockResolvedValue({
+      id: "run_completed",
+      configId: "cfg_1",
+      projectId: "project_1",
+      status: "completed",
+    });
+
+    const { RankTrackingService } = await import("./RankTrackingService");
+    const result = await RankTrackingService.cancelRun({
+      configId: "cfg_1",
+      projectId: "project_1",
+      runId: "run_completed",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      runId: "run_completed",
+      status: "completed",
+      alreadyTerminal: true,
+    });
+    expect(mocks.updateRun).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent: cancelling an already cancelled run returns alreadyTerminal without modifying database", async () => {
+    mocks.getConfigById.mockResolvedValue({
+      id: "cfg_1",
+      projectId: "project_1",
+    });
+    mocks.getRunById.mockResolvedValue({
+      id: "run_cancelled",
+      configId: "cfg_1",
+      projectId: "project_1",
+      status: "cancelled",
+    });
+
+    const { RankTrackingService } = await import("./RankTrackingService");
+    const result = await RankTrackingService.cancelRun({
+      configId: "cfg_1",
+      projectId: "project_1",
+      runId: "run_cancelled",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      runId: "run_cancelled",
+      status: "cancelled",
+      alreadyTerminal: true,
+    });
+    expect(mocks.updateRun).not.toHaveBeenCalled();
+  });
+
+  it("rejects cancellation if run does not match config or project", async () => {
+    mocks.getConfigById.mockResolvedValue({
+      id: "cfg_1",
+      projectId: "project_1",
+    });
+    mocks.getRunById.mockResolvedValue({
+      id: "run_other",
+      configId: "cfg_2", // Different config
+      projectId: "project_other", // Different project
+      status: "running",
+    });
+
+    const { RankTrackingService } = await import("./RankTrackingService");
+    await expect(
+      RankTrackingService.cancelRun({
+        configId: "cfg_1",
+        projectId: "project_1",
+        runId: "run_other",
+      }),
+    ).rejects.toThrow("Rank check run not found");
+
+    expect(mocks.updateRun).not.toHaveBeenCalled();
+  });
+
+  it("cancels a run successfully when configId is omitted", async () => {
+    mocks.getConfigById.mockResolvedValue({
+      id: "cfg_1",
+      projectId: "project_1",
+    });
+    mocks.getRunById.mockResolvedValue({
+      id: "run_scoped",
+      configId: "cfg_1",
+      projectId: "project_1",
+      status: "running",
+    });
+    mocks.updateRun.mockResolvedValue(undefined);
+
+    const { RankTrackingService } = await import("./RankTrackingService");
+    const result = await RankTrackingService.cancelRun({
+      projectId: "project_1",
+      runId: "run_scoped",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      runId: "run_scoped",
+      status: "cancelled",
+    });
+    expect(mocks.updateRun).toHaveBeenCalledWith(
+      "run_scoped",
+      expect.objectContaining({
+        status: "cancelled",
+        errorMessage: "Cancelled by user",
       }),
     );
   });

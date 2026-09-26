@@ -65,9 +65,7 @@ function SettingsPage() {
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
 
         <section className="space-y-3">
-          <h2 className="text-sm font-medium text-base-content/50">
-            AI agent
-          </h2>
+          <h2 className="text-sm font-medium text-base-content/50">AI agent</h2>
           <AiSettingsSection />
         </section>
 

@@ -5,6 +5,20 @@ import { loadLocalEnv, parseArgs } from "./cli-utils";
 
 loadLocalEnv();
 
+// DataForSEO groups spend under `total_<function>` keys on each statistics
+// window. Field names mirror the SDK's AppendixStatisticsRatesDataInfo.
+const FUNCTION_TOTALS: ReadonlyArray<{ label: string; key: string }> = [
+  { label: "serp", key: "total_serp" },
+  { label: "keywords_data", key: "total_keywords_data" },
+  { label: "dataforseo_labs", key: "total_dataforseo_labs" },
+  { label: "backlinks", key: "total_backlinks" },
+  { label: "on_page", key: "total_on_page" },
+  { label: "business_data", key: "total_business_data" },
+  { label: "domain_analytics", key: "total_domain_analytics" },
+  { label: "merchant", key: "total_merchant" },
+  { label: "app_data", key: "total_app_data" },
+];
+
 const args = parseArgs(process.argv.slice(2));
 
 await main();
@@ -51,22 +65,7 @@ async function main() {
   );
 }
 
-// DataForSEO groups spend under `total_<function>` keys on each statistics
-// window. Field names mirror the SDK's AppendixStatisticsRatesDataInfo.
-const FUNCTION_TOTALS: ReadonlyArray<{ label: string; key: string }> = [
-  { label: "serp", key: "total_serp" },
-  { label: "keywords_data", key: "total_keywords_data" },
-  { label: "dataforseo_labs", key: "total_dataforseo_labs" },
-  { label: "backlinks", key: "total_backlinks" },
-  { label: "on_page", key: "total_on_page" },
-  { label: "business_data", key: "total_business_data" },
-  { label: "domain_analytics", key: "total_domain_analytics" },
-  { label: "merchant", key: "total_merchant" },
-  { label: "app_data", key: "total_app_data" },
-  { label: "content_analysis", key: "total_content_analysis" },
-  { label: "content_generation", key: "total_content_generation" },
-  { label: "appendix", key: "total_appendix" },
-];
+
 
 function printFunctionTable(
   heading: string,

@@ -1,0 +1,1 @@
+ALTER TABLE "seo_provider_settings" ADD COLUMN "circuit_breaker_enabled" boolean DEFAULT true NOT NULL;

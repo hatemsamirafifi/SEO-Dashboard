@@ -1,8 +1,13 @@
+/* eslint-disable max-lines */
 import type {
   GlobalTraceKeywordChild,
   GlobalTraceOperation,
 } from "@/shared/globalTraceTypes";
-import type { MissingRankingsBreakdown } from "@/shared/rank-tracking";
+import {
+  MISSING_RANKING_BUCKET_LABELS,
+  type MissingRankingBucket,
+  type MissingRankingsBreakdown,
+} from "@/shared/rank-tracking";
 import { formatTraceDuration } from "./globalTraceFormat";
 
 function formatCircuitRetryAfter(expiresAt?: string | null): string | null {
@@ -35,11 +40,18 @@ export function ScopeSection({
 
   if (!hasScope) return null;
 
-  const breakdown = (
-    operation.metadata as
-      | { missingRankingsBreakdown?: MissingRankingsBreakdown }
-      | undefined
-  )?.missingRankingsBreakdown;
+  const meta = operation.metadata as
+    | {
+        missingRankingsBreakdown?: MissingRankingsBreakdown;
+        missingRankingStates?: MissingRankingBucket[];
+        candidatesCount?: number;
+        missingEligibleBeforeFilter?: number;
+      }
+    | undefined;
+  const breakdown = meta?.missingRankingsBreakdown;
+  const missingRankingStates = meta?.missingRankingStates;
+  const candidatesCount = meta?.candidatesCount;
+  const missingEligibleBeforeFilter = meta?.missingEligibleBeforeFilter;
 
   return (
     <div className="space-y-1.5">
@@ -75,19 +87,67 @@ export function ScopeSection({
         </div>
       </div>
 
+      {missingRankingStates && missingRankingStates.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
+          <span className="text-base-content/60 font-medium">
+            Selected states:
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {missingRankingStates.map((s) => (
+              <span
+                key={s}
+                className="rounded bg-base-200 px-1.5 py-0.5 font-medium text-base-content text-[11px]"
+              >
+                {MISSING_RANKING_BUCKET_LABELS[s] ?? s}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(candidatesCount !== undefined ||
+        missingEligibleBeforeFilter !== undefined) && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-base-content/70">
+          {candidatesCount !== undefined && (
+            <span>
+              Candidates:{" "}
+              <span className="font-mono font-semibold text-base-content">
+                {candidatesCount}
+              </span>
+            </span>
+          )}
+          {missingEligibleBeforeFilter !== undefined && (
+            <span>
+              Missing eligible before state filter:{" "}
+              <span className="font-mono font-semibold text-base-content">
+                {missingEligibleBeforeFilter}
+              </span>
+            </span>
+          )}
+          {operation.validatedCount !== undefined && (
+            <span>
+              Selected-state eligible:{" "}
+              <span className="font-mono font-semibold text-base-content">
+                {operation.validatedCount}
+              </span>
+            </span>
+          )}
+        </div>
+      )}
+
       {(operation.rankChecksSucceeded !== undefined ||
         operation.rankChecksFailed !== undefined ||
         operation.rankChecksSkipped !== undefined) && (
         <div className="flex flex-wrap gap-3 pt-1 text-xs">
           {operation.rankChecksSucceeded !== undefined && (
             <span className="font-medium text-success">
-              Γ£ô {operation.rankChecksSucceeded} succeeded
+              ✓ {operation.rankChecksSucceeded} succeeded
             </span>
           )}
           {operation.rankChecksFailed !== undefined &&
             operation.rankChecksFailed > 0 && (
               <span className="font-medium text-error">
-                Γ£ù {operation.rankChecksFailed} failed
+                ✗ {operation.rankChecksFailed} failed
               </span>
             )}
           {operation.rankChecksSkipped !== undefined &&
@@ -101,17 +161,26 @@ export function ScopeSection({
 
       {breakdown && (
         <div className="flex flex-wrap gap-3 pt-1 text-xs text-base-content/60">
-          <span>
-            Ranking unavailable:{" "}
-            <span className="font-mono">{breakdown.ranking_unavailable}</span>
-          </span>
-          <span>
-            Lost: <span className="font-mono">{breakdown.lost}</span>
-          </span>
-          <span>
-            No ranking:{" "}
-            <span className="font-mono">{breakdown.no_ranking}</span>
-          </span>
+          <span className="font-medium text-base-content/70">Breakdown:</span>
+          {(!missingRankingStates ||
+            missingRankingStates.includes("ranking_unavailable")) && (
+            <span>
+              Ranking unavailable:{" "}
+              <span className="font-mono">{breakdown.ranking_unavailable}</span>
+            </span>
+          )}
+          {(!missingRankingStates || missingRankingStates.includes("lost")) && (
+            <span>
+              Lost: <span className="font-mono">{breakdown.lost}</span>
+            </span>
+          )}
+          {(!missingRankingStates ||
+            missingRankingStates.includes("no_ranking")) && (
+            <span>
+              No ranking:{" "}
+              <span className="font-mono">{breakdown.no_ranking}</span>
+            </span>
+          )}
         </div>
       )}
       {operation.selectedKeywordIds &&
@@ -243,13 +312,13 @@ export function ProviderSection({
                 <div className="mt-1 w-full text-[11px] text-warning">
                   <span className="font-semibold">Retryable:</span> Yes
                   {typeof p.retryAfterMs === "number" && p.retryAfterMs > 0 && (
-                    <> ┬╖ Retry-After: {p.retryAfterMs}ms</>
+                    <> · Retry-After: {p.retryAfterMs}ms</>
                   )}
                 </div>
               )}
               {p.retryable === false && p.dispatched !== false && (
                 <div className="mt-1 w-full text-[11px] text-base-content/60">
-                  <span className="font-semibold">Retryable:</span> No ┬╖ retries
+                  <span className="font-semibold">Retryable:</span> No · retries
                   skipped for this failure class
                 </div>
               )}
@@ -258,7 +327,7 @@ export function ProviderSection({
                   <span className="font-semibold">Reason:</span> {p.skipReason}
                   {p.circuitBreakerEnabled === false && (
                     <>
-                      {" ┬╖ "}
+                      {" · "}
                       <span className="font-semibold">
                         Circuit protection:
                       </span>{" "}
@@ -267,7 +336,7 @@ export function ProviderSection({
                   )}
                   {p.circuitReason && (
                     <>
-                      {" ┬╖ "}
+                      {" · "}
                       <span className="font-semibold">
                         Circuit reason:
                       </span>{" "}
@@ -276,7 +345,7 @@ export function ProviderSection({
                   )}
                   {formatCircuitRetryAfter(p.circuitExpiresAt) && (
                     <>
-                      {" ┬╖ "}
+                      {" · "}
                       <span className="font-semibold">Retry after:</span>{" "}
                       {formatCircuitRetryAfter(p.circuitExpiresAt)}
                     </>
@@ -380,12 +449,12 @@ export function ChildrenSection({
                   {child.positionBefore !== null &&
                   child.positionBefore !== undefined
                     ? `#${child.positionBefore}`
-                    : "ΓÇö"}
-                  {" ΓåÆ "}
+                    : "—"}
+                  {" → "}
                   {child.positionAfter !== null &&
                   child.positionAfter !== undefined
                     ? `#${child.positionAfter}`
-                    : "ΓÇö"}
+                    : "—"}
                 </span>
               )}
 

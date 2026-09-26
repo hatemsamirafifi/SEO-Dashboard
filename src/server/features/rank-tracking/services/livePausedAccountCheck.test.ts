@@ -78,15 +78,10 @@ describe("Live and Paused-Account Rank Check Verification", () => {
       const taskStatusCode = firstTask?.status_code ?? data.status_code;
       const taskStatusMessage = firstTask?.status_message ?? data.status_message;
 
-      if (taskStatusCode === 20000) {
-        // Real live account has available balance and is active
-        expect(res.status).toBe(200);
-        return;
-      }
-
       // Real live DataForSEO account is currently paused / out-of-funds
-      expect([200, 402]).toContain(res.status);
-      expect([40200, 40201]).toContain(taskStatusCode);
+      expect(res.status).toBe(402);
+      expect(taskStatusCode).toBe(40200);
+      expect(taskStatusMessage).toBe("Payment Required.");
 
       const caughtError: ProviderErrorFixture = new Error(
         `DataForSEO task error (${taskStatusCode}): ${taskStatusMessage}`,

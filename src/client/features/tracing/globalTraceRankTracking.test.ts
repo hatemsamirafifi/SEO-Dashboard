@@ -44,7 +44,7 @@ function runSelectedCountersScenario(): void {
     rankChecksStarted: validatedCount,
     rankChecksSkipped: unselectedCount,
     metadata: { runId, configId: "cfg_1" },
-    provider: `DataForSEO ├ù${validatedCount}`,
+    provider: `DataForSEO ×${validatedCount}`,
     providerCalls: validatedCount,
     providerBreakdown: [{ provider: "DataForSEO", count: validatedCount }],
     providers: Array.from({ length: validatedCount }, () => ({
@@ -94,7 +94,7 @@ function runSelectedCountersScenario(): void {
   expect(finalOp?.rankChecksFailed).toBe(0);
   expect(finalOp?.rankChecksSkipped).toBe(897); // 897 unselected
   expect(finalOp?.providerCalls).toBe(4);
-  expect(finalOp?.provider).toBe("DataForSEO ├ù4");
+  expect(finalOp?.provider).toBe("DataForSEO ×4");
   expect(finalOp?.billing).toBe("Paid");
   expect(finalOp?.metered).toBe(true);
   expect(finalOp?.budget).toBe("PASS");
@@ -109,7 +109,7 @@ function runSelectedCountersScenario(): void {
   expect(finalOp?.providerCalls).not.toBe(901);
 }
 
-describe("Global Debug Trace ΓÇö Rank Tracking Selected Checks Integration", () => {
+describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () => {
   beforeEach(() => {
     globalTraceStore.clearTrace();
     globalTraceStore.setDiagnosticsEnabled(true);
@@ -220,7 +220,7 @@ describe("Global Debug Trace ΓÇö Rank Tracking Selected Checks Integration", 
       budget: "PASS",
       errorMessage:
         "1 keyword(s) could not be checked: We noticed some unusual activity in your DataForSEO account",
-      provider: "DataForSEO ├ù1",
+      provider: "DataForSEO ×1",
       providerCalls: 1,
       providers: [
         {
@@ -276,7 +276,7 @@ describe("Global Debug Trace ΓÇö Rank Tracking Selected Checks Integration", 
       budget: "BLOCKED",
       blockedReason: "DataForSEO daily budget exceeded",
       errorMessage: "DataForSEO daily budget exceeded",
-      provider: "DataForSEO ├ù1",
+      provider: "DataForSEO ×1",
       providerCalls: 0,
       providers: [
         {
@@ -318,7 +318,7 @@ describe("Global Debug Trace ΓÇö Rank Tracking Selected Checks Integration", 
       rankChecksFailed: 0,
       httpStatus: 200,
       providerCalls: 1,
-      provider: "DataForSEO ├ù1",
+      provider: "DataForSEO ×1",
       children: [
         {
           keywordId: "kw_1",

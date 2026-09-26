@@ -1,4 +1,4 @@
-// Normalized Global OpenSEO Operation Trace types (Phase ΓÇö Global Debug Trace).
+// Normalized Global OpenSEO Operation Trace types (Phase — Global Debug Trace).
 //
 // Shared between client and server for application operations (non-SAM).
 // Covers Rank Tracking, Keyword Research, Domain Overview, Backlinks, Site Audit,
@@ -143,7 +143,7 @@ export type GlobalTraceOperation = {
   selectedKeywordIds?: string[];
 
   // Provider summary & breakdown
-  provider?: string; // e.g. "DataForSEO ├ù4"
+  provider?: string; // e.g. "DataForSEO ×4"
   providersConsidered?: number;
   providerCalls?: number;
   providerBreakdown?: Array<{ provider: string; count: number }>;

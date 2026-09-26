@@ -30,7 +30,7 @@ function run(overrides: Partial<RankRunForTrace> = {}): RankRunForTrace {
 function row(overrides: Partial<RankRowForTrace> = {}): RankRowForTrace {
   return {
     trackingKeywordId: "kw_1",
-    keyword: "╪º┘ä╪ú╪╖╪▒┘ê╪¡╪⌐ ╪º┘ä╪»┘â╪¬┘ê╪▒╪º╪⌐",
+    keyword: "الأطروحة الدكتوراة",
     desktop: {
       position: 5,
       previousPosition: 10,
@@ -41,7 +41,7 @@ function row(overrides: Partial<RankRowForTrace> = {}): RankRowForTrace {
   };
 }
 
-describe("resolveCheckBusyState ΓÇö every click leaves a trace", () => {
+describe("resolveCheckBusyState — every click leaves a trace", () => {
   it("proceeds when idle", () => {
     expect(resolveCheckBusyState({ isPending: false, isRunning: false })).toBe(
       "proceed",
@@ -63,7 +63,7 @@ describe("resolveCheckBusyState ΓÇö every click leaves a trace", () => {
   });
 });
 
-describe("providerTaskCount ΓÇö runtime-derived DataForSEO task count", () => {
+describe("providerTaskCount — runtime-derived DataForSEO task count", () => {
   it("issues one live task per keyword for single-device configs", () => {
     expect(providerTaskCount(1, "desktop")).toBe(1);
     expect(providerTaskCount(4, "mobile")).toBe(4);
@@ -75,7 +75,7 @@ describe("providerTaskCount ΓÇö runtime-derived DataForSEO task count", () =>
   });
 });
 
-describe("classifyRunError ΓÇö evidence-based failure classification", () => {
+describe("classifyRunError — evidence-based failure classification", () => {
   it("classifies credit/budget wording as CREDITS_UNAVAILABLE + BLOCKED", () => {
     for (const message of [
       "Insufficient credits for rank check",
@@ -98,7 +98,7 @@ describe("classifyRunError ΓÇö evidence-based failure classification", () => 
   });
 });
 
-describe("buildRankCompletionPatch ΓÇö snapshot-evidence completion", () => {
+describe("buildRankCompletionPatch — snapshot-evidence completion", () => {
   it("marks a fresh ranked snapshot as success with positions", () => {
     const patch = buildRankCompletionPatch({
       run: run(),
@@ -173,7 +173,7 @@ describe("buildRankCompletionPatch ΓÇö snapshot-evidence completion", () => {
           desktop: {
             position: 5,
             previousPosition: 10,
-            // Checked BEFORE this run started ΓÇö not evidence for this run.
+            // Checked BEFORE this run started — not evidence for this run.
             checkedAt: "2026-09-11T10:05:00.000Z",
           },
         }),
@@ -351,7 +351,7 @@ function uncheckedRow(id = "kw_1"): RankRowForTrace {
   };
 }
 
-describe("buildRankCompletionPatch ΓÇö DataForSEO deep diagnostics", () => {
+describe("buildRankCompletionPatch — DataForSEO deep diagnostics", () => {
   it("1. HTTP 500 with body maps provider, endpoint, HTTP, task code, message", () => {
     const message = formatDataforseoHttpErrorMessage(
       500,
@@ -505,7 +505,7 @@ describe("buildRankCompletionPatch ΓÇö DataForSEO deep diagnostics", () => {
     });
 
     expect(patch.status).toBe("success");
-    // No error ΓçÆ no provider override: the trigger-time record stands.
+    // No error ⇒ no provider override: the trigger-time record stands.
     expect(patch.providers).toBeUndefined();
     expect(patch.httpStatus).toBeUndefined();
     expect(patch.errorClass).toBeUndefined();
@@ -563,7 +563,7 @@ describe("buildRankCompletionPatch ΓÇö DataForSEO deep diagnostics", () => {
   });
 });
 
-describe("buildRankCompletionPatch ΓÇö cancelled run handling", () => {
+describe("buildRankCompletionPatch — cancelled run handling", () => {
   it("preserves completed keywords and marks unexecuted keywords as NOT_CHECKED / cancelled", () => {
     const patch = buildRankCompletionPatch({
       run: run({
@@ -729,7 +729,7 @@ describe("buildRankCompletionPatch ΓÇö cancelled run handling", () => {
   });
 });
 
-describe("safeTraceId ΓÇö trace failures never break the check", () => {
+describe("safeTraceId — trace failures never break the check", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });

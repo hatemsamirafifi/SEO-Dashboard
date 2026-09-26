@@ -107,6 +107,7 @@ export const {
   rankTrackingKeywords,
   rankCheckRuns,
   rankSnapshots,
+  rankProviderCalls,
   organizationActivationState,
   projectActivationState,
   backlinkSnapshots,
@@ -159,4 +160,3 @@ export const {
 } = schema;
 
 export const rankTrackingSnapshots = rankSnapshots;
-

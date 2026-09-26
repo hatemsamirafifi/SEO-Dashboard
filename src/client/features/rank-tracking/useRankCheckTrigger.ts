@@ -17,10 +17,12 @@ import {
   resolveCheckBusyState,
   type RankCheckDevices,
 } from "./rankTraceCompletion";
+import type { MissingRankingBucket } from "@/shared/rank-tracking";
 
 interface CheckTriggerVariables {
   keywordIds?: string[];
   missingRankings?: boolean;
+  missingRankingStates?: MissingRankingBucket[];
   traceOperationId?: string;
   signal?: AbortSignal;
 }
@@ -56,7 +58,7 @@ export function useRankCheckTrigger({
   configId: string;
   isRunning: boolean;
   projectId: string;
-  /** Device scope of the config ΓÇö the manual workflow issues one DataForSEO
+  /** Device scope of the config — the manual workflow issues one DataForSEO
    * live task per keyword/device pair, so "both" doubles the task count. */
   devices: RankCheckDevices;
   onSuccess: () => void;
@@ -74,6 +76,7 @@ export function useRankCheckTrigger({
           configId,
           keywordIds: opts.keywordIds,
           missingRankings: opts.missingRankings,
+          missingRankingStates: opts.missingRankingStates,
           operationId: opts.traceOperationId,
         },
         signal: opts.signal,
@@ -89,7 +92,7 @@ export function useRankCheckTrigger({
       if (!result.ok) {
         if (result.reason === "no_missing_rankings") {
           // Zero eligible keywords: the server created NO run. Report the
-          // no-op as a blocked diagnostics operation ΓÇö never an empty
+          // no-op as a blocked diagnostics operation — never an empty
           // provider-execution run.
           toast.info("No keywords need a ranking check right now");
           if (opId) {
@@ -169,8 +172,16 @@ export function useRankCheckTrigger({
           metadata: {
             runId: result.runId,
             configId,
-            ...(opts.missingRankings && result.breakdown
-              ? { missingRankingsBreakdown: result.breakdown }
+            ...(opts.missingRankings
+              ? {
+                  missingRankingStates:
+                    result.selectedStates ?? opts.missingRankingStates,
+                  missingRankingsBreakdown: result.breakdown,
+                  candidatesCount: result.candidatesCount,
+                  missingEligibleBeforeFilter:
+                    result.missingEligibleBeforeFilter,
+                  selectedStateEligible: validatedCount,
+                }
               : {}),
           },
         });
@@ -228,7 +239,18 @@ export function useRankCheckTrigger({
   const startCheck = (opts: {
     keywordIds?: string[];
     missingRankings?: boolean;
+    missingRankingStates?: MissingRankingBucket[];
   }) => {
+    // If missing rankings is requested but 0 states are selected (Clear all),
+    // no server check or trace should be initiated.
+    if (
+      opts.missingRankings &&
+      opts.missingRankingStates &&
+      opts.missingRankingStates.length === 0
+    ) {
+      return;
+    }
+
     const busyState = resolveCheckBusyState({
       isPending: triggerMutation.isPending,
       isRunning,
@@ -286,6 +308,12 @@ export function useRankCheckTrigger({
         budget: "PASS",
         cache: "Not applicable",
         retry: { attempted: false, count: 0 },
+        metadata: {
+          configId,
+          ...(opts.missingRankings && opts.missingRankingStates
+            ? { missingRankingStates: opts.missingRankingStates }
+            : {}),
+        },
       });
     } catch {
       opId = `trace_${Date.now().toString(36)}`;

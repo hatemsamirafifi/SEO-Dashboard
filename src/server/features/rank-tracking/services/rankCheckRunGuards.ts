@@ -5,6 +5,7 @@ import type {
   RankCheckTriggerResult,
   RankTrackingConfig,
 } from "@/types/schemas/rank-tracking";
+import type { MissingRankingBucket } from "@/shared/rank-tracking";
 
 type RunRow = Awaited<ReturnType<typeof RankTrackingRepository.getRunById>>;
 
@@ -12,7 +13,7 @@ type RunRow = Awaited<ReturnType<typeof RankTrackingRepository.getRunById>>;
 // - workflow id === run id (workflow instance is the authoritative runtime).
 // - A partial unique index on rank_check_runs(config_id) WHERE status IN
 //   ('pending','running') enforces at most one active run per config at the
-//   DB level. A failed INSERT *is* the "already running" signal ΓÇö no
+//   DB level. A failed INSERT *is* the "already running" signal — no
 //   separate lock table is needed.
 // - Flipping status to 'completed'/'failed' is what frees the slot.
 // - Missing/unknown workflow state is tolerated briefly during startup
@@ -114,7 +115,7 @@ async function getStaleRankCheckRunReason(input: {
 }
 
 /**
- * Mark a run as failed if it's still in an active state. Idempotent ΓÇö safe to
+ * Mark a run as failed if it's still in an active state. Idempotent — safe to
  * call on runs that are already completed/failed.
  */
 export async function failRunIfActive(
@@ -147,6 +148,7 @@ export async function beginRankCheckRun(input: {
   trigger: "manual" | "scheduled";
   workflowStartErrorMessage: string;
   missingRankings?: boolean;
+  missingRankingStates?: MissingRankingBucket[];
 }): Promise<RankCheckTriggerResult> {
   // At most two attempts: once normally, once after clearing a stale blocker.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -177,10 +179,11 @@ export async function beginRankCheckRun(input: {
             trigger: input.trigger,
             keywordIds: input.keywordIds,
             missingRankings: input.missingRankings ?? false,
+            missingRankingStates: input.missingRankingStates,
           },
         });
       } catch (error) {
-        // Workflow couldn't start ΓÇö flip the run to failed so the
+        // Workflow couldn't start — flip the run to failed so the
         // partial-index slot is released. Best-effort cleanup of any
         // zombie instance.
         await failRunIfActive(runId, input.workflowStartErrorMessage);
@@ -195,7 +198,7 @@ export async function beginRankCheckRun(input: {
       return { ok: true, runId };
     }
 
-    // INSERT was blocked by the partial unique index ΓÇö another active run
+    // INSERT was blocked by the partial unique index — another active run
     // exists. Inspect it to decide whether to retry or return already_running.
     const blocker = await RankTrackingRepository.getActiveRunForConfig(
       input.config.id,
@@ -213,7 +216,7 @@ export async function beginRankCheckRun(input: {
       });
       if (staleReason) {
         await failRunIfActive(blocker.id, staleReason, blocker);
-        continue; // slot is free now ΓÇö retry insert
+        continue; // slot is free now — retry insert
       }
     }
 

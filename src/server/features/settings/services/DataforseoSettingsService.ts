@@ -83,6 +83,7 @@ export type DataforseoConnectionTestResult = {
   status: number;
   reason:
     | "CONNECTED"
+    | "DATAFORSEO_ACCESS_PAUSED"
     | "DATAFORSEO_ACCOUNT_PAUSED"
     | "INVALID_CREDENTIALS"
     | "CREDITS_UNAVAILABLE"
@@ -156,6 +157,7 @@ function recordFailedProbe(
   reason: DataforseoConnectionTestResult["reason"],
 ) {
   const deterministic = [
+    "DATAFORSEO_ACCESS_PAUSED",
     "DATAFORSEO_ACCOUNT_PAUSED",
     "INVALID_CREDENTIALS",
     "CREDITS_UNAVAILABLE",
@@ -732,16 +734,23 @@ export async function testDataforseoConnection(input: {
       });
     }
 
-    if (payload.status_code === 40201) {
+    const task = payload.tasks?.[0];
+
+    if (payload.status_code === 40201 || task?.status_code === 40201) {
       return failed({
         ok: false,
         status: 402,
-        reason: "DATAFORSEO_ACCOUNT_PAUSED",
+        reason: "DATAFORSEO_ACCESS_PAUSED",
         billingStatus: "unknown",
       });
     }
 
-    if (payload.status_code === 40200 || payload.status_code === 40210) {
+    if (
+      payload.status_code === 40200 ||
+      payload.status_code === 40210 ||
+      task?.status_code === 40200 ||
+      task?.status_code === 40210
+    ) {
       return failed({
         ok: false,
         status: 402,
@@ -749,8 +758,6 @@ export async function testDataforseoConnection(input: {
         billingStatus: "credits_unavailable",
       });
     }
-
-    const task = payload.tasks?.[0];
     const money = task?.result?.[0]?.money;
     const balance = typeof money?.balance === "number" ? money.balance : null;
 

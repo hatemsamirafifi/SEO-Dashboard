@@ -8,7 +8,7 @@ import { parseDataforseoDiagnosticsFromErrorMessage } from "@/shared/dataforseoD
 
 /**
  * Pure, testable decision logic for the rank-check Global Debug Trace
- * lifecycle. No React, no store access ΓÇö the hooks call these helpers and
+ * lifecycle. No React, no store access — the hooks call these helpers and
  * the store stays a dumb append-only log.
  *
  * Honesty rules enforced here:
@@ -72,7 +72,7 @@ export interface ClassifiedRunError {
 
 /**
  * Classifies a rank-run failure message using only its text evidence.
- * Credit/budget wording ΓåÆ CREDITS_UNAVAILABLE + BLOCKED; everything else
+ * Credit/budget wording → CREDITS_UNAVAILABLE + BLOCKED; everything else
  * stays a generic OPERATION_FAILED or specific DATAFORSEO_ACCOUNT_PAUSED with budget PASS.
  */
 export function classifyRunError(message: string): ClassifiedRunError {
@@ -398,7 +398,7 @@ export function buildRankCompletionPatch(input: {
   }
 
   // Defense in depth: the run message crosses from the server record into a
-  // developer-visible trace ΓÇö scrub credential-shaped substrings even though
+  // developer-visible trace — scrub credential-shaped substrings even though
   // the producer already emits pre-scrubbed canonical messages.
   const rawMessage = run.errorMessage || "Rank check failed";
   if (run.errorMessage) {
@@ -437,13 +437,13 @@ export function buildRankCompletionPatch(input: {
 
 /**
  * Canonical provider markers emitted by the DataForSEO HTTP seam
- * (`DataForSEO HTTP <status> on <path>ΓÇª`) and the task envelope
- * (`DataForSEO task error (<code>): ΓÇª`). Only when one is present do we map
- * provider/endpoint/HTTP/task/transport into the trace ΓÇö otherwise the
+ * (`DataForSEO HTTP <status> on <path>…`) and the task envelope
+ * (`DataForSEO task error (<code>): …`). Only when one is present do we map
+ * provider/endpoint/HTTP/task/transport into the trace — otherwise the
  * caller keeps its generic classification and nothing is fabricated.
  *
- * Distinguishes: HTTP 5xx (TRANSIENT_UPSTREAM) Γëá task error inside HTTP 200
- * (TASK_ERROR / CREDITS_UNAVAILABLE / DATAFORSEO_ACCOUNT_PAUSED) Γëá 402 Γëá 429.
+ * Distinguishes: HTTP 5xx (TRANSIENT_UPSTREAM) ≠ task error inside HTTP 200
+ * (TASK_ERROR / CREDITS_UNAVAILABLE / DATAFORSEO_ACCOUNT_PAUSED) ≠ 402 ≠ 429.
  * Returns true when applied.
  */
 const PROVIDER_MARKER_RE =

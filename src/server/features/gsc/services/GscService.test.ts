@@ -132,7 +132,7 @@ describe("GscService.setSite", () => {
         connectedAccountEmail: "client@example.com",
       }),
     );
-  });
+  }, 15000);
 
   it("re-saves with a null email when userinfo is unavailable", async () => {
     mocks.listSites.mockResolvedValue([

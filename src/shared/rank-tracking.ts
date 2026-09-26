@@ -116,7 +116,7 @@ function endOfMonthWithTime(source: Date, monthOffset = 0): Date {
  * when runs are delayed (e.g., a weekly config due Monday that fires on
  * Wednesday will still schedule the next check for the following Monday).
  *
- * Otherwise a random hour (04ΓÇô09 UTC) and minute are chosen.
+ * Otherwise a random hour (04–09 UTC) and minute are chosen.
  */
 export function computeNextCheckAt(
   interval: ScheduledRankTrackingInterval,
@@ -197,6 +197,21 @@ export type MissingRankingBucket =
   | "lost"
   | "no_ranking";
 
+export const MISSING_RANKING_BUCKETS: readonly MissingRankingBucket[] = [
+  "ranking_unavailable",
+  "lost",
+  "no_ranking",
+] as const;
+
+export const MISSING_RANKING_BUCKET_LABELS: Record<
+  MissingRankingBucket,
+  string
+> = {
+  ranking_unavailable: "Ranking unavailable",
+  lost: "Lost",
+  no_ranking: "No ranking",
+};
+
 export interface MissingRankingsBreakdown {
   ranking_unavailable: number;
   lost: number;
@@ -205,7 +220,7 @@ export interface MissingRankingsBreakdown {
 
 /**
  * Persisted ranking state for one (keyword, device) pair, derived from the
- * keyword's latest snapshot row ΓÇö never from rendered UI strings.
+ * keyword's latest snapshot row — never from rendered UI strings.
  *
  * The three missing states stay semantically distinct:
  * - "ranking_unavailable": the latest check attempt could not determine a
@@ -312,7 +327,7 @@ export function noRankingFacts(): DeviceRankingFacts {
  * Classify a keyword from its per-device pair facts, considering only the
  * devices the config actually tracks. Eligibility is strictly pair-level:
  * a keyword with Desktop RANKED #5 and Mobile CHECK_FAILED / lost is still
- * eligible because the mobile pair is missing its ranking ΓÇö preservation of
+ * eligible because the mobile pair is missing its ranking — preservation of
  * a last valid position, on any device, never suppresses the retry.
  */
 export function classifyKeywordFromPairFacts(

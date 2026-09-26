@@ -16,6 +16,39 @@ export function asAppError(error: unknown): AppError | null {
   if (error instanceof Error && isErrorCode(error.message)) {
     return new AppError(error.message, error.message);
   }
+  if (error && typeof error === "object") {
+    const err = error as Record<string, unknown>;
+    if (err.name === "BudgetExceededError") {
+      return new AppError(
+        "PAYMENT_REQUIRED",
+        typeof err.message === "string" ? err.message : undefined,
+      );
+    }
+    if (err.name === "AuthenticationError") {
+      if (err.provider === "dataforseo") {
+        return new AppError(
+          "DATAFORSEO_AUTH_FAILED",
+          typeof err.message === "string" ? err.message : undefined,
+        );
+      }
+      return new AppError(
+        "UNAUTHENTICATED",
+        typeof err.message === "string" ? err.message : undefined,
+      );
+    }
+    if (err.name === "RateLimitError") {
+      return new AppError(
+        "RATE_LIMITED",
+        typeof err.message === "string" ? err.message : undefined,
+      );
+    }
+    if (err.name === "ProviderUnavailableError") {
+      return new AppError(
+        "UPSTREAM_UNAVAILABLE",
+        typeof err.message === "string" ? err.message : undefined,
+      );
+    }
+  }
   return null;
 }
 

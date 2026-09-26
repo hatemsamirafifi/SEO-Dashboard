@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import {
   WorkflowEntrypoint,
   type WorkflowEvent,
@@ -26,6 +27,7 @@ import {
 import {
   classifyKeywordFromPairFacts,
   estimateRankCheckCredits,
+  type MissingRankingBucket,
 } from "@/shared/rank-tracking";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { createRankSerpResolver } from "@/server/features/serp/providerResolver";
@@ -51,6 +53,7 @@ interface RankCheckParams {
   /** "Check missing rankings" mode: keywordIds were pre-resolved to the
    * eligible set at trigger time; prepare re-resolves against fresh state. */
   missingRankings?: boolean;
+  missingRankingStates?: MissingRankingBucket[];
 }
 
 async function prepareRankCheckKeywords(input: {
@@ -62,6 +65,7 @@ async function prepareRankCheckKeywords(input: {
   trigger: RankCheckParams["trigger"];
   keywordIds?: string[];
   missingRankings?: boolean;
+  missingRankingStates?: MissingRankingBucket[];
 }) {
   // If stale-cleanup marked our run failed before we got here, bail out
   // rather than resurrecting a superseded run.
@@ -96,19 +100,43 @@ async function prepareRankCheckKeywords(input: {
   // device between trigger and execution is dropped here, before any
   // provider call is made. Pair-level, matching the trigger-time rule — a
   // keyword with a ranked device but a missing device stays in the run.
+  // When missingRankingStates is provided, the keyword's current missing bucket
+  // must also match one of the selected states.
   if (
     input.missingRankings &&
     input.keywordIds &&
     input.keywordIds.length > 0
   ) {
+    const validBuckets = new Set<MissingRankingBucket>([
+      "ranking_unavailable",
+      "lost",
+      "no_ranking",
+    ]);
+    const allowedStates =
+      input.missingRankingStates !== undefined
+        ? new Set(
+            input.missingRankingStates.filter((s): s is MissingRankingBucket =>
+              validBuckets.has(s),
+            ),
+          )
+        : validBuckets;
+
     const facts = await getLatestRankingFactsForConfig(
       input.configId,
       trackingKeywords.map((kw) => kw.id),
     );
-    trackingKeywords = trackingKeywords.filter(
-      (kw) =>
-        classifyKeywordFromPairFacts(facts, kw.id, input.devices).eligible,
-    );
+    trackingKeywords = trackingKeywords.filter((kw) => {
+      const classification = classifyKeywordFromPairFacts(
+        facts,
+        kw.id,
+        input.devices,
+      );
+      return (
+        classification.eligible &&
+        classification.bucket !== null &&
+        allowedStates.has(classification.bucket)
+      );
+    });
   }
 
   if (trackingKeywords.length === 0) {
@@ -355,6 +383,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       trigger,
       keywordIds,
       missingRankings,
+      missingRankingStates,
     } = event.payload;
 
     const client = createDataforseoClient(billingCustomer);
@@ -401,6 +430,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
             trigger,
             keywordIds,
             missingRankings,
+            missingRankingStates,
           }),
       );
 

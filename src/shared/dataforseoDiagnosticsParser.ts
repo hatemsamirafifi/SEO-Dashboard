@@ -111,7 +111,15 @@ export function extractSafeDataforseoErrorMessage(
       statusMessage.toLowerCase().includes("paused access"));
 
   if (isAccountPaused) {
-    errorClass = "DATAFORSEO_ACCOUNT_PAUSED";
+    errorClass = "DATAFORSEO_ACCESS_PAUSED";
+  } else if (statusCode === 40210) {
+    errorClass = "INSUFFICIENT_FUNDS";
+  } else if (statusCode === 40202) {
+    errorClass = "RATE_LIMITED";
+  } else if (statusCode === 40203) {
+    errorClass = "COST_LIMIT_EXCEEDED";
+  } else if (statusCode === 40209) {
+    errorClass = "TOO_MANY_SIMULTANEOUS_QUERIES";
   } else if (
     status === 200 &&
     (statusCode === 40200 ||
@@ -119,6 +127,12 @@ export function extractSafeDataforseoErrorMessage(
       statusMessage.toLowerCase().includes("credit"))
   ) {
     errorClass = "CREDITS_UNAVAILABLE";
+  } else if (
+    typeof statusCode === "number" &&
+    statusCode >= 50000 &&
+    statusCode < 60000
+  ) {
+    errorClass = "TRANSIENT_UPSTREAM";
   }
 
   return {
@@ -228,7 +242,19 @@ function parseKeywordFallbackError(
       dataforseoStatusMessage:
         scrubbed || "DataForSEO access is temporarily paused",
       transport: "HTTP",
-      errorClass: "DATAFORSEO_ACCOUNT_PAUSED",
+      errorClass: "DATAFORSEO_ACCESS_PAUSED",
+    };
+  }
+
+  if (lower.includes("40210") || lower.includes("insufficient funds")) {
+    return {
+      provider: "DataForSEO",
+      endpoint,
+      httpStatus: 200,
+      dataforseoStatusCode: 40210,
+      dataforseoStatusMessage: scrubbed || "Insufficient DataForSEO funds",
+      transport: "HTTP",
+      errorClass: "INSUFFICIENT_FUNDS",
     };
   }
 
@@ -250,15 +276,44 @@ function parseKeywordFallbackError(
     };
   }
 
-  if (lower.includes("429") || lower.includes("rate limit")) {
+  if (
+    lower.includes("40202") ||
+    lower.includes("429") ||
+    lower.includes("rate limit")
+  ) {
     return {
       provider: "DataForSEO",
       endpoint,
-      httpStatus: 429,
-      dataforseoStatusCode: 42900,
+      httpStatus: lower.includes("429") ? 429 : 200,
+      dataforseoStatusCode: lower.includes("429") ? 42900 : 40202,
       dataforseoStatusMessage: scrubbed || "Rate limit exceeded",
       transport: "HTTP",
       errorClass: "RATE_LIMITED",
+    };
+  }
+
+  if (lower.includes("40203") || lower.includes("cost limit")) {
+    return {
+      provider: "DataForSEO",
+      endpoint,
+      httpStatus: 200,
+      dataforseoStatusCode: 40203,
+      dataforseoStatusMessage: scrubbed || "Cost limit exceeded",
+      transport: "HTTP",
+      errorClass: "COST_LIMIT_EXCEEDED",
+    };
+  }
+
+  if (lower.includes("40209") || lower.includes("simultaneous")) {
+    return {
+      provider: "DataForSEO",
+      endpoint,
+      httpStatus: 200,
+      dataforseoStatusCode: 40209,
+      dataforseoStatusMessage:
+        scrubbed || "Too many simultaneous DataForSEO queries",
+      transport: "HTTP",
+      errorClass: "TOO_MANY_SIMULTANEOUS_QUERIES",
     };
   }
 
@@ -301,7 +356,7 @@ export function parseDataforseoDiagnosticsFromErrorMessage(
     let errorClass = "EXECUTION_FAILED";
     if (httpStatus >= 500) {
       errorClass = "TRANSIENT_UPSTREAM";
-    } else if (httpStatus === 429) {
+    } else if (httpStatus === 429 || parsedCode === 40202) {
       errorClass = "RATE_LIMITED";
     } else if (
       parsedCode === 40201 ||
@@ -309,8 +364,14 @@ export function parseDataforseoDiagnosticsFromErrorMessage(
       msg.toLowerCase().includes("unusual activity") ||
       msg.toLowerCase().includes("paused access")
     ) {
-      errorClass = "DATAFORSEO_ACCOUNT_PAUSED";
-    } else if (httpStatus === 402) {
+      errorClass = "DATAFORSEO_ACCESS_PAUSED";
+    } else if (parsedCode === 40210) {
+      errorClass = "INSUFFICIENT_FUNDS";
+    } else if (parsedCode === 40203) {
+      errorClass = "COST_LIMIT_EXCEEDED";
+    } else if (parsedCode === 40209) {
+      errorClass = "TOO_MANY_SIMULTANEOUS_QUERIES";
+    } else if (httpStatus === 402 || parsedCode === 40200) {
       errorClass = "CREDITS_UNAVAILABLE";
     } else if (httpStatus === 401) {
       errorClass = "DATAFORSEO_AUTH_FAILED";
@@ -334,11 +395,26 @@ export function parseDataforseoDiagnosticsFromErrorMessage(
     const dataforseoStatusMessage = taskMatch[2].trim();
     // Deterministically classified primarily from provider task status code 40201
     const isAccountPaused = dataforseoStatusCode === 40201;
-    const isCredit =
-      !isAccountPaused &&
-      (dataforseoStatusCode === 40200 ||
-        dataforseoStatusMessage.toLowerCase().includes("payment") ||
-        dataforseoStatusMessage.toLowerCase().includes("credit"));
+    let errorClass = "TASK_ERROR";
+    if (isAccountPaused) {
+      errorClass = "DATAFORSEO_ACCESS_PAUSED";
+    } else if (dataforseoStatusCode === 40210) {
+      errorClass = "INSUFFICIENT_FUNDS";
+    } else if (dataforseoStatusCode === 40202) {
+      errorClass = "RATE_LIMITED";
+    } else if (dataforseoStatusCode === 40203) {
+      errorClass = "COST_LIMIT_EXCEEDED";
+    } else if (dataforseoStatusCode === 40209) {
+      errorClass = "TOO_MANY_SIMULTANEOUS_QUERIES";
+    } else if (
+      dataforseoStatusCode === 40200 ||
+      dataforseoStatusMessage.toLowerCase().includes("payment") ||
+      dataforseoStatusMessage.toLowerCase().includes("credit")
+    ) {
+      errorClass = "CREDITS_UNAVAILABLE";
+    } else if (dataforseoStatusCode >= 50000 && dataforseoStatusCode < 60000) {
+      errorClass = "TRANSIENT_UPSTREAM";
+    }
 
     return {
       provider: "DataForSEO",
@@ -347,11 +423,7 @@ export function parseDataforseoDiagnosticsFromErrorMessage(
       dataforseoStatusCode,
       dataforseoStatusMessage,
       transport: "HTTP",
-      errorClass: isAccountPaused
-        ? "DATAFORSEO_ACCOUNT_PAUSED"
-        : isCredit
-          ? "CREDITS_UNAVAILABLE"
-          : "TASK_ERROR",
+      errorClass,
     };
   }
 

@@ -324,5 +324,5 @@ describe("no direct db.batch (must use runBatch)", () => {
       .filter((path) => !path.endsWith(join("db", "runBatch.ts")))
       .filter((path) => /\.batch\(/.test(readFileSync(path, "utf8")));
     expect(offenders).toEqual([]);
-  }, 30_000);
+  }, 30000);
 });

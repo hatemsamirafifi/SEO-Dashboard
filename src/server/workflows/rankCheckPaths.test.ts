@@ -311,4 +311,45 @@ describe("runLiveCheck provider-reason capture", () => {
       delete process.env.RANK_CHECK_CONCURRENCY;
     }
   });
+
+  it(
+    "increments keywordsChecked monotonically across multiple batches without resetting backwards",
+    async () => {
+      const origDelay = process.env.RANK_CHECK_TEST_DELAY_MS;
+      process.env.RANK_CHECK_TEST_DELAY_MS = "0";
+      process.env.RANK_CHECK_CONCURRENCY = "5";
+      try {
+        const rankCheck = vi.fn(
+          async (input: { keywordId: string; keyword: string }) =>
+            okResult(input.keywordId, input.keyword),
+        );
+
+        // 15 keywords => 2 batches (10 + 5)
+        await runLiveCheck(step, makeCtx(rankCheck, 15));
+
+        const checkedUpdates = repoMocks.updateRun.mock.calls
+          .filter(
+            ([runId, patch]) =>
+              runId === "run_1" && typeof patch.keywordsChecked === "number",
+          )
+          .map(([, patch]) => patch.keywordsChecked as number);
+
+        expect(checkedUpdates.length).toBeGreaterThan(0);
+        // Every update must be >= the previous one (monotonically non-decreasing, no chunk reset to 1-10)
+        for (let i = 1; i < checkedUpdates.length; i++) {
+          expect(checkedUpdates[i]).toBeGreaterThanOrEqual(checkedUpdates[i - 1]);
+        }
+        // Final progress reaches total keywords
+        expect(checkedUpdates.at(-1)).toBe(15);
+      } finally {
+        if (origDelay !== undefined) {
+          process.env.RANK_CHECK_TEST_DELAY_MS = origDelay;
+        } else {
+          delete process.env.RANK_CHECK_TEST_DELAY_MS;
+        }
+        delete process.env.RANK_CHECK_CONCURRENCY;
+      }
+    },
+    15000,
+  );
 });
