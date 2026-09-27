@@ -81,6 +81,8 @@ function makeVolumeColumn(locationLabel?: string): ColumnDef<RankTrackingRow> {
       />
     ),
     size: 90,
+    minSize: 70,
+    maxSize: 180,
     cell: ({ getValue }) => (
       <VolumeCell value={getValue<number | undefined>() ?? null} />
     ),
@@ -93,6 +95,8 @@ const kdColumn: ColumnDef<RankTrackingRow> = {
   accessorFn: (row) => row.keywordDifficulty ?? undefined,
   header: ({ column }) => <SortableHeader column={column} label="KD" id="kd" />,
   size: 70,
+  minSize: 55,
+  maxSize: 130,
   cell: ({ getValue }) => (
     <DifficultyCell value={getValue<number | undefined>() ?? null} />
   ),
@@ -106,6 +110,8 @@ const cpcColumn: ColumnDef<RankTrackingRow> = {
     <SortableHeader column={column} label="CPC" id="cpc" />
   ),
   size: 80,
+  minSize: 65,
+  maxSize: 140,
   cell: ({ getValue }) => (
     <CpcCell value={getValue<number | undefined>() ?? null} />
   ),
@@ -118,13 +124,16 @@ function makeKeywordColumn(
   return {
     id: "keyword",
     accessorKey: "keyword",
+    size: 260,
+    minSize: 120,
+    maxSize: 600,
     header: ({ column }) => (
       <SortableHeader column={column} label="Keyword" id="keyword" />
     ),
     cell: ({ row }) => (
       <button
         type="button"
-        className="font-medium text-left link link-hover decoration-dotted underline-offset-2"
+        className="font-medium text-left link link-hover decoration-dotted underline-offset-2 break-words [overflow-wrap:anywhere]"
         onClick={() => onKeywordClick(row.original)}
         title="View position history"
       >
@@ -147,8 +156,9 @@ function makeDeviceColumn(
     header: ({ column }) => (
       <SortableHeader column={column} label="Position" id={id} />
     ),
-    size: 120,
-    maxSize: 140,
+    size: 110,
+    minSize: 85,
+    maxSize: 180,
     cell: ({ row }) => (
       <DeviceRankCell
         result={row.original[device]}
@@ -176,7 +186,9 @@ function makeUrlColumn(
         URL
       </span>
     ),
-    size: 240,
+    size: 260,
+    minSize: 140,
+    maxSize: 800,
     cell: ({ row }) => (
       <DeviceUrlCell
         result={row.original[device]}
@@ -201,6 +213,9 @@ function makeSerpColumn(
         SERP Features
       </span>
     ),
+    size: 140,
+    minSize: 90,
+    maxSize: 300,
     cell: ({ row }) => {
       const features = row.original[device].serpFeatures;
       if (features.length === 0) return null;
