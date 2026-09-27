@@ -85,9 +85,40 @@ async function upsertFacts(facts: GscSearchPerformanceInsert[]): Promise<{
   return { inserted: facts.length };
 }
 
+export const GSC_SYNC_STALE_TIMEOUT_MS = 15 * 60 * 1000;
+
+export function parseDbDateMs(dateStr: string | null | undefined): number {
+  if (!dateStr) return 0;
+  if (dateStr.endsWith("Z") || dateStr.includes("+")) {
+    const parsed = Date.parse(dateStr);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  const normalized = dateStr.includes("T")
+    ? `${dateStr}Z`
+    : `${dateStr.replace(" ", "T")}Z`;
+  const parsed = Date.parse(normalized);
+  if (!Number.isNaN(parsed)) return parsed;
+  const raw = Date.parse(dateStr);
+  return Number.isNaN(raw) ? 0 : raw;
+}
+
+export function isGscSyncStale(
+  run: { startedAt?: string | null; updatedAt?: string | null },
+  staleTimeoutMs: number = GSC_SYNC_STALE_TIMEOUT_MS,
+  now: number = Date.now(),
+): boolean {
+  const lastActiveMs = Math.max(
+    parseDbDateMs(run.updatedAt),
+    parseDbDateMs(run.startedAt),
+  );
+  if (!lastActiveMs) return false;
+  return now - lastActiveMs > staleTimeoutMs;
+}
+
 async function getActiveSyncRun(
   projectId: string,
   property?: string,
+  staleTimeoutMs: number = GSC_SYNC_STALE_TIMEOUT_MS,
 ): Promise<GscSyncRow | null> {
   const conditions = [
     eq(gscSearchPerformanceSyncs.projectId, projectId),
@@ -100,10 +131,27 @@ async function getActiveSyncRun(
   const rows = await db
     .select()
     .from(gscSearchPerformanceSyncs)
-    .where(and(...conditions))
-    .limit(1);
+    .where(and(...conditions));
 
-  return rows[0] ?? null;
+  let activeRun: GscSyncRow | null = null;
+
+  for (const row of rows) {
+    if (isGscSyncStale(row, staleTimeoutMs)) {
+      await db
+        .update(gscSearchPerformanceSyncs)
+        .set({
+          status: "failed",
+          completedAt: sql`(current_timestamp)`,
+          error: "Sync run timed out or was interrupted",
+          updatedAt: sql`(current_timestamp)`,
+        })
+        .where(eq(gscSearchPerformanceSyncs.id, row.id));
+    } else if (!activeRun) {
+      activeRun = row;
+    }
+  }
+
+  return activeRun;
 }
 
 async function getLatestSyncRun(
@@ -635,4 +683,7 @@ export const GscSearchPerformanceRepository = {
   getCountries,
   getDailyGrainFacts,
   getLatestFactDate,
+  isGscSyncStale,
+  parseDbDateMs,
+  GSC_SYNC_STALE_TIMEOUT_MS,
 };
