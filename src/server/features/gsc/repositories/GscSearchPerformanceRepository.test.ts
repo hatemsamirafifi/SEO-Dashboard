@@ -34,6 +34,11 @@ const mocks = vi.hoisted(() => {
         }),
       })),
     })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue(undefined),
+      })),
+    })),
   };
 
   return { syncsRows, factRows, db };
@@ -285,5 +290,107 @@ describe("GscSearchPerformanceRepository coverage & gap detection", () => {
     expect(sqliteCols).toContain("requestedStartDate");
     expect(sqliteCols).toContain("requestedEndDate");
     expect(sqliteCols).toContain("status");
+  });
+
+  it("11. parseDbDateMs handles SQLite timestamps and ISO strings accurately", () => {
+    // SQLite format UTC: "YYYY-MM-DD HH:MM:SS"
+    const sqliteTs = "2026-09-26 21:31:05";
+    const parsedSqlite = GscSearchPerformanceRepository.parseDbDateMs(sqliteTs);
+    expect(parsedSqlite).toBe(Date.parse("2026-09-26T21:31:05Z"));
+
+    // Standard ISO string
+    const isoTs = "2026-09-26T21:31:05.000Z";
+    const parsedIso = GscSearchPerformanceRepository.parseDbDateMs(isoTs);
+    expect(parsedIso).toBe(Date.parse("2026-09-26T21:31:05.000Z"));
+
+    // Null or undefined
+    expect(GscSearchPerformanceRepository.parseDbDateMs(null)).toBe(0);
+    expect(GscSearchPerformanceRepository.parseDbDateMs(undefined)).toBe(0);
+  });
+
+  it("12. isGscSyncStale identifies stale and healthy active runs", () => {
+    const now = Date.parse("2026-09-28T00:00:00Z");
+    const timeoutMs = 15 * 60 * 1000; // 15 mins
+
+    // Active run updated 5 minutes ago: NOT stale
+    const freshRun = {
+      startedAt: "2026-09-27 23:50:00",
+      updatedAt: "2026-09-27 23:55:00",
+    };
+    expect(
+      GscSearchPerformanceRepository.isGscSyncStale(freshRun, timeoutMs, now),
+    ).toBe(false);
+
+    // Run updated 20 minutes ago: STALE
+    const staleRun = {
+      startedAt: "2026-09-27 23:30:00",
+      updatedAt: "2026-09-27 23:35:00",
+    };
+    expect(
+      GscSearchPerformanceRepository.isGscSyncStale(staleRun, timeoutMs, now),
+    ).toBe(true);
+
+    // Run with no updatedAt, started 2 days ago: STALE
+    const oldRun = {
+      startedAt: "2026-09-26 21:31:05",
+      updatedAt: null,
+    };
+    expect(
+      GscSearchPerformanceRepository.isGscSyncStale(oldRun, timeoutMs, now),
+    ).toBe(true);
+  });
+
+  it("13. getActiveSyncRun auto-recovers and marks stale run as failed", async () => {
+    const staleRunRow = {
+      id: "run-stale-1",
+      projectId: "p1",
+      property: "https://example.com/",
+      status: "running",
+      syncType: "manual",
+      requestedStartDate: "2026-05-01",
+      requestedEndDate: "2026-05-07",
+      actualLastSuccessfulDate: null,
+      startedAt: "2026-09-26 21:31:05",
+      updatedAt: "2026-09-26 21:31:05",
+      rowsFetched: 0,
+      rowsInserted: 0,
+      rowsUpdated: 0,
+      rowsFailed: 0,
+      successfulUnits: 0,
+    };
+    mocks.syncsRows.push(staleRunRow);
+
+    // Query active sync run: should detect staleness, mark as failed in DB, and return null
+    const active = await GscSearchPerformanceRepository.getActiveSyncRun("p1");
+
+    expect(mocks.db.update).toHaveBeenCalled();
+    expect(active).toBeNull();
+  });
+
+  it("14. getActiveSyncRun returns active run when it is fresh", async () => {
+    const nowIso = new Date().toISOString();
+    const freshRunRow = {
+      id: "run-fresh-1",
+      projectId: "p1",
+      property: "https://example.com/",
+      status: "running",
+      syncType: "manual",
+      requestedStartDate: "2026-05-01",
+      requestedEndDate: "2026-05-07",
+      actualLastSuccessfulDate: null,
+      startedAt: nowIso,
+      updatedAt: nowIso,
+      rowsFetched: 100,
+      rowsInserted: 50,
+      rowsUpdated: 0,
+      rowsFailed: 0,
+      successfulUnits: 1,
+    };
+    mocks.syncsRows.push(freshRunRow);
+
+    const active = await GscSearchPerformanceRepository.getActiveSyncRun("p1");
+
+    expect(active).not.toBeNull();
+    expect(active?.id).toBe("run-fresh-1");
   });
 });
