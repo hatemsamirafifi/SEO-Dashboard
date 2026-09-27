@@ -199,8 +199,8 @@ export function DeviceUrlCell({
       href={toFullUrl(result.rankingUrl, domain)}
       target="_blank"
       rel="noopener noreferrer"
-      className="link link-hover block truncate text-xs"
-      title={result.rankingUrl}
+      className="link link-hover block w-full max-w-full break-words [overflow-wrap:anywhere] line-clamp-3 text-xs leading-relaxed"
+      title={safeDecode(result.rankingUrl)}
     >
       {toPath(result.rankingUrl)}
     </a>
@@ -349,11 +349,20 @@ export function exportRankTrackingCsv(
   captureClientEvent("rank_tracking:export_csv");
 }
 
+function safeDecode(value: string): string {
+  try {
+    return decodeURI(value);
+  } catch {
+    return value;
+  }
+}
+
 function toPath(url: string): string {
   try {
-    return new URL(url).pathname;
+    const path = new URL(url).pathname;
+    return safeDecode(path);
   } catch {
-    return url;
+    return safeDecode(url);
   }
 }
 

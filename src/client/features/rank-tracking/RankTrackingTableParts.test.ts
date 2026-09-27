@@ -190,6 +190,29 @@ describe("DeviceUrlCell — URL handling", () => {
     );
     expect(html).toContain('href="https://powersiment.ae/article"');
     expect(html).toContain("/article");
+    expect(html).toContain("line-clamp-3");
+    expect(html).toContain("break-words");
+  });
+
+  it("renders decoded URL path and tooltip for percent-encoded URLs", () => {
+    const result: RankTrackingDeviceResult = {
+      position: 1,
+      previousPosition: null,
+      rankingUrl: "https://sports-ms.com/%D8%B4%D8%B1%D9%83%D8%A9",
+      serpFeatures: [],
+      status: "ranked",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(DeviceUrlCell, { result, domain: "sports-ms.com" }),
+    );
+    expect(html).toContain(
+      'href="https://sports-ms.com/%D8%B4%D8%B1%D9%83%D8%A9"',
+    );
+    expect(html).toContain("/شركة");
+    expect(html).toContain('title="https://sports-ms.com/شركة"');
+    expect(html).toContain("line-clamp-3");
+    expect(html).toContain("break-words");
   });
 
   it("renders '—' with tooltip when check failed", () => {

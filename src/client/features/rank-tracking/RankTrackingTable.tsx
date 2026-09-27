@@ -18,8 +18,21 @@ import { captureClientEvent } from "@/client/lib/posthog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { removeTrackingKeywords } from "@/serverFunctions/rank-tracking";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
+import type { ColumnSizingState, Updater } from "@tanstack/react-table";
 import type { RankTrackingRow } from "@/types/schemas/rank-tracking";
 import { useRankTrackingColumns } from "./RankTrackingColumns";
+
+const COLUMN_SIZING_KEY = "rank-tracking-column-sizing";
+
+function loadSavedColumnSizing(): ColumnSizingState {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(COLUMN_SIZING_KEY);
+    return raw ? (JSON.parse(raw) as ColumnSizingState) : {};
+  } catch {
+    return {};
+  }
+}
 import { buildRankTrackingExport } from "./RankTrackingTableParts";
 import {
   KeywordTrendModal,
@@ -105,9 +118,34 @@ export function RankTrackingTable({
     serpDepth,
   });
 
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() =>
+    loadSavedColumnSizing(),
+  );
+
+  const handleColumnSizingChange = useCallback(
+    (updater: Updater<ColumnSizingState>) => {
+      setColumnSizing((old) => {
+        const next = typeof updater === "function" ? updater(old) : updater;
+        try {
+          window.localStorage.setItem(COLUMN_SIZING_KEY, JSON.stringify(next));
+        } catch {
+          // ignore storage errors
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   const table = useAppTable({
     data: rows,
     columns,
+    state: {
+      columnSizing,
+    },
+    onColumnSizingChange: handleColumnSizingChange,
+    enableColumnResizing: true,
+    columnResizeMode: "onChange",
     initialState: {
       sorting: [{ id: defaultSortId, desc: false }],
     },

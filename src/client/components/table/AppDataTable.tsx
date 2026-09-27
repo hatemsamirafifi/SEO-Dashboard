@@ -65,7 +65,10 @@ export function makeSelectionColumn<TData>(
 ): ColumnDef<TData> {
   return {
     id: "select",
-    size: 32,
+    size: 36,
+    minSize: 36,
+    maxSize: 36,
+    enableResizing: false,
     enableSorting: false,
     header: ({ table }) => (
       <input
@@ -149,13 +152,24 @@ export function AppDataTable<TData>({
   if (isLoading && loading) return <>{loading}</>;
   if (table.getRowModel().rows.length === 0 && empty) return <>{empty}</>;
 
+  const isFixedLayout =
+    fixedLayout ?? Boolean(table.options.enableColumnResizing);
+
   return (
     <div className={wrapperClassName}>
       <table
         className={className}
-        style={fixedLayout ? { tableLayout: "fixed" } : undefined}
+        style={
+          isFixedLayout
+            ? {
+                tableLayout: "fixed",
+                width: table.getTotalSize(),
+                minWidth: "100%",
+              }
+            : undefined
+        }
       >
-        {fixedLayout ? (
+        {isFixedLayout ? (
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (
               <col key={column.id} style={{ width: column.getSize() }} />
@@ -169,7 +183,7 @@ export function AppDataTable<TData>({
                 <HeaderCell
                   key={header.id}
                   header={header}
-                  fixedLayout={fixedLayout}
+                  fixedLayout={isFixedLayout}
                   stickyHeader={stickyHeader}
                 />
               ))}
@@ -200,6 +214,14 @@ export function AppDataTable<TData>({
                       ]
                         .filter(Boolean)
                         .join(" ")}
+                      style={
+                        isFixedLayout
+                          ? {
+                              width: cell.column.getSize(),
+                              maxWidth: cell.column.getSize(),
+                            }
+                          : undefined
+                      }
                     >
                       {flexRender(
                         cell.column.columnDef.cell,
@@ -227,10 +249,14 @@ function HeaderCell<TData>({
   stickyHeader?: boolean;
 }) {
   const meta = header.column.columnDef.meta;
+  const canResize = header.column.getCanResize();
+  const isResizing = header.column.getIsResizing();
+
   return (
     <th
       className={[
         stickyHeader ? "bg-base-200" : undefined,
+        canResize ? "relative group select-none" : undefined,
         meta?.headerClassName,
       ]
         .filter(Boolean)
@@ -240,6 +266,34 @@ function HeaderCell<TData>({
       {header.isPlaceholder
         ? null
         : flexRender(header.column.columnDef.header, header.getContext())}
+      {canResize ? (
+        <div
+          onMouseDown={header.getResizeHandler()}
+          onTouchStart={header.getResizeHandler()}
+          onDoubleClick={() => header.column.resetSize()}
+          onClick={(event) => event.stopPropagation()}
+          className={[
+            "absolute top-0 end-0 h-full w-2.5 cursor-col-resize select-none touch-none z-10 flex items-center justify-center",
+            isResizing
+              ? "opacity-100"
+              : "opacity-0 hover:opacity-100 group-hover:opacity-100",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          title="Drag to resize column (double-click to reset)"
+          role="separator"
+          aria-orientation="vertical"
+        >
+          <div
+            className={[
+              "w-0.5 h-3/5 rounded-full transition-colors",
+              isResizing
+                ? "bg-primary w-1"
+                : "bg-base-content/30 hover:bg-primary",
+            ].join(" ")}
+          />
+        </div>
+      ) : null}
     </th>
   );
 }
