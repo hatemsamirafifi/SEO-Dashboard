@@ -1,0 +1,20 @@
+{
+  "version": "1.0.9",
+  "integration_state_schema": 1,
+  "installed_integrations": [
+    "opencode",
+    "agy"
+  ],
+  "integration_settings": {
+    "opencode": {
+      "script": "ps",
+      "invoke_separator": "."
+    },
+    "agy": {
+      "script": "ps",
+      "invoke_separator": "-"
+    }
+  },
+  "integration": "opencode",
+  "default_integration": "opencode"
+}

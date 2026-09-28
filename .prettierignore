@@ -8,6 +8,9 @@ routeTree.gen.ts
 
 # vendored skills are hash-pinned in skills-lock.json; don't reformat them
 .agents/skills/
+# spec-kit CLI-managed files (see .specify/integration.json manifests); don't reformat them
+.specify/
+.opencode/commands/speckit.*
 dist/
 drizzle/
 drizzle-pg/
