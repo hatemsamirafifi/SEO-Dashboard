@@ -8,6 +8,12 @@
 
 **Input**: User description: "Inspect and document the actual Keyword Research → SERP resolver → DataForSEO/Serper/Zenserp → normalized output code path, then freeze the single normalized SERP snapshot contract (organic results + features: PAA, featured snippet, local pack, images, videos, shopping, news, knowledge graph, sitelinks, related searches) that all downstream UI, detectors, and enrichment work must consume. No second SERP resolver, no provider-specific UI models, no raw provider parsing in UI. Implements Track S milestones S0–S1 of the Final Revised Implementation Plan (PR5) and satisfies hard gate G4."
 
+## Clarifications
+
+### Session 2026-09-28
+
+- Q: What uniquely identifies one SERP snapshot? → A: Logical identity is (keyword, engine, canonical location, language, device, checkedAt) with each dimension canonicalized before key construction and checkedAt as a full ISO observation timestamp (never calendar date alone). Provider is provenance, not identity. A content hash may be stored separately for integrity/dedup/validation but never replaces the logical identity. Project scoping (projectId) is a tenancy dimension on the storage key, not part of observation semantics.
+
 ## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Understand the real SERP pipeline before extending it (Priority: P1)
@@ -96,8 +102,14 @@ documentation and confirming no proprietary third-party metric names appear.
 - **FR-001**: The discovery report MUST document the actual end-to-end SERP path (entry points, resolver,
   provider adapters and order, normalization, cache, request coalescing, cost tracking, trace) with
   references to live code files.
-- **FR-002**: The frozen contract MUST cover snapshot context (keyword, engine, country/location, language,
-  device, check time, provider + provider status) and organic results.
+- **FR-002**: The frozen contract MUST cover snapshot context and organic results. The logical snapshot
+  identity MUST be (keyword, engine, canonical location, language, device, checkedAt): each dimension
+  canonicalized before key construction (canonical keyword, normalized engine id, canonical
+  locationCode/location identity, canonical language code, normalized device enum, full ISO observation
+  timestamp — never calendar date alone, so multiple same-day checks cannot collide). Provider and
+  provider status are provenance fields, NOT identity. A content hash may be stored separately for
+  integrity/dedup/validation but MUST NOT replace the logical identity. Where snapshot storage is
+  project-owned, projectId joins the storage key as tenancy scoping, not as observation semantics.
 - **FR-003**: The frozen contract MUST cover all supported SERP feature families: featured result, People
   Also Ask, related searches, local pack, images, videos, shopping, news, knowledge graph, sitelinks.
 - **FR-004**: Downstream consumers MUST use the normalized contract only. Raw provider JSON MUST NOT be

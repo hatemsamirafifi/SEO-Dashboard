@@ -8,6 +8,12 @@
 
 **Input**: User description: "Harden existing report sharing and PDF export: hash-only share tokens (raw token shown once, never persisted — never on report_schedules), revoke, optional expiry, report events incl. exported-PDF event, public-page credential isolation, R2-backed logos, project client profile. Implements Track D milestone D1 of the Final Revised Implementation Plan (PR14). Immutable report snapshot model is frozen and untouched."
 
+## Clarifications
+
+### Session 2026-09-28
+
+- Q: Do new share links expire by default? → A: No expiry by default; expiry is opt-in at creation via an optional expiresAt value, editable only through the approved share-management flow. Links stay valid until explicitly revoked or the optional expiry is reached — no silent default lifetime. Expired links fail closed without exposing content, revocation takes effect immediately regardless of expiry, and public responses distinguish invalid / revoked / expired without leaking internal details.
+
 ## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Share a report link with expiry and revoke (Priority: P1)
@@ -92,7 +98,11 @@ PDF, and verifying the frozen branding snapshot and the activity events.
 
 - **FR-001**: Share tokens MUST be stored as hashes only. The raw token MUST be shown/usable exactly once
   at creation and MUST NEVER be persisted — including never on any report schedule record.
-- **FR-002**: Shares MUST support revocation (immediate effect) and optional expiry (automatic effect).
+- **FR-002**: Shares MUST support revocation (immediate effect regardless of expiry) and opt-in expiry
+  (an optional expiresAt set at creation, editable only through the approved share-management flow).
+  No default lifetime is applied silently. Expired links MUST fail closed without exposing report content,
+  and public responses MUST distinguish invalid token, revoked link, and expired link without leaking
+  sensitive internal details.
 - **FR-003**: The public share route MUST expose only explicitly shareable report data plus frozen branding.
   Credentials, cost data, internal provider payloads, raw tokens, and unrelated project data MUST NOT be
   exposed (verified by a leak audit test).
