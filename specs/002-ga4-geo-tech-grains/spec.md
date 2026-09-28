@@ -8,6 +8,12 @@
 
 **Input**: User description: "Add stored GA4 geo (country) and technology (device/browser/OS) daily grains with deterministic upsert keys, project/date indexes, bounded cardinality, quota-aware sync, and capability-gated empty states. After shipping, device/country analytics filters operate on stored data. Implements Track B milestone B1 of the Final Revised Implementation Plan (PR2). Existing GA4 summary/acquisition/landing/events grains and sync resilience patterns are reused, not rebuilt."
 
+## Clarifications
+
+### Session 2026-09-28
+
+- Q: How does the sync handle dimension values beyond the per-grain cardinality bound? → A: Roll the tail into a deterministic "(other)" row per grain with truncation metadata (isTruncated flag, retained/omitted counts, other-row presence). Aggregate totals are preserved exactly; tail values are never silently dropped. "(other)" means aggregated long-tail values — not missing data, not zero traffic. If GA4 provides no reliable omitted count, retain only the truncation flag plus the "(other)" aggregate — never fabricate the count.
+
 ## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Break down traffic by country from stored data (Priority: P1)
@@ -76,8 +82,8 @@ per date/grain and the absence of zero-filled failed dates.
 ### Edge Cases
 
 - What happens when a property reports an explosion of distinct countries/browsers (cardinality spike)?
-  Ingestion is bounded (top-N + rollup of the tail); the bound and any truncation are surfaced, never
-  silently dropped.
+  Values beyond the bound roll into a deterministic "(other)" row with truncation metadata; aggregates stay
+  exact and the UI can distinguish complete from truncated coverage.
 - How are "(not set)" / missing dimensions stored? As an explicit sentinel value so missing dimensions
   are distinguishable from failures and behave identically on both supported database backends.
 - What happens when the same date/grain syncs twice (retry, overlapping runs)? Deterministic identity
@@ -97,8 +103,12 @@ per date/grain and the absence of zero-filled failed dates.
   project, property, date, device, browser, and OS.
 - **FR-003**: Both grains MUST be queryable by project and date range with response times suitable for
   interactive analytics filtering over standard reporting windows.
-- **FR-004**: Ingestion MUST be bounded in cardinality (top-N per grain with explicit tail handling) and
-  MUST record truncation metadata when the bound is hit.
+- **FR-004**: Ingestion MUST be bounded in cardinality: values beyond the per-grain bound roll into a
+  deterministic "(other)" row per grain so aggregate totals stay exact and tail values are never silently
+  dropped. Truncation metadata MUST record at least the truncation flag and "(other)"-row presence
+  (plus retained/omitted counts only when reliably known — never fabricated), letting downstream layers
+  distinguish complete from bounded/truncated coverage. "(other)" means aggregated long-tail values,
+  not missing data and not zero traffic.
 - **FR-005**: Sync MUST be quota-aware: quota exhaustion halts new work, marks affected coverage as
   quota-failed, preserves already-synced data, and resumes cleanly on retry without duplicates.
 - **FR-006**: A successful API response with zero rows MUST be stored as an explicit zero-row success,
