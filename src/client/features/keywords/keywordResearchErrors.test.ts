@@ -86,7 +86,7 @@ describe("Keyword Research 40201 & Error Classification", () => {
 
   // Requirement 5 & 6 & 7 & 8 & 9: UI Error Card for 40201 Access Paused
   describe("KeywordResearchErrorCard for 40201 Access Paused", () => {
-    it("renders AlertTriangle, title, contact support, debug trace, settings, and HIDES Try again", () => {
+    it("renders AlertTriangle, title, Try again, contact support, debug trace, and settings", () => {
       const error = new Error("DATAFORSEO_ACCESS_PAUSED");
       const html = renderToStaticMarkup(
         React.createElement(KeywordResearchErrorCard, {
@@ -102,7 +102,10 @@ describe("Keyword Research 40201 & Error Classification", () => {
       // Message
       expect(html).toContain("support@dataforseo.com");
 
-      // Primary Action: [Contact Support] with mailto
+      // Primary Action: [Try again]
+      expect(html).toContain("Try again");
+
+      // Action: [Contact Support] with mailto
       expect(html).toContain("mailto:support@dataforseo.com?subject=Reactivate%20DataForSEO%20API%20Access");
       expect(html).toContain("Contact Support");
 
@@ -112,9 +115,6 @@ describe("Keyword Research 40201 & Error Classification", () => {
       // Tertiary Action: [Open DataForSEO Settings]
       expect(html).toContain('href="/settings"');
       expect(html).toContain("Open DataForSEO Settings");
-
-      // CRITICAL: Generic "Try again" button must NOT be present
-      expect(html).not.toContain("Try again");
     });
   });
 
