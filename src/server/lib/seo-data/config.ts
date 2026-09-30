@@ -2,6 +2,14 @@ import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import type { SEODataType } from "./types";
 
 /**
+ * Default freshness window (days) for reusable per-target competitive
+ * metrics (spec 007). Target authority/backlink metrics move slowly, so the
+ * window is long; SERP snapshots themselves are refetched far more often.
+ * Single named constant — no scattered day-count checks.
+ */
+export const TARGET_COMPETITIVE_METRICS_TTL_DAYS = 30;
+
+/**
  * Centralized cache TTL configuration (seconds). Values are sensible defaults
  * and can be overridden per data type via environment variables.
  *
@@ -17,6 +25,7 @@ const DEFAULT_TTL_SECONDS: Record<SEODataType, number> = {
   domain_pages: 7 * 24 * 60 * 60, // 7 days
   competitors: 7 * 24 * 60 * 60, // 7 days
   backlinks: 14 * 24 * 60 * 60, // 14 days (midpoint of 7-30 day range)
+  competitive_metrics: TARGET_COMPETITIVE_METRICS_TTL_DAYS * 24 * 60 * 60, // 30 days (spec 007)
   site_audit: 7 * 24 * 60 * 60, // 7 days
   search_console: 24 * 60 * 60, // 24 hours
   bing_search_performance: 24 * 60 * 60, // 24 hours
@@ -31,6 +40,7 @@ const ENV_KEY_MAP: Record<SEODataType, string> = {
   domain_pages: "SEO_CACHE_TTL_DOMAIN_PAGES",
   competitors: "SEO_CACHE_TTL_COMPETITORS",
   backlinks: "SEO_CACHE_TTL_BACKLINKS",
+  competitive_metrics: "SEO_CACHE_TTL_COMPETITIVE_METRICS",
   site_audit: "SEO_CACHE_TTL_SITE_AUDIT",
   search_console: "SEO_CACHE_TTL_SEARCH_CONSOLE",
   bing_search_performance: "SEO_CACHE_TTL_BING_SEARCH_PERFORMANCE",

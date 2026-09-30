@@ -16,8 +16,10 @@ import {
   analyticsConversionsSchema,
   analyticsEcommerceSchema,
   analyticsEventsSchema,
+  analyticsGeoSchema,
   analyticsLandingPagesSchema,
   analyticsOverviewSchema,
+  analyticsTechnologySchema,
   ga4PeriodUsersSchema,
   ga4ProjectSchema,
   ga4SyncStatusSchema,
@@ -268,5 +270,28 @@ export const getAnalyticsAudience = createServerFn({ method: "POST" })
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),
+    }),
+  );
+export const getAnalyticsGeo = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(analyticsGeoSchema)
+  .handler(async ({ data, context }) =>
+    AnalyticsService.getAnalyticsGeo({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      from: data.from,
+      to: data.to,
+    }),
+  );
+export const getAnalyticsTechnology = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(analyticsTechnologySchema)
+  .handler(async ({ data, context }) =>
+    AnalyticsService.getAnalyticsTechnology({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      from: data.from,
+      to: data.to,
+      dimension: data.dimension,
     }),
   );

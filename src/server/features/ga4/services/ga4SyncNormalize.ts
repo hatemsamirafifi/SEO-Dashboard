@@ -2,24 +2,35 @@
 import type { createGa4Client } from "@/server/lib/ga4Client";
 import { classifyGa4Error, Ga4ApiError } from "@/server/lib/ga4Client";
 import type { Ga4ReportResult } from "@/server/lib/ga4Client";
-import { canonicalGa4Dimension, normalizeGa4LandingPage } from "@/shared/ga4";
+import {
+  GA4_OTHER_DIMENSION,
+  canonicalGa4Dimension,
+  normalizeGa4LandingPage,
+} from "@/shared/ga4";
 import {
   deterministicGa4FactId,
   type Ga4AcquisitionInsert,
   type Ga4EventInsert,
+  type Ga4GeoInsert,
   type Ga4LandingInsert,
   type Ga4SummaryInsert,
+  type Ga4TechnologyInsert,
 } from "../repositories/Ga4SyncRepository";
+import type { DateChunk } from "@/server/features/gsc/services/gscSyncUtils";
 import {
   GA4_BATCH_SUB_REQUEST_COUNT,
+  GA4_GEO_TECH_SUB_REQUEST_COUNT,
+  GA4_GEO_TOP_N,
   GA4_REPORT_MAX_PAGES,
+  GA4_TECHNOLOGY_TOP_N,
   eachDayUtc,
+  rollUpOtherTail,
   type Ga4CoverageStatus,
   type Ga4GrainSubRequest,
   type Ga4SyncGrain,
+  type Ga4TailMetrics,
   type Ga4TruncationMeta,
 } from "./ga4SyncUtils";
-import type { DateChunk } from "@/server/features/gsc/services/gscSyncUtils";
 
 export type UnitOutcome = {
   date: string;
@@ -33,6 +44,8 @@ export type ChunkNormalization = {
   acquisitionRows: Ga4AcquisitionInsert[];
   landingRows: Ga4LandingInsert[];
   eventRows: Ga4EventInsert[];
+  geoRows: Ga4GeoInsert[];
+  technologyRows: Ga4TechnologyInsert[];
   outcomes: UnitOutcome[];
   fetched: number;
   failed: number;
@@ -40,6 +53,11 @@ export type ChunkNormalization = {
   observedCurrency: string | null;
   firstError?: { errorClass: string; message: string };
 };
+
+/** Total batch responses per chunk: the five batchRunReports sub-requests
+ *  plus the two individually-fetched geo/technology reports. */
+export const GA4_CHUNK_RESPONSE_COUNT =
+  GA4_BATCH_SUB_REQUEST_COUNT + GA4_GEO_TECH_SUB_REQUEST_COUNT;
 
 /** Quota aborts the run with the remainder PENDING (never FAILED). Thrown
  *  when a batch sub-request reports quota exhaustion. */
@@ -341,9 +359,10 @@ async function normalizeEventsResponse(
 }
 
 /** Normalize one chunk's five batch sub-responses (summary-core, summary
- *  revenue, acquisition, landing pages, events) into storage rows plus
- *  per-unit coverage outcomes. Throws QuotaHaltError when any sub-request
- *  reports quota exhaustion; other sub-request errors fail only their grain. */
+ *  revenue, acquisition, landing pages, events) plus the two individually
+ *  fetched geo/technology reports into storage rows plus per-unit coverage
+ *  outcomes. Throws QuotaHaltError when any sub-request reports quota
+ *  exhaustion; other sub-request errors fail only their grain. */
 export async function normalizeChunkResponses(input: {
   projectId: string;
   propertyId: string;
@@ -351,11 +370,19 @@ export async function normalizeChunkResponses(input: {
   chunk: DateChunk;
   responses: Array<Ga4ReportResult | Ga4ApiError>;
   limits: number[];
+  tailCountsKnown?: { geo: boolean; technology: boolean };
 }): Promise<ChunkNormalization> {
-  const { projectId, propertyId, connectionId, chunk, responses, limits } =
-    input;
-  if (responses.length !== GA4_BATCH_SUB_REQUEST_COUNT) {
-    throw new Error("GA4 batch response count mismatch");
+  const {
+    projectId,
+    propertyId,
+    connectionId,
+    chunk,
+    responses,
+    limits,
+    tailCountsKnown,
+  } = input;
+  if (responses.length !== GA4_CHUNK_RESPONSE_COUNT) {
+    throw new Error("GA4 chunk response count mismatch");
   }
   const chunkDates = new Set(eachDayUtc(chunk.startDate, chunk.endDate));
   const failed: FailedDates = new Map();
@@ -469,6 +496,44 @@ export async function normalizeChunkResponses(input: {
     );
   }
 
+  const geoResponse = grainResult("geo", responses[5]);
+  let geoRows: Ga4GeoInsert[] = [];
+  const geoTailMetas = new Map<string, Ga4TruncationMeta>();
+  if (geoResponse) {
+    observeCurrency(geoResponse);
+    fetched += geoResponse.rows.length;
+    const normalized = await normalizeGeoResponse(
+      geoResponse,
+      ctx,
+      failed,
+      failRow,
+      tailCountsKnown?.geo ?? false,
+    );
+    geoRows = normalized.rows;
+    for (const outcome of normalized.outcomes) {
+      geoTailMetas.set(outcome.date, outcome.truncationMeta);
+    }
+  }
+
+  const techResponse = grainResult("technology", responses[6]);
+  let technologyRows: Ga4TechnologyInsert[] = [];
+  const techTailMetas = new Map<string, Ga4TruncationMeta>();
+  if (techResponse) {
+    observeCurrency(techResponse);
+    fetched += techResponse.rows.length;
+    const normalized = await normalizeTechResponse(
+      techResponse,
+      ctx,
+      failed,
+      failRow,
+      tailCountsKnown?.technology ?? false,
+    );
+    technologyRows = normalized.rows;
+    for (const outcome of normalized.outcomes) {
+      techTailMetas.set(outcome.date, outcome.truncationMeta);
+    }
+  }
+
   const truncations = new Map([
     ["acquisition", acquisitionTruncation],
     ["landing_pages", landingTruncation],
@@ -482,23 +547,34 @@ export async function normalizeChunkResponses(input: {
       "acquisition",
       "landing_pages",
       "events",
+      "geo",
+      "technology",
     ] as Ga4SyncGrain[]) {
       if (failed.get(grain)?.has(date)) {
         outcomes.push({ date, grain, status: "FAILED" });
         continue;
       }
+      const tailMeta =
+        grain === "geo"
+          ? (geoTailMetas.get(date) ?? null)
+          : grain === "technology"
+            ? (techTailMetas.get(date) ?? null)
+            : null;
       const hasRows =
         (grain === "summary" && summaryRows.some((row) => row.date === date)) ||
         (grain === "acquisition" &&
           acquisitionRows.some((row) => row.date === date)) ||
         (grain === "landing_pages" &&
           landingRows.some((row) => row.date === date)) ||
-        (grain === "events" && eventRows.some((row) => row.date === date));
+        (grain === "events" && eventRows.some((row) => row.date === date)) ||
+        (grain === "geo" && geoRows.some((row) => row.date === date)) ||
+        (grain === "technology" &&
+          technologyRows.some((row) => row.date === date));
       outcomes.push({
         date,
         grain,
         status: hasRows ? "SUCCESS_WITH_DATA" : "SUCCESS_ZERO_ROWS",
-        truncationMeta: truncations.get(grain) ?? null,
+        truncationMeta: tailMeta ?? truncations.get(grain) ?? null,
       });
     }
   }
@@ -508,6 +584,8 @@ export async function normalizeChunkResponses(input: {
     acquisitionRows,
     landingRows,
     eventRows,
+    geoRows,
+    technologyRows,
     outcomes,
     fetched,
     failed: failedCount,
@@ -517,6 +595,206 @@ export async function normalizeChunkResponses(input: {
   };
 }
 
+type BoundedGrainParse = {
+  rows: Array<{ date: string; key: string; metrics: Ga4TailMetrics }>;
+};
+
+function parseBoundedGrainRows(input: {
+  response: Ga4ReportResult;
+  dims: { date: number; parts: number[] };
+  grain: "geo" | "technology";
+  ctx: GrainContext;
+  failed: FailedDates;
+  failRow: () => void;
+}): BoundedGrainParse {
+  const { response, dims, grain, ctx, failed, failRow } = input;
+  const rows: BoundedGrainParse["rows"] = [];
+  for (const row of response.rows) {
+    const date = toIsoDate(row.dimensionValues[dims.date] ?? "");
+    if (!date || !ctx.chunkDates.has(date)) {
+      failRow();
+      continue;
+    }
+    const parts = dims.parts.map((index) =>
+      canonicalGa4Dimension(row.dimensionValues[index]),
+    );
+    const ints = parseInts(row.metricValues, 6);
+    const duration = toFloatNumber(row.metricValues[2]);
+    if (!ints || duration === null) {
+      failDate(failed, grain, date);
+      failRow();
+      continue;
+    }
+    const [sessions, engagedSessions, , screenPageViews, eventCount, newUsers] =
+      ints;
+    rows.push({
+      date,
+      key: parts.join("|"),
+      metrics: {
+        sessions,
+        engagedSessions,
+        userEngagementDuration: duration,
+        screenPageViews,
+        eventCount,
+        newUsers,
+      },
+    });
+  }
+  return { rows };
+}
+
+type BoundedGrainOutcome = {
+  date: string;
+  kept: Array<{ key: string; metrics: Ga4TailMetrics; isOther: boolean }>;
+  truncationMeta: Ga4TruncationMeta;
+};
+
+function rollUpBoundedGrain(
+  parsed: BoundedGrainParse,
+  input: { topN: number; countsKnown: boolean; samplingState: "SAMPLED" | "NOT_SAMPLED" | null },
+): BoundedGrainOutcome[] {
+  const byDate = new Map<string, Array<{ key: string; metrics: Ga4TailMetrics }>>();
+  for (const row of parsed.rows) {
+    let list = byDate.get(row.date);
+    if (!list) {
+      list = [];
+      byDate.set(row.date, list);
+    }
+    list.push({ key: row.key, metrics: row.metrics });
+  }
+  const outcomes: BoundedGrainOutcome[] = [];
+  for (const [date, dateRows] of byDate) {
+    const rollup = rollUpOtherTail({
+      rows: dateRows,
+      topN: input.topN,
+      countsKnown: input.countsKnown,
+    });
+    outcomes.push({
+      date,
+      kept: [
+        ...rollup.retained.map((row) => ({ ...row, isOther: false })),
+        ...(rollup.other
+          ? [{ key: GA4_OTHER_DIMENSION, metrics: rollup.other, isOther: true }]
+          : []),
+      ],
+      truncationMeta: {
+        row_limit: input.topN,
+        rows_returned: dateRows.length,
+        is_truncated: rollup.isTruncated,
+        total_rows_if_known: input.countsKnown ? dateRows.length : null,
+        sampling_state: input.samplingState,
+        data_loss_from_other_row: null,
+        retained_dimension_count: rollup.retainedDimensionCount,
+        omitted_dimension_count: rollup.omittedDimensionCount,
+        other_row_present: rollup.otherRowPresent,
+      },
+    });
+  }
+  return outcomes;
+}
+
+async function normalizeGeoResponse(
+  response: Ga4ReportResult,
+  ctx: GrainContext,
+  failed: FailedDates,
+  failRow: () => void,
+  countsKnown: boolean,
+): Promise<{ rows: Ga4GeoInsert[]; outcomes: BoundedGrainOutcome[] }> {
+  const parsed = parseBoundedGrainRows({
+    response,
+    dims: { date: 0, parts: [1] },
+    grain: "geo",
+    ctx,
+    failed,
+    failRow,
+  });
+  const rolled = rollUpBoundedGrain(parsed, {
+    topN: GA4_GEO_TOP_N,
+    countsKnown,
+    samplingState: response.metadata.samplingState,
+  });
+  const rows: Ga4GeoInsert[] = [];
+  for (const outcome of rolled) {
+    for (const kept of outcome.kept) {
+      rows.push({
+        id: await deterministicGa4FactId({
+          projectId: ctx.projectId,
+          propertyId: ctx.propertyId,
+          date: outcome.date,
+          grain: "geo",
+          grainKey: kept.key,
+        }),
+        projectId: ctx.projectId,
+        propertyId: ctx.propertyId,
+        ga4ConnectionId: ctx.connectionId,
+        date: outcome.date,
+        country: kept.isOther ? GA4_OTHER_DIMENSION : kept.key,
+        sessions: kept.metrics.sessions,
+        engagedSessions: kept.metrics.engagedSessions,
+        userEngagementDuration: kept.metrics.userEngagementDuration,
+        screenPageViews: kept.metrics.screenPageViews,
+        eventCount: kept.metrics.eventCount,
+        newUsers: kept.metrics.newUsers,
+        isOtherRow: kept.isOther,
+      });
+    }
+  }
+  return { rows, outcomes: rolled };
+}
+
+async function normalizeTechResponse(
+  response: Ga4ReportResult,
+  ctx: GrainContext,
+  failed: FailedDates,
+  failRow: () => void,
+  countsKnown: boolean,
+): Promise<{ rows: Ga4TechnologyInsert[]; outcomes: BoundedGrainOutcome[] }> {
+  const parsed = parseBoundedGrainRows({
+    response,
+    dims: { date: 0, parts: [1, 2, 3] },
+    grain: "technology",
+    ctx,
+    failed,
+    failRow,
+  });
+  const rolled = rollUpBoundedGrain(parsed, {
+    topN: GA4_TECHNOLOGY_TOP_N,
+    countsKnown,
+    samplingState: response.metadata.samplingState,
+  });
+  const rows: Ga4TechnologyInsert[] = [];
+  for (const outcome of rolled) {
+    for (const kept of outcome.kept) {
+      const [device, browser, os] = kept.isOther
+        ? [GA4_OTHER_DIMENSION, GA4_OTHER_DIMENSION, GA4_OTHER_DIMENSION]
+        : kept.key.split("|");
+      rows.push({
+        id: await deterministicGa4FactId({
+          projectId: ctx.projectId,
+          propertyId: ctx.propertyId,
+          date: outcome.date,
+          grain: "technology",
+          grainKey: kept.key,
+        }),
+        projectId: ctx.projectId,
+        propertyId: ctx.propertyId,
+        ga4ConnectionId: ctx.connectionId,
+        date: outcome.date,
+        device: device ?? GA4_OTHER_DIMENSION,
+        browser: browser ?? GA4_OTHER_DIMENSION,
+        os: os ?? GA4_OTHER_DIMENSION,
+        sessions: kept.metrics.sessions,
+        engagedSessions: kept.metrics.engagedSessions,
+        userEngagementDuration: kept.metrics.userEngagementDuration,
+        screenPageViews: kept.metrics.screenPageViews,
+        eventCount: kept.metrics.eventCount,
+        newUsers: kept.metrics.newUsers,
+        isOtherRow: kept.isOther,
+      });
+    }
+  }
+  return { rows, outcomes: rolled };
+}
 /** Fetch follow-up offset pages for a full first page (all grains except
  *  landing pages, which are top-N bounded by design). */
 export async function fetchGrainPages(

@@ -48,6 +48,24 @@ export async function getCached(key: string): Promise<unknown> {
 }
 
 /**
+ * Get a cached JSON value IGNORING expiry (stale fallback, spec 007).
+ * R2 TTLs here are soft metadata — expired objects persist — so a failed
+ * refresh can still serve the previous value as stale instead of nothing.
+ * Returns null on miss or corrupt JSON. Callers MUST validate the shape
+ * with Zod and mark served values stale; never present them as fresh.
+ */
+export async function getStaleCached(key: string): Promise<unknown> {
+  const obj = await env.R2.get(`${CACHE_PREFIX}${key}`);
+  if (!obj) return null;
+
+  try {
+    return JSON.parse(await obj.text());
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Store a JSON value in R2 with a soft TTL via custom metadata.
  */
 export async function setCached<T>(

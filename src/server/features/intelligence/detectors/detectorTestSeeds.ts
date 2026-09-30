@@ -326,6 +326,34 @@ export async function seedGa4Landing() {
   await seedGa4Coverage("properties/123", "landing_pages", "2025-11-20", 56);
 }
 
+/** Two snapshots inside the freshness window with a notable loss
+ *  (lost referring domains at/above the lost_backlinks floor). */
+export async function seedBacklinksLoss() {
+  const now = Date.now();
+  const daysAgo = (days: number) =>
+    new Date(now - days * 86_400_000).toISOString();
+  await db.insert(backlinkSnapshots).values([
+    {
+      projectId: "project-1",
+      domain: "example.com",
+      backlinks: 1000,
+      referringDomains: 120,
+      capturedAt: daysAgo(12),
+    },
+    {
+      projectId: "project-1",
+      domain: "example.com",
+      backlinks: 960,
+      referringDomains: 112,
+      newBacklinks: 2,
+      lostBacklinks: 9,
+      newReferringDomains: 0,
+      lostReferringDomains: 8,
+      capturedAt: daysAgo(5),
+    },
+  ]);
+}
+
 /** Two snapshots inside the freshness window with net movement. */
 export async function seedBacklinksFresh() {
   const now = Date.now();

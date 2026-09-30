@@ -59,7 +59,9 @@ export class Ga4ApiError extends Error {
 export class Ga4RequestError extends Error {}
 
 /** Allowlisted Data API dimensions (final-plan §9.4 taxonomy). Requests
- *  referencing anything else are rejected client-side. */
+ *  referencing anything else are rejected client-side. deviceCategory +
+ *  country arrived with the analytics filter contract; browser +
+ *  operatingSystem arrived with the technology grain (spec 002). */
 const ALLOWED_DIMENSIONS = new Set([
   "date",
   "sessionDefaultChannelGroup",
@@ -69,6 +71,8 @@ const ALLOWED_DIMENSIONS = new Set([
   "eventName",
   "deviceCategory",
   "country",
+  "browser",
+  "operatingSystem",
 ]);
 
 /** Allowlisted Data API metrics. Revenue + key-event metrics arrived with

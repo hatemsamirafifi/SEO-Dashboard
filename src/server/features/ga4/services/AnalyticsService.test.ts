@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   getAcquisitionGroups: vi.fn(),
   getLandingGroups: vi.fn(),
   getEventGroups: vi.fn(),
+  getGeoGroups: vi.fn(),
+  getTechnologyGroups: vi.fn(),
   getGrainCoverage: vi.fn(),
 }));
 
@@ -22,6 +24,8 @@ vi.mock("@/server/features/ga4/repositories/Ga4SyncRepository", () => ({
     getAcquisitionGroups: mocks.getAcquisitionGroups,
     getLandingGroups: mocks.getLandingGroups,
     getEventGroups: mocks.getEventGroups,
+    getGeoGroups: mocks.getGeoGroups,
+    getTechnologyGroups: mocks.getTechnologyGroups,
     getGrainCoverage: mocks.getGrainCoverage,
   },
   NEW_USERS_FOOTNOTE: "new_users footnote",
@@ -266,13 +270,12 @@ describe("AnalyticsService.getOverview", () => {
     expect(result.coverage).toMatchObject({ status: "none" });
   });
 
-  it("notes reserved device/country filters instead of silently ignoring them", async () => {
-    mocks.getSummaryTotals
-      .mockResolvedValueOnce(summaryTotals())
-      .mockResolvedValueOnce(summaryTotals())
-      .mockResolvedValueOnce(summaryTotals())
-      .mockResolvedValueOnce(summaryTotals());
-    mocks.getDailySummarySeries.mockResolvedValue([]);
+  it("applies device/country filters to stored grains instead of noting them reserved", async () => {
+    mocks.getGeoGroups.mockResolvedValue(geoGroups());
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: Array.from({ length: 7 }, (_, i) => `2025-01-0${i + 1}`),
+      coveredThrough: "2025-01-07",
+    });
 
     const withReserved = await AnalyticsService.getOverview({
       ...BASE,
@@ -281,12 +284,18 @@ describe("AnalyticsService.getOverview", () => {
       country: "United States",
     });
     if (!withReserved.connected) throw new Error("expected connected result");
-    expect(withReserved.reservedFilterNote).toContain("device");
+    // Country takes precedence; the unjoinable device filter is named.
+    expect(withReserved.reservedFilterNote).toContain('Device "mobile"');
+    expect(withReserved.totals.sessions.current).toBe(70);
     expect(withReserved.filters).toMatchObject({
       device: "mobile",
       country: "United States",
     });
 
+    mocks.getSummaryTotals
+      .mockResolvedValueOnce(summaryTotals())
+      .mockResolvedValueOnce(summaryTotals());
+    mocks.getDailySummarySeries.mockResolvedValueOnce([]);
     const withoutReserved = await AnalyticsService.getOverview({
       ...BASE,
       range: "last_7_days",
@@ -564,5 +573,275 @@ describe("AnalyticsService.getAudience", () => {
     expect(result.geoTechDeferredNote).toContain("deferred");
     expect(result.distinctUsersNote).toContain("never summed");
     expect(result).not.toHaveProperty("totalUsers");
+  });
+});
+
+function geoGroups() {
+  return [
+    {
+      country: "United States",
+      sessions: 70,
+      engagedSessions: 42,
+      userEngagementDuration: 210,
+      screenPageViews: 140,
+      eventCount: 280,
+      newUsers: 49,
+      isOtherRow: false,
+    },
+    {
+      country: "Germany",
+      sessions: 30,
+      engagedSessions: 18,
+      userEngagementDuration: 90,
+      screenPageViews: 60,
+      eventCount: 120,
+      newUsers: 21,
+      isOtherRow: false,
+    },
+  ];
+}
+
+describe("AnalyticsService.getAnalyticsGeo", () => {
+  it("returns per-country rows from the stored grain with coverage", async () => {
+    mocks.getGeoGroups.mockResolvedValue(geoGroups());
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: ["2025-01-01", "2025-01-02"],
+      coveredThrough: "2025-01-02",
+    });
+    const result = await AnalyticsService.getAnalyticsGeo({
+      ...BASE,
+      from: "2025-01-01",
+      to: "2025-01-02",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0]).toMatchObject({
+      country: "United States",
+      sessions: 70,
+      newUsers: 49,
+    });
+    expect(result.coverage.status).toBe("complete");
+    expect(mocks.getGeoGroups).toHaveBeenCalledWith(
+      "p1",
+      "properties/42",
+      "2025-01-01",
+      "2025-01-02",
+    );
+  });
+
+  it("returns an explicit empty state with zero rows, never zero-filled rows", async () => {
+    mocks.getGeoGroups.mockResolvedValue([]);
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: [],
+      coveredThrough: null,
+    });
+    const result = await AnalyticsService.getAnalyticsGeo({
+      ...BASE,
+      from: "2025-01-01",
+      to: "2025-01-02",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.rows).toEqual([]);
+    expect(result.coverage.status).toBe("none");
+    expect(result.emptyNote).toContain("No geo data");
+  });
+});
+
+describe("AnalyticsService country filter wiring", () => {  it("scopes overview totals to the stored geo grain when country is set", async () => {
+    mocks.getGeoGroups.mockResolvedValue(geoGroups());
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: Array.from({ length: 7 }, (_, i) => `2025-01-0${i + 1}`),
+      coveredThrough: "2025-01-07",
+    });
+    const result = await AnalyticsService.getOverview({
+      ...BASE,
+      range: "last_7_days",
+      country: "Germany",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.totals.sessions.current).toBe(30);
+    expect(result.totals.newUsers.current).toBe(21);
+    expect(result.reservedFilterNote).toBeNull();
+    expect(mocks.getSummaryTotals).not.toHaveBeenCalled();
+  });
+
+  it("reports no coverage instead of zeros when the geo grain is uncovered", async () => {
+    mocks.getGeoGroups.mockResolvedValue([]);
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: [],
+      coveredThrough: null,
+    });
+    const result = await AnalyticsService.getOverview({
+      ...BASE,
+      range: "last_7_days",
+      country: "Germany",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.coverage.status).toBe("none");
+    expect(result.reservedFilterNote).toContain("No geo coverage");
+  });
+});
+
+function technologyGroups() {
+  return [
+    {
+      dimension: "device",
+      value: "desktop",
+      sessions: 60,
+      engagedSessions: 36,
+      userEngagementDuration: 180,
+      screenPageViews: 120,
+      eventCount: 240,
+      newUsers: 42,
+      isOtherRow: false,
+    },
+    {
+      dimension: "device",
+      value: "mobile",
+      sessions: 40,
+      engagedSessions: 24,
+      userEngagementDuration: 120,
+      screenPageViews: 80,
+      eventCount: 160,
+      newUsers: 28,
+      isOtherRow: false,
+    },
+  ];
+}
+
+describe("AnalyticsService.getAnalyticsTechnology", () => {
+  it("returns per-value rows for the requested dimension with coverage", async () => {
+    mocks.getTechnologyGroups.mockResolvedValue(technologyGroups());
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: ["2025-01-01", "2025-01-02"],
+      coveredThrough: "2025-01-02",
+    });
+    const result = await AnalyticsService.getAnalyticsTechnology({
+      ...BASE,
+      from: "2025-01-01",
+      to: "2025-01-02",
+      dimension: "device",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0]).toMatchObject({
+      dimension: "device",
+      value: "desktop",
+      sessions: 60,
+    });
+    expect(result.coverage.status).toBe("complete");
+    expect(mocks.getTechnologyGroups).toHaveBeenCalledWith(
+      "p1",
+      "properties/42",
+      "2025-01-01",
+      "2025-01-02",
+      { dimension: "device" },
+    );
+  });
+
+  it("returns an explicit empty state with zero rows, never zero-filled rows", async () => {
+    mocks.getTechnologyGroups.mockResolvedValue([]);
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: [],
+      coveredThrough: null,
+    });
+    const result = await AnalyticsService.getAnalyticsTechnology({
+      ...BASE,
+      from: "2025-01-01",
+      to: "2025-01-02",
+      dimension: "browser",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.rows).toEqual([]);
+    expect(result.coverage.status).toBe("none");
+    expect(result.emptyNote).toContain("No technology data");
+  });
+});
+
+describe("AnalyticsService device filter wiring", () => {  it("scopes overview totals to the stored technology grain when device is set", async () => {
+    mocks.getTechnologyGroups.mockResolvedValue(technologyGroups());
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: Array.from({ length: 7 }, (_, i) => `2025-01-0${i + 1}`),
+      coveredThrough: "2025-01-07",
+    });
+    const result = await AnalyticsService.getOverview({
+      ...BASE,
+      range: "last_7_days",
+      device: "mobile",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.totals.sessions.current).toBe(40);
+    expect(result.totals.newUsers.current).toBe(28);
+    expect(result.reservedFilterNote).toBeNull();
+  });
+
+  it("reports no coverage instead of zeros when the technology grain is uncovered", async () => {
+    mocks.getTechnologyGroups.mockResolvedValue([]);
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: [],
+      coveredThrough: null,
+    });
+    const result = await AnalyticsService.getOverview({
+      ...BASE,
+      range: "last_7_days",
+      device: "mobile",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.coverage.status).toBe("none");
+    expect(result.reservedFilterNote).toContain("No technology coverage");
+  });
+});
+
+describe("AnalyticsService geo/tech zero-row vs failure", () => {
+  it("marks covered-empty geo windows complete with a covered-period note", async () => {
+    mocks.getGeoGroups.mockResolvedValue([]);
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: ["2025-01-01", "2025-01-02"],
+      coveredThrough: "2025-01-02",
+    });
+    const result = await AnalyticsService.getAnalyticsGeo({
+      ...BASE,
+      from: "2025-01-01",
+      to: "2025-01-02",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.rows).toEqual([]);
+    expect(result.coverage.status).toBe("complete");
+    expect(result.emptyNote).toContain("covered period");
+  });
+
+  it("marks failed-date geo windows none with a sync note, never zeros", async () => {
+    mocks.getGeoGroups.mockResolvedValue([]);
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: [],
+      coveredThrough: null,
+    });
+    const result = await AnalyticsService.getAnalyticsGeo({
+      ...BASE,
+      from: "2025-01-01",
+      to: "2025-01-02",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.rows).toEqual([]);
+    expect(result.coverage.status).toBe("none");
+    expect(result.emptyNote).toContain("No geo data");
+  });
+
+  it("marks covered-empty technology windows complete with a covered-period note", async () => {
+    mocks.getTechnologyGroups.mockResolvedValue([]);
+    mocks.getGrainCoverage.mockResolvedValue({
+      coveredDates: ["2025-01-01"],
+      coveredThrough: "2025-01-01",
+    });
+    const result = await AnalyticsService.getAnalyticsTechnology({
+      ...BASE,
+      from: "2025-01-01",
+      to: "2025-01-01",
+      dimension: "os",
+    });
+    if (!result.connected) throw new Error("expected connected result");
+    expect(result.rows).toEqual([]);
+    expect(result.coverage.status).toBe("complete");
+    expect(result.emptyNote).toContain("covered period");
   });
 });

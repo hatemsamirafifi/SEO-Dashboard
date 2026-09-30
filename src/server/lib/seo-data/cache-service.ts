@@ -1,4 +1,9 @@
-import { buildCacheKey, getCached, setCached } from "@/server/lib/r2-cache";
+import {
+  buildCacheKey,
+  getCached,
+  getStaleCached,
+  setCached,
+} from "@/server/lib/r2-cache";
 import { getCacheTtl } from "./config";
 import type { SEODataRequest } from "./types";
 import { z, type ZodTypeAny } from "zod";
@@ -37,6 +42,14 @@ async function buildKey(request: SEODataRequest): Promise<string> {
     constraints &&
     constraints.backlinkCall === "summary"
   ) {
+    delete constraints.projectId;
+  }
+  // A competitive-metrics call bills and returns purely on the target (+
+  // metric family): `projectId` is routing metadata and does not affect the
+  // result. Dropping it lets analyses of different keywords (and projects in
+  // the same org) share one cached entry per target. Organization isolation
+  // is unaffected: organizationId is always part of the key below.
+  if (request.dataType === "competitive_metrics" && constraints) {
     delete constraints.projectId;
   }
 
@@ -116,7 +129,32 @@ async function getOrFetch<T>(
   return { data, fromCache: false, key };
 }
 
-export const SeoCacheService = { buildKey, get, set, getOrFetch };
+export const SeoCacheService = {
+  buildKey,
+  get,
+  getStale,
+  set,
+  getOrFetch,
+};
+
+/**
+ * Read a cached value IGNORING expiry (stale fallback). Returns null on
+ * miss, corrupt JSON, or schema mismatch. Total — never throws. Callers
+ * MUST mark served values stale; the value is the last-known observation,
+ * not a fresh fact.
+ */
+async function getStale<T>(
+  request: SEODataRequest,
+  schema: ZodTypeAny,
+): Promise<{ data: T; key: string } | null> {
+  const key = await buildKey(request);
+  const raw = await getStaleCached(key);
+  if (raw === null) return null;
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) return null;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- safeParse narrows to T
+  return { data: parsed.data as T, key };
+}
 
 /**
  * A passthrough schema that accepts any valid JSON-serializable value.

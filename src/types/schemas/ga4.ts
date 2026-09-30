@@ -90,3 +90,29 @@ export const analyticsConversionsSchema = z
   .strict();
 export const analyticsEcommerceSchema = z.object(analyticsFilterShape).strict();
 export const analyticsAudienceSchema = z.object(analyticsFilterShape).strict();
+
+// Stored grain breakdown reads (spec 002): explicit date windows over the
+// synced geo/technology grains — no live API reads at render.
+const analyticsGrainWindowShape = {
+  projectId: z.string().min(1),
+  from: ga4DateSchema,
+  to: ga4DateSchema,
+};
+
+function windowOrdered<T extends { from: string; to: string }>(schema: z.ZodType<T>) {
+  return schema.refine((value) => value.from <= value.to, {
+    message: "from must not be after to",
+  });
+}
+
+export const analyticsGeoSchema = windowOrdered(
+  z.object(analyticsGrainWindowShape).strict(),
+);
+export const analyticsTechnologySchema = windowOrdered(
+  z
+    .object({
+      ...analyticsGrainWindowShape,
+      dimension: z.enum(["device", "browser", "os"]),
+    })
+    .strict(),
+);

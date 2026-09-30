@@ -72,7 +72,7 @@ describe("content_decay", () => {
     const findings = detectDecay(ctx(), input());
     expect(findings).toHaveLength(1);
     // Canonical page identity (shared with technical keys and joins).
-    expect(findings[0]?.entityKey).toBe("/https://example.com/guide");
+    expect(findings[0]?.entityKey).toBe("https://example.com/guide");
     expect(findings[0]?.evidence.metrics.declineRatio).toBeCloseTo(
       (176 - 320) / 320,
       5,
@@ -93,7 +93,7 @@ describe("content_decay", () => {
       ctx(),
       input({
         rows: [row("https://example.com/big", [100, 300, 400])],
-        ga4AgreementByUrl: { "/https://example.com/big": true },
+        ga4AgreementByUrl: { "https://example.com/big": true },
         ga4Available: true,
         rankAvailable: true,
       }),
@@ -109,7 +109,7 @@ describe("content_decay", () => {
       ctx(),
       input({
         rows: [row("https://example.com/big", [100, 300, 400])],
-        rankAgreementByUrl: { "/https://example.com/big": true },
+        rankAgreementByUrl: { "https://example.com/big": true },
         rankAvailable: true,
       }),
     );

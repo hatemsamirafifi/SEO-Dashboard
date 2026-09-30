@@ -7,8 +7,11 @@ import {
   Ga4SyncRepository,
   type Ga4AcquisitionGroup,
   type Ga4EventGroup,
+  type Ga4GeoGroup,
   type Ga4GrainCoverage,
   type Ga4LandingGroup,
+  type Ga4TechnologyDimension,
+  type Ga4TechnologyGroup,
 } from "../repositories/Ga4SyncRepository";
 
 export type MetricDelta = {
@@ -123,8 +126,8 @@ function reservedFilterNoteFor(input: {
   if (input.country) parts.push(`country "${input.country}"`);
   if (parts.length === 0) return null;
   return (
-    `${parts.join(" and ")} accepted but not yet applied: stored grains ` +
-    `have no device/country breakdown (geo/tech tables deferred). ` +
+    `${parts.join(" and ")} accepted but not applied to this table: stored ` +
+    `device/country breakdowns live in the geo/technology grain reads. ` +
     `Totals reflect the full property.`
   );
 }
@@ -234,6 +237,9 @@ async function getOverview(input: {
   const todayIso = new Date().toISOString().slice(0, 10);
   const windows = resolveAnalyticsWindows(input.range, todayIso);
   const days = ANALYTICS_RANGE_DAYS[input.range];
+  if (input.country ?? input.device) {
+    return getScopedOverview(input, connection, windows, days);
+  }
   const [current, previous, series, grainCoverage] = await Promise.all([
     Ga4SyncRepository.getSummaryTotals(
       input.projectId,
@@ -284,6 +290,301 @@ async function getOverview(input: {
     currencyNote: currencyNoteFor(connection.currencyCode),
     newUsersFootnote: NEW_USERS_FOOTNOTE,
     reservedFilterNote: reservedFilterNoteFor(input),
+  };
+}
+
+/** Grain-grouped rows collapse to summary shape for scoped overview totals.
+ *  Revenue/conversion keys are summary-grain-only (the geo/technology grains
+ *  store the six engagement metrics) and stay zero with the filter note
+ *  carrying that scope. */
+function grainGroupToSummary(group: {
+  sessions: number;
+  engagedSessions: number;
+  userEngagementDuration: number;
+  screenPageViews: number;
+  eventCount: number;
+  newUsers: number;
+} | null): SummaryLike {
+  return {
+    sessions: group?.sessions ?? 0,
+    engagedSessions: group?.engagedSessions ?? 0,
+    userEngagementDuration: group?.userEngagementDuration ?? 0,
+    screenPageViews: group?.screenPageViews ?? 0,
+    eventCount: group?.eventCount ?? 0,
+    newUsers: group?.newUsers ?? 0,
+    totalRevenue: 0,
+    purchaseRevenue: 0,
+    transactions: 0,
+    addToCarts: 0,
+    checkouts: 0,
+  };
+}
+
+type ScopedOverviewInput = {
+  projectId: string;
+  organizationId: string;
+  range: AnalyticsRange;
+  channel?: string;
+  device?: string;
+  country?: string;
+};
+
+/** Overview totals scoped to the stored geo/technology grains. Country takes
+ *  precedence when both filters are set (no cross-grain join exists for a
+ *  country×device cell); the unapplied filter is named in the note. Zero
+ *  coverage yields coverage "none" plus an explicit note — never
+ *  zero-presented-as-data. */
+async function getScopedOverview(
+  input: ScopedOverviewInput,
+  connection: { propertyId: string; currencyCode: string | null },
+  windows: AnalyticsWindows,
+  days: number,
+): Promise<AnalyticsOverviewResult> {
+  const notes: string[] = [];
+  let current: SummaryLike;
+  let previous: SummaryLike;
+  let grainCoverage: Ga4GrainCoverage;
+  if (input.country) {
+    const [currentGroups, previousGroups, coverage] = await Promise.all([
+      Ga4SyncRepository.getGeoGroups(
+        input.projectId,
+        connection.propertyId,
+        windows.current.from,
+        windows.current.to,
+      ),
+      Ga4SyncRepository.getGeoGroups(
+        input.projectId,
+        connection.propertyId,
+        windows.previous.from,
+        windows.previous.to,
+      ),
+      Ga4SyncRepository.getGrainCoverage(
+        input.projectId,
+        connection.propertyId,
+        "geo",
+        windows.current.from,
+        windows.current.to,
+      ),
+    ]);
+    const currentGroup =
+      currentGroups.find((group) => group.country === input.country) ?? null;
+    const previousGroup =
+      previousGroups.find((group) => group.country === input.country) ?? null;
+    current = grainGroupToSummary(currentGroup);
+    previous = grainGroupToSummary(previousGroup);
+    grainCoverage = coverage;
+    if (coverage.coveredDates.length === 0) {
+      notes.push(
+        `No geo coverage for this period: country "${input.country}" shows no data.`,
+      );
+    } else if (!currentGroup && !previousGroup) {
+      notes.push(
+        `Country "${input.country}" has no recorded sessions in this period.`,
+      );
+    }
+    if (input.device) {
+      notes.push(
+        `Device "${input.device}" is not applied to country-scoped totals: no stored country/device join exists.`,
+      );
+    }
+  } else {
+    const [currentGroups, previousGroups, coverage] = await Promise.all([
+      Ga4SyncRepository.getTechnologyGroups(
+        input.projectId,
+        connection.propertyId,
+        windows.current.from,
+        windows.current.to,
+        { dimension: "device" },
+      ),
+      Ga4SyncRepository.getTechnologyGroups(
+        input.projectId,
+        connection.propertyId,
+        windows.previous.from,
+        windows.previous.to,
+        { dimension: "device" },
+      ),
+      Ga4SyncRepository.getGrainCoverage(
+        input.projectId,
+        connection.propertyId,
+        "technology",
+        windows.current.from,
+        windows.current.to,
+      ),
+    ]);
+    const currentGroup =
+      currentGroups.find((group) => group.value === input.device) ?? null;
+    const previousGroup =
+      previousGroups.find((group) => group.value === input.device) ?? null;
+    current = grainGroupToSummary(currentGroup);
+    previous = grainGroupToSummary(previousGroup);
+    grainCoverage = coverage;
+    if (coverage.coveredDates.length === 0) {
+      notes.push(
+        `No technology coverage for this period: device "${input.device}" shows no data.`,
+      );
+    } else if (!currentGroup && !previousGroup) {
+      notes.push(
+        `Device "${input.device}" has no recorded sessions in this period.`,
+      );
+    }
+  }
+
+  const todaySeries: Array<{
+    date: string;
+    sessions: number;
+    engagementRate: number;
+    avgEngagementTimePerSession: number;
+    screenPageViews: number;
+    eventCount: number;
+    newUsers: number;
+  }> = [];
+  return {
+    connected: true,
+    propertyId: connection.propertyId,
+    filters: filtersOf(input),
+    windows,
+    coverage: toCoverage(grainCoverage, days),
+    totals: summaryDeltas(current, previous),
+    trends: todaySeries,
+    currencyCode: connection.currencyCode,
+    currencyNote: currencyNoteFor(connection.currencyCode),
+    newUsersFootnote: NEW_USERS_FOOTNOTE,
+    reservedFilterNote: notes.length > 0 ? notes.join(" ") : null,
+  };
+}
+
+function inclusiveDayCount(from: string, to: string): number {
+  const days =
+    Math.round(
+      (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+        86_400_000,
+    ) + 1;
+  return Number.isFinite(days) && days > 0 ? days : 0;
+}
+
+export type AnalyticsGeoRow = Ga4GeoGroup;
+
+export type AnalyticsGeoResult =
+  | { connected: false }
+  | {
+      connected: true;
+      propertyId: string;
+      from: string;
+      to: string;
+      coverage: AnalyticsCoverage;
+      rows: AnalyticsGeoRow[];
+      emptyNote: string | null;
+    };
+
+/** Country breakdown from the stored geo grain (DB-first; no live API reads
+ *  at render). SUCCESS_*-covered dates only — failed dates are excluded by
+ *  the repository join, uncovered windows return zero rows with an explicit
+ *  empty state instead of zero-filled rows. */
+async function getAnalyticsGeo(input: {
+  projectId: string;
+  organizationId: string;
+  from: string;
+  to: string;
+}): Promise<AnalyticsGeoResult> {
+  const connection = await requireConnection(
+    input.projectId,
+    input.organizationId,
+  );
+  if (!connection) return { connected: false };
+  const [rows, grainCoverage] = await Promise.all([
+    Ga4SyncRepository.getGeoGroups(
+      input.projectId,
+      connection.propertyId,
+      input.from,
+      input.to,
+    ),
+    Ga4SyncRepository.getGrainCoverage(
+      input.projectId,
+      connection.propertyId,
+      "geo",
+      input.from,
+      input.to,
+    ),
+  ]);
+  return {
+    connected: true,
+    propertyId: connection.propertyId,
+    from: input.from,
+    to: input.to,
+    coverage: toCoverage(grainCoverage, inclusiveDayCount(input.from, input.to)),
+    rows,
+    emptyNote:
+      rows.length === 0
+        ? grainCoverage.coveredDates.length === 0
+          ? "No geo data for this period: sync a window with geo coverage or wait for the next scheduled sync."
+          : "No countries recorded sessions in this covered period."
+        : null,
+  };
+}
+
+export type AnalyticsTechnologyRow = Ga4TechnologyGroup;
+
+export type AnalyticsTechnologyResult =
+  | { connected: false }
+  | {
+      connected: true;
+      propertyId: string;
+      dimension: Ga4TechnologyDimension;
+      from: string;
+      to: string;
+      coverage: AnalyticsCoverage;
+      rows: AnalyticsTechnologyRow[];
+      emptyNote: string | null;
+    };
+
+/** Device/browser/OS breakdown from the stored technology grain. Same
+ *  coverage honesty as getAnalyticsGeo; single-dimension reads aggregate
+ *  only additive metrics per value. */
+async function getAnalyticsTechnology(input: {
+  projectId: string;
+  organizationId: string;
+  from: string;
+  to: string;
+  dimension: Ga4TechnologyDimension;
+}): Promise<AnalyticsTechnologyResult> {
+  const connection = await requireConnection(
+    input.projectId,
+    input.organizationId,
+  );
+  if (!connection) return { connected: false };
+  const [rows, grainCoverage] = await Promise.all([
+    Ga4SyncRepository.getTechnologyGroups(
+      input.projectId,
+      connection.propertyId,
+      input.from,
+      input.to,
+      { dimension: input.dimension },
+    ),
+    Ga4SyncRepository.getGrainCoverage(
+      input.projectId,
+      connection.propertyId,
+      "technology",
+      input.from,
+      input.to,
+    ),
+  ]);
+  return {
+    connected: true,
+    propertyId: connection.propertyId,
+    dimension: input.dimension,
+    from: input.from,
+    to: input.to,
+    coverage: toCoverage(
+      grainCoverage,
+      inclusiveDayCount(input.from, input.to),
+    ),
+    rows,
+    emptyNote:
+      rows.length === 0
+        ? grainCoverage.coveredDates.length === 0
+          ? `No technology data for this period: sync a window with technology coverage or wait for the next scheduled sync.`
+          : "No devices, browsers, or systems recorded sessions in this covered period."
+        : null,
   };
 }
 
@@ -839,7 +1140,7 @@ export type AnalyticsAudienceResult =
     };
 
 const GEO_TECH_DEFERRED_NOTE =
-  "Device and country breakdowns are deferred: geo/technology tables ship after the MVP (final-plan §22). Totals reflect the full property.";
+  "Device and country breakdowns are served by the geo/technology grain reads; audience totals reflect the full property and stay deferred from device/country filtering.";
 const DISTINCT_USERS_NOTE =
   "Total and active users are distinct counts and are never summed; exact period values come from the getPeriodUsers query.";
 
@@ -906,5 +1207,7 @@ export const AnalyticsService = {
   getConversions,
   getEcommerce,
   getAudience,
+  getAnalyticsGeo,
+  getAnalyticsTechnology,
   resolveAnalyticsWindows,
 };

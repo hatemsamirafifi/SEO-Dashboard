@@ -353,4 +353,64 @@ describe("getPublicReportByToken", () => {
       await ShareService.getPublicReportByToken(expiring.token),
     ).toBeNull();
   });
+
+  it("distinguishes invalid, revoked, and expired states with zero content", async () => {
+    // Invalid: malformed AND well-formed-but-unknown hashes.
+    await expect(ShareService.resolvePublicShare("nope")).resolves.toEqual({
+      state: "invalid",
+    });
+    await expect(
+      ShareService.resolvePublicShare("a".repeat(64)),
+    ).resolves.toEqual({ state: "invalid" });
+
+    const reportId = await seedReport();
+    const expired = await ShareService.createReportShare({
+      reportId,
+      projectId: "project-1",
+      organizationId: "org-1",
+      expiresAt: "2030-01-01T00:00:00.000Z",
+    });
+    await db
+      .update(reportShares)
+      .set({ expiresAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(reportShares.id, expired.shareId));
+    const expiredResolution = await ShareService.resolvePublicShare(
+      expired.token,
+    );
+    expect(expiredResolution.state).toBe("expired");
+
+    const revoked = await ShareService.createReportShare({
+      reportId,
+      projectId: "project-1",
+      organizationId: "org-1",
+      expiresAt: "2030-01-01T00:00:00.000Z",
+    });
+    await ShareService.revokeReportShare({
+      shareId: revoked.shareId,
+      projectId: "project-1",
+      organizationId: "org-1",
+    });
+    const revokedResolution = await ShareService.resolvePublicShare(
+      revoked.token,
+    );
+    expect(revokedResolution.state).toBe("revoked");
+
+    const active = await ShareService.createReportShare({
+      reportId,
+      projectId: "project-1",
+      organizationId: "org-1",
+    });
+    const activeResolution = await ShareService.resolvePublicShare(active.token);
+    expect(activeResolution.state).toBe("active");
+    if (activeResolution.state !== "active") return;
+    expect(activeResolution.view.report.id).toBe(reportId);
+
+    // Revocation takes precedence over expiry state ordering per contract
+    // (invalid → revoked → expired): the expired share revoked now reads
+    // revoked, and NO non-active resolution ever carries a view.
+    for (const resolution of [expiredResolution, revokedResolution]) {
+      if (resolution.state === "active") continue;
+      expect("view" in resolution).toBe(false);
+    }
+  });
 });

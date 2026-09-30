@@ -10,6 +10,11 @@
 // No production artifacts exist yet, so no migration is required.
 export const THRESHOLD_VERSION = 2;
 
+import {
+  STRIKING_DISTANCE_MAX_POSITION,
+  STRIKING_DISTANCE_MIN_POSITION,
+} from "./intelligence";
+
 export type DetectorThresholds = Record<
   string,
   string | number | boolean | null
@@ -61,6 +66,25 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
   backlink_change: {
     minSnapshots: 2,
     freshnessDays: 30,
+  },
+  // Spec 008: dedicated lost-backlink opportunity. Floor unit is lost
+  // referring domains (never raw backlink counts — multiple links can vanish
+  // from a single domain and inflate noise). Default 3 filters single-link
+  // churn while surfacing meaningful losses early; tunable per conventions.
+  lost_backlinks: {
+    minSnapshots: 2,
+    freshnessDays: 30,
+    minReferringDomains: 3,
+  },
+  // Spec 004: 11–20 band via shared constants (echoed in evidence); the
+  // impressions floor is a reasoned prior — first production scans log the
+  // near-miss distribution to calibrate without code-path changes (§23.5).
+  striking_distance: {
+    minWindowDays: 28,
+    minCoverageRatio: 0.8,
+    minImpressions: 100,
+    minPosition: STRIKING_DISTANCE_MIN_POSITION,
+    maxPosition: STRIKING_DISTANCE_MAX_POSITION,
   },
 };
 

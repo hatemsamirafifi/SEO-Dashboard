@@ -14,8 +14,10 @@ import { db } from "@/db";
 import {
   ga4DailyAcquisition,
   ga4DailyEvents,
+  ga4DailyGeo,
   ga4DailyLandingPages,
   ga4DailySummary,
+  ga4DailyTechnology,
   ga4SyncCoverage,
   ga4Syncs,
 } from "@/db/schema";
@@ -33,6 +35,8 @@ export type Ga4SummaryInsert = typeof ga4DailySummary.$inferInsert;
 export type Ga4AcquisitionInsert = typeof ga4DailyAcquisition.$inferInsert;
 export type Ga4LandingInsert = typeof ga4DailyLandingPages.$inferInsert;
 export type Ga4EventInsert = typeof ga4DailyEvents.$inferInsert;
+export type Ga4GeoInsert = typeof ga4DailyGeo.$inferInsert;
+export type Ga4TechnologyInsert = typeof ga4DailyTechnology.$inferInsert;
 
 export class Ga4AggregationError extends Error {}
 
@@ -470,6 +474,54 @@ async function upsertEventRows(rows: Ga4EventInsert[]): Promise<void> {
   );
 }
 
+async function upsertGeoRows(rows: Ga4GeoInsert[]): Promise<void> {
+  await executeInBatches(rows, (tx, row) =>
+    tx
+      .insert(ga4DailyGeo)
+      .values(row)
+      .onConflictDoUpdate({
+        target: ga4DailyGeo.id,
+        set: {
+          country: row.country,
+          sessions: row.sessions,
+          engagedSessions: row.engagedSessions,
+          userEngagementDuration: row.userEngagementDuration,
+          screenPageViews: row.screenPageViews,
+          eventCount: row.eventCount,
+          newUsers: row.newUsers,
+          isOtherRow: row.isOtherRow,
+          updatedAt: sql`(current_timestamp)`,
+        },
+      }),
+  );
+}
+
+async function upsertTechnologyRows(
+  rows: Ga4TechnologyInsert[],
+): Promise<void> {
+  await executeInBatches(rows, (tx, row) =>
+    tx
+      .insert(ga4DailyTechnology)
+      .values(row)
+      .onConflictDoUpdate({
+        target: ga4DailyTechnology.id,
+        set: {
+          device: row.device,
+          browser: row.browser,
+          os: row.os,
+          sessions: row.sessions,
+          engagedSessions: row.engagedSessions,
+          userEngagementDuration: row.userEngagementDuration,
+          screenPageViews: row.screenPageViews,
+          eventCount: row.eventCount,
+          newUsers: row.newUsers,
+          isOtherRow: row.isOtherRow,
+          updatedAt: sql`(current_timestamp)`,
+        },
+      }),
+  );
+}
+
 export type Ga4SummaryTotals = {
   sessions: number;
   engagedSessions: number;
@@ -563,7 +615,12 @@ async function getSummaryTotals(
   };
 }
 
-type Ga4EntityTable = "acquisition" | "landing_pages" | "events";
+type Ga4EntityTable =
+  | "acquisition"
+  | "landing_pages"
+  | "events"
+  | "geo"
+  | "technology";
 
 /** Date-range sums within ONE entity (valid per §9.4: non-overlapping daily
  *  rows for a single dimension value). Throws Ga4AggregationError when the
@@ -658,13 +715,19 @@ async function getEntityTotals(input: {
       screenPageViews: totals?.screenPageViews ?? 0,
     };
   }
+  if (table === "geo") {
+    return geoEntityTotals(input);
+  }
+  if (table === "technology") {
+    return technologyEntityTotals(input);
+  }
   const { eventName } = entity;
   if (!eventName) {
     throw new Ga4AggregationError(
       "Event totals require an eventName entity; project-wide rollups are refused.",
     );
   }
-  const [totals] = await db
+  const [eventTotals] = await db
     .select({
       eventCount: sql<number | null>`sum(${ga4DailyEvents.eventCount})`,
     })
@@ -678,7 +741,118 @@ async function getEntityTotals(input: {
         lte(ga4DailyEvents.date, to),
       ),
     );
-  return { eventCount: totals?.eventCount ?? 0 };
+  return { eventCount: eventTotals?.eventCount ?? 0 };
+}
+
+type EntityTotalsInput = {
+  projectId: string;
+  propertyId: string;
+  table: Ga4EntityTable;
+  entity: Record<string, string | undefined>;
+  from: string;
+  to: string;
+};
+
+/** Complete-country date-range sums over SUCCESS_*-covered geo dates. */
+async function geoEntityTotals(
+  input: EntityTotalsInput,
+): Promise<Record<string, number>> {
+  const { projectId, propertyId, entity, from, to } = input;
+  const { country } = entity;
+  if (!country) {
+    throw new Ga4AggregationError(
+      "Geo totals require a country entity; project-wide rollups are refused.",
+    );
+  }
+  const [totals] = await db
+    .select({
+      sessions: sql<number | null>`sum(${ga4DailyGeo.sessions})`,
+      engagedSessions: sql<
+        number | null
+      >`sum(${ga4DailyGeo.engagedSessions})`,
+      userEngagementDuration: sql<
+        number | null
+      >`sum(${ga4DailyGeo.userEngagementDuration})`,
+      screenPageViews: sql<number | null>`sum(${ga4DailyGeo.screenPageViews})`,
+      eventCount: sql<number | null>`sum(${ga4DailyGeo.eventCount})`,
+      newUsers: sql<number | null>`sum(${ga4DailyGeo.newUsers})`,
+    })
+    .from(ga4DailyGeo)
+    .where(
+      and(
+        eq(ga4DailyGeo.projectId, projectId),
+        eq(ga4DailyGeo.propertyId, propertyId),
+        eq(ga4DailyGeo.country, country),
+        gte(ga4DailyGeo.date, from),
+        lte(ga4DailyGeo.date, to),
+        inArray(
+          ga4DailyGeo.date,
+          coveredDatesQuery(projectId, propertyId, "geo", from, to),
+        ),
+      ),
+    );
+  return {
+    sessions: totals?.sessions ?? 0,
+    engagedSessions: totals?.engagedSessions ?? 0,
+    userEngagementDuration: totals?.userEngagementDuration ?? 0,
+    screenPageViews: totals?.screenPageViews ?? 0,
+    eventCount: totals?.eventCount ?? 0,
+    newUsers: totals?.newUsers ?? 0,
+  };
+}
+
+/** Complete-composite date-range sums over SUCCESS_*-covered technology
+ *  dates. Partial composites are refused (they would collapse stored
+ *  dimensions). */
+async function technologyEntityTotals(
+  input: EntityTotalsInput,
+): Promise<Record<string, number>> {
+  const { projectId, propertyId, entity, from, to } = input;
+  const { device, browser, os } = entity;
+  if (!device || !browser || !os) {
+    throw new Ga4AggregationError(
+      "Technology totals require a complete device/browser/os entity; partial or project-wide rollups are refused.",
+    );
+  }
+  const [techTotals] = await db
+    .select({
+      sessions: sql<number | null>`sum(${ga4DailyTechnology.sessions})`,
+      engagedSessions: sql<
+        number | null
+      >`sum(${ga4DailyTechnology.engagedSessions})`,
+      userEngagementDuration: sql<
+        number | null
+      >`sum(${ga4DailyTechnology.userEngagementDuration})`,
+      screenPageViews: sql<
+        number | null
+      >`sum(${ga4DailyTechnology.screenPageViews})`,
+      eventCount: sql<number | null>`sum(${ga4DailyTechnology.eventCount})`,
+      newUsers: sql<number | null>`sum(${ga4DailyTechnology.newUsers})`,
+    })
+    .from(ga4DailyTechnology)
+    .where(
+      and(
+        eq(ga4DailyTechnology.projectId, projectId),
+        eq(ga4DailyTechnology.propertyId, propertyId),
+        eq(ga4DailyTechnology.device, device),
+        eq(ga4DailyTechnology.browser, browser),
+        eq(ga4DailyTechnology.os, os),
+        gte(ga4DailyTechnology.date, from),
+        lte(ga4DailyTechnology.date, to),
+        inArray(
+          ga4DailyTechnology.date,
+          coveredDatesQuery(projectId, propertyId, "technology", from, to),
+        ),
+      ),
+    );
+  return {
+    sessions: techTotals?.sessions ?? 0,
+    engagedSessions: techTotals?.engagedSessions ?? 0,
+    userEngagementDuration: techTotals?.userEngagementDuration ?? 0,
+    screenPageViews: techTotals?.screenPageViews ?? 0,
+    eventCount: techTotals?.eventCount ?? 0,
+    newUsers: techTotals?.newUsers ?? 0,
+  };
 }
 
 const SUCCESS_COVERAGE_STATUSES = [
@@ -949,11 +1123,159 @@ async function getEventGroups(
   }));
 }
 
+export type Ga4GeoGroup = {
+  country: string;
+  sessions: number;
+  engagedSessions: number;
+  userEngagementDuration: number;
+  screenPageViews: number;
+  eventCount: number;
+  newUsers: number;
+  isOtherRow: boolean;
+};
+
+/** Geo rows grouped by country over SUCCESS_*-covered geo dates, ordered by
+ *  sessions desc. Per-country date-range sums (valid per §9.4: one entity,
+ *  non-overlapping daily rows — the geo grain has no other dimension to
+ *  collapse). `isOtherRow` aggregates via max for SQLite/PG boolean parity;
+ *  callers render "(other)" distinctly from real countries. */
+async function getGeoGroups(
+  projectId: string,
+  propertyId: string,
+  from: string,
+  to: string,
+): Promise<Ga4GeoGroup[]> {
+  const sessionsSum = sql<number | null>`sum(${ga4DailyGeo.sessions})`;
+  const otherFlag = sql<
+    number | null
+  >`max(case when ${ga4DailyGeo.isOtherRow} then 1 else 0 end)`;
+  const rows = await db
+    .select({
+      country: ga4DailyGeo.country,
+      sessions: sessionsSum,
+      engagedSessions: sql<
+        number | null
+      >`sum(${ga4DailyGeo.engagedSessions})`,
+      userEngagementDuration: sql<
+        number | null
+      >`sum(${ga4DailyGeo.userEngagementDuration})`,
+      screenPageViews: sql<number | null>`sum(${ga4DailyGeo.screenPageViews})`,
+      eventCount: sql<number | null>`sum(${ga4DailyGeo.eventCount})`,
+      newUsers: sql<number | null>`sum(${ga4DailyGeo.newUsers})`,
+      isOtherRow: otherFlag,
+    })
+    .from(ga4DailyGeo)
+    .where(
+      and(
+        eq(ga4DailyGeo.projectId, projectId),
+        eq(ga4DailyGeo.propertyId, propertyId),
+        gte(ga4DailyGeo.date, from),
+        lte(ga4DailyGeo.date, to),
+        inArray(
+          ga4DailyGeo.date,
+          coveredDatesQuery(projectId, propertyId, "geo", from, to),
+        ),
+      ),
+    )
+    .groupBy(ga4DailyGeo.country)
+    .orderBy(desc(sessionsSum));
+  return rows.map((row) => ({
+    country: row.country,
+    sessions: row.sessions ?? 0,
+    engagedSessions: row.engagedSessions ?? 0,
+    userEngagementDuration: row.userEngagementDuration ?? 0,
+    screenPageViews: row.screenPageViews ?? 0,
+    eventCount: row.eventCount ?? 0,
+    newUsers: row.newUsers ?? 0,
+    isOtherRow: (row.isOtherRow ?? 0) === 1,
+  }));
+}
+
+export type Ga4TechnologyDimension = "device" | "browser" | "os";
+
+export type Ga4TechnologyGroup = {
+  dimension: Ga4TechnologyDimension;
+  value: string;
+  sessions: number;
+  engagedSessions: number;
+  userEngagementDuration: number;
+  screenPageViews: number;
+  eventCount: number;
+  newUsers: number;
+  isOtherRow: boolean;
+};
+
+/** Technology composites grouped by ONE requested dimension over
+ *  SUCCESS_*-covered technology dates, ordered by sessions desc. The group
+ *  key is a complete entity for that read dimension, so per-value
+ *  date-range sums (including newUsers) are valid per §9.4; project-wide
+ *  rollups across values stay refused (getEntityTotals guard). */
+async function getTechnologyGroups(
+  projectId: string,
+  propertyId: string,
+  from: string,
+  to: string,
+  filter: { dimension: Ga4TechnologyDimension },
+): Promise<Ga4TechnologyGroup[]> {
+  const column =
+    filter.dimension === "device"
+      ? ga4DailyTechnology.device
+      : filter.dimension === "browser"
+        ? ga4DailyTechnology.browser
+        : ga4DailyTechnology.os;
+  const sessionsSum = sql<number | null>`sum(${ga4DailyTechnology.sessions})`;
+  const otherFlag = sql<
+    number | null
+  >`max(case when ${ga4DailyTechnology.isOtherRow} then 1 else 0 end)`;
+  const rows = await db
+    .select({
+      value: column,
+      sessions: sessionsSum,
+      engagedSessions: sql<
+        number | null
+      >`sum(${ga4DailyTechnology.engagedSessions})`,
+      userEngagementDuration: sql<
+        number | null
+      >`sum(${ga4DailyTechnology.userEngagementDuration})`,
+      screenPageViews: sql<
+        number | null
+      >`sum(${ga4DailyTechnology.screenPageViews})`,
+      eventCount: sql<number | null>`sum(${ga4DailyTechnology.eventCount})`,
+      newUsers: sql<number | null>`sum(${ga4DailyTechnology.newUsers})`,
+      isOtherRow: otherFlag,
+    })
+    .from(ga4DailyTechnology)
+    .where(
+      and(
+        eq(ga4DailyTechnology.projectId, projectId),
+        eq(ga4DailyTechnology.propertyId, propertyId),
+        gte(ga4DailyTechnology.date, from),
+        lte(ga4DailyTechnology.date, to),
+        inArray(
+          ga4DailyTechnology.date,
+          coveredDatesQuery(projectId, propertyId, "technology", from, to),
+        ),
+      ),
+    )
+    .groupBy(column)
+    .orderBy(desc(sessionsSum));
+  return rows.map((row) => ({
+    dimension: filter.dimension,
+    value: row.value,
+    sessions: row.sessions ?? 0,
+    engagedSessions: row.engagedSessions ?? 0,
+    userEngagementDuration: row.userEngagementDuration ?? 0,
+    screenPageViews: row.screenPageViews ?? 0,
+    eventCount: row.eventCount ?? 0,
+    newUsers: row.newUsers ?? 0,
+    isOtherRow: (row.isOtherRow ?? 0) === 1,
+  }));
+}
+
 export type Ga4GrainCoverage = {
   coveredDates: string[];
   coveredThrough: string | null;
 };
-
 /** SUCCESS_*-covered dates for one grain in [from, to] plus the latest such
  *  date (null when nothing is covered). Drives partial badges. */
 async function getGrainCoverage(
@@ -999,11 +1321,15 @@ export const Ga4SyncRepository = {
   upsertAcquisitionRows,
   upsertLandingRows,
   upsertEventRows,
+  upsertGeoRows,
+  upsertTechnologyRows,
   getSummaryTotals,
   getEntityTotals,
   getDailySummarySeries,
   getAcquisitionGroups,
   getLandingGroups,
   getEventGroups,
+  getGeoGroups,
+  getTechnologyGroups,
   getGrainCoverage,
 };

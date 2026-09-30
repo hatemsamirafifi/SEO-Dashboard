@@ -185,6 +185,10 @@ export const serpAnalysisSchema = z.object({
   keyword: z.string().min(1),
   locationCode: z.number().int().positive().optional(),
   languageCode: z.string().min(2).max(8).optional(),
+  // Opt-in competitive enrichment (spec 007). Defaults off so programmatic
+  // callers (MCP) never trigger paid enrichment implicitly; the UI passes
+  // true as part of its explicit analysis action.
+  includeCompetitiveMetrics: z.boolean().optional().default(false),
 });
 
 /* ------------------------------------------------------------------ */

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import type { Client } from "@libsql/client";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -41,6 +42,15 @@ vi.mock("@/server/lib/posthog", () => ({
   captureServerEvent: vi.fn(),
 }));
 
+const routeMock = vi.hoisted(() =>
+  vi.fn<(request: SeoDataModule.SEODataRequest) => Promise<unknown>>(),
+);
+
+vi.mock("@/server/lib/seo-data", async (importOriginal) => ({
+  ...(await importOriginal<typeof SeoDataModule>()),
+  getSeoDataRouter: () => ({ route: routeMock }),
+}));
+
 import { db } from "@/db";
 import { audits, backlinkSnapshots } from "@/db/schema";
 import { defaultThresholdsFor } from "@/shared/intelligence-thresholds";
@@ -50,6 +60,7 @@ import { listDetectors } from "./registry";
 import { ScanLedgerRepository } from "../repositories/ScanLedgerRepository";
 import { InsufficientCoverageError } from "./types";
 import type { DetectorContext } from "./types";
+import type * as SeoDataModule from "@/server/lib/seo-data";
 import {
   seedAudit,
   seedBacklinksFresh,
@@ -63,7 +74,9 @@ import {
 } from "./detectorTestSeeds";
 import { isGa4ChangeInput } from "./ga4OrganicChange";
 import { isDecayInput } from "./contentDecay";
+import { isLostBacklinksInput } from "./lostBacklinks";
 import { isTechnicalInput } from "./technicalOnImportantPage";
+import { isStrikingDistanceInput } from "./strikingDistance";
 
 function ctxFor(detectorKey: string): DetectorContext {
   return {
@@ -223,6 +236,145 @@ describe("fetchDetectorInput dispatcher", () => {
     ).rejects.toBeInstanceOf(InsufficientCoverageError);
   });
 
+  describe("lost_backlinks input (spec 008)", () => {
+    async function seedLossSnapshots(lostReferringDomains: number | null) {
+      const now = Date.now();
+      await db.insert(backlinkSnapshots).values([
+        {
+          projectId: "project-1",
+          domain: "example.com",
+          backlinks: 1000,
+          referringDomains: 120,
+          capturedAt: new Date(now - 12 * 86_400_000).toISOString(),
+        },
+        {
+          projectId: "project-1",
+          domain: "example.com",
+          backlinks: 990,
+          referringDomains: 112,
+          lostBacklinks: 3,
+          lostReferringDomains,
+          capturedAt: new Date(now - 5 * 86_400_000).toISOString(),
+        },
+      ]);
+    }
+
+    function mockLostRows(rows: Array<Record<string, unknown>>, fail = false) {
+      routeMock.mockImplementation(async () => {
+        if (fail) throw new Error("provider unavailable");
+        return {
+          dataType: "backlinks",
+          provider: "dataforseo",
+          data: { items: rows, totalCount: rows.length },
+          fromCache: false,
+          durationMs: 1,
+        };
+      });
+    }
+
+    it("resolves named lost domains only when the floor is met", async () => {
+      await seedLossSnapshots(5);
+      mockLostRows([
+        { domain_from: "Gone-A.com", is_lost: true },
+        { domain_from: "gone-a.com", is_lost: true },
+        { domain_from: "WWW.GONE-B.COM", is_lost: true },
+        { domain_from: "blog.example.com", is_lost: true },
+        { domain_from: "", is_lost: true },
+        { domain_from: null, is_lost: true },
+      ]);
+      const input: unknown = await fetchDetectorInput(
+        "lost_backlinks",
+        "project-1",
+        ctxFor("lost_backlinks"),
+      );
+      if (!isLostBacklinksInput(input)) {
+        throw new Error("expected lost-backlinks input");
+      }
+      // Case/alias folds collapse; other subdomains stay distinct.
+      expect(input.lostDomains).toEqual([
+        "gone-a.com",
+        "gone-b.com",
+        "blog.example.com",
+      ]);
+      expect(input.thresholds).toMatchObject({ minReferringDomains: 3 });
+      // Bounded single-page paid call through the router (never N+1).
+      const calls = routeMock.mock.calls.map(([request]) => request);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.dataType).toBe("backlinks");
+      expect(calls[0]?.constraints).toMatchObject({
+        backlinkCall: "rows",
+        limit: 100,
+      });
+    });
+
+    it("skips name resolution below the floor (zero paid calls)", async () => {
+      await seedLossSnapshots(2);
+      mockLostRows([{ domain_from: "gone-a.com", is_lost: true }]);
+      const input: unknown = await fetchDetectorInput(
+        "lost_backlinks",
+        "project-1",
+        ctxFor("lost_backlinks"),
+      );
+      if (!isLostBacklinksInput(input)) {
+        throw new Error("expected lost-backlinks input");
+      }
+      expect(input.lostDomains).toEqual([]);
+      expect(routeMock).not.toHaveBeenCalled();
+    });
+
+    it("throws for lost-backlinks with a single snapshot", async () => {
+      await db.insert(backlinkSnapshots).values({
+        projectId: "project-1",
+        domain: "example.com",
+        referringDomains: 118,
+        capturedAt: new Date().toISOString(),
+      });
+      await expect(
+        fetchDetectorInput(
+          "lost_backlinks",
+          "project-1",
+          ctxFor("lost_backlinks"),
+        ),
+      ).rejects.toBeInstanceOf(InsufficientCoverageError);
+    });
+
+    it("throws for lost-backlinks with a stale newest snapshot", async () => {
+      const now = Date.now();
+      await db.insert(backlinkSnapshots).values([
+        {
+          projectId: "project-1",
+          domain: "example.com",
+          capturedAt: new Date(now - 60 * 86_400_000).toISOString(),
+        },
+        {
+          projectId: "project-1",
+          domain: "example.com",
+          lostReferringDomains: 9,
+          capturedAt: new Date(now - 45 * 86_400_000).toISOString(),
+        },
+      ]);
+      await expect(
+        fetchDetectorInput(
+          "lost_backlinks",
+          "project-1",
+          ctxFor("lost_backlinks"),
+        ),
+      ).rejects.toBeInstanceOf(InsufficientCoverageError);
+    });
+
+    it("throws (never a loss) when name resolution fails", async () => {
+      await seedLossSnapshots(6);
+      mockLostRows([], true);
+      await expect(
+        fetchDetectorInput(
+          "lost_backlinks",
+          "project-1",
+          ctxFor("lost_backlinks"),
+        ),
+      ).rejects.toBeInstanceOf(InsufficientCoverageError);
+    });
+  });
+
   it("throws for GA4 change without a connection (absent-GA4 degradation)", async () => {
     await expect(
       fetchDetectorInput(
@@ -262,7 +414,7 @@ describe("fetchDetectorInput dispatcher", () => {
     );
     if (!isDecayInput(input)) throw new Error("expected decay input");
     expect(input.ga4Available).toBe(true);
-    expect(input.ga4AgreementByUrl["/https://example.com/guide"]).toBe(true);
+    expect(input.ga4AgreementByUrl["https://example.com/guide"]).toBe(true);
     expect(input.rankAvailable).toBe(false);
   });
 
@@ -308,10 +460,39 @@ describe("fetchDetectorInput dispatcher", () => {
     expect(input.issues).toHaveLength(1);
     expect(input.issues[0]?.ga4Vote).toBe(false);
   });
+
+  it("assembles striking-distance input from query facts with echoed band", async () => {
+    await seedQueryFacts();
+    const input: unknown = await fetchDetectorInput(
+      "striking_distance",
+      "project-1",
+      ctxFor("striking_distance"),
+    );
+    if (!isStrikingDistanceInput(input)) {
+      throw new Error("expected striking-distance input");
+    }
+    expect(input.thresholds.minPosition).toBe(11);
+    expect(input.thresholds.maxPosition).toBe(20);
+    expect(input.rows).toHaveLength(1);
+    // Seed: 8.5 position — out of band; the pure detector skips it but the
+    // fetcher must still surface the row with its movement evidence.
+    expect(input.rows[0]?.position).toBeCloseTo(8.5, 5);
+    expect(input.rows[0]?.previousPosition).toBeCloseTo(8.5, 5);
+  });
+
+  it("throws for striking distance with no query facts", async () => {
+    await expect(
+      fetchDetectorInput(
+        "striking_distance",
+        "project-1",
+        ctxFor("striking_distance"),
+      ),
+    ).rejects.toBeInstanceOf(InsufficientCoverageError);
+  });
 });
 
 describe("full-scan integration over seeded sources", () => {
-  it("completes all eight detectors with one finding each", async () => {
+  it("completes all ten detectors with one finding each (except below-floor lost_backlinks)", async () => {
     await seedSummaryFacts();
     await seedQueryFacts();
     await seedPageFacts();
@@ -321,6 +502,9 @@ describe("full-scan integration over seeded sources", () => {
     await seedBacklinksFresh();
     await seedGa4Summary();
     await seedGa4Landing();
+    // The striking-distance detector needs an in-band query; the shared
+    // query seed (8.5) is out of band, so add one 11–20 query day set.
+    await insertInBandQueryFacts();
 
     const run = await ScanLedgerRepository.createRun({
       projectId: "project-1",
@@ -355,7 +539,7 @@ describe("full-scan integration over seeded sources", () => {
         fetchDetectorInput(detectorKey, "project-1", ctx),
     });
 
-    expect(findings).toHaveLength(8);
+    expect(findings).toHaveLength(9);
     const byDetector = Object.fromEntries(
       findings.map((finding) => [finding.detectorKey, finding]),
     );
@@ -365,26 +549,57 @@ describe("full-scan integration over seeded sources", () => {
     expect(byDetector.content_decay?.evidence.sources).toEqual(["gsc", "ga4"]);
     expect(byDetector.low_ctr_query?.entityKey).toBe("best running shoes");
     expect(byDetector.content_decay?.entityKey).toBe(
-      "/https://example.com/guide",
+      "https://example.com/guide",
     );
     expect(byDetector.ranking_drop?.entityKey).toBe(
       "rank:best running shoes:desktop:2840",
     );
     expect(byDetector.cannibalization?.entityKey).toBe(
-      "cannibalization:espresso:/https://example.com/a:/https://example.com/b",
+      "cannibalization:espresso:https://example.com/a:https://example.com/b",
     );
     expect(byDetector.technical_on_important_page?.entityKey).toBe(
-      "technical:missing_title:/https://example.com/pricing",
+      "technical:missing_title:https://example.com/pricing",
     );
     expect(byDetector.backlink_change?.entityKey).toBe("backlinks:example.com");
+    expect(byDetector.striking_distance?.entityKey).toBe("in-band quick win");
     for (const finding of findings) {
       expect(finding.explanationFact.length).toBeGreaterThan(0);
       expect(finding.confidenceScore).toBeGreaterThanOrEqual(40);
     }
     const outcomes = await ScanLedgerRepository.getDetectorOutcomes(run.id);
-    expect(outcomes).toHaveLength(8);
+    expect(outcomes).toHaveLength(10);
     for (const outcome of outcomes) {
       expect(outcome.status).toBe("completed");
     }
+    // The lost-backlinks detector ran and completed but correctly emitted
+    // nothing: the fixture's single lost referring domain is below the floor.
+    expect(byDetector.lost_backlinks).toBeUndefined();
   });
 });
+
+/** 56 query days for an in-band 11–20 keyword (position 15, 300/day):
+ *  qualifies above the 100-impression floor. */
+async function insertInBandQueryFacts() {
+  const { gscSearchPerformance } = await import("@/db/schema");
+  const day = 86_400_000;
+  const rows = [];
+  for (let i = 0; i < 56; i += 1) {
+    const date = new Date(Date.parse("2025-11-20T00:00:00Z") + i * day)
+      .toISOString()
+      .slice(0, 10);
+    rows.push({
+      id: `q-inband-${date}`,
+      projectId: "project-1",
+      property: "sc-domain:example.com",
+      date,
+      grain: "query",
+      grainKey: "in-band quick win",
+      query: "In-Band Quick Win",
+      clicks: 3,
+      impressions: 300,
+      ctr: 0.01,
+      position: 15,
+    });
+  }
+  await db.insert(gscSearchPerformance).values(rows);
+}

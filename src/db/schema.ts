@@ -135,6 +135,8 @@ export const {
   ga4DailyAcquisition,
   ga4DailyLandingPages,
   ga4DailyEvents,
+  ga4DailyGeo,
+  ga4DailyTechnology,
   ga4SyncCoverage,
   ga4Syncs,
   intelligenceRuns,

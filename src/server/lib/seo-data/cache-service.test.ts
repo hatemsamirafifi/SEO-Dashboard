@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function -- key-matrix suites grow per data type */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { SeoCacheService } from "./cache-service";
 import { resetProviderConfigCache } from "./config";
@@ -11,6 +12,9 @@ const mockGetCached = vi.fn<(key: string) => Promise<unknown>>(
 const mockSetCached = vi.fn<
   (key: string, data: unknown, ttl: number) => Promise<void>
 >(async () => {});
+const mockGetStaleCached = vi.fn<(key: string) => Promise<unknown>>(
+  async () => null,
+);
 
 vi.mock("@/server/lib/r2-cache", () => ({
   buildCacheKey: vi.fn(
@@ -22,6 +26,7 @@ vi.mock("@/server/lib/r2-cache", () => ({
     },
   ),
   getCached: (key: string) => mockGetCached(key),
+  getStaleCached: (key: string) => mockGetStaleCached(key),
   setCached: (key: string, data: unknown, ttl: number) =>
     mockSetCached(key, data, ttl),
   CACHE_TTL: { researchResult: 86400 },
@@ -189,7 +194,11 @@ describe("SeoCacheService", () => {
         dataType: "backlinks",
         keyword: undefined,
         domain: "example.com",
-        constraints: { projectId: "project-a", backlinkCall: "rows", limit: 50 },
+        constraints: {
+          projectId: "project-a",
+          backlinkCall: "rows",
+          limit: 50,
+        },
       };
       const rowsB = {
         ...rowsA,
@@ -231,7 +240,11 @@ describe("SeoCacheService", () => {
       };
       const rows = {
         ...summary,
-        constraints: { projectId: "project-a", backlinkCall: "rows", limit: 50 },
+        constraints: {
+          projectId: "project-a",
+          backlinkCall: "rows",
+          limit: 50,
+        },
       };
       const referringDomains = {
         ...summary,
@@ -252,6 +265,52 @@ describe("SeoCacheService", () => {
         await SeoCacheService.buildKey(referringDomains),
       );
       expect(summaryKey).not.toBe(await SeoCacheService.buildKey(domainPages));
+    });
+
+    it("shares competitive metric keys across projects in one organization", async () => {
+      const summaryA: SEODataRequest = {
+        ...baseRequest,
+        dataType: "competitive_metrics",
+        keyword: undefined,
+        domain: "example.com",
+        constraints: { projectId: "project-a", backlinkCall: "summary" },
+      };
+      const summaryB: SEODataRequest = {
+        ...summaryA,
+        constraints: { projectId: "project-b", backlinkCall: "summary" },
+      };
+      // Same target + same metric family (+ same org) → same entry, so one
+      // competitor target reuses its metrics across projects. Cross-keyword
+      // reuse additionally requires requests carry no keyword — asserted at
+      // the service level (serpEnrichment cross-keyword test), since the
+      // key derivation always includes a keyword when one is present.
+      expect(await SeoCacheService.buildKey(summaryA)).toBe(
+        await SeoCacheService.buildKey(summaryB),
+      );
+    });
+
+    it("keeps competitive metric keys distinct by domain, family, and organization", async () => {
+      const base: SEODataRequest = {
+        ...baseRequest,
+        dataType: "competitive_metrics",
+        keyword: undefined,
+        domain: "example.com",
+        constraints: { projectId: "project-a", backlinkCall: "summary" },
+      };
+      const otherDomain = { ...base, domain: "other.com" };
+      const otherFamily = {
+        ...base,
+        constraints: { projectId: "project-a", backlinkCall: "domain_pages" },
+      };
+      const otherOrg = {
+        ...base,
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- test-only BillingCustomerContext mock
+        billingCustomer: { organizationId: "org-b" } as never,
+      };
+      const key = await SeoCacheService.buildKey(base);
+      expect(key).not.toBe(await SeoCacheService.buildKey(otherDomain));
+      expect(key).not.toBe(await SeoCacheService.buildKey(otherFamily));
+      expect(key).not.toBe(await SeoCacheService.buildKey(otherOrg));
     });
   });
 
@@ -301,6 +360,62 @@ describe("SeoCacheService", () => {
       expect(result.fromCache).toBe(false);
       expect(result.data).toEqual({ items: ["fresh"] });
       expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("getStale", () => {
+    it("returns stale data with valid schema", async () => {
+      mockGetStaleCached.mockResolvedValue({ items: ["stale"] });
+      const result = await SeoCacheService.getStale(baseRequest, testSchema);
+      expect(result).not.toBeNull();
+      expect(result?.data).toEqual({ items: ["stale"] });
+    });
+
+    it("returns null on miss or schema mismatch", async () => {
+      mockGetStaleCached.mockResolvedValue(null);
+      expect(
+        await SeoCacheService.getStale(baseRequest, testSchema),
+      ).toBeNull();
+      mockGetStaleCached.mockResolvedValue({ wrong: "shape" });
+      expect(
+        await SeoCacheService.getStale(baseRequest, testSchema),
+      ).toBeNull();
+    });
+  });
+
+  describe("competitive metrics TTL (spec 007)", () => {
+    it("defaults target metrics to the 30-day named policy", async () => {
+      const { getCacheTtl, getDefaultCacheTtl } = await import("./config");
+      expect(getDefaultCacheTtl("competitive_metrics")).toBe(30 * 24 * 60 * 60);
+      expect(await getCacheTtl("competitive_metrics")).toBe(30 * 24 * 60 * 60);
+    });
+
+    it("honors the env override for target metrics", async () => {
+      process.env.SEO_CACHE_TTL_COMPETITIVE_METRICS = "60";
+      resetProviderConfigCache();
+      try {
+        const { getCacheTtl } = await import("./config");
+        expect(await getCacheTtl("competitive_metrics")).toBe(60);
+      } finally {
+        delete process.env.SEO_CACHE_TTL_COMPETITIVE_METRICS;
+        resetProviderConfigCache();
+      }
+    });
+
+    it("writes target metric entries with the policy TTL", async () => {
+      const request: SEODataRequest = {
+        ...baseRequest,
+        dataType: "competitive_metrics",
+        keyword: undefined,
+        domain: "example.com",
+        constraints: { backlinkCall: "summary" },
+      };
+      await SeoCacheService.set(request, "key", { rank: 1 });
+      expect(mockSetCached).toHaveBeenCalledWith(
+        "key",
+        { rank: 1 },
+        30 * 24 * 60 * 60,
+      );
     });
   });
 });

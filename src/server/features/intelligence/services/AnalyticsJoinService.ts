@@ -31,6 +31,13 @@ export function joinUrlEvidence(input: {
   gsc?: JoinGscPage[];
   ga4?: JoinGa4Page[];
   rank?: JoinRankPage[];
+  /**
+   * Project host context (spec 006) used to resolve path-only rows (GA4
+   * landing pages) into full page identities. Full URLs resolve from their
+   * own host and ignore this. Absent → path-only rows stay path-scoped and
+   * never inherit an invented host.
+   */
+  hostContext?: string | null;
 }): JoinedUrlRow[] {
   const byUrl = new Map<
     string,
@@ -41,7 +48,7 @@ export function joinUrlEvidence(input: {
     }
   >();
   const bucket = (url: string) => {
-    const key = canonicalUrl(url);
+    const key = canonicalUrl(url, input.hostContext);
     let entry = byUrl.get(key);
     if (!entry) {
       entry = { gscClicks: null, ga4Sessions: null, rankWorsened: null };

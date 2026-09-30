@@ -30,6 +30,17 @@ describe("normalizeGa4LandingPage", () => {
     expect(normalizeGa4LandingPage("/Blog/Post/")).toBe("/Blog/Post/");
   });
 
+  it("locks strict path semantics for GA4 sync storage (spec 006)", () => {
+    // The analytical page identity (canonicalUrl) folds slashes and hosts.
+    // This strict normalizer must NOT: GA4 stored fact keys are derived from
+    // its output, so any change here would rewrite stored history.
+    expect(normalizeGa4LandingPage("/a//b")).toBe("/a//b");
+    expect(normalizeGa4LandingPage("/Blog/Post")).toBe("/Blog/Post");
+    expect(normalizeGa4LandingPage("HTTPS://example.com/Page")).toBe(
+      "/HTTPS://example.com/Page",
+    );
+  });
+
   it("maps null, undefined, and blank to the sentinel", () => {
     expect(normalizeGa4LandingPage(null)).toBe("(not set)");
     expect(normalizeGa4LandingPage(undefined)).toBe("(not set)");

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { OPPORTUNITY_WEIGHTS } from "@/shared/opportunity-weights";
 import {
   renormalizedScore,
@@ -314,6 +315,86 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
         conversionSignal: null,
       };
     },
+  },
+  // Spec 008: dedicated lost-backlink opportunity. Same two-snapshot
+  // evidence class as backlink_change (frozen totals + named domains), but
+  // a distinct type and reclaim-oriented recommendation — the aggregate
+  // finding keeps its net-movement narrative untouched.
+  lost_backlinks: {
+    type: "lost_backlinks",
+    title: (finding) => {
+      const domain = finding.entity.domain;
+      const lost =
+        metricNumber(finding.evidence.metrics, "lostReferringDomains") ?? 0;
+      return (
+        `Recover ${lost} lost referring domain${lost === 1 ? "" : "s"} for ` +
+        `${typeof domain === "string" ? domain : finding.entityKey} (heuristic)`
+      );
+    },
+    recommendation: (finding) => {
+      const domains = finding.entity.lostDomains;
+      const named =
+        typeof domains === "string" && domains !== "" ? `: ${domains}` : "";
+      return (
+        "Review the lost referring domains for reclaim opportunities " +
+        "(restored links, updated targets, outreach to linking pages)" +
+        named +
+        " and monitor for further movement before acting (two-snapshot heuristic)."
+      );
+    },
+    keywordOf: () => null,
+    pageOf: () => null,
+    factorsOf: (finding) => {
+      // Reconstruct the pre-loss base: after-totals plus what was lost.
+      const lost =
+        metricNumber(finding.evidence.metrics, "lostReferringDomains") ?? 0;
+      const after =
+        metricNumber(finding.evidence.metrics, "referringDomainsAfter") ?? 0;
+      const backlinksBase = Math.max(0, after) + Math.max(0, lost);
+      return {
+        trafficPotential: logScaleVolume(backlinksBase),
+        proximity: null,
+        decline:
+          backlinksBase > 0 ? Math.min(1, lost / backlinksBase / 0.1) : null,
+        businessIntent: null,
+        conversionSignal: null,
+      };
+    },
+  },
+  // Spec 004: quick-win positioning. Impact weights proximity (page-one
+  // adjacency) + traffic potential (impressions); no decline input because
+  // presence, not decline, is the condition.
+  striking_distance: {
+    type: "striking_distance",
+    title: (finding) => {
+      const query = finding.entity.query;
+      const position = metricNumber(finding.evidence.metrics, "position") ?? 0;
+      return (
+        `Quick-win opportunity for "` +
+        `${typeof query === "string" ? query : finding.entityKey}" at ` +
+        `position ${position.toFixed(1)}`
+      );
+    },
+    recommendation: () =>
+      "Strengthen the page targeting this query: align the title and " +
+      "content with intent, add internal links from topically related " +
+      "pages, then re-measure position and clicks over the next 28 days.",
+    keywordOf: (finding) => {
+      const query = finding.entity.query;
+      return typeof query === "string" ? query : finding.entityKey;
+    },
+    pageOf: () => null,
+    factorsOf: (finding) => ({
+      trafficPotential: logScaleVolume(
+        metricNumber(finding.evidence.metrics, "impressions") ?? 0,
+      ),
+      proximity: proximityOf(
+        metricNumber(finding.evidence.metrics, "position") ?? 0,
+      ),
+      decline: null,
+      businessIntent: null,
+      conversionSignal: null,
+    }),
   },
 };
 

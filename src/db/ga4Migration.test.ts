@@ -83,4 +83,66 @@ describe("GA4 storage migration smoke", () => {
       ),
     ).toBe(true);
   });
+
+  it("applies the geo/technology grain migration to a fresh SQLite database", async () => {
+    if (!client) throw new Error("Test database was not initialized");
+    for (const statement of statementsOf(
+      "drizzle/0060_harsh_scarlet_spider.sql",
+    )) {
+      await client.execute(statement);
+    }
+    const created = await tables();
+    for (const table of ["ga4_daily_geo", "ga4_daily_technology"]) {
+      expect(created).toContain(table);
+    }
+    const indexes = await client.execute(
+      "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name",
+    );
+    const names = indexes.rows.map((row) => String(row.name));
+    for (const index of [
+      "ga4_geo_upsert_idx",
+      "ga4_geo_project_date_idx",
+      "ga4_geo_project_country_date_idx",
+      "ga4_technology_upsert_idx",
+      "ga4_technology_project_date_idx",
+      "ga4_technology_project_device_date_idx",
+    ]) {
+      expect(names).toContain(index);
+    }
+    const geoColumns = await client.execute("PRAGMA table_info(ga4_daily_geo)");
+    const geoNames = geoColumns.rows.map((row) => String(row.name));
+    for (const column of [
+      "country",
+      "sessions",
+      "new_users",
+      "is_other_row",
+    ]) {
+      expect(geoNames).toContain(column);
+    }
+  });
+
+  it("registers the geo/technology migration in both dialect journals", async () => {
+    const sqliteJournal = JSON.parse(
+      readFileSync(
+        resolve(process.cwd(), "drizzle/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+    const pgJournal = JSON.parse(
+      readFileSync(
+        resolve(process.cwd(), "drizzle-pg/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+    expect(
+      sqliteJournal.entries.some((entry) =>
+        entry.tag.includes("0060_harsh_scarlet_spider"),
+      ),
+    ).toBe(true);
+    expect(
+      pgJournal.entries.some((entry) =>
+        entry.tag.includes("0038_wakeful_sunspot"),
+      ),
+    ).toBe(true);
+  });
 });

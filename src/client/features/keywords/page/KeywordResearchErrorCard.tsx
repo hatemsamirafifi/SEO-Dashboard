@@ -115,7 +115,7 @@ export function KeywordResearchErrorCard({
         className="flex-1 flex items-center justify-center pt-1"
         data-testid="keyword-research-error-card"
       >
-        <div className="w-full max-w-xl rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content shadow-sm space-y-4">
+        <div className="w-full max-w-xl rounded-xl border border-warning/40 bg-warning/10 p-5 shadow-sm space-y-4">
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" />
             <div className="space-y-1">
@@ -128,9 +128,17 @@ export function KeywordResearchErrorCard({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1 pl-8">
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              data-testid="keyword-research-retry-btn"
+              onClick={onRetry}
+            >
+              Try again
+            </button>
             <a
               href="mailto:support@dataforseo.com?subject=Reactivate%20DataForSEO%20API%20Access"
-              className="btn btn-sm btn-primary"
+              className="btn btn-sm btn-outline"
               data-testid="keyword-research-contact-support-btn"
             >
               Contact Support

@@ -7,11 +7,14 @@ import { rankingDropDetector } from "./rankingDrop";
 import { cannibalizationDetector } from "./cannibalization";
 import { technicalOnImportantPageDetector } from "./technicalOnImportantPage";
 import { backlinkChangeDetector } from "./backlinkChange";
+import { lostBacklinksDetector } from "./lostBacklinks";
+import { strikingDistanceDetector } from "./strikingDistance";
 
 /**
  * Explicit versioned detector list — no auto-glob (mirrors the explicitness
  * of `getSeoDataRouter`). Each SEO condition has exactly one detector;
- * GA4-gated detectors land in Task 10 and register here.
+ * GA4-gated detectors land in Task 10 and register here. `striking_distance`
+ * (spec 004) owns the 11–20 quick-win band.
  */
 const DETECTORS: DetectorDef[] = [
   ga4OrganicChangeDetector,
@@ -22,6 +25,8 @@ const DETECTORS: DetectorDef[] = [
   cannibalizationDetector,
   technicalOnImportantPageDetector,
   backlinkChangeDetector,
+  lostBacklinksDetector,
+  strikingDistanceDetector,
 ];
 
 export function listDetectors(): DetectorDef[] {

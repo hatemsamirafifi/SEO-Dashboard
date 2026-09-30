@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -284,6 +285,8 @@ describe("opportunity templates", () => {
     "cannibalization",
     "technical_on_important_page",
     "backlink_change",
+    "lost_backlinks",
+    "striking_distance",
   ];
 
   it("covers every PR7 detector with a distinct type", () => {
@@ -403,6 +406,40 @@ describe("opportunity templates", () => {
           confidenceInputs: {},
         },
       }),
+      lost_backlinks: finding("lost_backlinks", {
+        entity: { domain: "example.com", lostDomains: "gone-a.com" },
+        evidence: {
+          metrics: {
+            lostReferringDomains: 5,
+            namedLostDomains: 1,
+            lostBacklinks: 9,
+            referringDomainsBefore: 120,
+            referringDomainsAfter: 112,
+          },
+          sources: ["backlinks"],
+          thresholdsApplied: { minReferringDomains: 3 },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: ["two_point_heuristic"],
+          confidenceInputs: {},
+        },
+      }),
+      striking_distance: finding("striking_distance", {
+        entity: { query: "quick win" },
+        evidence: {
+          metrics: { impressions: 8000, clicks: 25, position: 15 },
+          sources: ["gsc"],
+          thresholdsApplied: {
+            minImpressions: 100,
+            minPosition: 11,
+            maxPosition: 20,
+          },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: {},
+        },
+      }),
     };
     for (const key of detectorKeys) {
       const template = OPPORTUNITY_TEMPLATES[key];
@@ -442,5 +479,68 @@ describe("opportunity templates", () => {
         finding("organic_traffic_change"),
       ),
     ).toBeNull();
+  });
+
+  it("scores lost-backlink opportunities on lost referring domains", () => {
+    const template = OPPORTUNITY_TEMPLATES.lost_backlinks;
+    if (!template) throw new Error("missing lost_backlinks template");
+    expect(template.type).toBe("lost_backlinks");
+    const asFinding = finding("lost_backlinks", {
+      entity: { domain: "example.com", lostDomains: "gone-a.com, gone-b.com" },
+      evidence: {
+        metrics: {
+          lostReferringDomains: 5,
+          namedLostDomains: 2,
+          lostBacklinks: 9,
+          referringDomainsBefore: 120,
+          referringDomainsAfter: 112,
+        },
+        sources: ["backlinks"],
+        thresholdsApplied: { minReferringDomains: 3 },
+        correlations: [],
+        evidenceType: "observational",
+        partialData: ["two_point_heuristic"],
+        confidenceInputs: {},
+      },
+    });
+    expect(template.title(asFinding)).toContain("5 lost referring domains");
+    expect(template.title(asFinding)).toContain("example.com");
+    expect(template.recommendation(asFinding)).toContain("gone-a.com");
+    const factors = template.factorsOf(asFinding);
+    expect(factors.trafficPotential).toBeGreaterThan(0);
+    expect(factors.decline).toBeGreaterThan(0);
+    expect(factors.decline).toBeLessThanOrEqual(1);
+    expect(scoreImpact(factors)).not.toBeNull();
+    expect(template.keywordOf(asFinding)).toBeNull();
+    expect(template.pageOf(asFinding)).toBeNull();
+  });
+
+  it("leaves the backlink_change template behavior unchanged (spec 008)", () => {
+    const template = OPPORTUNITY_TEMPLATES.backlink_change;
+    if (!template) throw new Error("missing backlink_change template");
+    expect(template.type).toBe("backlinks");
+    const asFinding = finding("backlink_change", {
+      entity: { domain: "example.com" },
+      evidence: {
+        metrics: {
+          referringDomainsAfter: 120,
+          backlinksDelta: 20,
+          lostBacklinks: 4,
+          lostReferringDomains: 1,
+        },
+        sources: ["backlinks"],
+        thresholdsApplied: {},
+        correlations: [],
+        evidenceType: "observational",
+        partialData: [],
+        confidenceInputs: {},
+      },
+    });
+    expect(template.title(asFinding)).toBe(
+      "Backlink movement for example.com (heuristic)",
+    );
+    expect(template.recommendation(asFinding)).toContain(
+      "Review lost referring domains for reclaim opportunities",
+    );
   });
 });
