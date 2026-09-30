@@ -100,6 +100,9 @@ function SerpAnalysisTable({ items }: { items: SerpResultItem[] }) {
                   <span className="text-xs text-base-content/40 truncate">
                     {item.domain}
                   </span>
+                  {item.metricStatus ? (
+                    <CompetitorMetricsLine item={item} />
+                  ) : null}
                 </div>
               </td>
             </tr>
@@ -108,6 +111,37 @@ function SerpAnalysisTable({ items }: { items: SerpResultItem[] }) {
       </table>
     </div>
   );
+}
+
+/**
+ * Expanded competitor row (spec 007). Value semantics: an explicit provider
+ * zero renders as 0; a missing metric renders as —; rows whose enrichment
+ * failed or returned nothing carry an explicit status label. The base row
+ * above always renders regardless of enrichment state.
+ */
+function CompetitorMetricsLine({ item }: { item: SerpResultItem }) {
+  return (
+    <span className="text-xs text-base-content/60 flex flex-wrap gap-x-3 gap-y-0.5">
+      <span title="DataForSEO Domain Rank">
+        DR {metricValue(item.domainRank)}
+      </span>
+      <span title="DataForSEO Page Rank">PR {metricValue(item.pageRank)}</span>
+      <span title="Referring domains">
+        Ref.domains {metricValue(item.referringDomains)}
+      </span>
+      <span title="Backlinks">Links {metricValue(item.backlinks)}</span>
+      <span title="Provider-estimated traffic (not first-party analytics)">
+        Est.traffic {metricValue(item.etv)}
+      </span>
+      {item.metricStatus !== "available" ? (
+        <span className="text-warning">{item.metricStatus}</span>
+      ) : null}
+    </span>
+  );
+}
+
+function metricValue(value: number | null | undefined): string {
+  return typeof value === "number" ? String(value) : "—";
 }
 
 function SerpAnalysisPagination({

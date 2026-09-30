@@ -137,4 +137,19 @@ describe("previousPeriod", () => {
       endDate: "2026-06-09",
     });
   });
+
+  // Spec 001 clarification (2026-09-28): the previous window is always the
+  // immediately-preceding window of equal day length, day-aligned. Shared by
+  // GSC, GA4, rank, and dashboard rollups — pin the canonical examples here.
+  it("pins the canonical trailing-28-day example", () => {
+    expect(previousPeriod("2026-09-01", "2026-09-28")).toEqual({
+      startDate: "2026-08-04",
+      endDate: "2026-08-31",
+    });
+  });
+
+  it("keeps equal length across a month boundary", () => {
+    const prev = previousPeriod("2026-03-01", "2026-03-07");
+    expect(prev).toEqual({ startDate: "2026-02-22", endDate: "2026-02-28" });
+  });
 });

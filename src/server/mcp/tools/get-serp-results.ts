@@ -1,6 +1,9 @@
 import { z } from "zod";
+import { canonicalUrl } from "@/shared/intelligence";
+import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
 import type { SerpLiveItem } from "@/server/lib/dataforseo";
+import { enrichCompetitiveMetrics } from "@/server/features/serp/serpEnrichment";
 import { mcpResponse } from "@/server/mcp/formatters";
 import { buildProjectMeta } from "@/server/mcp/context";
 import { optionalMetaOutputSchema } from "@/server/mcp/output-schemas";
@@ -20,6 +23,12 @@ type SerpItem = {
   url: string | null;
   domain: string | null;
   description: string | null;
+  // Competitive enrichment overlay (spec 007, opt-in only).
+  domainRank?: number | null;
+  pageRank?: number | null;
+  referringDomains?: number | null;
+  backlinks?: number | null;
+  metricStatus?: "available" | "partial" | "unavailable" | "failed";
 };
 
 const SERP_ITEM_COLUMNS: McpTableColumn<SerpItem>[] = [
@@ -37,6 +46,14 @@ const querySchema = z.object({
 
 const inputSchema = {
   projectId: projectIdSchema,
+  includeCompetitiveMetrics: z
+    .boolean()
+    .optional()
+    .describe(
+      "Opt-in Top-10 competitive metrics (Domain Rank, Page Rank, referring domains, backlinks). " +
+        "Defaults off: enabling it spends paid provider calls per uncached competitor (bounded: " +
+        "Top-10 only, cached, coalesced). Base SERP results are unaffected either way.",
+    ),
   queries: z
     .array(querySchema)
     .min(1)
@@ -48,12 +65,44 @@ const inputSchema = {
 
 type Args = z.infer<z.ZodObject<typeof inputSchema>>;
 
+/**
+ * Merge opt-in competitive metrics into the trimmed SERP items in place
+ * (Top-10 only, by normalized identity). Rows without a match keep their
+ * base fields — enrichment never removes or rewrites base data.
+ */
+async function mergeCompetitiveMetrics(
+  items: SerpItem[],
+  billingCustomer: BillingCustomerContext,
+): Promise<void> {
+  const enriched = await enrichCompetitiveMetrics({
+    results: items.slice(0, 10).map((item, index) => ({
+      position: item.rank ?? index + 1,
+      url: item.url ?? "",
+      domain: item.domain ?? "",
+    })),
+    billingCustomer,
+  });
+  const byIdentity = new Map(
+    enriched.targets.map((entry) => [entry.target.identity, entry.metrics]),
+  );
+  for (const [index, item] of items.entries()) {
+    if (index >= 10 || !item.url) continue;
+    const metrics = byIdentity.get(canonicalUrl(item.url));
+    if (!metrics) continue;
+    item.domainRank = metrics.domainRank;
+    item.pageRank = metrics.pageRank;
+    item.referringDomains = metrics.referringDomains;
+    item.backlinks = metrics.backlinks;
+    item.metricStatus = metrics.status;
+  }
+}
+
 export const getSerpResultsTool = {
   name: "get_serp_results",
   config: {
     title: "Get Google SERP results",
     description:
-      "Fetch live Google organic search results for 1-10 keywords. Use this to inspect who ranks for a query, verify competitors, compare SERPs across keywords, or gather source URLs before content planning. Charges credits per keyword (~30-60 each). Does not save results to OpenSEO. Per-keyword errors don't fail the batch.",
+      "Fetch live Google organic search results for 1-10 keywords. Use this to inspect who ranks for a query, verify competitors, compare SERPs across keywords, or gather source URLs before content planning. Charges credits per keyword (~30-60 each). Does not save results to OpenSEO. Per-keyword errors don't fail the batch. The opt-in includeCompetitiveMetrics flag (default off) additionally enriches the Top-10 results per keyword with competitive metrics at extra credit cost.",
     inputSchema,
     outputSchema: {
       results: z.array(
@@ -116,6 +165,16 @@ export const getSerpResultsTool = {
             domain: item.domain ?? null,
             description: item.description ?? null,
           }));
+          // Opt-in Top-10 enrichment (spec 007): merged by normalized
+          // identity, Top-10 only. Any failure degrades to unenriched items —
+          // the base SERP response never fails because of enrichment.
+          if (args.includeCompetitiveMetrics ?? false) {
+            try {
+              await mergeCompetitiveMetrics(trimmed, context.billing);
+            } catch {
+              // Base items stand as-is.
+            }
+          }
           return { keyword: q.keyword, ok: true as const, items: trimmed };
         } catch (error) {
           return {

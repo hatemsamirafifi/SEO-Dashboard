@@ -144,6 +144,12 @@ Each row is one `/speckit.specify` run. Order follows source-plan §19 waves / �
   `SerpSnapshot` contract following repo conventions. **No enrichment implementation in this package.**
 - **Key files:** `src/server/features/serp/*`, MCP `get_serp_results` handler, `SeoCacheService`/R2 helpers.
 - **Accept:** G4 satisfied: downstream UI/detectors consume normalized data only; S0 doc checked into the spec.
+- **Status (2026-09-28): DONE — G4 SATISFIED.** Frozen contract: `specs/003-serp-contract-discovery/contracts/serp-snapshot.md`
+  + `src/server/features/serp/types.ts` (Zod: `serpSnapshotSchema`, `canonicalSerpSnapshot`,
+  `serpSnapshotIdentityKey`); fixtures `src/server/features/serp/serpSnapshot.test.ts` (full + sparse);
+  boundary guards `src/server/features/serp/serpBoundaries.test.ts` (no-raw-parsing, report integrity,
+  vocabulary). Discovery report: `specs/003-serp-contract-discovery/research.md` (incl. 5 doc-vs-code
+  discrepancies, code-authoritative). 007/011 must consume this contract as mandatory input.
 
 #### 004 — Striking-distance detector (PR8 · C1)
 

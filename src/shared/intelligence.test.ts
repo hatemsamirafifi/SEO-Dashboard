@@ -13,13 +13,16 @@ import {
   canonicalUrl,
   compareOpportunities,
   confidenceBandOf,
+  dashboardPctChange,
   findingSchema,
   impactBandOf,
   insightSchema,
+  mapStoredSectionState,
   opportunitySchema,
   priorityMatrix,
   renormalizedScore,
   stableHash,
+  toPeriodDelta,
 } from "./intelligence";
 import { normalizeGa4LandingPage } from "./ga4";
 
@@ -168,6 +171,66 @@ describe("canonical keys", () => {
     expect(canonicalUrl("/pricing?utm_source=x#frag")).toBe("/pricing");
   });
 
+  it("folds www/http aliases into one page identity (spec 006)", () => {
+    expect(canonicalUrl("http://www.example.com/page")).toBe(
+      "https://example.com/page",
+    );
+    expect(canonicalUrl("https://example.com/page/")).toBe(
+      "https://example.com/page",
+    );
+    expect(canonicalUrl("/page", "example.com")).toBe(
+      "https://example.com/page",
+    );
+    expect(canonicalUrl("/page", "https://www.example.com/")).toBe(
+      "https://example.com/page",
+    );
+  });
+
+  it("keeps subdomains, ports, case, and domains distinct (spec 006)", () => {
+    const bare = canonicalUrl("https://example.com/page");
+    expect(canonicalUrl("https://blog.example.com/page")).not.toBe(bare);
+    expect(canonicalUrl("https://example.com:8443/page")).not.toBe(bare);
+    expect(canonicalUrl("https://example.com/Blog")).not.toBe(
+      canonicalUrl("https://example.com/blog"),
+    );
+    expect(canonicalUrl("https://other.com/page")).not.toBe(bare);
+    expect(canonicalUrl("/page")).not.toBe(bare);
+    expect(canonicalUrl("/page", null)).not.toBe(bare);
+  });
+
+  it("normalizes slashes, root, encoding, and sentinels (spec 006)", () => {
+    expect(canonicalUrl("https://example.com/blog/post/")).toBe(
+      "https://example.com/blog/post",
+    );
+    expect(canonicalUrl("https://example.com/")).toBe("https://example.com/");
+    expect(canonicalUrl("/", "example.com")).toBe("https://example.com/");
+    expect(canonicalUrl("https://example.com//a///b")).toBe(
+      "https://example.com/a/b",
+    );
+    expect(canonicalUrl("https://example.com/%D8%A7")).toBe(
+      canonicalUrl("https://example.com/ا"),
+    );
+    expect(canonicalUrl("https://example.com/%41")).toBe(
+      "https://example.com/A",
+    );
+    expect(canonicalUrl(null)).toBe("(not set)");
+    expect(canonicalUrl("?utm_source=x")).toBe("(not set)");
+    expect(canonicalUrl("::::")).toBe("/::::");
+  });
+
+  it("is deterministic across repeated runs (spec 006)", () => {
+    const inputs: Array<[string | null | undefined, string | null]> = [
+      ["http://www.example.com/page", null],
+      ["/page", "example.com"],
+      ["https://blog.example.com/%D8%A7/", null],
+      [null, null],
+      ["::::", null],
+    ];
+    for (const [value, host] of inputs) {
+      expect(canonicalUrl(value, host)).toBe(canonicalUrl(value, host));
+    }
+  });
+
   it("builds technical, rank, and cannibalization keys deterministically", () => {
     expect(canonicalTechnicalKey("Missing_Title", "/Product")).toBe(
       "technical:missing_title:/Product",
@@ -284,5 +347,67 @@ describe("scoring helpers", () => {
     expect(renormalizedScore(missing)).toBe(50);
     expect(renormalizedScore([])).toBeNull();
     expect(renormalizedScore([{ weight: 10, value: null }])).toBeNull();
+  });
+});
+
+describe("dashboard rollup deltas (spec 001)", () => {
+  it("computes change and percent change for covered windows", () => {
+    expect(toPeriodDelta(100, 80)).toEqual({
+      current: 100,
+      previous: 80,
+      change: 20,
+      changePct: 25,
+    });
+  });
+
+  it("nulls the whole delta when prior coverage is missing (never 0%/±100%)", () => {
+    expect(toPeriodDelta(100, null)).toEqual({
+      current: 100,
+      previous: null,
+      change: null,
+      changePct: null,
+    });
+  });
+
+  it("treats zero-previous as unknown percent, not infinite", () => {
+    expect(dashboardPctChange(5, 0)).toBeNull();
+    expect(dashboardPctChange(0, 0)).toBe(0);
+    expect(dashboardPctChange(80, 100)).toBeCloseTo(-20);
+  });
+
+  it("maps stored-read outcomes to section states without zero coercion", () => {
+    const base = {
+      connected: true,
+      hasCurrent: true,
+      hasPrevious: true,
+      syncRunning: false,
+      syncFailed: false,
+    };
+    expect(mapStoredSectionState(base)).toBe("ready");
+    expect(mapStoredSectionState({ ...base, connected: false })).toBe(
+      "not_connected",
+    );
+    expect(
+      mapStoredSectionState({
+        ...base,
+        hasCurrent: false,
+        hasPrevious: false,
+        syncRunning: true,
+      }),
+    ).toBe("sync_running");
+    expect(
+      mapStoredSectionState({
+        ...base,
+        hasCurrent: false,
+        hasPrevious: false,
+        syncFailed: true,
+      }),
+    ).toBe("sync_failed");
+    expect(
+      mapStoredSectionState({ ...base, hasCurrent: false, hasPrevious: false }),
+    ).toBe("no_data");
+    expect(mapStoredSectionState({ ...base, hasPrevious: false })).toBe(
+      "partial",
+    );
   });
 });

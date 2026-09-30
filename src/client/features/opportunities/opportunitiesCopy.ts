@@ -21,6 +21,7 @@ export const OPPORTUNITY_TYPES = [
   "cannibalization",
   "technical",
   "backlinks",
+  "lost_backlinks",
 ] as const;
 export type OpportunityType = (typeof OPPORTUNITY_TYPES)[number];
 
@@ -51,6 +52,7 @@ export const TYPE_META: Record<OpportunityType, { label: string }> = {
   cannibalization: { label: "Cannibalization" },
   technical: { label: "Technical" },
   backlinks: { label: "Backlinks" },
+  lost_backlinks: { label: "Lost backlinks" },
 };
 
 export const PRIORITY_META: Record<

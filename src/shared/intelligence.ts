@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { z } from "zod";
 import { normalizeGa4LandingPage } from "./ga4";
 
@@ -71,12 +72,137 @@ export function canonicalKeyword(value: string | null | undefined): string {
 }
 
 /**
- * Normalized page identity shared by sync, joins, and entityKey builders.
- * Delegates to `normalizeGa4LandingPage` so GA4 landing rows, join keys, and
- * opportunity keys can never disagree on page identity.
+ * Striking-distance band (spec 004, clarified 2026-09-28): positions 11–20
+ * INCLUSIVE — page-one-adjacent quick wins with meaningful impressions. The
+ * single shared definition for the `striking_distance` detector; the GSC
+ * near-miss helper `buildStrikingDistanceRows` keeps its broader 5..20
+ * dashboard band as a documented superset, never as the detector definition.
  */
-export function canonicalUrl(value: string | null | undefined): string {
-  return normalizeGa4LandingPage(value);
+export const STRIKING_DISTANCE_MIN_POSITION = 11;
+export const STRIKING_DISTANCE_MAX_POSITION = 20;
+
+/**
+ * Canonical SEO page identity shared by joins and entityKey builders
+ * (spec 006, hard gate G1). Extends the strict path policy from
+ * `normalizeGa4LandingPage` — it never replaces it: GA4 sync storage keeps
+ * strict path grain, while this helper is the single analytical identity for
+ * cross-source page joins.
+ *
+ * Binding rules (spec 006 clarifications, 2026-09-30):
+ * - Fold ONLY the conventional origin aliases: leading `www.` → bare host,
+ *   `http` → `https`. All other subdomains stay distinct; non-default ports
+ *   are preserved (WHATWG URL drops default :80/:443 automatically).
+ * - Hosts are case-insensitive; paths keep their case (`/Blog` ≠ `/blog`).
+ * - Non-root trailing slash folds away (`/blog` = `/blog/`); root `/` is
+ *   preserved; duplicate slashes collapse.
+ * - Fragments and query strings are excluded per the shared query policy.
+ * - Percent-encoding is normalized safely: hex uppercased, unreserved
+ *   characters decoded, everything else (incl. non-ASCII paths) preserved.
+ * - Path-only rows (e.g. GA4 landing pages) resolve against the project's
+ *   host context; without one they stay path-scoped — never an invented
+ *   host. Blank/query-only input keeps the `(not set)` sentinel.
+ * - Unparseable or non-http(s) input degrades to the deterministic strict
+ *   path form — distinct per input, never a shared identity.
+ * - This is an analytical join identity, NOT a claim about HTTP or Google
+ *   canonical equivalence.
+ */
+export function canonicalUrl(
+  value: string | null | undefined,
+  hostContext?: string | null,
+): string {
+  const raw = (value ?? "").trim();
+  if (raw === "") return normalizeGa4LandingPage(value);
+  const absolute = tryParseHttpUrl(raw);
+  if (absolute) return canonicalAbsoluteIdentity(absolute);
+  const host = normalizeHostContext(hostContext);
+  if (host) {
+    const path = strictPathPart(raw);
+    if (path === "") return normalizeGa4LandingPage(value);
+    return canonicalAbsoluteIdentity(new URL(path, `https://${host}`));
+  }
+  return normalizeGa4LandingPage(raw);
+}
+
+/** Parse absolute http(s) URLs; anything else falls back to path handling. */
+function tryParseHttpUrl(raw: string): URL | null {
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Strict path branch — mirrors `normalizeGa4LandingPage` without the
+ * sentinel, so the identity composes the same path policy rather than
+ * forking it. Empty (query/fragment-only) input stays empty for the caller
+ * to map to the sentinel.
+ */
+function strictPathPart(raw: string): string {
+  const path = raw.split(/[?#]/, 1)[0]?.trim() ?? "";
+  if (path === "") return "";
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+/**
+ * Resolve a project host value (e.g. `projects.domain`: bare domain,
+ * `sc-domain:` prefixed, or full URL) to a `host[:port]` identity part.
+ * Returns null when no usable host exists — the caller keeps path scope.
+ */
+function normalizeHostContext(
+  hostContext: string | null | undefined,
+): string | null {
+  const cleaned =
+    (hostContext ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/^sc-domain:/, "")
+      .replace(/^https?:\/\//, "")
+      .split("/")[0]
+      ?.trim() ?? "";
+  if (cleaned === "") return null;
+  try {
+    return new URL(`https://${cleaned}`).host;
+  } catch {
+    return null;
+  }
+}
+
+/** Fold one parsed absolute URL to its canonical identity string. */
+function canonicalAbsoluteIdentity(parsed: URL): string {
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  const port = parsed.port !== "" ? `:${parsed.port}` : "";
+  return `https://${host}${port}${foldSlashes(decodeSafePath(parsed.pathname))}`;
+}
+
+/**
+ * Collapse duplicate slashes, then fold a single non-root trailing slash.
+ * The root path is preserved as root.
+ */
+function foldSlashes(pathname: string): string {
+  const collapsed = pathname.replace(/\/{2,}/g, "/");
+  if (collapsed.length > 1 && collapsed.endsWith("/")) {
+    return collapsed.slice(0, -1);
+  }
+  return collapsed;
+}
+
+/**
+ * Safe percent-encoding normalization: uppercase hex, decode RFC 3986
+ * unreserved characters only. Reserved/UTF-8 sequences stay encoded so
+ * non-ASCII paths are never mangled and encoded/decoded alias pairs agree.
+ */
+function decodeSafePath(pathname: string): string {
+  return pathname.replace(/%[0-9A-Fa-f]{2}/g, (sequence) => {
+    const upper = sequence.toUpperCase();
+    const char = String.fromCharCode(Number.parseInt(upper.slice(1), 16));
+    if (/^[A-Za-z0-9\-_.~]$/.test(char)) return char;
+    return upper;
+  });
 }
 
 /** Technical issues include the issue discriminator in the entity key. */
@@ -449,3 +575,96 @@ export const opportunitySchema = z
   .strict();
 
 export type Opportunity = z.infer<typeof opportunitySchema>;
+
+// ---------------------------------------------------------------------------
+// Dashboard stored-rollup contracts (spec 001, Track A milestone A0).
+// Read-only view-model types for the eight intelligence output groups.
+// Failure states never carry zeroed metrics — unavailable stays unavailable.
+// ---------------------------------------------------------------------------
+
+/** Every dashboard section renders exactly one of these states. */
+export const DASHBOARD_SECTION_STATES = [
+  "loading",
+  "ready",
+  "empty",
+  "not_connected",
+  "no_data",
+  "partial",
+  "stale",
+  "api_failed",
+  "permission_failed",
+  "sync_running",
+  "sync_failed",
+] as const;
+export type DashboardSectionState = (typeof DASHBOARD_SECTION_STATES)[number];
+
+/** Current value plus the equivalent previous window. A null previous means
+ *  prior coverage was missing/insufficient — change fields stay null (never
+ *  synthetic 0%, +100%, or -100%). */
+export type PeriodDelta = {
+  current: number;
+  previous: number | null;
+  change: number | null;
+  changePct: number | null;
+};
+
+/** Which source a section read, how fresh it is, and whether it is complete. */
+export type CoverageNote = {
+  source:
+    | "gsc"
+    | "ga4"
+    | "rank"
+    | "opportunities"
+    | "insights"
+    | "audit"
+    | "backlinks";
+  freshness: string | null;
+  completeness: "full" | "partial" | "none";
+  detail: string | null;
+};
+
+/** Percent change mirroring the analytics delta rule: a zero previous period
+ *  with nonzero current is unknown (null), not infinite. */
+export function dashboardPctChange(
+  current: number,
+  previous: number,
+): number | null {
+  if (previous === 0) return current === 0 ? 0 : null;
+  return ((current - previous) / previous) * 100;
+}
+
+/** Build a PeriodDelta. Pass null previous when prior-period coverage is
+ *  missing or insufficient — the delta stays unavailable by construction. */
+export function toPeriodDelta(
+  current: number,
+  previous: number | null,
+): PeriodDelta {
+  if (previous === null) {
+    return { current, previous: null, change: null, changePct: null };
+  }
+  return {
+    current,
+    previous,
+    change: current - previous,
+    changePct: dashboardPctChange(current, previous),
+  };
+}
+
+/** Map stored-read outcomes to a section state. Failure inputs (failed sync,
+ *  exceptions) map to failure states — never to ready-with-zeros. */
+export function mapStoredSectionState(input: {
+  connected: boolean;
+  hasCurrent: boolean;
+  hasPrevious: boolean;
+  syncRunning: boolean;
+  syncFailed: boolean;
+}): DashboardSectionState {
+  if (!input.connected) return "not_connected";
+  if (!input.hasCurrent && !input.hasPrevious) {
+    if (input.syncRunning) return "sync_running";
+    if (input.syncFailed) return "sync_failed";
+    return "no_data";
+  }
+  if (!input.hasPrevious) return "partial";
+  return "ready";
+}

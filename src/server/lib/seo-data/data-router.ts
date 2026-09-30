@@ -15,10 +15,7 @@ import {
   ProviderUnsupportedError,
 } from "./errors";
 import { getProviderFeatureFlags } from "./config";
-import {
-  traceCacheDecision,
-  traceProviderCall,
-} from "./trace";
+import { traceCacheDecision, traceProviderCall } from "./trace";
 import type {
   SEODataProvider,
   SEODataRequest,
@@ -52,6 +49,10 @@ const PROVIDER_PRIORITY: Record<SEODataType, string[]> = {
   domain_pages: ["internal", "dataforseo"],
   competitors: ["internal", "dataforseo"],
   backlinks: ["internal", "dataforseo"],
+  // Competitive enrichment targets are external competitor domains — never
+  // internal data. DataForSEO is the sole source (spec 007); the internal
+  // provider's own-domain snapshots must never answer for a competitor.
+  competitive_metrics: ["dataforseo"],
   site_audit: ["local_crawler", "dataforseo"],
   search_console: ["gsc"],
   bing_search_performance: ["bing_webmaster"],
@@ -249,9 +250,7 @@ function isProviderEnabled(
  * Budget-guarded DataForSEO call wrapper. Used by the DataForSEO provider
  * implementation to enforce daily/monthly budget limits before making a call.
  */
-export async function withBudgetGuard<T>(
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function withBudgetGuard<T>(fn: () => Promise<T>): Promise<T> {
   const available = await isDataforseoBudgetAvailable();
   if (!available) {
     throw new BudgetExceededError("daily", 0, 0);

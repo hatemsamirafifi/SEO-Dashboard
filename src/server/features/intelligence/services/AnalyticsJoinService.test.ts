@@ -2,7 +2,36 @@ import { describe, expect, it } from "vitest";
 import { joinUrlEvidence, summarizeJoinCoverage } from "./AnalyticsJoinService";
 
 describe("AnalyticsJoinService", () => {
-  it("merges UTM variants but keeps path forms separate (documented)", () => {
+  it("joins same-page cross-source rows via host context (spec 006)", () => {
+    const rows = joinUrlEvidence({
+      hostContext: "example.com",
+      gsc: [
+        {
+          url: "https://example.com/guide?utm=x",
+          clicks: 100,
+          impressions: 1000,
+        },
+      ],
+      ga4: [
+        { landingPage: "/guide", currentSessions: 50, previousSessions: 80 },
+      ],
+      rank: [{ url: "http://www.example.com/guide/", worsened: true }],
+    });
+    // UTM variant, www/http/slash variants, and the GA4 path row (resolved
+    // against the project host) all share one canonical identity.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.url).toBe("https://example.com/guide");
+    expect(rows[0]?.gscClicks).toBe(100);
+    expect(rows[0]?.ga4Sessions).toEqual({ current: 50, previous: 80 });
+    expect(rows[0]?.rankWorsened).toBe(true);
+    expect(rows[0]?.present).toMatchObject({
+      gsc: true,
+      ga4: true,
+      rank: true,
+    });
+  });
+
+  it("keeps path-only rows path-scoped without host context (spec 006)", () => {
     const rows = joinUrlEvidence({
       gsc: [
         {
@@ -14,14 +43,10 @@ describe("AnalyticsJoinService", () => {
       ga4: [
         { landingPage: "/guide", currentSessions: 50, previousSessions: 80 },
       ],
-      rank: [{ url: "https://example.com/guide", worsened: true }],
     });
-    // Canonical identity collapses the UTM variant with the bare URL (and
-    // the rank witness), but the GA4 path form stays a separate key
-    // (documented divergence).
+    // No invented host: the GA4 path row cannot join the GSC full URL.
     const byUrl = Object.fromEntries(rows.map((row) => [row.url, row]));
-    expect(byUrl["/https://example.com/guide"]?.gscClicks).toBe(100);
-    expect(byUrl["/https://example.com/guide"]?.rankWorsened).toBe(true);
+    expect(byUrl["https://example.com/guide"]?.gscClicks).toBe(100);
     expect(byUrl["/guide"]?.ga4Sessions).toEqual({
       current: 50,
       previous: 80,
@@ -45,6 +70,7 @@ describe("AnalyticsJoinService", () => {
       ],
     });
     expect(rows).toHaveLength(1);
+    expect(rows[0]?.url).toBe("https://example.com/a");
     expect(rows[0]?.gscClicks).toBe(15);
     expect(rows[0]?.rankWorsened).toBe(true);
     expect(rows[0]?.present).toMatchObject({
@@ -76,8 +102,8 @@ describe("AnalyticsJoinService", () => {
       ],
     });
     expect(rows.map((row) => row.url)).toEqual([
-      "/https://example.com/a",
-      "/https://example.com/z",
+      "https://example.com/a",
+      "https://example.com/z",
     ]);
   });
 });

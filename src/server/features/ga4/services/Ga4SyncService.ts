@@ -19,6 +19,7 @@ import {
   GA4_LANDING_PAGE_TOP_N,
   GA4_REPORT_PAGE_LIMIT,
   GA4_STALE_RUN_MS,
+  buildGeoTechSubRequests,
   buildGrainSubRequests,
   eachDayUtc,
   isFatalGa4ErrorClass,
@@ -175,10 +176,12 @@ type ChunkOutcome = {
   grainError: { errorClass: string; message: string } | null;
 };
 
-/** Fetch, normalize, and persist one chunk: one batch call covering all
- *  grains, offset pagination for full pages, ordered metric-then-coverage
- *  writes. Throws on quota, provider, and write failures (caller decides
- *  unit marking from the error class). */
+/** Fetch, normalize, and persist one chunk: one batch call covering the five
+ *  core grains, offset pagination for full pages, two individual runReport
+ *  calls for the bounded geo/technology grains (the Data API caps a batch
+ *  at five sub-requests), then ordered metric-then-coverage writes. Throws
+ *  on quota, provider, and write failures (caller decides unit marking from
+ *  the error class). */
 async function processChunk(input: {
   client: Ga4Client;
   connection: SyncConnection;
@@ -226,24 +229,64 @@ async function processChunk(input: {
           },
     );
   }
+  // Bounded grains ride outside the batch (5-request API cap). Thrown quota
+  // / provider errors propagate to the run loop: quota leaves the chunk
+  // PENDING, other classes fail its pending units — nothing is half-written
+  // because upserts happen after all fetches complete.
+  const [geoSubRequest, techSubRequest] = buildGeoTechSubRequests({
+    propertyId: connection.propertyId,
+    startDate: chunk.startDate,
+    endDate: chunk.endDate,
+  });
+  const tailCountsKnown: { geo: boolean; technology: boolean } = {
+    geo: false,
+    technology: false,
+  };
+  for (const [slot, subRequest] of [
+    ["geo", geoSubRequest],
+    ["technology", techSubRequest],
+  ] as const) {
+    const first = await client.runReport(subRequest);
+    const { pages, truncated } = await fetchGrainPages(
+      client,
+      subRequest,
+      first,
+      true,
+    );
+    tailCountsKnown[slot] = !truncated;
+    paged.push(
+      pages.length === 1
+        ? pages[0]
+        : {
+            rowCount: pages[0].rowCount,
+            rows: pages.flatMap((page) => page.rows),
+            metadata: pages[0].metadata,
+          },
+    );
+  }
   const normalized = await normalizeChunkResponses({
     projectId,
     propertyId: connection.propertyId,
     connectionId: connection.id,
     chunk,
     responses: paged,
-    limits,
+    limits: [...limits, GA4_REPORT_PAGE_LIMIT, GA4_REPORT_PAGE_LIMIT],
+    tailCountsKnown,
   });
   const inserted =
     normalized.summaryRows.length +
     normalized.acquisitionRows.length +
     normalized.landingRows.length +
-    normalized.eventRows.length;
+    normalized.eventRows.length +
+    normalized.geoRows.length +
+    normalized.technologyRows.length;
   if (inserted > 0) {
     await Ga4SyncRepository.upsertSummaryRows(normalized.summaryRows);
     await Ga4SyncRepository.upsertAcquisitionRows(normalized.acquisitionRows);
     await Ga4SyncRepository.upsertLandingRows(normalized.landingRows);
     await Ga4SyncRepository.upsertEventRows(normalized.eventRows);
+    await Ga4SyncRepository.upsertGeoRows(normalized.geoRows);
+    await Ga4SyncRepository.upsertTechnologyRows(normalized.technologyRows);
   }
   await Ga4SyncRepository.markUnits(
     normalized.outcomes.map((outcome) => ({

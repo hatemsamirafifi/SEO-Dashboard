@@ -14,6 +14,13 @@ export const GA4_CACHE_TTL_SECONDS = 24 * 60 * 60;
  *  Postgres share identical uniqueness semantics (no NULLS NOT DISTINCT). */
 export const GA4_NOT_SET_SENTINEL = "(not set)";
 
+/** Long-tail aggregate marker for bounded grains (geo/technology). An
+ *  "(other)" row holds summed metrics for every dimension value beyond the
+ *  per-grain top-N — aggregated long-tail traffic, never missing data and
+ *  never zero. The API may also return its own "(other)" row under extreme
+ *  cardinality; sync folds it into the same tail aggregate. */
+export const GA4_OTHER_DIMENSION = "(other)";
+
 /** GA4 `sessionDefaultChannelGroup` value for organic traffic. The analytics
  *  Organic view is the acquisition reader filtered to this exact value
  *  (final-plan §9.6); no separate endpoint exists. */

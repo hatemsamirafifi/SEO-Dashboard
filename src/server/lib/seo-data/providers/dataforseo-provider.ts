@@ -352,6 +352,7 @@ export function createDataforseoProvider(): SEODataProvider {
         case "domain_pages":
         case "competitors":
         case "backlinks":
+        case "competitive_metrics":
         case "site_audit":
           return true;
         case "search_console":
@@ -549,6 +550,21 @@ async function routeByDataType(
         throw new ProviderUnsupportedError(
           "dataforseo",
           "backlinks",
+          "domain is required",
+        );
+      }
+      return routeBacklinksRequest(client, request, domain);
+    }
+
+    // Competitive enrichment targets (spec 007) reuse the backlinks
+    // endpoints through the existing backlinkCall constraint ("summary" for
+    // domain rank/totals/spam, "domain_pages" for per-URL page rank). No new
+    // endpoint surface — the enrichment service shapes these calls.
+    case "competitive_metrics": {
+      if (!domain) {
+        throw new ProviderUnsupportedError(
+          "dataforseo",
+          "competitive_metrics",
           "domain is required",
         );
       }

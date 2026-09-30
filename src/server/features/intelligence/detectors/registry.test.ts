@@ -61,9 +61,11 @@ describe("detector registry", () => {
       "cannibalization",
       "content_decay",
       "ga4_organic_change",
+      "lost_backlinks",
       "low_ctr_query",
       "organic_traffic_change",
       "ranking_drop",
+      "striking_distance",
       "technical_on_important_page",
     ]);
     // Stable snake_case keys (part of finding identity).

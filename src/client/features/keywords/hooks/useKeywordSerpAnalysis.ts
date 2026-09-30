@@ -12,6 +12,9 @@ export function useKeywordSerpAnalysis(
   const SERP_PAGE_SIZE = 10;
 
   const serpQuery = useQuery({
+    // The analysis run is the explicit paid action (spec 007): base SERP
+    // first, competitive enrichment fills in. Dashboards/reports never pass
+    // this flag (G10).
     queryKey: ["serpAnalysis", projectId, serpKeyword, locationCode],
     queryFn: () =>
       getSerpAnalysis({
@@ -19,6 +22,7 @@ export function useKeywordSerpAnalysis(
           projectId,
           keyword: serpKeyword!,
           locationCode,
+          includeCompetitiveMetrics: true,
         },
       }),
     enabled: !!serpKeyword,

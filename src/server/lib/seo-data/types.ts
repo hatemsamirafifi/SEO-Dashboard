@@ -9,6 +9,7 @@ export type SEODataType =
   | "domain_pages"
   | "competitors"
   | "backlinks"
+  | "competitive_metrics"
   | "site_audit"
   | "search_console"
   | "bing_search_performance";

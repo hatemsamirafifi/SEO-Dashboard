@@ -1,0 +1,41 @@
+# OpenSEO SpecKit extension hooks.
+#
+# How this file is used (see speckit-specify / speckit-clarify skills):
+# - Entries live under `hooks.<phase>` (before_specify, after_specify,
+#   before_clarify, after_clarify, before_plan, after_plan, before_tasks,
+#   after_tasks, before_implement, after_implement).
+# - `command` is a dotted id; agents translate dots to hyphens for slash
+#   invocation (e.g. `speckit.git.branch` -> `/speckit-git-branch`).
+# - `optional: false` hooks are executed automatically and the workflow waits
+#   for them. `optional: true` hooks are surfaced as suggestions only.
+#
+# NOTE (2026-09-28): no git extension is installed yet, so no `/speckit-git-*`
+# commands exist in this environment. Both hooks below are registered as
+# `optional: true` so current runs keep working and agents surface them as
+# suggested actions. Once a git extension (or equivalent slash commands) is
+# installed, flip `optional` to `false` to enforce them.
+
+hooks:
+  before_specify:
+    - extension: git-branch
+      command: speckit.git.branch
+      description: Create and switch to the feature branch for this spec.
+      prompt: >-
+        Create (or switch to) a git branch named after the pending feature
+        directory (NNN-short-name, e.g. 006-canonical-url-identity), starting
+        from the current default branch state. Do not commit anything. Output
+        JSON containing BRANCH_NAME and FEATURE_NUM for the specify workflow.
+      optional: true
+      enabled: true
+
+  after_tasks:
+    - extension: git-commit
+      command: speckit.git.commit
+      description: Commit the completed spec artifacts for this feature.
+      prompt: >-
+        Stage and commit the feature directory (spec.md, plan.md, tasks.md,
+        checklists/) with a conventional message
+        (e.g. "docs(spec-006): add canonical-url-identity tasks"). Commit only
+        the spec artifacts — never implementation files from this hook.
+      optional: true
+      enabled: true

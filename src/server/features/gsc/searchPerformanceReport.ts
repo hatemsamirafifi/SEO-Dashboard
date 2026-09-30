@@ -77,6 +77,13 @@ export function toDimensionRows(
 
 /** Reduce `["query","page"]` rows to one striking-distance row per query.
  *
+ *  SUPERSET NOTE (spec 004): this helper's 5..20 band is the BROADer near-miss
+ *  superset for dashboard/Search-Performance views. It is NOT the detector
+ *  definition: the `striking_distance` intelligence detector owns the tighter
+ *  11–20 quick-win band via shared constants
+ *  (`STRIKING_DISTANCE_MIN_POSITION`/`MAX_POSITION` in `src/shared/intelligence.ts`).
+ *  Keep the two relationships explicit; never let them silently merge.
+ *
  *  GSC returns a row per page that ranks for a query, so a query fans out across
  *  every page it appears on. A query only belongs in "striking distance" when
  *  the site's BEST-ranking page for it sits in the 5..20 band — if any page

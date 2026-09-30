@@ -167,25 +167,41 @@ export type PublicReportView = {
  * authorization — revoked, expired, malformed, or missing tokens all resolve
  * to null (the loader renders 404 without distinguishing).
  */
-export async function getPublicReportByToken(
+export type ShareResolutionState = "invalid" | "revoked" | "expired";
+
+export type ShareResolution =
+  | { state: "active"; view: PublicReportView }
+  | { state: ShareResolutionState };
+
+/**
+ * Public trust boundary (spec 005 FR-002): token-hash lookup, then the
+ * resolution order invalid → revoked → expired → content. Non-active states
+ * carry ZERO report content; the status string is safe to render (it names
+ * the state, never internals) while staying distinguishable for the user.
+ * The raw 404-style null flow (`getPublicReportByToken`) is kept for the
+ * page-fatal loader path.
+ */
+export async function resolvePublicShare(
   token: string,
-): Promise<PublicReportView | null> {
-  if (!RAW_TOKEN_PATTERN.test(token.trim())) return null;
+): Promise<ShareResolution> {
+  const trimmed = token.trim();
+  if (!RAW_TOKEN_PATTERN.test(trimmed)) return { state: "invalid" };
   const share = await SharingRepository.findShareByTokenHash(
-    await stableHash(token.trim()),
+    await stableHash(trimmed),
   );
-  if (!share || share.revokedAt) return null;
-  if (share.expiresAt && Date.parse(share.expiresAt) <= Date.now()) return null;
-  // Project scoping is intentionally absent: possession of the token
-  // authorizes this read, and the share row pins the exact report.
+  if (!share) return { state: "invalid" };
+  if (share.revokedAt) return { state: "revoked" };
+  if (share.expiresAt && Date.parse(share.expiresAt) <= Date.now()) {
+    return { state: "expired" };
+  }
   const report = await ReportRepository.getById(share.reportId);
-  if (!report) return null;
+  if (!report) return { state: "invalid" };
   let payload: ReportPayload;
   try {
     payload = parseReportPayload(report);
   } catch (error) {
     console.error("reports: public view refused corrupt payload", error);
-    return null;
+    return { state: "invalid" };
   }
   // View accounting must never block the shared page itself.
   try {
@@ -199,7 +215,7 @@ export async function getPublicReportByToken(
   } catch (error) {
     console.error("reports: public view accounting failed", error);
   }
-  return {
+  const view: PublicReportView = {
     report: {
       id: report.id,
       type: report.type,
@@ -211,6 +227,14 @@ export async function getPublicReportByToken(
     payload,
     branding: parseStoredBrandingSnapshot(report.brandingSnapshotJson),
   };
+  return { state: "active", view };
+}
+
+export async function getPublicReportByToken(
+  token: string,
+): Promise<PublicReportView | null> {
+  const resolution = await resolvePublicShare(token);
+  return resolution.state === "active" ? resolution.view : null;
 }
 
 export function parseStoredBrandingSnapshot(
@@ -224,4 +248,5 @@ export const ShareService = {
   listReportShares,
   revokeReportShare,
   getPublicReportByToken,
+  resolvePublicShare,
 };

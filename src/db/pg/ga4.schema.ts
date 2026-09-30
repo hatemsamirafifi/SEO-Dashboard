@@ -206,6 +206,95 @@ export const ga4DailyEvents = pgTable(
   ],
 );
 
+export const ga4DailyGeo = pgTable(
+  "ga4_daily_geo",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    propertyId: text("property_id").notNull(),
+    ga4ConnectionId: text("ga4_connection_id").references(
+      () => ga4Connections.id,
+      { onDelete: "set null" },
+    ),
+    date: text("date").notNull(),
+    country: text("country").notNull(),
+    sessions: integer("sessions").notNull().default(0),
+    engagedSessions: integer("engaged_sessions").notNull().default(0),
+    userEngagementDuration: real("user_engagement_duration")
+      .notNull()
+      .default(0),
+    screenPageViews: integer("screen_page_views").notNull().default(0),
+    eventCount: integer("event_count").notNull().default(0),
+    newUsers: integer("new_users").notNull().default(0),
+    isOtherRow: boolean("is_other_row").notNull().default(false),
+    ...ga4Timestamps,
+  },
+  (table) => [
+    uniqueIndex("ga4_geo_upsert_idx").on(
+      table.projectId,
+      table.propertyId,
+      table.date,
+      table.country,
+    ),
+    index("ga4_geo_project_date_idx").on(table.projectId, table.date),
+    index("ga4_geo_project_country_date_idx").on(
+      table.projectId,
+      table.country,
+      table.date,
+    ),
+  ],
+);
+
+export const ga4DailyTechnology = pgTable(
+  "ga4_daily_technology",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    propertyId: text("property_id").notNull(),
+    ga4ConnectionId: text("ga4_connection_id").references(
+      () => ga4Connections.id,
+      { onDelete: "set null" },
+    ),
+    date: text("date").notNull(),
+    device: text("device").notNull(),
+    browser: text("browser").notNull(),
+    os: text("os").notNull(),
+    sessions: integer("sessions").notNull().default(0),
+    engagedSessions: integer("engaged_sessions").notNull().default(0),
+    userEngagementDuration: real("user_engagement_duration")
+      .notNull()
+      .default(0),
+    screenPageViews: integer("screen_page_views").notNull().default(0),
+    eventCount: integer("event_count").notNull().default(0),
+    newUsers: integer("new_users").notNull().default(0),
+    isOtherRow: boolean("is_other_row").notNull().default(false),
+    ...ga4Timestamps,
+  },
+  (table) => [
+    uniqueIndex("ga4_technology_upsert_idx").on(
+      table.projectId,
+      table.propertyId,
+      table.date,
+      table.device,
+      table.browser,
+      table.os,
+    ),
+    index("ga4_technology_project_date_idx").on(table.projectId, table.date),
+    index("ga4_technology_project_device_date_idx").on(
+      table.projectId,
+      table.device,
+      table.date,
+    ),
+  ],
+);
+
+// Per-(date, grain) coverage units. Grain set: summary | acquisition |
+// landing_pages | events | geo | technology (truncation_meta carries
+// Ga4TruncationMeta JSON; tail bounds for geo/technology).
 export const ga4SyncCoverage = pgTable(
   "ga4_sync_coverage",
   {

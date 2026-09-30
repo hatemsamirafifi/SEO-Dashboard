@@ -62,4 +62,13 @@ export type SerpResultItem = {
   backlinks: number | null;
   isNew: boolean;
   rankChange: number | null;
+  // Competitive enrichment overlay (spec 007, additive): present only when
+  // the analysis ran with enrichment. etv/referringDomains/backlinks above
+  // keep their snapshot values unless enrichment returned better ones.
+  domainRank?: number | null;
+  pageRank?: number | null;
+  // Row enrichment status — mirrors SerpEnrichmentStatus in
+  // server/features/serp/types.ts (kept as literals to avoid a
+  // shared→server import; the vocabulary is frozen by contract).
+  metricStatus?: "available" | "partial" | "unavailable" | "failed";
 };

@@ -66,7 +66,7 @@ describe("cannibalization", () => {
     const findings = detectCannibalization(ctx(), input());
     expect(findings).toHaveLength(1);
     expect(findings[0]?.entityKey).toBe(
-      "cannibalization:best espresso machine:/https://example.com/a:/https://example.com/b",
+      "cannibalization:best espresso machine:https://example.com/a:https://example.com/b",
     );
     expect(findings[0]?.explanationFact).toContain("Potential");
     expect(findings[0]?.explanationFact).not.toMatch(

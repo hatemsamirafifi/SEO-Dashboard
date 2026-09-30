@@ -54,7 +54,7 @@ describe("technical_on_important_page", () => {
     const findings = detectTechnical(ctx(), input());
     expect(findings).toHaveLength(1);
     expect(findings[0]?.entityKey).toBe(
-      "technical:missing_title:/https://example.com/pricing",
+      "technical:missing_title:https://example.com/pricing",
     );
     expect(findings[0]?.evidence.sources).toEqual(["audit", "gsc"]);
     expect(findings[0]?.evidence.partialData).toContain(

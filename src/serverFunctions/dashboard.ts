@@ -23,12 +23,24 @@ export const getDashboardActivation = createServerFn({ method: "POST" })
 export const getDashboardOverview = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
-  .handler(({ context }) =>
-    DashboardService.getOverview({
-      projectId: context.projectId,
-      domain: context.project.domain,
-    }),
-  );
+  .handler(async ({ context }) => {
+    // Legacy overview (rank/audit/backlinks for existing cards and report
+    // snapshots) merged additively with the A0 intelligence rollup. The merge
+    // re-reads stored summaries; a later package consolidates the two paths.
+    const [legacy, intelligence] = await Promise.all([
+      DashboardService.getOverview({
+        projectId: context.projectId,
+        domain: context.project.domain,
+      }),
+      DashboardService.getIntelligenceOverview({
+        projectId: context.projectId,
+        domain: context.project.domain,
+        organizationId: context.organizationId,
+        userId: context.userId,
+      }),
+    ]);
+    return { ...legacy, ...intelligence };
+  });
 
 // Visit-triggered: the client calls this when the overview reports a missing
 // or stale backlink snapshot. Metered against org credits at most once per

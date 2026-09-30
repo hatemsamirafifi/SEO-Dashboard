@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- boundary allowlists grow with the guarded surface */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -51,6 +52,7 @@ const DETECTOR_FILES = [
   "src/server/features/intelligence/detectors/cannibalization.ts",
   "src/server/features/intelligence/detectors/technicalOnImportantPage.ts",
   "src/server/features/intelligence/detectors/backlinkChange.ts",
+  "src/server/features/intelligence/detectors/lostBacklinks.ts",
 ];
 
 const SOURCE_REPOSITORY_IMPORTS = [
@@ -439,5 +441,106 @@ describe("intelligence structural locks", () => {
         `${file} must not contain locked token ${token}`,
       ).toBe(false);
     }
+  });
+});
+
+describe("canonical page identity single-helper (spec 006, G1)", () => {
+  // Every analytical page-identity consumer routes through canonicalUrl from
+  // @/shared/intelligence — the single SEO page identity (G1). GA4 sync
+  // storage keeps the strict path normalizer (storage grain, not identity);
+  // audit crawl keeps its strict canonicalUrlKey (documented P24 exception
+  // for redirect-loop safety). Domain-grain www-folds elsewhere (domain
+  // display, onboarding, provider targets) are a different concern and are
+  // intentionally NOT covered by this guard.
+  const IDENTITY_CONSUMERS = [
+    "src/server/features/intelligence/services/AnalyticsJoinService.ts",
+    "src/server/features/intelligence/detectors/contentDecay.ts",
+    "src/server/features/intelligence/detectors/cannibalization.ts",
+    "src/server/features/intelligence/detectors/technicalOnImportantPage.ts",
+  ];
+  const STRICT_PATH_ALLOWLIST = new Set([
+    // Defines the strict path policy.
+    "src/shared/ga4.ts",
+    // Composes the strict path branch into the analytical identity.
+    "src/shared/intelligence.ts",
+    // GA4 sync storage grain (stored landingPage values, never identity).
+    "src/server/features/ga4/services/ga4SyncNormalize.ts",
+  ]);
+
+  it("all analytical page-identity consumers import the single helper", () => {
+    for (const file of IDENTITY_CONSUMERS) {
+      const content = readSurface(file);
+      expect(
+        /import\s*\{[^}]*\bcanonicalUrl\b[^}]*\}\s*from\s*["']@\/shared\/intelligence["']/.test(
+          content,
+        ),
+        `${file} must import canonicalUrl from @/shared/intelligence`,
+      ).toBe(true);
+    }
+  });
+
+  it("no production file outside the allowlist imports the strict path normalizer", () => {
+    const root = resolve(process.cwd(), "src");
+    const violations: string[] = [];
+    for (const file of sourceFilesRecursive(root)) {
+      const relative = file
+        .replace(resolve(process.cwd()), "")
+        .replace(/\\/g, "/")
+        .replace(/^\//, "");
+      if (
+        relative.endsWith(".test.ts") ||
+        relative.endsWith(".test.tsx") ||
+        STRICT_PATH_ALLOWLIST.has(relative)
+      ) {
+        continue;
+      }
+      const content = readFileSync(file, "utf8");
+      for (const line of content.split("\n")) {
+        if (
+          /from\s*["']/.test(line) &&
+          line.includes("normalizeGa4LandingPage")
+        ) {
+          violations.push(`${relative}: ${line.trim()}`);
+        }
+      }
+    }
+    expect(
+      violations,
+      "strict path normalizer imports outside the allowlist",
+    ).toEqual([]);
+  });
+
+  it("no parallel page canonicalizer is defined anywhere else", () => {
+    const root = resolve(process.cwd(), "src");
+    const violations: string[] = [];
+    for (const file of sourceFilesRecursive(root)) {
+      const relative = file
+        .replace(resolve(process.cwd()), "")
+        .replace(/\\/g, "/")
+        .replace(/^\//, "");
+      if (
+        relative.endsWith(".test.ts") ||
+        relative.endsWith(".test.tsx") ||
+        relative === "src/shared/intelligence.ts"
+      ) {
+        continue;
+      }
+      const content = readFileSync(file, "utf8");
+      for (const line of content.split("\n")) {
+        // Page-identity forks: a second canonicalUrl definition, or any
+        // canonicalPage* page canonicalizer. (Audit's canonicalUrlKey is
+        // intentionally named differently and is the documented exception;
+        // keyword/snapshot canonicalizers — canonicalKeyword,
+        // canonicalKeywordKey, canonicalSerpSnapshot — are different grains
+        // and are unaffected by this pattern.)
+        if (
+          /export\s+(function|const)\s+canonicalUrl\s*[=(<]/.test(line) ||
+          /export\s+(function|const)\s+canonicalPage\w*/.test(line)
+        ) {
+          violations.push(`${relative}: ${line.trim()}`);
+        }
+      }
+    }
+    expect(violations, "parallel page canonicalizer definitions").toEqual([]);
   });
 });
