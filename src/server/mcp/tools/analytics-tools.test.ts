@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   getProjectForOrganization: vi.fn(),
   getOverview: vi.fn(),
   getLandingPages: vi.fn(),
+  getAcquisition: vi.fn(),
+  getEvents: vi.fn(),
+  getConversions: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -24,6 +27,9 @@ vi.mock("@/server/features/ga4/services/AnalyticsService", () => ({
   AnalyticsService: {
     getOverview: mocks.getOverview,
     getLandingPages: mocks.getLandingPages,
+    getAcquisition: mocks.getAcquisition,
+    getEvents: mocks.getEvents,
+    getConversions: mocks.getConversions,
   },
 }));
 
@@ -92,6 +98,9 @@ beforeEach(() => {
   });
   mocks.getOverview.mockReset();
   mocks.getLandingPages.mockReset();
+  mocks.getAcquisition.mockReset();
+  mocks.getEvents.mockReset();
+  mocks.getConversions.mockReset();
 });
 
 describe("analytics MCP tools", () => {
@@ -173,5 +182,115 @@ describe("analytics MCP tools", () => {
     expect(content["connected"]).toBe(true);
     expect(arrayField(content, "rows")).toHaveLength(50);
     expect(content["totalCount"]).toBe(60);
+  });
+
+  it("get_analytics_acquisition delegates to the service and bounds rows", async () => {
+    mocks.getAcquisition.mockResolvedValue({
+      connected: true,
+      propertyId: "properties/1",
+      rows: [
+        {
+          channelGroup: "Organic Search",
+          source: "google",
+          medium: "organic",
+          isOrganic: true,
+          sessions: delta(400, 300),
+        },
+      ],
+    });
+    const { getAnalyticsAcquisitionTool } = await import("./analytics-reads-tools");
+
+    const result = await getAnalyticsAcquisitionTool.handler(
+      { projectId: "project_1" },
+      toolExtra,
+    );
+    expect(structuredRecord(result)["connected"]).toBe(true);
+    expect(mocks.getAcquisition).toHaveBeenCalledWith({
+      projectId: "project_1",
+      organizationId: "org_123",
+      range: "last_28_days",
+    });
+    expect(textOf(result)).toContain("Organic Search");
+  });
+
+  it("get_analytics_acquisition guides to settings when unconnected", async () => {
+    mocks.getAcquisition.mockResolvedValue({ connected: false });
+    const { getAnalyticsAcquisitionTool } = await import("./analytics-reads-tools");
+
+    const result = await getAnalyticsAcquisitionTool.handler(
+      { projectId: "project_1" },
+      toolExtra,
+    );
+    expect(structuredRecord(result)["connected"]).toBe(false);
+    expect(textOf(result)).toContain("not connected");
+  });
+
+  it("get_analytics_events delegates to the service", async () => {
+    mocks.getEvents.mockResolvedValue({
+      connected: true,
+      propertyId: "properties/1",
+      rows: [
+        {
+          eventName: "signup_completed",
+          isKeyEvent: true,
+          eventCount: delta(12, 20),
+        },
+      ],
+    });
+    const { getAnalyticsEventsTool } = await import("./analytics-reads-tools");
+
+    const result = await getAnalyticsEventsTool.handler(
+      { projectId: "project_1", limit: 10 },
+      toolExtra,
+    );
+    expect(structuredRecord(result)["connected"]).toBe(true);
+    expect(mocks.getEvents).toHaveBeenCalledWith({
+      projectId: "project_1",
+      organizationId: "org_123",
+      range: "last_28_days",
+      limit: 10,
+    });
+    expect(textOf(result)).toContain("signup_completed");
+  });
+
+  it("get_analytics_conversions passes goalId through to the service", async () => {
+    mocks.getConversions.mockResolvedValue({
+      connected: true,
+      propertyId: "properties/1",
+      rows: [
+        {
+          eventName: "signup_completed",
+          isKeyEvent: true,
+          eventCount: delta(12, 20),
+        },
+      ],
+    });
+    const { getAnalyticsConversionsTool } = await import("./analytics-reads-tools");
+
+    const result = await getAnalyticsConversionsTool.handler(
+      { projectId: "project_1", goalId: "goal-1" },
+      toolExtra,
+    );
+    expect(structuredRecord(result)["connected"]).toBe(true);
+    expect(mocks.getConversions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "project_1",
+        organizationId: "org_123",
+        goalId: "goal-1",
+      }),
+    );
+    expect(textOf(result)).toContain("signup_completed");
+  });
+
+  it("get_analytics_conversions surfaces invalid-goal failures without fabrication", async () => {
+    mocks.getConversions.mockRejectedValue(new Error("NOT_FOUND"));
+    const { getAnalyticsConversionsTool } = await import("./analytics-reads-tools");
+
+    await expect(
+      getAnalyticsConversionsTool.handler(
+        { projectId: "project_1", goalId: "missing-goal" },
+        toolExtra,
+      ),
+    ).rejects.toThrow("NOT_FOUND");
   });
 });

@@ -1,5 +1,9 @@
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  SERP_FAMILY_LABELS,
+  type SerpFamilyKey,
+} from "@/server/features/serp/featurePresentation";
 import { buildCsv, downloadCsv } from "@/client/lib/csv";
 import { exportTableToSheets } from "@/client/lib/exportToSheets";
 import { captureClientEvent } from "@/client/lib/posthog";
@@ -10,44 +14,62 @@ import type {
   RankTrackingRow,
 } from "@/types/schemas/rank-tracking";
 
-const FEATURE_SHORT_LABELS: Record<string, string> = {
-  featured_snippet: "FS",
-  people_also_ask: "PAA",
-  ai_overview: "AI",
-  local_pack: "Local",
-  knowledge_panel: "KP",
-  video: "Video",
-  images: "Img",
-  shopping: "Shop",
-  top_stories: "News",
-};
-
-const FEATURE_TOOLTIPS: Record<string, string> = {
-  featured_snippet:
-    "Featured Snippet — highlighted answer box at top of results",
-  people_also_ask: "People Also Ask — expandable related questions",
-  ai_overview: "AI Overview — AI-generated summary at top of search",
-  local_pack: "Local Pack — map with local business listings",
-  knowledge_panel: "Knowledge Panel — info box about an entity",
-  video: "Video — video results shown in the SERP",
-  images: "Images — image results shown in the SERP",
-  shopping: "Shopping — product listings with prices",
-  top_stories: "Top Stories — news articles carousel",
-};
+/* Legacy rank-result feature keys → frozen spec-003 families (spec 011,
+ *  S4 vocabulary consolidation). Stored `serpFeatures` string lists predate
+ *  the frozen contract and use provider-style names; this adapter is the
+ *  ONLY place that vocabulary lives. `ai_overview` is not one of the frozen
+ *  ten families and is dropped (AI-overview work belongs to a future spec
+ *  that extends the 003 contract properly). */
+export function normalizeLegacyFeatureKey(key: string): SerpFamilyKey | null {
+  switch (key) {
+    case "featured_snippet":
+    case "featured_result":
+      return "featuredResult";
+    case "people_also_ask":
+      return "peopleAlsoAsk";
+    case "related_searches":
+      return "relatedSearches";
+    case "local_pack":
+      return "localPack";
+    case "images":
+      return "images";
+    case "video":
+    case "videos":
+      return "videos";
+    case "shopping":
+      return "shopping";
+    case "top_stories":
+    case "news":
+      return "news";
+    case "knowledge_panel":
+    case "knowledge_graph":
+      return "knowledgeGraph";
+    case "sitelinks":
+      return "sitelinks";
+    default:
+      return null;
+  }
+}
 
 export function SerpFeatureTags({ features }: { features: string[] }) {
-  const notable = features.filter((f) => f in FEATURE_SHORT_LABELS);
-  if (notable.length === 0) return null;
+  const families = [
+    ...new Set(
+      features.flatMap((f) => {
+        const family = normalizeLegacyFeatureKey(f);
+        return family === null ? [] : [family];
+      }),
+    ),
+  ];
+  if (families.length === 0) return null;
   return (
     <div className="flex gap-1 flex-wrap">
-      {notable.map((f) => (
+      {families.map((family) => (
         <span
-          key={f}
+          key={family}
           className="badge badge-xs gap-0.5 cursor-help bg-base-300 border-0 text-base-content/70"
-          title={FEATURE_TOOLTIPS[f] ?? f}
+          title={`${SERP_FAMILY_LABELS[family]} — SERP feature observed for this keyword`}
         >
-          {f === "ai_overview" && <Sparkles className="size-2.5" />}
-          {FEATURE_SHORT_LABELS[f]}
+          {SERP_FAMILY_LABELS[family]}
         </span>
       ))}
     </div>

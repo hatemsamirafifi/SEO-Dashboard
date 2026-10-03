@@ -27,7 +27,10 @@ export type ImpactFactors = {
   proximity: number | null;
   decline: number | null;
   businessIntent: null;
-  conversionSignal: null;
+  // Spec 010 activates conversionSignal with GA4 goal evidence (first real
+  // value: conversion_drop's goal baseline volume at stake). businessIntent
+  // stays unavailable until keyword-intent evidence ships.
+  conversionSignal: number | null;
 };
 
 export function logScaleVolume(volume: number): number {
@@ -392,6 +395,86 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
         metricNumber(finding.evidence.metrics, "position") ?? 0,
       ),
       decline: null,
+      businessIntent: null,
+      conversionSignal: null,
+    }),
+  },
+  // Spec 010 (C2b): per-goal site-level conversion drops. The goal baseline
+  // volume serves as the reach proxy (trafficPotential) and as the
+  // conversion significance (conversionSignal — first real value for this
+  // factor); weights (30 vs 10) differentiate their influence.
+  conversion_drop: {
+    type: "ga4_conversion",
+    title: (finding) => {
+      const rawName = finding.evidence.metrics.goalName;
+      const name =
+        typeof rawName === "string" && rawName ? rawName : finding.entityKey;
+      const before =
+        metricNumber(finding.evidence.metrics, "conversionsBefore") ?? 0;
+      const after =
+        metricNumber(finding.evidence.metrics, "conversionsAfter") ?? 0;
+      const ratio =
+        metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
+      return (
+        `Conversions for goal "${name}" fell ` +
+        `${Math.abs(ratio * 100).toFixed(1)}% ` +
+        `(${formatInt(before)} → ${formatInt(after)})`
+      );
+    },
+    recommendation: () =>
+      "Review recent site changes, consent-mode updates, and tracking " +
+      "changes for the goal event; confirm the drop in GA4 event reporting " +
+      "before adjusting the goal setup.",
+    keywordOf: () => null,
+    pageOf: () => null,
+    factorsOf: (finding) => {
+      const baseline =
+        metricNumber(finding.evidence.metrics, "conversionsBefore") ?? 0;
+      return {
+        trafficPotential: logScaleVolume(baseline),
+        proximity: null,
+        decline: declineOf(
+          metricNumber(finding.evidence.metrics, "changeRatio") ?? 0,
+        ),
+        businessIntent: null,
+        conversionSignal: logScaleVolume(baseline),
+      };
+    },
+  },
+  // Spec 010 (C2c): per-page engagement-rate drops while rank held.
+  // trafficPotential mirrors the ga4_organic_change sessions convention.
+  engagement_drop: {
+    type: "ga4_engagement",
+    title: (finding) => {
+      const page = finding.entity.page;
+      const before =
+        metricNumber(finding.evidence.metrics, "rateBefore") ?? 0;
+      const after = metricNumber(finding.evidence.metrics, "rateAfter") ?? 0;
+      const ratio =
+        metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
+      return (
+        `Engagement fell ${Math.abs(ratio * 100).toFixed(1)}% on ` +
+        `${typeof page === "string" ? page : finding.entityKey} ` +
+        `(${(before * 100).toFixed(1)}% → ${(after * 100).toFixed(1)}% engaged)`
+      );
+    },
+    recommendation: () =>
+      "Compare the page against its previous version and recent " +
+      "deployments; confirm the engagement change in GA4 and that rank held " +
+      "before treating it as a content issue.",
+    keywordOf: () => null,
+    pageOf: (finding) => {
+      const page = finding.entity.page;
+      return typeof page === "string" ? page : null;
+    },
+    factorsOf: (finding) => ({
+      trafficPotential: logScaleVolume(
+        metricNumber(finding.evidence.metrics, "sessionsAfter") ?? 0,
+      ),
+      proximity: null,
+      decline: declineOf(
+        metricNumber(finding.evidence.metrics, "changeRatio") ?? 0,
+      ),
       businessIntent: null,
       conversionSignal: null,
     }),

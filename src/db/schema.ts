@@ -139,6 +139,7 @@ export const {
   ga4DailyTechnology,
   ga4SyncCoverage,
   ga4Syncs,
+  ga4ProjectGoals,
   intelligenceRuns,
   intelligenceRunDetectors,
   dashboardInsights,

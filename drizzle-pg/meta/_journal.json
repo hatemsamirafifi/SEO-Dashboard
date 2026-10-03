@@ -275,6 +275,13 @@
       "when": 1790637040535,
       "tag": "0038_wakeful_sunspot",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1790809484845,
+      "tag": "0039_slim_master_chief",
+      "breakpoints": true
     }
   ]
 }

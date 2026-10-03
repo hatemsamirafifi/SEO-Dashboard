@@ -22,14 +22,14 @@ import {
 // Engine-backed analytics reads (final-plan §16). Same AnalyticsService as
 // the analytics page server fns — DB-first with coverage states.
 
-const MCP_ROW_LIMIT = 50;
+export const MCP_ROW_LIMIT = 50;
 
-const rangeSchema = z
+export const rangeSchema = z
   .enum(ANALYTICS_RANGES)
   .default("last_28_days")
   .describe("Date range. Defaults to last_28_days.");
 
-const filterShape = {
+export const analyticsMcpFilterShape = {
   channel: z
     .string()
     .min(1)
@@ -43,11 +43,15 @@ const filterShape = {
   country: z.string().min(1).max(100).optional().describe("Country filter."),
 } as const;
 
-type AnalyticsFilters = {
+const filterShape = analyticsMcpFilterShape;
+
+export type AnalyticsMcpFilters = {
   channel?: string;
   device?: "desktop" | "mobile" | "tablet";
   country?: string;
 };
+
+type AnalyticsFilters = AnalyticsMcpFilters;
 
 function deltaLine(label: string, delta: MetricDelta): string {
   const pct =
@@ -55,7 +59,7 @@ function deltaLine(label: string, delta: MetricDelta): string {
   return `${label}: ${delta.current} (was ${delta.previous}, ${pct})`;
 }
 
-function notConnectedText(projectId: string): string {
+export function notConnectedText(projectId: string): string {
   return (
     `Google Analytics is not connected for this project. ` +
     `Connect it from /p/${projectId}/settings, then sync before reading analytics.`

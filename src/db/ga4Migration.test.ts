@@ -145,4 +145,61 @@ describe("GA4 storage migration smoke", () => {
       ),
     ).toBe(true);
   });
+
+  it("applies the project-goals migration to a fresh SQLite database", async () => {
+    if (!client) throw new Error("Test database was not initialized");
+    for (const statement of statementsOf(
+      "drizzle/0061_worthless_dagger.sql",
+    )) {
+      await client.execute(statement);
+    }
+    const created = await tables();
+    expect(created).toContain("ga4_project_goals");
+    const indexes = await client.execute(
+      "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name",
+    );
+    const names = indexes.rows.map((row) => String(row.name));
+    for (const index of [
+      "ga4_goals_project_name_active_uidx",
+      "ga4_goals_project_idx",
+    ]) {
+      expect(names).toContain(index);
+    }
+    const columns = await client.execute(
+      "PRAGMA table_info(ga4_project_goals)",
+    );
+    const columnNames = columns.rows.map((row) => String(row.name));
+    for (const column of [
+      "event_name",
+      "match_key_event_only",
+      "archived_at",
+    ]) {
+      expect(columnNames).toContain(column);
+    }
+  });
+
+  it("registers the project-goals migration in both dialect journals", async () => {
+    const sqliteJournal = JSON.parse(
+      readFileSync(
+        resolve(process.cwd(), "drizzle/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+    const pgJournal = JSON.parse(
+      readFileSync(
+        resolve(process.cwd(), "drizzle-pg/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: Array<{ tag: string }> };
+    expect(
+      sqliteJournal.entries.some((entry) =>
+        entry.tag.includes("0061_worthless_dagger"),
+      ),
+    ).toBe(true);
+    expect(
+      pgJournal.entries.some((entry) =>
+        entry.tag.includes("0039_slim_master_chief"),
+      ),
+    ).toBe(true);
+  });
 });

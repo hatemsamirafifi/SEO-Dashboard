@@ -4,6 +4,7 @@ import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
 import { Ga4Service } from "@/server/features/ga4/services/Ga4Service";
 import { AnalyticsService } from "@/server/features/ga4/services/AnalyticsService";
+import { Ga4GoalService } from "@/server/features/ga4/services/Ga4GoalService";
 import { Ga4SyncService } from "@/server/features/ga4/services/Ga4SyncService";
 import { Ga4SyncRepository } from "@/server/features/ga4/repositories/Ga4SyncRepository";
 import { GA4_GRAINS } from "@/server/features/ga4/services/ga4SyncUtils";
@@ -20,12 +21,16 @@ import {
   analyticsLandingPagesSchema,
   analyticsOverviewSchema,
   analyticsTechnologySchema,
+  archiveGa4GoalSchema,
+  createGa4GoalSchema,
   ga4PeriodUsersSchema,
   ga4ProjectSchema,
   ga4SyncStatusSchema,
+  listGa4GoalsSchema,
   setGa4PropertySchema,
   startGa4LinkSchema,
   triggerGa4SyncSchema,
+  updateGa4GoalSchema,
 } from "@/types/schemas/ga4";
 import {
   requireAuthenticatedContext,
@@ -244,6 +249,7 @@ export const getAnalyticsConversions = createServerFn({ method: "POST" })
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),
+      ...(data.goalId ? { goalId: data.goalId } : {}),
     }),
   );
 export const getAnalyticsEcommerce = createServerFn({ method: "POST" })
@@ -295,3 +301,56 @@ export const getAnalyticsTechnology = createServerFn({ method: "POST" })
       dimension: data.dimension,
     }),
   );
+
+/**
+ * Project-scoped GA4 conversion goals (spec 010, contracts/goals-api.md).
+ * Goals are OpenSEO-owned rows — listing needs no GA4 connection; all
+ * mutations validate project scope via the shared middleware (P39).
+ */
+export const createGa4Goal = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(createGa4GoalSchema)
+  .handler(async ({ data, context }) => ({
+    goal: await Ga4GoalService.createGoal({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      name: data.name,
+      eventName: data.eventName,
+      matchKeyEventOnly: data.matchKeyEventOnly,
+    }),
+  }));
+export const listGa4Goals = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(listGa4GoalsSchema)
+  .handler(async ({ data, context }) => ({
+    goals: await Ga4GoalService.listGoals({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      includeArchived: data.includeArchived,
+    }),
+  }));
+export const updateGa4Goal = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(updateGa4GoalSchema)
+  .handler(async ({ data, context }) => ({
+    goal: await Ga4GoalService.updateGoal({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      id: data.id,
+      ...(data.name !== undefined ? { name: data.name } : {}),
+      ...(data.eventName !== undefined ? { eventName: data.eventName } : {}),
+      ...(data.matchKeyEventOnly !== undefined
+        ? { matchKeyEventOnly: data.matchKeyEventOnly }
+        : {}),
+    }),
+  }));
+export const archiveGa4Goal = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(archiveGa4GoalSchema)
+  .handler(async ({ data, context }) => ({
+    goal: await Ga4GoalService.archiveGoal({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      id: data.id,
+    }),
+  }));

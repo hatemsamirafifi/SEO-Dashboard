@@ -1,26 +1,12 @@
 import { useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
-import { ORGANIC_CHANNEL_GROUP } from "@/shared/ga4";
 import type { AnalyticsRange } from "@/types/schemas/ga4";
-import {
-  getAnalyticsAcquisition,
-  getAnalyticsAudience,
-  getAnalyticsConversions,
-  getAnalyticsEcommerce,
-  getAnalyticsEvents,
-  getAnalyticsLandingPages,
-  getAnalyticsOverview,
-  getGa4Connection,
-  getGa4SyncStatus,
-} from "@/serverFunctions/ga4";
 import { AnalyticsConnectionCard } from "@/client/features/ga4/AnalyticsConnectionCard";
 import { Ga4SyncStatus } from "@/client/features/ga4/Ga4SyncStatus";
 import {
   ALL,
   AnalyticsFilterToolbar,
-  toDeviceParam,
 } from "@/client/features/analytics/AnalyticsFilterToolbar";
 import {
   AcquisitionSection,
@@ -35,110 +21,41 @@ import {
   EventsSection,
 } from "@/client/features/analytics/AnalyticsExtendedSections";
 import { toAnalyticsPageView } from "@/client/features/analytics/analyticsCopy";
-
-function buildFilterInput(
-  range: AnalyticsRange,
-  channel: string,
-  device: string,
-  country: string,
-) {
-  const deviceParam = toDeviceParam(device);
-  return {
-    range,
-    ...(channel.trim() ? { channel: channel.trim() } : {}),
-    ...(deviceParam ? { device: deviceParam } : {}),
-    ...(country.trim() ? { country: country.trim() } : {}),
-  };
-}
+import { GoalsManager } from "@/client/features/analytics/GoalsManager";
+import { useAnalyticsQueries } from "./useAnalyticsQueries";
 
 export function AnalyticsPage({ projectId }: { projectId: string }) {
   const [range, setRange] = useState<AnalyticsRange>("last_28_days");
   const [channel, setChannel] = useState("");
   const [device, setDevice] = useState<string>(ALL);
   const [country, setCountry] = useState("");
+  // Spec 010: goal filter for the conversions view. Empty = all conversions.
+  const [goalId, setGoalId] = useState("");
 
-  const filterInput = buildFilterInput(range, channel, device, country);
-
-  const connectionQuery = useQuery({
-    queryKey: ["ga4Connection", projectId],
-    queryFn: () => getGa4Connection({ data: { projectId } }),
-  });
-  const syncQuery = useQuery({
-    queryKey: ["ga4SyncStatus", projectId],
-    queryFn: () => getGa4SyncStatus({ data: { projectId } }),
-    enabled: connectionQuery.data?.connected === true,
-  });
-
-  const connected = connectionQuery.data?.connected === true;
-  const overviewQuery = useQuery({
-    queryKey: ["analyticsOverview", projectId, filterInput],
-    queryFn: () =>
-      getAnalyticsOverview({ data: { projectId, ...filterInput } }),
-    enabled: connected,
-    placeholderData: keepPreviousData,
-  });
-  const acquisitionQuery = useQuery({
-    queryKey: ["analyticsAcquisition", projectId, filterInput],
-    queryFn: () =>
-      getAnalyticsAcquisition({ data: { projectId, ...filterInput } }),
-    enabled: connected,
-    placeholderData: keepPreviousData,
-  });
-  const organicQuery = useQuery({
-    queryKey: [
-      "analyticsAcquisition",
-      projectId,
-      { ...filterInput, channel: ORGANIC_CHANNEL_GROUP },
-    ],
-    queryFn: () =>
-      getAnalyticsAcquisition({
-        data: {
-          projectId,
-          ...filterInput,
-          channel: ORGANIC_CHANNEL_GROUP,
-        },
-      }),
-    enabled: connected,
-    placeholderData: keepPreviousData,
-  });
-  const landingQuery = useQuery({
-    queryKey: ["analyticsLandingPages", projectId, filterInput],
-    queryFn: () =>
-      getAnalyticsLandingPages({ data: { projectId, ...filterInput } }),
-    enabled: connected,
-    placeholderData: keepPreviousData,
-  });
-  const eventsQuery = useQuery({
-    queryKey: ["analyticsEvents", projectId, filterInput],
-    queryFn: () => getAnalyticsEvents({ data: { projectId, ...filterInput } }),
-    enabled: connected,
-    placeholderData: keepPreviousData,
-  });
-  const conversionsQuery = useQuery({
-    queryKey: ["analyticsConversions", projectId, filterInput],
-    queryFn: () =>
-      getAnalyticsConversions({ data: { projectId, ...filterInput } }),
-    enabled: connected,
-    placeholderData: keepPreviousData,
-  });
-  const ecommerceQuery = useQuery({
-    queryKey: ["analyticsEcommerce", projectId, filterInput],
-    queryFn: () =>
-      getAnalyticsEcommerce({ data: { projectId, ...filterInput } }),
-    enabled: connected,
-    placeholderData: keepPreviousData,
-  });
-  const audienceQuery = useQuery({
-    queryKey: ["analyticsAudience", projectId, filterInput],
-    queryFn: () =>
-      getAnalyticsAudience({ data: { projectId, ...filterInput } }),
-    enabled: connected,
-    placeholderData: keepPreviousData,
+  const {
+    connected,
+    goalsState,
+    connectionQuery,
+    syncQuery,
+    overviewQuery,
+    acquisitionQuery,
+    organicQuery,
+    landingQuery,
+    eventsQuery,
+    conversionsQuery,
+    ecommerceQuery,
+    audienceQuery,
+    isFetching,
+  } = useAnalyticsQueries(projectId, {
+    range,
+    channel,
+    device,
+    country,
+    goalId,
   });
 
   const overview = overviewQuery.data;
-  const view = toAnalyticsPageView({
-    connectionLoading:
+  const view = toAnalyticsPageView({    connectionLoading:
       connectionQuery.isPending ||
       (connectionQuery.data?.connected === true && syncQuery.isPending),
     syncLoading: false,
@@ -160,18 +77,6 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
     coveredThrough:
       overview?.connected === true ? overview.coverage.coveredThrough : null,
   });
-
-  const sectionQueries = [
-    overviewQuery,
-    acquisitionQuery,
-    organicQuery,
-    landingQuery,
-    eventsQuery,
-    conversionsQuery,
-    ecommerceQuery,
-    audienceQuery,
-  ];
-  const isFetching = sectionQueries.some((query) => query.isFetching);
 
   return (
     <div className="overflow-auto px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
@@ -260,6 +165,9 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
                 setDevice={setDevice}
                 country={country}
                 setCountry={setCountry}
+                goalId={goalId}
+                setGoalId={setGoalId}
+                goalsState={goalsState}
                 isFetching={isFetching && !overviewQuery.isPending}
               />
               <div className="space-y-6 p-4">
@@ -365,6 +273,8 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
                     }
                   />
                 </section>
+
+                <GoalsManager projectId={projectId} />
               </div>
             </div>
             <Ga4SyncStatus projectId={projectId} />

@@ -9,6 +9,8 @@ import { fetchTechnicalInput } from "./technicalOnImportantPage";
 import { fetchBacklinkChangeInput } from "./backlinkChange";
 import { fetchLostBacklinksInput } from "./lostBacklinks";
 import { fetchStrikingDistanceInput } from "./strikingDistance";
+import { fetchConversionDropInput } from "./conversionDrop";
+import { fetchEngagementDropInput } from "./engagementDrop";
 
 /**
  * Explicit per-detector input dispatcher (final-plan §4: detectors run over
@@ -44,6 +46,10 @@ export async function fetchDetectorInput(
       return fetchLostBacklinksInput(projectId, ctx);
     case "striking_distance":
       return fetchStrikingDistanceInput(projectId, ctx);
+    case "conversion_drop":
+      return fetchConversionDropInput(projectId, ctx);
+    case "engagement_drop":
+      return fetchEngagementDropInput(projectId, ctx);
     default:
       return null;
   }

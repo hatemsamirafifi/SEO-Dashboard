@@ -4,8 +4,10 @@ import {
   auditIssues,
   backlinkSnapshots,
   ga4Connections,
+  ga4DailyEvents,
   ga4DailyLandingPages,
   ga4DailySummary,
+  ga4ProjectGoals,
   ga4SyncCoverage,
   gscSearchPerformance,
   rankCheckRuns,
@@ -379,4 +381,56 @@ export async function seedBacklinksFresh() {
       capturedAt: daysAgo(5),
     },
   ]);
+}
+
+/**
+ * One active project goal plus flat event rows (spec 010 fixtures).
+ * `dailyCount` applies to every seeded day; pass different counts per half
+ * via `firstHalf`/`secondHalf` to shape drops. Full-URL-free event grain:
+ * joins never apply here (research R5).
+ */
+export async function seedGa4Goal(input: {
+  id?: string;
+  name?: string;
+  eventName?: string;
+  matchKeyEventOnly?: boolean;
+} = {}) {
+  const goal = {
+    id: input.id ?? "goal-1",
+    projectId: "project-1",
+    organizationId: "org-1",
+    name: input.name ?? "Newsletter signup",
+    eventName: input.eventName ?? "signup_completed",
+    matchKeyEventOnly: input.matchKeyEventOnly ?? false,
+  };
+  await db.insert(ga4ProjectGoals).values(goal).onConflictDoNothing();
+  return goal;
+}
+
+/** 56 event days (2025-11-20 + 56) for one event with SUCCESS coverage. */
+export async function seedGa4Events(input: {
+  eventName?: string;
+  firstHalf?: number;
+  secondHalf?: number;
+  isKeyEvent?: boolean;
+} = {}) {
+  await seedGa4Connection();
+  const eventName = input.eventName ?? "signup_completed";
+  const rows = [];
+  for (let i = 0; i < 56; i += 1) {
+    const date = addDays("2025-11-20", i);
+    rows.push({
+      id: `ga4ev-${eventName}-${date}`,
+      projectId: "project-1",
+      propertyId: "properties/123",
+      date,
+      eventName,
+      eventCount: i < 28 ? (input.firstHalf ?? 10) : (input.secondHalf ?? 10),
+      isKeyEvent: input.isKeyEvent ?? false,
+    });
+  }
+  for (let i = 0; i < rows.length; i += 30) {
+    await db.insert(ga4DailyEvents).values(rows.slice(i, i + 30));
+  }
+  await seedGa4Coverage("properties/123", "events", "2025-11-20", 56);
 }

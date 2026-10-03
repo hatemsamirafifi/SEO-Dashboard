@@ -60,6 +60,8 @@ describe("detector registry", () => {
       "backlink_change",
       "cannibalization",
       "content_decay",
+      "conversion_drop",
+      "engagement_drop",
       "ga4_organic_change",
       "lost_backlinks",
       "low_ctr_query",

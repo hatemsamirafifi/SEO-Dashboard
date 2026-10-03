@@ -53,6 +53,13 @@ const DETECTOR_FILES = [
   "src/server/features/intelligence/detectors/technicalOnImportantPage.ts",
   "src/server/features/intelligence/detectors/backlinkChange.ts",
   "src/server/features/intelligence/detectors/lostBacklinks.ts",
+  // Spec 010: shared scan-time pre-fetch helpers for the organic page join
+  // (repository reads only — matching stays inside AnalyticsJoinService).
+  "src/server/features/intelligence/detectors/organicJoin.ts",
+  // Spec 010: GA4-backed detectors (conversion_drop is site-level per goal;
+  // engagement_drop is per canonical page via the join).
+  "src/server/features/intelligence/detectors/conversionDrop.ts",
+  "src/server/features/intelligence/detectors/engagementDrop.ts",
 ];
 
 const SOURCE_REPOSITORY_IMPORTS = [
@@ -457,6 +464,10 @@ describe("canonical page identity single-helper (spec 006, G1)", () => {
     "src/server/features/intelligence/detectors/contentDecay.ts",
     "src/server/features/intelligence/detectors/cannibalization.ts",
     "src/server/features/intelligence/detectors/technicalOnImportantPage.ts",
+    // Spec 010: rank-snapshot canonicalization in the organic-join pre-fetch
+    // helpers. engagementDrop.ts consumes already-canonical join output and
+    // needs no direct import; conversionDrop.ts is site-level (no URLs).
+    "src/server/features/intelligence/detectors/organicJoin.ts",
   ];
   const STRICT_PATH_ALLOWLIST = new Set([
     // Defines the strict path policy.
@@ -542,5 +553,41 @@ describe("canonical page identity single-helper (spec 006, G1)", () => {
       }
     }
     expect(violations, "parallel page canonicalizer definitions").toEqual([]);
+  });
+
+  it("cross-source page joins happen only through AnalyticsJoinService (spec 010, FR-005)", () => {
+    // The pure join is defined once; only detector fetchers may call it
+    // (pre-fetched rows in). A second ad-hoc join implementation anywhere
+    // else is a parallel system (P2).
+    const JOIN_CALLERS = new Set([
+      // Definition site.
+      "src/server/features/intelligence/services/AnalyticsJoinService.ts",
+      // engagement_drop fetcher: builds join inputs from pre-fetched rows.
+      // (conversionDrop.ts is site-level and never joins; organicJoin.ts only
+      // pre-fetches rows and never calls the join itself.)
+      "src/server/features/intelligence/detectors/engagementDrop.ts",
+    ]);
+    const root = resolve(process.cwd(), "src");
+    const violations: string[] = [];
+    for (const file of sourceFilesRecursive(root)) {
+      const relative = file
+        .replace(resolve(process.cwd()), "")
+        .replace(/\\/g, "/")
+        .replace(/^\//, "");
+      if (
+        relative.endsWith(".test.ts") ||
+        relative.endsWith(".test.tsx") ||
+        JOIN_CALLERS.has(relative)
+      ) {
+        continue;
+      }
+      const content = readFileSync(file, "utf8");
+      if (/\bjoinUrlEvidence\s*\(/.test(content)) {
+        violations.push(relative);
+      }
+    }
+    expect(violations, "joinUrlEvidence callers outside the allowlist").toEqual(
+      [],
+    );
   });
 });

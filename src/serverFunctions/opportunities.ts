@@ -21,6 +21,13 @@ export const listOpportunities = createServerFn({ method: "POST" })
       projectId: context.projectId,
       status: data.status,
       type: data.type,
+      page: data.page,
+      keyword: data.keyword,
+      source: data.source,
+      priority: data.priority,
+      statuses: data.statuses,
+      types: data.types,
+      priorities: data.priorities,
     });
     return { opportunities: rows };
   });

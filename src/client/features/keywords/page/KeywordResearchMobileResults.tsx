@@ -63,9 +63,13 @@ export function KeywordResearchMobileResults({ controller }: Props) {
       {mobileTab === "keywords" ? (
         <MobileKeywordResults controller={controller} />
       ) : (
-        <div className="flex-1 overflow-y-auto p-4">
+        <div
+          className="flex-1 overflow-y-auto p-4"
+          data-testid="serp-mobile-tab-panel"
+        >
           <SerpAnalysisCard
             items={controller.serpResults}
+            features={controller.serpFeatures}
             keyword={controller.activeSerpKeyword}
             loading={controller.serpLoading}
             error={controller.serpError}

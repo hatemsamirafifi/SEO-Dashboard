@@ -47,7 +47,7 @@ import { globalServerFunctionMiddleware } from "./middleware";
 type ServerFunction = {
   __executeServer(input: {
     method: "POST";
-    data: Record<string, string>;
+    data: Record<string, string | string[]>;
     context: Record<string, never>;
   }): Promise<unknown>;
 };
@@ -63,7 +63,7 @@ type StartStorage = AsyncLocalStorage<{
 
 async function executeServerFunction(
   serverFunction: ServerFunction,
-  data: Record<string, string>,
+  data: Record<string, string | string[]>,
 ) {
   const storage = (
     globalThis as typeof globalThis & {
@@ -106,6 +106,22 @@ describe("opportunities server-function project authorization", () => {
 
   it.each([
     ["listOpportunities", listOpportunities, { projectId: "other-project" }],
+    [
+      "listOpportunities with all spec-010 filters",
+      listOpportunities,
+      {
+        projectId: "other-project",
+        status: "open",
+        type: "ga4_conversion",
+        page: "https://example.com/guide",
+        keyword: "best shoes",
+        source: "ga4",
+        priority: "High",
+        statuses: ["open", "in_progress"],
+        types: ["ga4_conversion", "decay"],
+        priorities: ["Critical", "High"],
+      },
+    ],
     [
       "getOpportunity",
       getOpportunity,

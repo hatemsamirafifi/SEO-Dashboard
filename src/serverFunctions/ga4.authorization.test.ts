@@ -42,6 +42,17 @@ vi.mock("@/server/features/ga4/services/Ga4SyncService", () => ({
   Ga4SyncService: { runSync: vi.fn() },
 }));
 
+vi.mock("@/server/features/ga4/services/Ga4GoalService", () => ({
+  Ga4GoalService: {
+    createGoal: vi.fn(),
+    listGoals: vi.fn(),
+    getGoal: vi.fn(),
+    updateGoal: vi.fn(),
+    archiveGoal: vi.fn(),
+    getGoalConversions: vi.fn(),
+  },
+}));
+
 vi.mock("@/server/features/ga4/repositories/Ga4SyncRepository", () => ({
   Ga4SyncRepository: {
     getLatestSyncRun: vi.fn(),
@@ -67,6 +78,8 @@ vi.mock("@/server/mcp/public-origin", () => ({
 }));
 
 import {
+  archiveGa4Goal,
+  createGa4Goal,
   disconnectGa4,
   getAnalyticsAcquisition,
   getAnalyticsAudience,
@@ -78,10 +91,12 @@ import {
   getGa4Connection,
   getGa4SyncStatus,
   getPeriodUsers,
+  listGa4Goals,
   listGa4Properties,
   setGa4Property,
   startSelfHostedGa4Link,
   triggerGa4Sync,
+  updateGa4Goal,
 } from "./ga4";
 import { globalServerFunctionMiddleware } from "./middleware";
 
@@ -204,6 +219,26 @@ describe("GA4 server-function project authorization", () => {
       "getAnalyticsAudience",
       getAnalyticsAudience,
       { projectId: "other-project" },
+    ],
+    [
+      "createGa4Goal",
+      createGa4Goal,
+      {
+        projectId: "other-project",
+        name: "Signup",
+        eventName: "signup_completed",
+      },
+    ],
+    ["listGa4Goals", listGa4Goals, { projectId: "other-project" }],
+    [
+      "updateGa4Goal",
+      updateGa4Goal,
+      { projectId: "other-project", id: "goal-1", name: "Renamed" },
+    ],
+    [
+      "archiveGa4Goal",
+      archiveGa4Goal,
+      { projectId: "other-project", id: "goal-1" },
     ],
   ])(
     "rejects wrong-organization access before %s runs",

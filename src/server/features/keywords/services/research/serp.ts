@@ -1,5 +1,7 @@
 import { type SerpLiveItem } from "@/server/lib/dataforseo";
 import type { SerpResultItem } from "@/types/keywords";
+import type { SerpFeatureSet } from "@/server/features/serp/types";
+import { mapLiveItemsToFeatureSet } from "@/server/features/serp/serpLiveNormalization";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { canonicalUrl } from "@/shared/intelligence";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
@@ -14,6 +16,10 @@ type SerpAnalysisReason = "no_organic_results";
 type SerpAnalysisResult = {
   requestedKeyword: string;
   items: SerpResultItem[];
+  /** Normalized SERP features observed in this analysis (spec 011, US1):
+   *  derived from the already-fetched live items — no extra provider call.
+   *  Absent when no feature items were observed (never an empty placeholder). */
+  features?: SerpFeatureSet;
   reason?: SerpAnalysisReason;
 };
 
@@ -70,6 +76,10 @@ async function getSerpLiveAnalysis(
 
   const items = mapOrganicSerpItems(data);
   const result: SerpAnalysisResult = { requestedKeyword: keyword, items };
+  // Normalize observed feature items into the frozen contract (spec 011).
+  // Organic-only filtering below is untouched: features never displace ranks.
+  const features = mapLiveItemsToFeatureSet(data);
+  if (Object.keys(features).length > 0) result.features = features;
   if (items.length === 0) {
     result.reason = "no_organic_results";
     return result;

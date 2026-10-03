@@ -1,7 +1,9 @@
 /* eslint-disable max-lines */
 import { ORGANIC_CHANNEL_GROUP } from "@/shared/ga4";
 import { ANALYTICS_RANGE_DAYS, type AnalyticsRange } from "@/types/schemas/ga4";
+import { AppError } from "@/server/lib/errors";
 import { Ga4ConnectionRepository } from "../repositories/Ga4ConnectionRepository";
+import { Ga4GoalRepository } from "../repositories/Ga4GoalRepository";
 import {
   NEW_USERS_FOOTNOTE,
   Ga4SyncRepository,
@@ -33,6 +35,9 @@ export type AnalyticsFilters = {
   channel?: string;
   device?: string;
   country?: string;
+  // Spec 010: echoed when a goal filter is applied (validates through the
+  // Zod analyticsFilterShape goalId).
+  goalId?: string;
 };
 
 export type AnalyticsWindow = { from: string; to: string };
@@ -137,12 +142,14 @@ function filtersOf(input: {
   channel?: string;
   device?: string;
   country?: string;
+  goalId?: string;
 }): AnalyticsFilters {
   return {
     range: input.range,
     ...(input.channel ? { channel: input.channel } : {}),
     ...(input.device ? { device: input.device } : {}),
     ...(input.country ? { country: input.country } : {}),
+    ...(input.goalId ? { goalId: input.goalId } : {}),
   };
 }
 
@@ -901,7 +908,7 @@ export type AnalyticsConversionsResult =
       windows: AnalyticsWindows;
       coverage: AnalyticsCoverage;
       rows: AnalyticsEventRow[];
-      goalSelectionDeferredNote: string;
+      goalSelectionDeferredNote: string | null;
       reservedFilterNote: string | null;
     };
 
@@ -1022,10 +1029,80 @@ async function getConversions(input: {
   device?: string;
   country?: string;
   limit: number;
+  // Spec 010: when present, conversions scope to this goal's stored event
+  // binding (additive event-count sums, never user sums — P23). Unknown,
+  // archived, or other-project goals fail closed (NOT_FOUND, never silent
+  // empty — P9).
+  goalId?: string;
 }): Promise<AnalyticsConversionsResult> {
-  const result = await getEventRows({ ...input, keyEventsOnly: true });
-  if (!result.connected) return result;
-  return { ...result, goalSelectionDeferredNote: GOAL_SELECTION_DEFERRED_NOTE };
+  if (!input.goalId) {
+    const result = await getEventRows({ ...input, keyEventsOnly: true });
+    if (!result.connected) return result;
+    return {
+      ...result,
+      goalSelectionDeferredNote: GOAL_SELECTION_DEFERRED_NOTE,
+    };
+  }
+  const connection = await requireConnection(
+    input.projectId,
+    input.organizationId,
+  );
+  if (!connection) return { connected: false };
+  const goal = await Ga4GoalRepository.getByIdForProject(
+    input.goalId,
+    input.projectId,
+    input.organizationId,
+  );
+  if (!goal || goal.archivedAt) {
+    throw new AppError(
+      "NOT_FOUND",
+      "Goal not found (unknown, archived, or another project)",
+    );
+  }
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const windows = resolveAnalyticsWindows(input.range, todayIso);
+  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const [current, previous, grainCoverage] = await Promise.all([
+    Ga4SyncRepository.getGoalConversions({
+      projectId: input.projectId,
+      propertyId: connection.propertyId,
+      eventName: goal.eventName,
+      matchKeyEventOnly: goal.matchKeyEventOnly,
+      from: windows.current.from,
+      to: windows.current.to,
+    }),
+    Ga4SyncRepository.getGoalConversions({
+      projectId: input.projectId,
+      propertyId: connection.propertyId,
+      eventName: goal.eventName,
+      matchKeyEventOnly: goal.matchKeyEventOnly,
+      from: windows.previous.from,
+      to: windows.previous.to,
+    }),
+    Ga4SyncRepository.getGrainCoverage(
+      input.projectId,
+      connection.propertyId,
+      "events",
+      windows.current.from,
+      windows.current.to,
+    ),
+  ]);
+  return {
+    connected: true,
+    propertyId: connection.propertyId,
+    filters: filtersOf(input),
+    windows,
+    coverage: toCoverage(grainCoverage, days),
+    rows: [
+      {
+        eventName: goal.eventName,
+        isKeyEvent: current.isKeyEvent,
+        eventCount: deltaOf(current.conversions, previous.conversions),
+      },
+    ],
+    goalSelectionDeferredNote: null,
+    reservedFilterNote: reservedFilterNoteFor(input),
+  };
 }
 
 export type AnalyticsEcommerceResult =
