@@ -10,10 +10,16 @@ import { FileText, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
+  createReportSchedule,
   deleteReport,
   generateReport,
+  listReportSchedules,
   listReports,
+  pauseReportSchedule,
+  resumeReportSchedule,
 } from "@/serverFunctions/reports";
+import { ReportSchedulesPanel } from "./ReportSchedulesPanel";
+import type { ScheduleFormValues } from "./ScheduleEmailModal";
 import type { ReportType } from "@/shared/reports";
 import {
   assertReportType,
@@ -214,6 +220,65 @@ export function ReportsPage({ projectId }: { projectId: string }) {
 
   const rows = listQuery.data?.reports ?? [];
 
+  // Scheduled email delivery (spec 012, US1 — T016): stored schedules only.
+  const schedulesQuery = useQuery({
+    queryKey: ["reportSchedules", projectId],
+    queryFn: () => listReportSchedules({ data: { projectId } }),
+    placeholderData: keepPreviousData,
+  });
+  const invalidateSchedules = () => {
+    void queryClient.invalidateQueries({
+      queryKey: ["reportSchedules", projectId],
+    });
+  };
+  const createMutation = useMutation({
+    mutationFn: (values: ScheduleFormValues) =>
+      createReportSchedule({
+        data: {
+          projectId,
+          type: values.reportType,
+          cadence: values.cadence,
+          recipients: values.recipients
+            .split(",")
+            .map((r) => r.trim())
+            .filter(Boolean),
+        },
+      }),
+    onSuccess: () => {
+      invalidateSchedules();
+      toast.success("Schedule created.");
+    },
+    onError: (error) => {
+      toast.error(getStandardErrorMessage(error, "Failed to create schedule"));
+    },
+  });
+  const pauseMutation = useMutation({
+    mutationFn: (id: string) =>
+      pauseReportSchedule({ data: { projectId, id } }),
+    onSuccess: () => {
+      invalidateSchedules();
+      toast.success("Schedule paused.");
+    },
+    onError: (error) => {
+      toast.error(getStandardErrorMessage(error, "Failed to pause schedule"));
+    },
+  });
+  const resumeMutation = useMutation({
+    mutationFn: (id: string) =>
+      resumeReportSchedule({ data: { projectId, id } }),
+    onSuccess: () => {
+      invalidateSchedules();
+      toast.success("Schedule resumed.");
+    },
+    onError: (error) => {
+      toast.error(getStandardErrorMessage(error, "Failed to resume schedule"));
+    },
+  });
+  const scheduleMutating =
+    createMutation.isPending ||
+    pauseMutation.isPending ||
+    resumeMutation.isPending;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -267,6 +332,25 @@ export function ReportsPage({ projectId }: { projectId: string }) {
         projectId={projectId}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
+      />
+
+      <ReportSchedulesPanel
+        projectId={projectId}
+        schedules={schedulesQuery.data?.schedules ?? []}
+        loading={schedulesQuery.isPending}
+        error={
+          schedulesQuery.isError
+            ? getStandardErrorMessage(
+                schedulesQuery.error,
+                "Failed to load schedules",
+              )
+            : null
+        }
+        onRetry={() => void schedulesQuery.refetch()}
+        onCreate={(values) => createMutation.mutate(values)}
+        onPause={(id) => pauseMutation.mutate(id)}
+        onResume={(id) => resumeMutation.mutate(id)}
+        mutating={scheduleMutating}
       />
     </div>
   );

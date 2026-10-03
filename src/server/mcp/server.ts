@@ -34,6 +34,11 @@ import {
   getAnalyticsOverviewTool,
 } from "@/server/mcp/tools/analytics-tools";
 import {
+  getAnalyticsAcquisitionTool,
+  getAnalyticsConversionsTool,
+  getAnalyticsEventsTool,
+} from "@/server/mcp/tools/analytics-reads-tools";
+import {
   getDashboardInsightsTool,
   getOpportunityTool,
   listOpportunitiesTool,
@@ -322,6 +327,7 @@ export function registerOpenSeoMcpTools(server: McpServer) {
       getAnalyticsLandingPagesTool.handler,
     ),
   );
+  registerAnalyticsReadTools(server);
   server.registerTool(
     generateReportTool.name,
     generateReportTool.config,
@@ -347,6 +353,39 @@ export function registerOpenSeoMcpTools(server: McpServer) {
       getAutopilotRunTool.name,
       getAutopilotRunTool.config.outputSchema,
       getAutopilotRunTool.handler,
+    ),
+  );
+}
+
+// Spec 010 overflow helper: the three analytics read tools register here so
+// registerOpenSeoMcpTools stays under limits. Each registration is still one
+// explicit call per tool (concrete schema types preserved per call site).
+function registerAnalyticsReadTools(server: McpServer) {
+  server.registerTool(
+    getAnalyticsAcquisitionTool.name,
+    getAnalyticsAcquisitionTool.config,
+    instrumentMcpToolHandler(
+      getAnalyticsAcquisitionTool.name,
+      getAnalyticsAcquisitionTool.config.outputSchema,
+      getAnalyticsAcquisitionTool.handler,
+    ),
+  );
+  server.registerTool(
+    getAnalyticsEventsTool.name,
+    getAnalyticsEventsTool.config,
+    instrumentMcpToolHandler(
+      getAnalyticsEventsTool.name,
+      getAnalyticsEventsTool.config.outputSchema,
+      getAnalyticsEventsTool.handler,
+    ),
+  );
+  server.registerTool(
+    getAnalyticsConversionsTool.name,
+    getAnalyticsConversionsTool.config,
+    instrumentMcpToolHandler(
+      getAnalyticsConversionsTool.name,
+      getAnalyticsConversionsTool.config.outputSchema,
+      getAnalyticsConversionsTool.handler,
     ),
   );
 }

@@ -77,6 +77,33 @@ describe("SERP no-raw-parsing boundary (FR-004)", () => {
     expect(missing).toEqual([]);
   });
 
+  it("keeps raw SERP payload modules out of the UI surface (spec 011)", () => {
+    const PAYLOAD_MODULE_PATTERN =
+      /from\s+["']@\/(server\/lib\/dataforseo\/serp["']|server\/lib\/seo-data\/providers[^"']*|server\/features\/serp\/(httpProviders|resolverCore|providerResolver))["']/;
+    const violations: string[] = [];
+    for (const file of walkTsFiles(resolve(process.cwd(), "src/client"))) {
+      const rel = file.slice(process.cwd().length + 1).replaceAll("\\", "/");
+      const content = readFileSync(file, "utf8");
+      if (PAYLOAD_MODULE_PATTERN.test(content)) violations.push(rel);
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it("declares SERP feature labels in exactly one module (spec 011)", () => {
+    // The split-vocabulary pattern (per-surface FEATURE_* label maps) is
+    // banned: labels live in featurePresentation.ts (SERP_FAMILY_LABELS) and
+    // every surface imports them. Rank-tracking chips consolidate in T014.
+    const violations: string[] = [];
+    for (const file of walkTsFiles(resolve(process.cwd(), "src/client"))) {
+      const rel = file.slice(process.cwd().length + 1).replaceAll("\\", "/");
+      const content = readFileSync(file, "utf8");
+      if (/FEATURE_SHORT_LABELS|FEATURE_TOOLTIPS/.test(content)) {
+        violations.push(rel);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
   it("keeps the frozen contract vocabulary free of proprietary metrics (FR-005)", () => {
     const surfaces = [
       resolve(process.cwd(), "src/server/features/serp/types.ts"),

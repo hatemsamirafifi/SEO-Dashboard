@@ -375,6 +375,7 @@ function DesktopSerpPanel({ controller }: Props) {
         <div className="p-4">
           <SerpAnalysisCard
             items={controller.serpResults}
+            features={controller.serpFeatures}
             keyword={controller.activeSerpKeyword}
             loading={controller.serpLoading}
             error={controller.serpError}

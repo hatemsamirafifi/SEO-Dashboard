@@ -21,7 +21,9 @@ export type GlobalTraceFeature =
   | "saved_keywords"
   | "brand_lookup"
   | "prompt_explorer"
-  | "settings";
+  | "settings"
+  // Spec 010: GA4 goals + goal-scoped analytics reads trace here.
+  | "analytics";
 
 export type GlobalTraceStatus =
   | "pending"

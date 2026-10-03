@@ -7,8 +7,10 @@
 
 // Bumped 1 → 2 in PR7: low-CTR, cannibalization, and technical detectors
 // gained explicit stability/importance windows (previously implicit).
-// No production artifacts exist yet, so no migration is required.
-export const THRESHOLD_VERSION = 2;
+// Bumped 2 → 3 in spec 010: conversion_drop (C2b) and engagement_drop (C2c)
+// GA4-backed detectors. No production artifacts exist yet, so no migration
+// is required.
+export const THRESHOLD_VERSION = 3;
 
 import {
   STRIKING_DISTANCE_MAX_POSITION,
@@ -85,6 +87,27 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     minImpressions: 100,
     minPosition: STRIKING_DISTANCE_MIN_POSITION,
     maxPosition: STRIKING_DISTANCE_MAX_POSITION,
+  },
+  // Spec 010 (C2b): goal-scoped conversion drop. The decline prior (0.3)
+  // requires a material windowed drop; the absolute floor (10 conversions in
+  // the current window) keeps 2→0 noise from emitting. research.md R3.
+  conversion_drop: {
+    minWindowDays: 28,
+    minCoverageRatio: 0.8,
+    minEventsPerWindow: 10,
+    declineRatio: 0.3,
+  },
+  // Spec 010 (C2c): engagement-rate drop while ranking holds. The rate is a
+  // ratio-of-sums comparison so window-length differences normalize; the
+  // sessions floor (100/window) keeps thin pages out; rankHoldRequired gates
+  // emission on corroborated non-worsened rank (rank absent → partial-data
+  // emission with capped confidence). research.md R2/R3.
+  engagement_drop: {
+    minWindowDays: 28,
+    minCoverageRatio: 0.8,
+    minSessionsPerWindow: 100,
+    declineRatio: 0.25,
+    rankHoldRequired: true,
   },
 };
 

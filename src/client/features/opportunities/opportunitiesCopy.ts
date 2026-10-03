@@ -22,6 +22,10 @@ export const OPPORTUNITY_TYPES = [
   "technical",
   "backlinks",
   "lost_backlinks",
+  "striking_distance",
+  // Spec 010: GA4-backed detector types.
+  "ga4_conversion",
+  "ga4_engagement",
 ] as const;
 export type OpportunityType = (typeof OPPORTUNITY_TYPES)[number];
 
@@ -53,7 +57,45 @@ export const TYPE_META: Record<OpportunityType, { label: string }> = {
   technical: { label: "Technical" },
   backlinks: { label: "Backlinks" },
   lost_backlinks: { label: "Lost backlinks" },
+  striking_distance: { label: "Striking distance" },
+  ga4_conversion: { label: "Conversion drop" },
+  ga4_engagement: { label: "Engagement drop" },
 };
+
+/** Evidence source vocabulary (DetectionSource union): the fixed option set
+ *  for the server-side source filter. Unknown future values render
+ *  neutrally, never crash. */
+export const OPPORTUNITY_SOURCES = [
+  "gsc",
+  "ga4",
+  "rank",
+  "audit",
+  "backlinks",
+] as const;
+export type OpportunitySource = (typeof OPPORTUNITY_SOURCES)[number];
+
+export const SOURCE_META: Record<OpportunitySource, { label: string }> = {
+  gsc: { label: "Search Console" },
+  ga4: { label: "Analytics" },
+  rank: { label: "Rank tracking" },
+  audit: { label: "Site audit" },
+  backlinks: { label: "Backlinks" },
+};
+
+function isSourceValue(value: string): value is OpportunitySource {
+  return (OPPORTUNITY_SOURCES as readonly string[]).includes(value);
+}
+
+export function sourceLabel(source: string): string {
+  return isSourceValue(source) ? SOURCE_META[source].label : source;
+}
+
+/** Narrow a raw priority select value to a server filter param. Unknown
+ *  values mean unfiltered rather than reaching the validator as garbage
+ *  (AnalyticsFilterToolbar.toDeviceParam precedent). */
+export function toPriorityParam(value: string): OpportunityPriority | undefined {
+  return isPriorityValue(value) ? value : undefined;
+}
 
 export const PRIORITY_META: Record<
   OpportunityPriority,
@@ -166,28 +208,18 @@ export type OpportunityFilterRow = {
 };
 
 export type ClientOpportunityFilters = {
-  types: string[];
-  priorities: string[];
   search: string;
 };
 
-/** Client-side refinements over the server-filtered rows. Empty type or
- *  priority sets mean "all"; search matches keyword, page, title, and key. */
+/** Client-side refinement over the server-filtered rows (spec 010, R4):
+ *  free-text search only — type/priority/page/keyword/source/status all
+ *  filter server-side. Search matches keyword, page, title, and key. */
 export function applyClientFilters<Row extends OpportunityFilterRow>(
   rows: Row[],
   filters: ClientOpportunityFilters,
 ): Row[] {
   const search = filters.search.trim().toLowerCase();
   return rows.filter((row) => {
-    if (filters.types.length > 0 && !filters.types.includes(row.type)) {
-      return false;
-    }
-    if (
-      filters.priorities.length > 0 &&
-      !filters.priorities.includes(row.priority)
-    ) {
-      return false;
-    }
     if (search) {
       const haystack = [row.keyword, row.page, row.title, row.logicalKey]
         .filter((part): part is string => typeof part === "string")
@@ -269,7 +301,37 @@ export function parseEvidenceJson(json: string | null): EvidenceView | null {
     }
     view.partialData = partialData;
   }
+  // Source references (spec 010: ga4Keys joins the existing gsc/rank/audit
+  // refs). String arrays only; malformed refs invalidate the whole view —
+  // corrupt evidence surfaces as an explicit note, never fabricated rows.
+  if ("sourceRefs" in parsed && isRecord(parsed.sourceRefs)) {
+    const refs: NonNullable<EvidenceView["sourceRefs"]> = {};
+    for (const key of ["gscFactIds", "rankSnapshotIds", "auditIssueIds", "ga4Keys"] as const) {
+      if (key in parsed.sourceRefs) {
+        const values = stringArrayValue(parsed.sourceRefs[key]);
+        if (values === null) return null;
+        refs[key] = values;
+      }
+    }
+    if (Object.keys(refs).length > 0) view.sourceRefs = refs;
+  }
   return view;
+}
+
+/** String-array guard for frozen-evidence source refs: plain strings pass,
+ *  numbers stringify (rank snapshot ids), anything else invalidates. */
+function stringArrayValue(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" && typeof entry !== "number") return null;
+    out.push(String(entry));
+  }
+  return out;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 /** Dismissal reason tucked into lifecycle event payloads, if present. */

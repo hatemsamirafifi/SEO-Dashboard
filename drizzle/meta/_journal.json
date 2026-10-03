@@ -429,6 +429,20 @@
       "when": 1790637021431,
       "tag": "0060_harsh_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1790809477483,
+      "tag": "0061_worthless_dagger",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1791036160040,
+      "tag": "0062_dazzling_paper_doll",
+      "breakpoints": true
     }
   ]
 }

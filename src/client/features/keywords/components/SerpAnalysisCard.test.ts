@@ -86,3 +86,38 @@ describe("SerpAnalysisCard competitive row (spec 007)", () => {
     expect(html).not.toContain("Est.traffic");
   });
 });
+
+describe("SerpAnalysisCard SERP features (spec 011, T010/T013)", () => {
+  it("keeps stored organic positions verbatim when feature blocks render", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SerpAnalysisCard, {
+        items: [
+          baseItem({ rank: 1, title: "One" }),
+          baseItem({ rank: 2, title: "Two" }),
+          baseItem({ rank: 3, title: "Three" }),
+        ],
+        features: {
+          peopleAlsoAsk: {
+            items: [{ question: "Q?", url: null, placement: 2 }],
+          },
+        },
+        keyword: "seo tools",
+        loading: false,
+        page: 0,
+        pageSize: 10,
+        onPageChange: () => {},
+      }),
+    );
+    // Stored ranks render in order, unaltered by the PAA block.
+    const positions = [...html.matchAll(/<td[^>]*>(\d+)<\/td>/g)].map((m) => m[1]);
+    expect(positions).toEqual(["1", "2", "3"]);
+    // The observed PAA block renders alongside — never as a numbered row.
+    expect(html).toContain("People Also Ask");
+    expect(html).toContain("Q?");
+  });
+
+  it("renders no feature section when no features were observed", () => {
+    const html = renderCard([baseItem()]);
+    expect(html).not.toContain("serp-feature-block-");
+  });
+});

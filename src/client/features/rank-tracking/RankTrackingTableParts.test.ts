@@ -1,7 +1,12 @@
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DeviceRankCell, DeviceUrlCell } from "./RankTrackingTableParts";
+import {
+  DeviceRankCell,
+  DeviceUrlCell,
+  SerpFeatureTags,
+  normalizeLegacyFeatureKey,
+} from "./RankTrackingTableParts";
 import type { RankTrackingDeviceResult } from "@/types/schemas/rank-tracking";
 
 describe("DeviceRankCell — disambiguating position '-'", () => {
@@ -231,5 +236,45 @@ describe("DeviceUrlCell — URL handling", () => {
     );
     expect(html).toContain("—");
     expect(html).not.toContain("No ranking URL");
+  });
+});
+
+describe("SerpFeatureTags vocabulary consolidation (spec 011, T014)", () => {
+  function renderTags(features: string[]): string {
+    return renderToStaticMarkup(
+      React.createElement(SerpFeatureTags, { features }),
+    );
+  }
+
+  it("maps legacy provider-style keys onto frozen family labels", () => {
+    expect(normalizeLegacyFeatureKey("featured_snippet")).toBe(
+      "featuredResult",
+    );
+    expect(normalizeLegacyFeatureKey("top_stories")).toBe("news");
+    expect(normalizeLegacyFeatureKey("knowledge_panel")).toBe(
+      "knowledgeGraph",
+    );
+    expect(normalizeLegacyFeatureKey("video")).toBe("videos");
+    const html = renderTags([
+      "featured_snippet",
+      "people_also_ask",
+      "local_pack",
+    ]);
+    expect(html).toContain("Featured snippet");
+    expect(html).toContain("People Also Ask");
+    expect(html).toContain("Local pack");
+  });
+
+  it("drops ai_overview and unknown keys instead of rendering them", () => {
+    expect(normalizeLegacyFeatureKey("ai_overview")).toBeNull();
+    expect(normalizeLegacyFeatureKey("weather")).toBeNull();
+    expect(renderTags(["ai_overview"])).toBe("");
+    expect(renderTags(["organic", "bogus"])).toBe("");
+  });
+
+  it("dedupes families mapped from multiple legacy keys", () => {
+    const html = renderTags(["video", "videos"]);
+    // One chip element (the title attribute legitimately repeats the label).
+    expect(html.match(/>Videos</g)?.length ?? 0).toBe(1);
   });
 });

@@ -1306,6 +1306,92 @@ async function getGrainCoverage(
   };
 }
 
+export type Ga4GoalConversionsRead = {
+  /** Additive event-count sum over SUCCESS_*-covered event dates. Users are
+   *  never touched here (P23): goal conversions are event counts only. */
+  conversions: number;
+  /** OR of is_key_event over the covered binding rows (max-parity pattern:
+   *  PG max(boolean) vs SQLite 0/1 — normalized in SQL). */
+  isKeyEvent: boolean;
+  coveredDates: string[];
+  coveredThrough: string | null;
+  /** Any stored event row for this binding in [from, to] at all (covered or
+   *  not) — lets callers distinguish no-data from measured zero (P21). */
+  hasEventRows: boolean;
+};
+
+/** Goal-scoped conversion read (spec 010, research R1): sums `event_count`
+ *  for one event binding over SUCCESS_*-covered event dates. FAILED-coverage
+ *  dates are excluded (failure is never rendered as zero). */
+async function getGoalConversions(input: {
+  projectId: string;
+  propertyId: string;
+  eventName: string;
+  matchKeyEventOnly: boolean;
+  from: string;
+  to: string;
+}): Promise<Ga4GoalConversionsRead> {
+  const eventCountSum = sql<number | null>`sum(${ga4DailyEvents.eventCount})`;
+  // max(case...) keeps SQLite/PG boolean parity (getEventGroups precedent).
+  const keyEventFlag = sql<
+    number | null
+  >`max(case when ${ga4DailyEvents.isKeyEvent} then 1 else 0 end)`;
+  const [sumRow] = await db
+    .select({ conversions: eventCountSum, isKeyEvent: keyEventFlag })
+    .from(ga4DailyEvents)
+    .where(
+      and(
+        eq(ga4DailyEvents.projectId, input.projectId),
+        eq(ga4DailyEvents.propertyId, input.propertyId),
+        eq(ga4DailyEvents.eventName, input.eventName),
+        ...(input.matchKeyEventOnly
+          ? [eq(ga4DailyEvents.isKeyEvent, true)]
+          : []),
+        gte(ga4DailyEvents.date, input.from),
+        lte(ga4DailyEvents.date, input.to),
+        inArray(
+          ga4DailyEvents.date,
+          coveredDatesQuery(
+            input.projectId,
+            input.propertyId,
+            "events",
+            input.from,
+            input.to,
+          ),
+        ),
+      ),
+    );
+  const [presenceRow] = await db
+    .select({ count: sql<number | null>`count(*)` })
+    .from(ga4DailyEvents)
+    .where(
+      and(
+        eq(ga4DailyEvents.projectId, input.projectId),
+        eq(ga4DailyEvents.propertyId, input.propertyId),
+        eq(ga4DailyEvents.eventName, input.eventName),
+        ...(input.matchKeyEventOnly
+          ? [eq(ga4DailyEvents.isKeyEvent, true)]
+          : []),
+        gte(ga4DailyEvents.date, input.from),
+        lte(ga4DailyEvents.date, input.to),
+      ),
+    );
+  const coverage = await getGrainCoverage(
+    input.projectId,
+    input.propertyId,
+    "events",
+    input.from,
+    input.to,
+  );
+  return {
+    conversions: sumRow?.conversions ?? 0,
+    isKeyEvent: (sumRow?.isKeyEvent ?? 0) === 1,
+    coveredDates: coverage.coveredDates,
+    coveredThrough: coverage.coveredThrough,
+    hasEventRows: (presenceRow?.count ?? 0) > 0,
+  };
+}
+
 export const Ga4SyncRepository = {
   getActiveSyncRun,
   getLatestSyncRun,
@@ -1332,4 +1418,5 @@ export const Ga4SyncRepository = {
   getGeoGroups,
   getTechnologyGroups,
   getGrainCoverage,
+  getGoalConversions,
 };

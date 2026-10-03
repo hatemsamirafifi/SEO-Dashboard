@@ -650,21 +650,66 @@ export function toPeriodDelta(
   };
 }
 
-/** Map stored-read outcomes to a section state. Failure inputs (failed sync,
- *  exceptions) map to failure states — never to ready-with-zeros. */
-export function mapStoredSectionState(input: {
+/** Deterministic precedence for the unified dashboard section-state model
+ *  (spec 011, A2). First match wins; failure states always beat
+ *  data-availability states, which always beat `ready` — so failure can
+ *  never surface as zero, empty, or ready. */
+export const SECTION_STATE_PRECEDENCE = [
+  "loading",
+  "not_connected",
+  "permission_failed",
+  "sync_running",
+  "sync_failed",
+  "api_failed",
+  "no_data",
+  "empty",
+  "stale",
+  "partial",
+  "ready",
+] as const satisfies readonly DashboardSectionState[];
+
+/** Stored-read outcome flags for one dashboard section. Extended by spec 011
+ *  (A2): `loading`, `permissionDenied`, `readFailed`, `hasItems`, `stale`
+ *  default so existing callers keep their shape. */
+export type MapStoredSectionStateInput = {
   connected: boolean;
   hasCurrent: boolean;
   hasPrevious: boolean;
   syncRunning: boolean;
   syncFailed: boolean;
-}): DashboardSectionState {
+  /** Section read is in flight — renders the loading skeleton. */
+  loading?: boolean;
+  /** Source denied access (plan gate, revoked grant) — explicit CTA. */
+  permissionDenied?: boolean;
+  /** Stored read threw outside the sync lifecycle — explicit failure. */
+  readFailed?: boolean;
+  /** List sections only: false when the read succeeded with zero items
+   *  (renders `empty`); null/undefined means "not a list section". */
+  hasItems?: boolean | null;
+  /** Current coverage exists but is past the freshness bound. */
+  stale?: boolean;
+};
+
+/** Map stored-read outcomes to a section state. Failure inputs (failed sync,
+ *  exceptions, denied permission) map to failure states — never to
+ *  ready-with-zeros, never to empty. */
+export function mapStoredSectionState(
+  input: MapStoredSectionStateInput,
+): DashboardSectionState {
+  if (input.loading === true) return "loading";
   if (!input.connected) return "not_connected";
-  if (!input.hasCurrent && !input.hasPrevious) {
-    if (input.syncRunning) return "sync_running";
-    if (input.syncFailed) return "sync_failed";
-    return "no_data";
-  }
+  if (input.permissionDenied === true) return "permission_failed";
+  // Sync states surface only when there is no current-window coverage to
+  // show: with current data the section keeps its data state and annotates
+  // via coverage.detail (preserved spec-001 behavior — data is never hidden
+  // behind a sync indicator). Without current coverage they beat no_data so
+  // a running/failed sync is never mistaken for "nothing was ever synced".
+  if (!input.hasCurrent && input.syncRunning) return "sync_running";
+  if (!input.hasCurrent && input.syncFailed) return "sync_failed";
+  if (input.readFailed === true) return "api_failed";
+  if (!input.hasCurrent && !input.hasPrevious) return "no_data";
+  if (input.hasItems === false) return "empty";
+  if (input.stale === true) return "stale";
   if (!input.hasPrevious) return "partial";
   return "ready";
 }

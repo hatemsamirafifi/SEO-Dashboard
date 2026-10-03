@@ -2,15 +2,20 @@ import { createServerFn } from "@tanstack/react-start";
 import { AppError } from "@/server/lib/errors";
 import { ExportService } from "@/server/features/reports/services/ExportService";
 import { ReportService } from "@/server/features/reports/services/ReportService";
+import { ReportScheduleService } from "@/server/features/reports/services/ReportScheduleService";
 import { ShareService } from "@/server/features/reports/services/ShareService";
 import {
+  createReportScheduleSchema,
   createReportShareSchema,
   exportReportSchema,
   generateReportSchema,
+  listReportSchedulesSchema,
   listReportSharesSchema,
   listReportsSchema,
   reportByIdSchema,
+  reportScheduleIdSchema,
   revokeReportShareSchema,
+  updateReportScheduleSchema,
 } from "@/types/schemas/reports";
 import { requireProjectContext } from "./middleware";
 
@@ -131,3 +136,74 @@ export const getExportStatus = createServerFn({ method: "POST" })
       format: data.format,
     }),
   );
+
+// Scheduled email delivery (spec 012, D2b). All five run through the
+// existing requireProjectContext middleware — project scoping is enforced
+// before the service layer (auth matrix in
+// reports.schedules.authorization.test.ts).
+export const createReportSchedule = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(createReportScheduleSchema)
+  .handler(async ({ context, data }) => {
+    const schedule = await ReportScheduleService.createSchedule({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      userId: context.userId,
+      reportType: data.type,
+      cadence: data.cadence,
+      recipients: data.recipients,
+      shareId: data.shareId,
+    });
+    return { schedule };
+  });
+
+export const updateReportSchedule = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(updateReportScheduleSchema)
+  .handler(async ({ context, data }) => {
+    const schedule = await ReportScheduleService.updateSchedule({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      id: data.id,
+      reportType: data.type,
+      cadence: data.cadence,
+      recipients: data.recipients,
+      shareId: data.shareId,
+    });
+    return { schedule };
+  });
+
+export const pauseReportSchedule = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(reportScheduleIdSchema)
+  .handler(async ({ context, data }) => {
+    const schedule = await ReportScheduleService.pauseSchedule({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      id: data.id,
+    });
+    return { schedule };
+  });
+
+export const resumeReportSchedule = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(reportScheduleIdSchema)
+  .handler(async ({ context, data }) => {
+    const schedule = await ReportScheduleService.resumeSchedule({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      id: data.id,
+    });
+    return { schedule };
+  });
+
+export const listReportSchedules = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(listReportSchedulesSchema)
+  .handler(async ({ context }) => {
+    const schedules = await ReportScheduleService.listSchedules({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+    });
+    return { schedules };
+  });

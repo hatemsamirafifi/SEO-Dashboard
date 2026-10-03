@@ -29,6 +29,7 @@ export function useKeywordSerpAnalysis(
   });
 
   const serpResults = serpQuery.data?.items ?? [];
+  const serpFeatures = serpQuery.data?.features ?? null;
   const activeSerpKeyword =
     serpKeyword ?? serpQuery.data?.requestedKeyword ?? null;
   const serpLoading = !!serpKeyword && serpQuery.isLoading;
@@ -44,6 +45,7 @@ export function useKeywordSerpAnalysis(
     SERP_PAGE_SIZE,
     serpQuery,
     serpResults,
+    serpFeatures,
     activeSerpKeyword,
     serpLoading,
     serpError,

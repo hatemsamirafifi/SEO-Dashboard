@@ -481,6 +481,94 @@ describe("materializeFinding", () => {
     });
   });
 
+  describe("conversion_drop lifecycle (spec 010)", () => {
+    function conversionFinding(overrides: Partial<Finding> = {}): Finding {
+      return ctrFinding({
+        detectorKey: "conversion_drop",
+        entityKey: "goal:goal-1",
+        entity: {
+          scope: "goal",
+          goalId: "goal-1",
+          goalName: "Newsletter signup",
+          eventName: "signup_completed",
+          propertyId: "properties/123",
+        },
+        explanationFact:
+          'Conversions for goal "Newsletter signup" fell 70.0% (40 → 12) from 2026-01-04..2026-01-31 to 2026-02-01..2026-02-28.',
+        evidence: {
+          metrics: {
+            goalName: "Newsletter signup",
+            goalId: "goal-1",
+            eventName: "signup_completed",
+            conversionsBefore: 40,
+            conversionsAfter: 12,
+            changeRatio: -0.7,
+            windowDays: 28,
+          },
+          periods: { from: "2026-02-01", to: "2026-02-28" },
+          sources: ["ga4"],
+          sourceRefs: {
+            ga4Keys: [
+              "ga4:properties/123:events:signup_completed:2026-01-04..2026-02-28",
+            ],
+          },
+          thresholdsApplied: {
+            minWindowDays: 28,
+            minEventsPerWindow: 10,
+            declineRatio: 0.3,
+          },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: { coverageCurrent: 1, coveragePrevious: 1 },
+        },
+        confidenceScore: 70,
+        ...overrides,
+      });
+    }
+
+    it("creates with a goal logical key, separate scores, and frozen evidence", async () => {
+      const first = await materializeFinding({
+        finding: conversionFinding(),
+        scanId: "run-1",
+        projectId: "project-1",
+        organizationId: "org-1",
+      });
+      expect(first.outcome).toBe("created");
+      if (first.outcome !== "created") return;
+      const row = await OpportunityRepository.getById(first.id);
+      expect(row?.logicalKey).toBe("conversion_drop:goal:goal-1");
+      expect(row?.type).toBe("ga4_conversion");
+      expect(row?.keyword).toBeNull();
+      expect(row?.page).toBeNull();
+      // Frozen evidence keeps the goal name snapshot.
+      expect(row?.evidenceJson).toContain("Newsletter signup");
+      // Separate impact/confidence columns (P26).
+      expect(row?.impactScore).toBeGreaterThan(0);
+      expect(row?.confidenceScore).toBe(70);
+
+      // Re-scan over identical windows: idempotent, zero duplicates.
+      const repeat = await materializeFinding({
+        finding: conversionFinding(),
+        scanId: "run-2",
+        projectId: "project-1",
+        organizationId: "org-1",
+      });
+      expect(repeat.outcome).toBe("updated");
+      const active =
+        await OpportunityRepository.listActiveByProject("project-1");
+      expect(active).toHaveLength(1);
+      const events = await OpportunityRepository.listEventsByOccurrence(
+        first.id,
+      );
+      // Exactly one detected event: the re-scan records redetected, never a
+      // second detected event for the same logical occurrence.
+      expect(
+        events.filter((event) => event.type === "detected"),
+      ).toHaveLength(1);
+    });
+  });
+
   describe("lost_backlinks lifecycle (spec 008)", () => {
     function lostFinding(overrides: Partial<Finding> = {}): Finding {
       return ctrFinding({

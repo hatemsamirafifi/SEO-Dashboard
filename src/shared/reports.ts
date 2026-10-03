@@ -10,6 +10,41 @@ import { z } from "zod";
 
 export const REPORT_PAYLOAD_VERSION = 1;
 
+/** Scheduled delivery cadences (spec 012, D2b MVP set — weekly/monthly only).
+ *  Daily/quarterly/custom crontab cadences are out of scope. */
+export const REPORT_SCHEDULE_CADENCES = ["weekly", "monthly"] as const;
+export type ReportScheduleCadence = (typeof REPORT_SCHEDULE_CADENCES)[number];
+export const reportScheduleCadenceSchema = z.enum(REPORT_SCHEDULE_CADENCES);
+
+/** Schedule-run ledger states (spec 012, P33). Terminal: delivered,
+ *  partially_delivered, failed, skipped. Non-terminal: claimed, generating,
+ *  delivering. Succeeded runs are never re-entered. */
+export const REPORT_SCHEDULE_RUN_STATES = [
+  "claimed",
+  "generating",
+  "delivering",
+  "delivered",
+  "partially_delivered",
+  "failed",
+  "skipped",
+] as const;
+export type ReportScheduleRunState =
+  (typeof REPORT_SCHEDULE_RUN_STATES)[number];
+export const reportScheduleRunStateSchema = z.enum(REPORT_SCHEDULE_RUN_STATES);
+
+/** Delivery failure classification (spec 012, US3 — gated on 009 = READY). */
+export const REPORT_SCHEDULE_FAILURE_CLASSES = [
+  "generation",
+  "transient_send",
+  "permanent_send",
+  "missing_configuration",
+] as const;
+export type ReportScheduleFailureClass =
+  (typeof REPORT_SCHEDULE_FAILURE_CLASSES)[number];
+export const reportScheduleFailureClassSchema = z.enum(
+  REPORT_SCHEDULE_FAILURE_CLASSES,
+);
+
 export const REPORT_TYPES = [
   "overview",
   "search_performance",
