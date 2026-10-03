@@ -77,7 +77,13 @@ import { ShareService } from "./ShareService";
 
 function sourceState(): DetectionSourceState {
   return {
-    versions: { gsc: null, ga4: null, rank: null, audit: null, backlinks: null },
+    versions: {
+      gsc: null,
+      ga4: null,
+      rank: null,
+      audit: null,
+      backlinks: null,
+    },
     sourceSet: [],
     detectorVersions: {},
     thresholdVersion: 2,
@@ -246,17 +252,14 @@ describe("T009 storage inspection (hash-only persistence)", () => {
   it("finds zero raw tokens across every reports-related table", async () => {
     const { token } = await seedShared();
     if (!database.client) throw new Error("database missing");
-    for (const table of [
-      "report_shares",
-      "report_events",
-      "reports",
-    ]) {
-      const result = await database.client.execute(
-        `SELECT * FROM ${table}`,
-      );
+    for (const table of ["report_shares", "report_events", "reports"]) {
+      const result = await database.client.execute(`SELECT * FROM ${table}`);
       for (const row of result.rows) {
         for (const [column, value] of Object.entries(row)) {
-          const text = String(value ?? "");
+          const text =
+            typeof value === "object" && value !== null
+              ? JSON.stringify(value)
+              : String(value ?? "");
           expect(
             text.includes(token),
             `${table}.${column} contains the raw token`,
@@ -271,18 +274,29 @@ describe("T009 storage inspection (hash-only persistence)", () => {
     expect(Object.keys(stored ?? {})).not.toContain("token");
   });
 
-  it("keeps schedules/token references hash-or-id-only (no schedule table exists)", () => {
-    // Structural lock: no report_schedules table exists at all (P33/G7 —
-    // deferred delivery can never leak tokens it never stores).
-    const schemaFiles = [
-      "src/db/report-sharing.schema.ts",
-      "src/db/pg/report-sharing.schema.ts",
+  it("keeps schedule share references hash-or-id-only (spec 012, D2b)", () => {
+    // Structural lock, flipped by spec 012 (plan §2.4): the schedule tables
+    // exist now, so the lock pins their shape instead of their absence —
+    // schedules reference shares by id only and store no raw-token column
+    // (P32/G7 — delivery can never leak tokens it never stores).
+    for (const file of [
       "src/db/reports.schema.ts",
       "src/db/pg/reports.schema.ts",
-    ];
-    for (const file of schemaFiles) {
+    ]) {
       const content = readFileSync(resolve(process.cwd(), file), "utf8");
-      expect(content.includes("report_schedules")).toBe(false);
+      const region = content.slice(content.indexOf("reportSchedules = "));
+      expect(
+        region.length,
+        `${file} must define the schedule tables`,
+      ).toBeGreaterThan(0);
+      expect(
+        region,
+        `${file} schedule tables must reference share_id`,
+      ).toContain("share_id");
+      expect(
+        /share_token|shareToken/i.test(region),
+        `${file} schedule tables must not store raw share tokens (G7)`,
+      ).toBe(false);
     }
   });
 });

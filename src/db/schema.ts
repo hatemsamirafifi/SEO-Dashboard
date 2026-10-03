@@ -149,6 +149,8 @@ export const {
   reports,
   reportShares,
   reportEvents,
+  reportSchedules,
+  reportScheduleRuns,
   organizationBranding,
   projectClientProfiles,
   autopilotRuns,

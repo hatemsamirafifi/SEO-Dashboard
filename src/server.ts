@@ -10,6 +10,7 @@ import { runScheduledRankChecks } from "@/server/features/rank-tracking/services
 import { runScheduledGscSync } from "@/server/features/gsc/services/scheduledGscSync";
 import { runScheduledGa4Sync } from "@/server/features/ga4/services/scheduledGa4Sync";
 import { runScheduledIntelligenceScan } from "@/server/features/intelligence/services/scheduledIntelligenceScan";
+import { runScheduledReportRuns } from "@/server/features/reports/services/scheduledReportRuns";
 import { getOrCreateOrganizationCustomer } from "@/server/billing/subscription";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getAuthMode, isHostedAuthMode } from "@/lib/auth-mode";
@@ -195,6 +196,7 @@ export default {
       await runScheduledGscSync();
       await runScheduledGa4Sync();
       await runScheduledIntelligenceScan();
+      await runScheduledReportRuns();
     });
   },
 };

@@ -304,6 +304,109 @@ describe("better-auth required indexes (CLI omits them; re-apply after auth:gene
   }
 });
 
+describe("spec 012: scheduled report tables (D2b)", () => {
+  // TDD: fails until T004 adds reportSchedules + reportScheduleRuns to both
+  // dialects. Column/index/unique/FK expectations quote data-model.md §1–2
+  // verbatim so drift fails loudly here AND in the generic suite above.
+  const sqliteByName = tablesFrom(sqliteReports);
+  const pgByName = tablesFrom(pgReports);
+
+  it("defines report_schedules and report_schedule_runs on both backends", () => {
+    for (const name of ["report_schedules", "report_schedule_runs"]) {
+      expect(sqliteByName.get(name), `sqlite missing ${name}`).toBeDefined();
+      expect(pgByName.get(name), `pg missing ${name}`).toBeDefined();
+    }
+  });
+
+  it("matches the spec'd report_schedules columns", () => {
+    const table = sqliteByName.get("report_schedules");
+    expect(table).toBeDefined();
+    if (!table) return;
+    expect(
+      columnsOf(table)
+        .map((c) => c.name)
+        .toSorted(),
+    ).toEqual(
+      [
+        "id",
+        "project_id",
+        "organization_id",
+        "report_type",
+        "cadence",
+        "recipients",
+        "share_id",
+        "active",
+        "paused_at",
+        "next_due_at",
+        "last_run_at",
+        "created_by_user_id",
+        "created_at",
+        "updated_at",
+      ].toSorted(),
+    );
+  });
+
+  it("matches the spec'd report_schedule_runs columns", () => {
+    const table = sqliteByName.get("report_schedule_runs");
+    expect(table).toBeDefined();
+    if (!table) return;
+    expect(
+      columnsOf(table)
+        .map((c) => c.name)
+        .toSorted(),
+    ).toEqual(
+      [
+        "id",
+        "schedule_id",
+        "scheduled_for",
+        "report_id",
+        "state",
+        "failure_class",
+        "skip_reason",
+        "recipient_outcomes",
+        "claimed_at",
+        "completed_at",
+        "created_at",
+        "updated_at",
+      ].toSorted(),
+    );
+  });
+
+  it("enforces UNIQUE(schedule_id, scheduled_for) on both backends (P33)", () => {
+    for (const [dialect, table] of [
+      ["sqlite", sqliteByName.get("report_schedule_runs")],
+      ["pg", pgByName.get("report_schedule_runs")],
+    ] as const) {
+      expect(table, `${dialect} missing report_schedule_runs`).toBeDefined();
+      if (!table) continue;
+      const tuples = uniqueColumnTuples(table, dialect);
+      expect(
+        tuples.some(
+          (t) => t.includes("schedule_id") && t.includes("scheduled_for"),
+        ),
+        `${dialect} tuples: ${tuples.join(" | ")}`,
+      ).toBe(true);
+    }
+  });
+
+  it("cascades schedule and run rows with their project (FK parity)", () => {
+    const schedules = sqliteByName.get("report_schedules");
+    const runs = sqliteByName.get("report_schedule_runs");
+    expect(schedules).toBeDefined();
+    expect(runs).toBeDefined();
+    if (!schedules || !runs) return;
+    expect(foreignKeys(schedules, "sqlite")).toContain(
+      "project_id->projects.id onDelete=cascade",
+    );
+    expect(foreignKeys(runs, "sqlite")).toContain(
+      "schedule_id->report_schedules.id onDelete=cascade",
+    );
+    expect(foreignKeys(runs, "sqlite")).toContain(
+      "report_id->reports.id onDelete=cascade",
+    );
+  });
+});
+
 describe("no direct db.batch (must use runBatch)", () => {
   // `db.batch` only exists on the D1 driver; on Postgres it throws. All atomic
   // multi-statement writes must go through `runBatch`, which is the only file

@@ -282,6 +282,13 @@
       "when": 1790809484845,
       "tag": "0039_slim_master_chief",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791036167338,
+      "tag": "0040_good_praxagora",
+      "breakpoints": true
     }
   ]
 }
