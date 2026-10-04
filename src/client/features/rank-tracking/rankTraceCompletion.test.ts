@@ -451,7 +451,7 @@ describe("buildRankCompletionPatch — DataForSEO deep diagnostics", () => {
     });
   });
 
-  it("4b. DataForSEO task error 40201 maps to DATAFORSEO_ACCOUNT_PAUSED with budgetGuard PASS (not BLOCKED)", () => {
+  it("4b. DataForSEO task error 40201 maps to DATAFORSEO_ACCESS_PAUSED with budgetGuard PASS (not BLOCKED)", () => {
     const message = formatDataforseoTaskErrorMessage(
       40201,
       "We noticed some unusual activity in your DataForSEO account, so we've temporarily paused access",
@@ -464,7 +464,7 @@ describe("buildRankCompletionPatch — DataForSEO deep diagnostics", () => {
 
     expect(patch.status).toBe("failed");
     expect(patch.httpStatus).toBe(200);
-    expect(patch.errorClass).toBe("DATAFORSEO_ACCOUNT_PAUSED");
+    expect(patch.errorClass).toBe("DATAFORSEO_ACCESS_PAUSED");
     expect(patch.budget).not.toBe("BLOCKED");
     expect(patch.blockedReason).toBeUndefined();
     expect(patch.providers?.[0]).toMatchObject({

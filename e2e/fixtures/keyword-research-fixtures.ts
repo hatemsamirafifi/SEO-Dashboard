@@ -1,5 +1,6 @@
-import type { KeywordResearchRow } from "@/types/keywords";
+import type { KeywordResearchRow, SerpResultItem } from "@/types/keywords";
 import type { ResolvedResearchKeywordsInput } from "@/types/schemas/keywords";
+import type { SerpFeatureSet } from "@/server/features/serp/types";
 
 const MONTHLY_SEARCHES = [
   { year: 2025, month: 4, searchVolume: 1200 },
@@ -70,4 +71,69 @@ export function getKeywordResearchFixture(data: ResolvedResearchKeywordsInput) {
       ],
     },
   };
+}
+
+/* Deterministic SERP analysis fixture (spec 011, T017): three organic rows
+ * (row 3 enrichment-failed), a placement-2 PAA block with ten questions, and
+ * a local pack — enough to prove the mobile card view, placement honesty,
+ * and FR-006 degradation without a live provider. */
+function makeSerpItem(
+  rank: number,
+  title: string,
+  overrides: Partial<SerpResultItem> = {},
+): SerpResultItem {
+  return {
+    rank,
+    title,
+    url: `https://fixture.example/${rank}`,
+    domain: "fixture.example",
+    description: `Fixture summary ${["one", "two", "three"][rank - 1]}.`,
+    etv: 900,
+    estimatedPaidTrafficCost: null,
+    referringDomains: 1200,
+    backlinks: 5400,
+    isNew: false,
+    rankChange: null,
+    domainRank: 42,
+    pageRank: 38,
+    metricStatus: "available",
+    ...overrides,
+  };
+}
+
+export function getSerpAnalysisFixture(keyword: string) {
+  const items: SerpResultItem[] = [
+    makeSerpItem(1, "Fixture top result"),
+    makeSerpItem(2, "Fixture second result"),
+    makeSerpItem(3, "Fixture third result", {
+      domainRank: null,
+      pageRank: null,
+      referringDomains: null,
+      backlinks: null,
+      etv: null,
+      metricStatus: "failed",
+    }),
+  ];
+  const features: SerpFeatureSet = {
+    peopleAlsoAsk: {
+      items: Array.from({ length: 10 }, (_, i) => ({
+        question: `Fixture question ${i + 1}?`,
+        url: i === 0 ? "https://fixture.example/q1" : null,
+        placement: 2,
+      })),
+    },
+    localPack: {
+      items: [
+        {
+          title: "Fixture shop",
+          url: "https://fixture.example/shop",
+          domain: "fixture.example",
+          address: "1 Fixture St",
+          rating: 4.5,
+          reviewCount: 120,
+        },
+      ],
+    },
+  };
+  return { requestedKeyword: keyword, items, features };
 }

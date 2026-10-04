@@ -114,3 +114,22 @@ export function coverageBadge(input: {
   }
   return "No coverage";
 }
+
+/** Goal filter select states (spec 010): loading while goals load, ready with
+ *  the active goals, empty when the project has none. A failed goals load
+ *  maps to loading (select stays disabled) - the GoalsManager surfaces the
+ *  error explicitly, so the filter never misleads. */
+export type GoalSelectState =
+  | { kind: "loading" }
+  | { kind: "ready"; goals: Array<{ id: string; name: string }> }
+  | { kind: "empty" };
+
+export function toGoalSelectState(input: {
+  isPending: boolean;
+  isError: boolean;
+  goals: Array<{ id: string; name: string }>;
+}): GoalSelectState {
+  if (input.isPending || input.isError) return { kind: "loading" };
+  if (input.goals.length === 0) return { kind: "empty" };
+  return { kind: "ready", goals: input.goals };
+}

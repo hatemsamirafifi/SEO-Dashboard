@@ -52,7 +52,12 @@ vi.mock("@/server/lib/seo-data", async (importOriginal) => ({
 }));
 
 import { db } from "@/db";
-import { audits, backlinkSnapshots } from "@/db/schema";
+import {
+  audits,
+  backlinkSnapshots,
+  ga4DailyLandingPages,
+  ga4SyncCoverage,
+} from "@/db/schema";
 import { defaultThresholdsFor } from "@/shared/intelligence-thresholds";
 import { runDetectionStage } from "../services/detectionStage";
 import { fetchDetectorInput } from "./inputs";
@@ -64,6 +69,8 @@ import type * as SeoDataModule from "@/server/lib/seo-data";
 import {
   seedAudit,
   seedBacklinksFresh,
+  seedGa4Events,
+  seedGa4Goal,
   seedGa4Landing,
   seedGa4Summary,
   seedPageFacts,
@@ -77,6 +84,8 @@ import { isDecayInput } from "./contentDecay";
 import { isLostBacklinksInput } from "./lostBacklinks";
 import { isTechnicalInput } from "./technicalOnImportantPage";
 import { isStrikingDistanceInput } from "./strikingDistance";
+import { isConversionDropInput } from "./conversionDrop";
+import { isEngagementDropInput } from "./engagementDrop";
 
 function ctxFor(detectorKey: string): DetectorContext {
   return {
@@ -130,6 +139,8 @@ const TABLES = [
   "backlink_snapshots",
   "ga4_daily_summary",
   "ga4_daily_landing_pages",
+  "ga4_daily_events",
+  "ga4_project_goals",
   "ga4_sync_coverage",
   "ga4_connections",
   "projects",
@@ -502,6 +513,11 @@ describe("full-scan integration over seeded sources", () => {
     await seedBacklinksFresh();
     await seedGa4Summary();
     await seedGa4Landing();
+    // Spec 010: one flat goal (no drop) so conversion_drop completes without
+    // emitting; the landing seed carries zero engagement, so engagement_drop
+    // completes without emitting either.
+    await seedGa4Goal();
+    await seedGa4Events();
     // The striking-distance detector needs an in-band query; the shared
     // query seed (8.5) is out of band, so add one 11–20 query day set.
     await insertInBandQueryFacts();
@@ -567,13 +583,18 @@ describe("full-scan integration over seeded sources", () => {
       expect(finding.confidenceScore).toBeGreaterThanOrEqual(40);
     }
     const outcomes = await ScanLedgerRepository.getDetectorOutcomes(run.id);
-    expect(outcomes).toHaveLength(10);
+    expect(outcomes).toHaveLength(12);
     for (const outcome of outcomes) {
       expect(outcome.status).toBe("completed");
     }
     // The lost-backlinks detector ran and completed but correctly emitted
     // nothing: the fixture's single lost referring domain is below the floor.
     expect(byDetector.lost_backlinks).toBeUndefined();
+    // Spec 010: both GA4-backed detectors ran and completed but correctly
+    // emitted nothing — the goal is flat (no conversion drop) and the
+    // landing seed carries zero engagement (no rate to collapse).
+    expect(byDetector.conversion_drop).toBeUndefined();
+    expect(byDetector.engagement_drop).toBeUndefined();
   });
 });
 
@@ -603,3 +624,160 @@ async function insertInBandQueryFacts() {
   }
   await db.insert(gscSearchPerformance).values(rows);
 }
+
+describe("conversion_drop input (spec 010, C2b)", () => {
+  function shortCtx() {
+    return {
+      ...ctxFor("conversion_drop"),
+      thresholds: {
+        ...ctxFor("conversion_drop").thresholds,
+        minWindowDays: 4,
+      },
+    };
+  }
+
+  it("throws without a GA4 connection", async () => {
+    await expect(
+      fetchDetectorInput("conversion_drop", "project-1", shortCtx()),
+    ).rejects.toBeInstanceOf(InsufficientCoverageError);
+  });
+
+  it("throws with no active goals", async () => {
+    await seedGa4Events();
+    await expect(
+      fetchDetectorInput("conversion_drop", "project-1", shortCtx()),
+    ).rejects.toThrow(/no active goals/);
+  });
+
+  it("resolves per-goal windows with echoed thresholds", async () => {
+    await seedGa4Events({ firstHalf: 10, secondHalf: 3 });
+    await seedGa4Goal();
+    const input: unknown = await fetchDetectorInput(
+      "conversion_drop",
+      "project-1",
+      shortCtx(),
+    );
+    if (!isConversionDropInput(input)) {
+      throw new Error("expected conversion-drop input");
+    }
+    expect(input.goals).toHaveLength(1);
+    expect(input.goals[0]).toMatchObject({
+      goalId: "goal-1",
+      goalName: "Newsletter signup",
+      eventName: "signup_completed",
+      propertyId: "properties/123",
+    });
+    // Both 4-day windows anchor at the tail of the seed (second half):
+    // 4 days × 3 conversions.
+    expect(input.goals[0]?.previous.conversions).toBe(12);
+    expect(input.goals[0]?.current.conversions).toBe(12);
+    expect(input.thresholds).toMatchObject({
+      minWindowDays: 4,
+      minEventsPerWindow: 10,
+      declineRatio: 0.3,
+    });
+  });
+});
+
+describe("engagement_drop input (spec 010, C2c)", () => {
+  async function seedEngagedLanding() {
+    await database.client?.execute(
+      `INSERT OR IGNORE INTO ga4_connections (id, project_id, organization_id, property_id, property_display_name, connected_by_user_id, ga4_account_id)
+       VALUES ('ga4-conn-1', 'project-1', 'org-1', 'properties/123', 'Test property', 'user-1', 'accounts/1')`,
+    );
+    const dates = [
+      "2026-03-01",
+      "2026-03-02",
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-07",
+      "2026-03-08",
+    ];
+    await db.insert(ga4DailyLandingPages).values(
+      dates.flatMap((date, index) => [
+        {
+          id: `eng-guide-${date}`,
+          projectId: "project-1",
+          propertyId: "properties/123",
+          date,
+          landingPage: "https://example.com/guide",
+          sessions: 100,
+          engagedSessions: index < 4 ? 80 : 40,
+        },
+      ]),
+    );
+    await db.insert(ga4SyncCoverage).values(
+      dates.map((date) => ({
+        id: `eng-cov-${date}`,
+        projectId: "project-1",
+        propertyId: "properties/123",
+        date,
+        grain: "landing_pages",
+        status: "success_with_data",
+      })),
+    );
+  }
+
+  function shortCtx() {
+    return {
+      ...ctxFor("engagement_drop"),
+      thresholds: {
+        ...ctxFor("engagement_drop").thresholds,
+        minWindowDays: 4,
+        minSessionsPerWindow: 50,
+      },
+    };
+  }
+
+  it("throws without a GA4 connection", async () => {
+    await expect(
+      fetchDetectorInput("engagement_drop", "project-1", shortCtx()),
+    ).rejects.toBeInstanceOf(InsufficientCoverageError);
+  });
+
+  it("resolves joined per-page rows with rank context", async () => {
+    await seedEngagedLanding();
+    await seedRank();
+    const input: unknown = await fetchDetectorInput(
+      "engagement_drop",
+      "project-1",
+      shortCtx(),
+    );
+    if (!isEngagementDropInput(input)) {
+      throw new Error("expected engagement-drop input");
+    }
+    expect(input.rankAvailable).toBe(true);
+    const guide = input.rows.find(
+      (row) => row.page === "https://example.com/guide",
+    );
+    if (!guide) throw new Error("expected the guide row");
+    // Ratio-of-sums: previous 320/400, current 160/400.
+    expect(guide.previousRate).toBeCloseTo(0.8);
+    expect(guide.currentRate).toBeCloseTo(0.4);
+    // Rank fixtures cover shoes/socks only — the guide has no rank rows.
+    expect(guide.rankWorsened).toBeNull();
+    expect(input.thresholds).toMatchObject({
+      minWindowDays: 4,
+      minSessionsPerWindow: 50,
+      declineRatio: 0.25,
+    });
+  });
+
+  it("marks rank-held pages when rank witnesses exist", async () => {
+    await seedEngagedLanding();
+    await seedRank();
+    // The rank seed's shoes URL worsened (8 → 15); socks held (5 → 6 is
+    // also a worsening). Guide has no rank data — covered above.
+    const input: unknown = await fetchDetectorInput(
+      "engagement_drop",
+      "project-1",
+      shortCtx(),
+    );
+    if (!isEngagementDropInput(input)) {
+      throw new Error("expected engagement-drop input");
+    }
+    expect(input.rows.every((row) => typeof row.page === "string")).toBe(true);
+  });
+});

@@ -102,7 +102,9 @@ export function filterOperations(
           op.feature === "search_console" ||
           op.feature === "saved_keywords" ||
           op.feature === "brand_lookup" ||
-          op.feature === "prompt_explorer",
+          op.feature === "prompt_explorer" ||
+          // Spec 010: GA4 analytics reads sit with the other SEO surfaces.
+          op.feature === "analytics",
       );
     case "settings":
       return operations.filter((op) => op.feature === "settings");

@@ -8,9 +8,72 @@ import { describe, expect, it } from "vitest";
  * ledger, artifacts, scheduler, server functions) must never read source
  * tables directly: SourceTokens.ts is the single allowed importer of source
  * repositories, services never touch `env.DB`, and the frozen locks
- * (no rankScore, no causedBy, no finding_samples, no report_schedules) hold
- * across the intelligence surface.
+ * (no rankScore, no causedBy, no finding_samples) hold across the
+ * intelligence surface. Spec 012 (D2b) flipped the fourth lock:
+ * report_schedules/report_schedule_runs exist and are pinned to their
+ * allowed files by the "scheduled reports pinned locations" suite below
+ * (plan §2.4) — non-existence became location-pinning.
  */
+
+/**
+ * Spec 012 (D2b) boundary lock flip — plan §2.4. TDD: FAILS until T006.
+ * `report_schedules` leaves LOCKED_TOKENS and gains a pinned-location guard:
+ * the schedule-table identifiers may be referenced ONLY from the allowlist
+ * below (spec 012 surfaces), and the schema files must actually define both
+ * tables. The remaining three locked tokens stay frozen forever.
+ */
+const SCHEDULE_TABLE_IDENTIFIERS = [
+  "reportSchedules",
+  "reportScheduleRuns",
+  "report_schedules",
+  "report_schedule_runs",
+];
+
+const SCHEDULE_ALLOWED_FILES = [
+  // The guard itself names the identifiers to pin them.
+  "src/server/features/intelligence/intelligence-boundaries.test.ts",
+  // Schemas + migrations (both dialects).
+  "src/db/reports.schema.ts",
+  "src/db/pg/reports.schema.ts",
+  "src/db/schema.ts",
+  "src/db/pg/schema.ts",
+  "src/db/schema-parity.test.ts",
+  "src/db/reportsSchedulesMigration.test.ts",
+  // Reports feature: repository, services, cron pass.
+  "src/server/features/reports/repositories/ReportScheduleRepository.ts",
+  "src/server/features/reports/services/ReportScheduleService.ts",
+  "src/server/features/reports/services/ScheduleRunService.ts",
+  "src/server/features/reports/services/scheduledReportRuns.ts",
+  "src/server/features/reports/services/cadence.ts",
+  "src/server/features/reports/services/scheduledReportEmail.ts",
+  "src/server/features/reports/services/ReportScheduleService.test.ts",
+  "src/server/features/reports/services/ScheduleRunService.test.ts",
+  "src/server/features/reports/services/scheduledReportRuns.test.ts",
+  "src/server/features/reports/services/cadence.test.ts",
+  "src/server/features/reports/services/scheduledReportEmail.test.ts",
+  // Trust boundary + shared vocabulary.
+  // shareTrustBoundary.test.ts keeps the G7 half of the old lock (its
+  // "no schedule table exists" assertion flips in T006 alongside this one).
+  "src/server/features/reports/services/shareTrustBoundary.test.ts",
+  "src/serverFunctions/reports.ts",
+  "src/serverFunctions/reports.schedules.authorization.test.ts",
+  "src/types/schemas/reports.ts",
+  "src/shared/reports.ts",
+  // Management UI.
+  "src/client/features/reports/ReportSchedulesPanel.tsx",
+  "src/client/features/reports/ScheduleEmailModal.tsx",
+  "src/client/features/reports/ReportsPage.tsx",
+  // Spec + contracts (documentation references are expected).
+  "specs/012-scheduled-reports/spec.md",
+  "specs/012-scheduled-reports/plan.md",
+  "specs/012-scheduled-reports/research.md",
+  "specs/012-scheduled-reports/data-model.md",
+  "specs/012-scheduled-reports/quickstart.md",
+  "specs/012-scheduled-reports/tasks.md",
+  "specs/012-scheduled-reports/contracts/schedules-api.md",
+  "specs/012-scheduled-reports/contracts/schedule-runs.md",
+  "specs/012-scheduled-reports/contracts/boundary-lock.md",
+];
 
 const STAGE_ONE_FILES = [
   "src/server/features/intelligence/services/FindingService.ts",
@@ -53,6 +116,13 @@ const DETECTOR_FILES = [
   "src/server/features/intelligence/detectors/technicalOnImportantPage.ts",
   "src/server/features/intelligence/detectors/backlinkChange.ts",
   "src/server/features/intelligence/detectors/lostBacklinks.ts",
+  // Spec 010: shared scan-time pre-fetch helpers for the organic page join
+  // (repository reads only — matching stays inside AnalyticsJoinService).
+  "src/server/features/intelligence/detectors/organicJoin.ts",
+  // Spec 010: GA4-backed detectors (conversion_drop is site-level per goal;
+  // engagement_drop is per canonical page via the join).
+  "src/server/features/intelligence/detectors/conversionDrop.ts",
+  "src/server/features/intelligence/detectors/engagementDrop.ts",
 ];
 
 const SOURCE_REPOSITORY_IMPORTS = [
@@ -64,12 +134,10 @@ const SOURCE_REPOSITORY_IMPORTS = [
   /ga4Syncs|gscSearchPerformanceSyncs|rankCheckRuns|rankSnapshots|rankTrackingConfigs|backlinkSnapshots/,
 ];
 
-const LOCKED_TOKENS = [
-  "rankScore",
-  "causedBy",
-  "finding_samples",
-  "report_schedules",
-];
+// Spec 012 (D2b, plan §2.4) removed "report_schedules" from this list: the
+// tables exist now and are pinned to their allowed files by the dedicated
+// suite below. The remaining three tokens stay frozen forever.
+const LOCKED_TOKENS = ["rankScore", "causedBy", "finding_samples"];
 
 function readSurface(file: string): string {
   return readFileSync(resolve(process.cwd(), file), "utf8");
@@ -444,6 +512,77 @@ describe("intelligence structural locks", () => {
   });
 });
 
+describe("scheduled reports pinned locations (spec 012, D2b — plan §2.4)", () => {
+  function walk(dir: string): string[] {
+    const out: string[] = [];
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return out;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name === ".git") continue;
+        out.push(...walk(full));
+      } else if (/\.(ts|tsx|md|sql|jsonc?)$/.test(entry.name)) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  it("no longer bans report_schedules as a locked token", () => {
+    expect(
+      LOCKED_TOKENS,
+      "T006 must remove report_schedules from LOCKED_TOKENS (other three stay)",
+    ).not.toContain("report_schedules");
+    expect(LOCKED_TOKENS.toSorted()).toEqual(
+      ["causedBy", "finding_samples", "rankScore"].toSorted(),
+    );
+  });
+
+  it("defines both schedule tables in the D1 + PG report schemas", () => {
+    for (const file of [
+      "src/db/reports.schema.ts",
+      "src/db/pg/reports.schema.ts",
+    ]) {
+      const content = readSurface(file);
+      expect(content, `${file} must define reportSchedules`).toContain(
+        "reportSchedules",
+      );
+      expect(content, `${file} must define reportScheduleRuns`).toContain(
+        "reportScheduleRuns",
+      );
+    }
+  });
+
+  it("references schedule-table identifiers only from allowed files", () => {
+    const offenders: string[] = [];
+    for (const file of walk("src")) {
+      const content = readFileSync(file, "utf8");
+      if (SCHEDULE_TABLE_IDENTIFIERS.some((token) => content.includes(token))) {
+        const rel = file.replaceAll("\\", "/");
+        if (!SCHEDULE_ALLOWED_FILES.includes(rel)) offenders.push(rel);
+      }
+    }
+    // Spec + contract docs reference the identifiers by design.
+    for (const file of walk("specs/012-scheduled-reports")) {
+      const rel = file.replaceAll("\\", "/");
+      if (
+        SCHEDULE_TABLE_IDENTIFIERS.some((token) =>
+          readFileSync(file, "utf8").includes(token),
+        ) &&
+        !SCHEDULE_ALLOWED_FILES.includes(rel)
+      ) {
+        offenders.push(rel);
+      }
+    }
+    expect(offenders).toEqual([]);
+  }, 30000);
+});
+
 describe("canonical page identity single-helper (spec 006, G1)", () => {
   // Every analytical page-identity consumer routes through canonicalUrl from
   // @/shared/intelligence — the single SEO page identity (G1). GA4 sync
@@ -457,6 +596,10 @@ describe("canonical page identity single-helper (spec 006, G1)", () => {
     "src/server/features/intelligence/detectors/contentDecay.ts",
     "src/server/features/intelligence/detectors/cannibalization.ts",
     "src/server/features/intelligence/detectors/technicalOnImportantPage.ts",
+    // Spec 010: rank-snapshot canonicalization in the organic-join pre-fetch
+    // helpers. engagementDrop.ts consumes already-canonical join output and
+    // needs no direct import; conversionDrop.ts is site-level (no URLs).
+    "src/server/features/intelligence/detectors/organicJoin.ts",
   ];
   const STRICT_PATH_ALLOWLIST = new Set([
     // Defines the strict path policy.
@@ -542,5 +685,41 @@ describe("canonical page identity single-helper (spec 006, G1)", () => {
       }
     }
     expect(violations, "parallel page canonicalizer definitions").toEqual([]);
+  });
+
+  it("cross-source page joins happen only through AnalyticsJoinService (spec 010, FR-005)", () => {
+    // The pure join is defined once; only detector fetchers may call it
+    // (pre-fetched rows in). A second ad-hoc join implementation anywhere
+    // else is a parallel system (P2).
+    const JOIN_CALLERS = new Set([
+      // Definition site.
+      "src/server/features/intelligence/services/AnalyticsJoinService.ts",
+      // engagement_drop fetcher: builds join inputs from pre-fetched rows.
+      // (conversionDrop.ts is site-level and never joins; organicJoin.ts only
+      // pre-fetches rows and never calls the join itself.)
+      "src/server/features/intelligence/detectors/engagementDrop.ts",
+    ]);
+    const root = resolve(process.cwd(), "src");
+    const violations: string[] = [];
+    for (const file of sourceFilesRecursive(root)) {
+      const relative = file
+        .replace(resolve(process.cwd()), "")
+        .replace(/\\/g, "/")
+        .replace(/^\//, "");
+      if (
+        relative.endsWith(".test.ts") ||
+        relative.endsWith(".test.tsx") ||
+        JOIN_CALLERS.has(relative)
+      ) {
+        continue;
+      }
+      const content = readFileSync(file, "utf8");
+      if (/\bjoinUrlEvidence\s*\(/.test(content)) {
+        violations.push(relative);
+      }
+    }
+    expect(violations, "joinUrlEvidence callers outside the allowlist").toEqual(
+      [],
+    );
   });
 });

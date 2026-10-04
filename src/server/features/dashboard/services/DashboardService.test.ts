@@ -1,4 +1,6 @@
 /* eslint-disable max-lines */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardService } from "./DashboardService";
 
@@ -27,6 +29,8 @@ const overviewMocks = vi.hoisted(() => ({
   ga4LatestSync: vi.fn(),
   listOpportunities: vi.fn(),
   getDashboardInsights: vi.fn(),
+  listGoals: vi.fn(),
+  getGoalConversions: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -93,6 +97,12 @@ vi.mock("@/server/features/intelligence/services/OpportunityService", () => ({
 }));
 vi.mock("@/server/features/intelligence/services/InsightService", () => ({
   getDashboardInsights: overviewMocks.getDashboardInsights,
+}));
+vi.mock("@/server/features/ga4/services/Ga4GoalService", () => ({
+  Ga4GoalService: {
+    listGoals: overviewMocks.listGoals,
+    getGoalConversions: overviewMocks.getGoalConversions,
+  },
 }));
 
 const billingCustomer = {
@@ -448,6 +458,9 @@ function seedHappyPath() {
     { status: "in_progress", priority: "Medium" },
     { status: "completed", priority: "Critical" },
   ]);
+  // No project goals by default: the conversions section lists key events.
+  // Goal-specific tests override listGoals per case (spec 011, T020).
+  overviewMocks.listGoals.mockResolvedValue([]);
   overviewMocks.getDashboardInsights.mockResolvedValue({
     insights: [
       {
@@ -663,7 +676,9 @@ describe("DashboardService.getOverview intelligence sections", () => {
 
     expect(overview.sections.seoPerformance.state).toBe("not_connected");
     expect(overview.sections.trafficEngagement.state).toBe("not_connected");
-    expect(overview.sections.searchVisibility.state).toBe("empty");
+    // Unconfigured rank tracking is no_data under the unified model (spec
+    // 011, A2) — setup guidance rides in the section detail, not the state.
+    expect(overview.sections.searchVisibility.state).toBe("no_data");
     expect(overview.sections.technicalHealth.state).toBe("no_data");
     expect(overview.sections.backlinks.state).toBe("no_data");
     expect(overview.sections.recentChanges.state).toBe("empty");
@@ -691,4 +706,203 @@ describe("DashboardService.getOverview intelligence sections", () => {
     expect(overview.audit?.status).toBe("completed");
     expect(overview.backlinks?.domain).toBe("acme.com");
   });
+});
+
+describe("DashboardService unified section states (spec 011)", () => {
+  beforeEach(() => {
+    for (const mock of Object.values(mocks)) mock.mockReset();
+    for (const mock of Object.values(overviewMocks)) mock.mockReset();
+    seedHappyPath();
+  });
+
+  it("reports every section's metrics equal to the stored rollup values (spec 011, SC-004)", async () => {
+    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+
+    // Search visibility derives from the stored rank snapshot: desktop
+    // position 2 (top3/top10/top100), mobile 12 (top100); desktop improved
+    // 5→2, mobile declined 10→12.
+    expect(overview.sections.searchVisibility.metrics).toEqual({
+      top3: { current: 1, previous: null, change: null, changePct: null },
+      top10: { current: 1, previous: null, change: null, changePct: null },
+      top100: { current: 2, previous: null, change: null, changePct: null },
+      improved: 1,
+      declined: 1,
+      trackedKeywords: 1,
+    });
+    // Technical health mirrors the stored audit summary.
+    expect(overview.sections.technicalHealth.metrics).toMatchObject({
+      status: "completed",
+      pagesCrawled: 10,
+    });
+    // Backlinks mirror the stored snapshot row (never recomputed here).
+    expect(overview.sections.backlinks.metrics).toMatchObject({
+      backlinks: 1000,
+      referringDomains: 500,
+      newBacklinks: 10,
+      lostBacklinks: 3,
+      newReferringDomains: 4,
+      lostReferringDomains: 1,
+    });
+    // SEO performance mirrors the stored GSC totals for the same window.
+    expect(overview.sections.seoPerformance.metrics?.clicks.current).toBe(100);
+    expect(
+      overview.sections.seoPerformance.metrics?.impressions.current,
+    ).toBe(1000);
+  });
+
+  it("lists project goal conversions by stored goal name when goals exist (spec 011, T020)", async () => {
+    overviewMocks.listGoals.mockResolvedValue([
+      {
+        id: "goal_1",
+        name: "Newsletter signup",
+        eventName: "sign_up",
+        matchKeyEventOnly: false,
+      },
+    ]);
+    // Window reads are issued current-then-previous per goal.
+    let goalCalls = 0;
+    overviewMocks.getGoalConversions.mockImplementation(() => {
+      goalCalls += 1;
+      return Promise.resolve({ conversions: goalCalls === 1 ? 7 : 5 });
+    });
+
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
+
+    expect(overview.sections.conversions.state).toBe("ready");
+    expect(overview.sections.conversions.metrics?.keyEvents).toEqual([
+      {
+        name: "Newsletter signup",
+        count: { current: 7, previous: 5, change: 2, changePct: 40 },
+      },
+    ]);
+  });
+
+  it("falls back to key events when every goal read fails (spec 011, T020)", async () => {
+    overviewMocks.listGoals.mockResolvedValue([
+      {
+        id: "goal_1",
+        name: "Newsletter signup",
+        eventName: "sign_up",
+        matchKeyEventOnly: false,
+      },
+    ]);
+    overviewMocks.getGoalConversions.mockRejectedValue(
+      new Error("goal archived mid-read"),
+    );
+
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
+
+    // A goal read failure degrades to the key-event list — never to a failed
+    // section or zeroed conversions.
+    expect(overview.sections.conversions.state).toBe("ready");
+    expect(
+      overview.sections.conversions.metrics?.keyEvents[0]?.name,
+    ).toBe("purchase");
+  });
+
+  it("resolves every section through the unified state mapper (spec 011, T024)", async () => {
+    // GSC: an active sync alongside current coverage keeps the data state
+    // and annotates via coverage.detail (preserved spec-001 behavior).
+    overviewMocks.gscActiveSync.mockResolvedValue({ id: "sync_1" });
+    const withSync =
+      await DashboardService.getIntelligenceOverview(overviewInput);
+    expect(withSync.sections.seoPerformance.state).toBe("ready");
+    expect(withSync.sections.seoPerformance.coverage.detail).toMatch(
+      /sync is running/i,
+    );
+    expect(withSync.sections.seoPerformance.metrics?.clicks.current).toBe(100);
+    overviewMocks.gscActiveSync.mockResolvedValue(null);
+
+    // Conversions: zero-row success is no_data, never failure, never zero.
+    overviewMocks.ga4Conversions.mockResolvedValue({
+      connected: true,
+      coverage: {
+        status: "none",
+        coveredDates: 0,
+        totalDates: 28,
+        coveredThrough: null,
+      },
+      rows: [],
+    });
+    const noConv =
+      await DashboardService.getIntelligenceOverview(overviewInput);
+    expect(noConv.sections.conversions.state).toBe("no_data");
+    expect(noConv.sections.conversions.metrics).toBeNull();
+  });
+
+  it("derives searchVisibility from configuration and item presence (spec 011, T024)", async () => {
+    // No rank tracking configured: nothing has ever synced → no_data with
+    // setup guidance (unified model; was "empty" before the A2 pass).
+    overviewMocks.getConfigsForProject.mockResolvedValue([]);
+    const unconfigured =
+      await DashboardService.getIntelligenceOverview(overviewInput);
+    expect(unconfigured.sections.searchVisibility.state).toBe("no_data");
+
+    // Configured but zero keywords ranked in the latest check → empty.
+    overviewMocks.getConfigsForProject.mockResolvedValue([{ id: "cfg_1" }]);
+    overviewMocks.getLatestResults.mockResolvedValue({
+      run: { lastCheckedAt: "2026-09-28T00:00:00.000Z" },
+      rows: [],
+    });
+    const zeroRanked =
+      await DashboardService.getIntelligenceOverview(overviewInput);
+    expect(zeroRanked.sections.searchVisibility.state).toBe("empty");
+  });
+
+  it("derives opportunities empty for zero open items (spec 011, T024)", async () => {
+    overviewMocks.listOpportunities.mockResolvedValue([]);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
+    // Zero is a real zero: metrics stay populated, state is honestly empty.
+    expect(overview.sections.opportunities.state).toBe("empty");
+    expect(overview.sections.opportunities.metrics).toEqual({
+      critical: 0,
+      high: 0,
+      medium: 0,
+      openTotal: 0,
+    });
+  });
+
+  it("derives technicalHealth sync states from the audit lifecycle (spec 011, T024)", async () => {
+    overviewMocks.getLatestAuditForProject.mockResolvedValue({
+      status: "running",
+      pagesCrawled: 0,
+      startedAt: new Date().toISOString(),
+    });
+    const running =
+      await DashboardService.getIntelligenceOverview(overviewInput);
+    expect(running.sections.technicalHealth.state).toBe("sync_running");
+    expect(running.sections.technicalHealth.metrics).toBeNull();
+
+    overviewMocks.getLatestAuditForProject.mockResolvedValue({
+      status: "failed",
+      pagesCrawled: 0,
+      startedAt: new Date().toISOString(),
+    });
+    const failed =
+      await DashboardService.getIntelligenceOverview(overviewInput);
+    expect(failed.sections.technicalHealth.state).toBe("sync_failed");
+    expect(failed.sections.technicalHealth.metrics).toBeNull();
+  });
+
+  it("routes every section state through mapStoredSectionState (spec 011, T025)", async () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/server/features/dashboard/services/DashboardService.ts",
+      ),
+      "utf8",
+    );
+    // No hand-rolled `state: "<literal>"` derivations may remain: every
+    // section resolves via the mapper call or the safeSection api_failed
+    // backstop. Type annotations (`state: DashboardSectionState`) and the
+    // `state,` shorthand in returns are allowed — only quoted literals count.
+    const literals = [...source.matchAll(/^\s*state:\s*"([a-z_]+)"/gm)].map(
+      (m) => m[1],
+    );
+    expect(literals).toEqual([]);
+  });
+
 });

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { opportunities, opportunityEvents } from "@/db/schema";
 
@@ -80,14 +80,62 @@ async function listActiveByProject(
     .orderBy(opportunities.logicalKey);
 }
 
+export type OpportunityListFilters = {
+  status?: OpportunityStatus;
+  type?: string;
+  // Spec 010 (contracts/opportunities-filters.md): composable dimensions.
+  // Single values narrow; arrays are OR-within-dimension (empty = all);
+  // every dimension AND-composes with the others. `source` matches
+  // opportunities whose stored sources array contains the value exactly.
+  page?: string;
+  keyword?: string;
+  source?: string;
+  priority?: string;
+  statuses?: OpportunityStatus[];
+  types?: string[];
+  priorities?: string[];
+};
+
+/** Escape LIKE wildcards in a filter value (KeywordResearchRepository precedent). */
+function escapeLike(value: string) {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 async function listByProject(
   projectId: string,
-  filters?: { status?: OpportunityStatus; type?: string },
+  filters?: OpportunityListFilters,
 ): Promise<OpportunityRow[]> {
   const conditions = [eq(opportunities.projectId, projectId)];
-  if (filters?.status)
-    conditions.push(eq(opportunities.status, filters.status));
-  if (filters?.type) conditions.push(eq(opportunities.type, filters.type));
+  const statusValues = [
+    ...(filters?.status ? [filters.status] : []),
+    ...(filters?.statuses ?? []),
+  ];
+  if (statusValues.length > 0) {
+    conditions.push(inArray(opportunities.status, statusValues));
+  }
+  const typeValues = [
+    ...(filters?.type ? [filters.type] : []),
+    ...(filters?.types ?? []),
+  ];
+  if (typeValues.length > 0) {
+    conditions.push(inArray(opportunities.type, typeValues));
+  }
+  if (filters?.page) conditions.push(eq(opportunities.page, filters.page));
+  if (filters?.keyword)
+    conditions.push(eq(opportunities.keyword, filters.keyword));
+  if (filters?.priority)
+    conditions.push(eq(opportunities.priority, filters.priority));
+  if (filters?.priorities && filters.priorities.length > 0) {
+    conditions.push(inArray(opportunities.priority, filters.priorities));
+  }
+  if (filters?.source) {
+    // Exact array-element match over the JSON-encoded sources column, valid
+    // on both dialects: serialized elements are always double-quoted, so a
+    // quote-wrapped LIKE matches whole elements only, never substrings.
+    conditions.push(
+      sql`${opportunities.sourcesJson} like ${`%"${escapeLike(filters.source)}"%`} escape '\\'`,
+    );
+  }
   return db
     .select()
     .from(opportunities)

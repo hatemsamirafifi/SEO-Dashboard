@@ -31,6 +31,13 @@ export function toDeviceParam(value: string): AnalyticsDeviceParam {
   return undefined;
 }
 
+export type AnalyticsGoalOption = { id: string; name: string };
+
+export type AnalyticsGoalsState =
+  | { kind: "loading" }
+  | { kind: "ready"; goals: AnalyticsGoalOption[] }
+  | { kind: "empty" };
+
 export function AnalyticsFilterToolbar({
   range,
   setRange,
@@ -40,6 +47,9 @@ export function AnalyticsFilterToolbar({
   setDevice,
   country,
   setCountry,
+  goalId,
+  setGoalId,
+  goalsState,
   isFetching,
 }: {
   range: AnalyticsRange;
@@ -50,6 +60,13 @@ export function AnalyticsFilterToolbar({
   setDevice: (d: string) => void;
   country: string;
   setCountry: (c: string) => void;
+  // Spec 010: goal filter for the conversions view. Empty string = all
+  // conversions; an id scopes to that goal's stored event binding.
+  goalId: string;
+  setGoalId: (id: string) => void;
+  // Honest select states: loading while goals load, empty (disabled with an
+  // explicit note) when the project has zero active goals.
+  goalsState: AnalyticsGoalsState;
   isFetching: boolean;
 }) {
   return (
@@ -106,6 +123,30 @@ export function AnalyticsFilterToolbar({
           placeholder="All countries"
           aria-label="Country filter"
         />
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <span className="text-base-content/60">Goal</span>
+        <select
+          className="select select-bordered select-sm"
+          value={goalId}
+          onChange={(event) => setGoalId(event.target.value)}
+          aria-label="Goal filter"
+          disabled={goalsState.kind !== "ready"}
+        >
+          <option value="">All conversions</option>
+          {goalsState.kind === "ready"
+            ? goalsState.goals.map((goal) => (
+                <option key={goal.id} value={goal.id}>
+                  {goal.name}
+                </option>
+              ))
+            : null}
+        </select>
+        {goalsState.kind === "empty" ? (
+          <span className="text-xs text-base-content/60">
+            No goals yet — create one below to filter conversions.
+          </span>
+        ) : null}
       </label>
       {isFetching ? (
         <span className="text-sm text-base-content/60">Updating…</span>

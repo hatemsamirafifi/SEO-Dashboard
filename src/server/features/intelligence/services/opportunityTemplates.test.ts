@@ -55,6 +55,21 @@ function finding(
   };
 }
 
+const TEMPLATE_DETECTOR_KEYS = [
+  "ga4_organic_change",
+  "organic_traffic_change",
+  "low_ctr_query",
+  "content_decay",
+  "ranking_drop",
+  "cannibalization",
+  "technical_on_important_page",
+  "backlink_change",
+  "lost_backlinks",
+  "striking_distance",
+  "conversion_drop",
+  "engagement_drop",
+];
+
 describe("impact normalizers", () => {
   it("scales volume logarithmically with a 100k saturation", () => {
     expect(logScaleVolume(0)).toBe(0);
@@ -276,22 +291,9 @@ describe("decayConfidence (§10 eight-input function)", () => {
 });
 
 describe("opportunity templates", () => {
-  const detectorKeys = [
-    "ga4_organic_change",
-    "organic_traffic_change",
-    "low_ctr_query",
-    "content_decay",
-    "ranking_drop",
-    "cannibalization",
-    "technical_on_important_page",
-    "backlink_change",
-    "lost_backlinks",
-    "striking_distance",
-  ];
-
   it("covers every PR7 detector with a distinct type", () => {
     expect(Object.keys(OPPORTUNITY_TEMPLATES).toSorted()).toEqual(
-      [...detectorKeys].toSorted(),
+      [...TEMPLATE_DETECTOR_KEYS].toSorted(),
     );
     const types = Object.values(OPPORTUNITY_TEMPLATES).map((t) => t.type);
     expect(new Set(types).size).toBe(types.length);
@@ -440,8 +442,63 @@ describe("opportunity templates", () => {
           confidenceInputs: {},
         },
       }),
+      conversion_drop: finding("conversion_drop", {
+        entityKey: "goal:goal-1",
+        entity: {
+          scope: "goal",
+          goalId: "goal-1",
+          goalName: "Newsletter signup",
+        },
+        evidence: {
+          metrics: {
+            goalName: "Newsletter signup",
+            goalId: "goal-1",
+            conversionsBefore: 40,
+            conversionsAfter: 12,
+            changeRatio: -0.7,
+            windowDays: 28,
+          },
+          sources: ["ga4"],
+          thresholdsApplied: {
+            minWindowDays: 28,
+            minEventsPerWindow: 10,
+            declineRatio: 0.3,
+          },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: {},
+        },
+      }),
+      engagement_drop: finding("engagement_drop", {
+        entityKey: "https://example.com/guide",
+        entity: { page: "https://example.com/guide", scope: "page" },
+        evidence: {
+          metrics: {
+            page: "https://example.com/guide",
+            rateBefore: 0.8,
+            rateAfter: 0.4,
+            changeRatio: -0.5,
+            engagedSessionsBefore: 1120,
+            engagedSessionsAfter: 560,
+            sessionsBefore: 1400,
+            sessionsAfter: 1400,
+            windowDays: 28,
+          },
+          sources: ["ga4", "rank"],
+          thresholdsApplied: {
+            minWindowDays: 28,
+            minSessionsPerWindow: 100,
+            declineRatio: 0.25,
+          },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: {},
+        },
+      }),
     };
-    for (const key of detectorKeys) {
+    for (const key of TEMPLATE_DETECTOR_KEYS) {
       const template = OPPORTUNITY_TEMPLATES[key];
       const sample = samples[key];
       if (!template || !sample) throw new Error(`missing fixture for ${key}`);
@@ -542,5 +599,95 @@ describe("opportunity templates", () => {
     expect(template.recommendation(asFinding)).toContain(
       "Review lost referring domains for reclaim opportunities",
     );
+  });
+});
+
+describe("spec 010 opportunity templates", () => {
+  it("activates conversionSignal for conversion drops (spec 010)", () => {
+    const template = OPPORTUNITY_TEMPLATES.conversion_drop;
+    if (!template) throw new Error("missing conversion_drop template");
+    expect(template.type).toBe("ga4_conversion");
+    const asFinding = finding("conversion_drop", {
+      entityKey: "goal:goal-1",
+      entity: {
+        scope: "goal",
+        goalId: "goal-1",
+        goalName: "Newsletter signup",
+      },
+      evidence: {
+        metrics: {
+          goalName: "Newsletter signup",
+          goalId: "goal-1",
+          conversionsBefore: 40,
+          conversionsAfter: 12,
+          changeRatio: -0.7,
+          windowDays: 28,
+        },
+        sources: ["ga4"],
+        thresholdsApplied: {
+          minWindowDays: 28,
+          minEventsPerWindow: 10,
+          declineRatio: 0.3,
+        },
+        correlations: [],
+        evidenceType: "observational",
+        partialData: [],
+        confidenceInputs: {},
+      },
+    });
+    expect(template.title(asFinding)).toContain("Newsletter signup");
+    expect(template.title(asFinding)).toContain("40");
+    expect(template.title(asFinding)).toContain("12");
+    expect(template.recommendation(asFinding)).toContain("GA4");
+    const factors = template.factorsOf(asFinding);
+    // First real conversionSignal value: goal baseline volume at stake.
+    expect(factors.conversionSignal).toBeGreaterThan(0);
+    expect(factors.conversionSignal).toBeLessThanOrEqual(1);
+    expect(factors.decline).toBeCloseTo(1, 5);
+    expect(scoreImpact(factors)).not.toBeNull();
+    expect(template.keywordOf(asFinding)).toBeNull();
+    expect(template.pageOf(asFinding)).toBeNull();
+  });
+
+  it("maps engagement drops to their page with held-rank context (spec 010)", () => {
+    const template = OPPORTUNITY_TEMPLATES.engagement_drop;
+    if (!template) throw new Error("missing engagement_drop template");
+    expect(template.type).toBe("ga4_engagement");
+    const asFinding = finding("engagement_drop", {
+      entityKey: "https://example.com/guide",
+      entity: { page: "https://example.com/guide", scope: "page" },
+      evidence: {
+        metrics: {
+          page: "https://example.com/guide",
+          rateBefore: 0.8,
+          rateAfter: 0.4,
+          changeRatio: -0.5,
+          engagedSessionsBefore: 1120,
+          engagedSessionsAfter: 560,
+          sessionsBefore: 1400,
+          sessionsAfter: 1400,
+          windowDays: 28,
+        },
+        sources: ["ga4", "rank"],
+        thresholdsApplied: {
+          minWindowDays: 28,
+          minSessionsPerWindow: 100,
+          declineRatio: 0.25,
+        },
+        correlations: [],
+        evidenceType: "observational",
+        partialData: [],
+        confidenceInputs: {},
+      },
+    });
+    expect(template.title(asFinding)).toContain("https://example.com/guide");
+    expect(template.title(asFinding)).toContain("80.0%");
+    expect(template.pageOf(asFinding)).toBe("https://example.com/guide");
+    expect(template.keywordOf(asFinding)).toBeNull();
+    const factors = template.factorsOf(asFinding);
+    expect(factors.trafficPotential).toBeGreaterThan(0);
+    expect(factors.decline).toBeCloseTo(1, 5);
+    expect(factors.conversionSignal).toBeNull();
+    expect(scoreImpact(factors)).not.toBeNull();
   });
 });

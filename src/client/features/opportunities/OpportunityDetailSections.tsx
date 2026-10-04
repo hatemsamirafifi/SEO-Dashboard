@@ -168,6 +168,26 @@ export function EvidenceSection({ row }: { row: DetailRow }) {
           </dl>
         </details>
       ) : null}
+      {evidence.sourceRefs &&
+      Object.values(evidence.sourceRefs).some((refs) => refs.length > 0) ? (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-base-content/70">
+            Source references
+          </summary>
+          <dl className="mt-1 space-y-1">
+            {Object.entries(evidence.sourceRefs).map(([key, refs]) =>
+              Array.isArray(refs) && refs.length > 0 ? (
+                <div key={key} className="flex flex-col gap-1">
+                  <dt className="text-base-content/60">{humanizeKey(key)}</dt>
+                  <dd className="break-all font-mono text-xs">
+                    {refs.join(", ")}
+                  </dd>
+                </div>
+              ) : null,
+            )}
+          </dl>
+        </details>
+      ) : null}
       {evidence.partialData && evidence.partialData.length > 0 ? (
         <p className="text-sm text-base-content/60">
           Partial data: {evidence.partialData.join("; ")}

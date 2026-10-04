@@ -50,6 +50,46 @@ export const ANALYTICS_RANGE_DAYS: Record<AnalyticsRange, number> = {
  *  returns them). */
 export const GA4_ANALYTICS_DEVICES = ["desktop", "mobile", "tablet"] as const;
 
+// Stored GA4 goals read/write schemas (spec 010, contracts/goals-api.md).
+// A goal binds stored event rows by eventName (+ optional isKeyEvent
+// requirement). Name/eventName are trimmed, 1–100 chars; every schema is
+// strict and carries projectId for the project-context middleware (P39).
+const trimmedGoalName = z.string().trim().min(1).max(100);
+
+export const createGa4GoalSchema = z
+  .object({
+    projectId: z.string().min(1),
+    name: trimmedGoalName,
+    eventName: trimmedGoalName,
+    matchKeyEventOnly: z.boolean().default(false),
+  })
+  .strict();
+
+export const listGa4GoalsSchema = z
+  .object({
+    projectId: z.string().min(1),
+    includeArchived: z.boolean().default(false),
+  })
+  .strict();
+
+export const updateGa4GoalSchema = z
+  .object({
+    projectId: z.string().min(1),
+    id: z.string().min(1),
+    name: trimmedGoalName.optional(),
+    eventName: trimmedGoalName.optional(),
+    matchKeyEventOnly: z.boolean().optional(),
+  })
+  .strict();
+
+export const archiveGa4GoalSchema = z
+  .object({ projectId: z.string().min(1), id: z.string().min(1) })
+  .strict();
+
+export const ga4GoalIdSchema = z
+  .object({ projectId: z.string().min(1), id: z.string().min(1) })
+  .strict();
+
 // Shared analytics-page filters. Channel filters acquisition/landing reads;
 // device/country are accepted and echoed for forward-compat (geo/tech grains
 // are deferred per §22) — the service documents them as not yet applied.
@@ -59,6 +99,11 @@ const analyticsFilterShape = {
   channel: z.string().min(1).max(100).optional(),
   device: z.enum(GA4_ANALYTICS_DEVICES).optional(),
   country: z.string().min(1).max(100).optional(),
+  // Spec 010: optional goal binding; when present, conversion figures scope
+  // to the goal's event binding (event-name + key-event flag) computed from
+  // stored ga4_daily_events sums. Unknown/archived/other-project goals fail
+  // closed (NOT_FOUND-class, never silent empty — P9).
+  goalId: z.string().min(1).optional(),
 };
 
 export const analyticsOverviewSchema = z.object(analyticsFilterShape).strict();

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -406,6 +407,198 @@ describe("dashboard rollup deltas (spec 001)", () => {
     expect(
       mapStoredSectionState({ ...base, hasCurrent: false, hasPrevious: false }),
     ).toBe("no_data");
+    expect(mapStoredSectionState({ ...base, hasPrevious: false })).toBe(
+      "partial",
+    );
+  });
+
+  it("derives loading before any data check (spec 011, precedence row 1)", () => {
+    const base = {
+      connected: true,
+      hasCurrent: true,
+      hasPrevious: true,
+      syncRunning: false,
+      syncFailed: false,
+    };
+    expect(mapStoredSectionState({ ...base, loading: true })).toBe("loading");
+    expect(
+      mapStoredSectionState({ ...base, connected: false, loading: true }),
+    ).toBe("loading");
+  });
+
+  it("derives permission_failed ahead of sync and data states (spec 011, row 3)", () => {
+    const base = {
+      connected: true,
+      hasCurrent: true,
+      hasPrevious: true,
+      syncRunning: false,
+      syncFailed: false,
+    };
+    expect(mapStoredSectionState({ ...base, permissionDenied: true })).toBe(
+      "permission_failed",
+    );
+    expect(
+      mapStoredSectionState({
+        ...base,
+        permissionDenied: true,
+        syncFailed: true,
+      }),
+    ).toBe("permission_failed");
+  });
+
+  it("derives api_failed for failed reads with no coverage (spec 011, row 6)", () => {
+    expect(
+      mapStoredSectionState({
+        connected: true,
+        hasCurrent: false,
+        hasPrevious: false,
+        syncRunning: false,
+        syncFailed: false,
+        readFailed: true,
+      }),
+    ).toBe("api_failed");
+  });
+
+  it("derives empty for list sections with zero items (spec 011, row 8)", () => {
+    const base = {
+      connected: true,
+      hasCurrent: true,
+      hasPrevious: true,
+      syncRunning: false,
+      syncFailed: false,
+    };
+    expect(mapStoredSectionState({ ...base, hasItems: false })).toBe("empty");
+    expect(mapStoredSectionState({ ...base, hasItems: true })).toBe("ready");
+    // hasItems defaults to null: existing ready/partial behavior unchanged.
+    expect(mapStoredSectionState(base)).toBe("ready");
+  });
+
+  it("derives stale for fresh-shaped reads past the freshness bound (spec 011, row 9)", () => {
+    const base = {
+      connected: true,
+      hasCurrent: true,
+      hasPrevious: true,
+      syncRunning: false,
+      syncFailed: false,
+    };
+    expect(mapStoredSectionState({ ...base, stale: true })).toBe("stale");
+    // Failure always beats staleness: without current coverage a failed sync
+    // resolves to sync_failed even when a stale snapshot exists.
+    expect(
+      mapStoredSectionState({
+        ...base,
+        hasCurrent: false,
+        hasPrevious: true,
+        stale: true,
+        syncFailed: true,
+      }),
+    ).toBe("sync_failed");
+  });
+
+  it.each([
+    // [scenario class, input overrides, expected state]
+    ["loading", { loading: true }, "loading"],
+    [
+      "loading beats disconnected",
+      { loading: true, connected: false },
+      "loading",
+    ],
+    ["not_connected", { connected: false }, "not_connected"],
+    ["permission_failed", { permissionDenied: true }, "permission_failed"],
+    [
+      "permission beats failed sync",
+      { permissionDenied: true, syncFailed: true },
+      "permission_failed",
+    ],
+    [
+      "sync_running without current coverage",
+      { hasCurrent: false, hasPrevious: false, syncRunning: true },
+      "sync_running",
+    ],
+    [
+      "sync_failed without current coverage",
+      { hasCurrent: false, hasPrevious: false, syncFailed: true },
+      "sync_failed",
+    ],
+    [
+      "sync_running yields to current data",
+      { hasCurrent: true, hasPrevious: true, syncRunning: true },
+      "ready",
+    ],
+    [
+      "api_failed on failed read without coverage",
+      { hasCurrent: false, hasPrevious: false, readFailed: true },
+      "api_failed",
+    ],
+    [
+      "no_data on empty windows",
+      { hasCurrent: false, hasPrevious: false },
+      "no_data",
+    ],
+    [
+      "empty list with data windows",
+      { hasCurrent: true, hasPrevious: true, hasItems: false },
+      "empty",
+    ],
+    [
+      "stale snapshot",
+      { hasCurrent: true, hasPrevious: true, stale: true },
+      "stale",
+    ],
+    ["partial window", { hasCurrent: true, hasPrevious: false }, "partial"],
+    ["ready", { hasCurrent: true, hasPrevious: true }, "ready"],
+  ])(
+    "resolves scenario class %s deterministically (spec 011 state matrix)",
+    (_label, overrides, expected) => {
+      expect(
+        mapStoredSectionState({
+          connected: true,
+          hasCurrent: false,
+          hasPrevious: false,
+          syncRunning: false,
+          syncFailed: false,
+          ...overrides,
+        }),
+      ).toBe(expected);
+    },
+  );
+
+  it("never resolves a hard-failure input to a data state (spec 011 matrix guard)", () => {
+    // permissionDenied/readFailed are absolute failures. syncFailed/syncRunning
+    // are lifecycle signals scoped to missing current coverage (see the
+    // "keeps data states" test) and are covered by the matrix rows above.
+    const failureFlags = [{ permissionDenied: true }, { readFailed: true }];
+    const dataStates = ["ready", "empty", "no_data", "partial", "stale"];
+    for (const flags of failureFlags) {
+      for (const coverage of [
+        { hasCurrent: false, hasPrevious: false },
+        { hasCurrent: false, hasPrevious: true },
+        { hasCurrent: true, hasPrevious: false },
+        { hasCurrent: true, hasPrevious: true },
+      ]) {
+        const state = mapStoredSectionState({
+          connected: true,
+          syncRunning: false,
+          syncFailed: false,
+          ...coverage,
+          ...flags,
+        });
+        expect(dataStates).not.toContain(state);
+      }
+    }
+  });
+
+  it("keeps data states when a sync runs alongside current coverage (spec 011)", () => {
+    // Preserved spec-001 behavior: the section shows its data and annotates
+    // via coverage.detail — a running sync never hides current metrics.
+    const base = {
+      connected: true,
+      hasCurrent: true,
+      hasPrevious: true,
+      syncRunning: true,
+      syncFailed: false,
+    };
+    expect(mapStoredSectionState(base)).toBe("ready");
     expect(mapStoredSectionState({ ...base, hasPrevious: false })).toBe(
       "partial",
     );

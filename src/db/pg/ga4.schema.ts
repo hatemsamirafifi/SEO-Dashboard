@@ -359,3 +359,32 @@ export const ga4Syncs = pgTable(
     index("ga4_sync_project_started_idx").on(table.projectId, table.startedAt),
   ],
 );
+
+// Project-scoped GA4 conversion goals (spec 010) — PG mirror of
+// src/db/ga4.schema.ts ga4ProjectGoals. PG booleans use the native boolean
+// type (SQLite keeps integer mode); partial-unique semantics identical.
+export const ga4ProjectGoals = pgTable(
+  "ga4_project_goals",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    eventName: text("event_name").notNull(),
+    matchKeyEventOnly: boolean("match_key_event_only")
+      .notNull()
+      .default(false),
+    archivedAt: text("archived_at"),
+    ...ga4Timestamps,
+  },
+  (table) => [
+    uniqueIndex("ga4_goals_project_name_active_uidx")
+      .on(table.projectId, table.name)
+      .where(sql`${table.archivedAt} IS NULL`),
+    index("ga4_goals_project_idx").on(table.projectId),
+  ],
+);

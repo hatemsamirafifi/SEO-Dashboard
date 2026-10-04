@@ -352,8 +352,37 @@ export const ga4SyncCoverage = sqliteTable(
   ],
 );
 
-// Sync run ledger. successful_units counts units finalized to SUCCESS_* in
-// this run; §7 token selection reads the latest run with successful_units > 0.
+// Project-scoped GA4 conversion goals (spec 010). A goal binds stored GA4
+// event rows by event_name (+ optional is_key_event requirement); findings
+// and evidence freeze goalId + the name snapshot at emission, so archive is
+// soft and historical references never corrupt. UNIQUE among active goals
+// only — archived names are reusable (mirrors the active-key partial-unique
+// precedent).
+export const ga4ProjectGoals = sqliteTable(
+  "ga4_project_goals",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    eventName: text("event_name").notNull(),
+    matchKeyEventOnly: integer("match_key_event_only", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    archivedAt: text("archived_at"),
+    ...ga4Timestamps,
+  },
+  (table) => [
+    uniqueIndex("ga4_goals_project_name_active_uidx")
+      .on(table.projectId, table.name)
+      .where(sql`${table.archivedAt} IS NULL`),
+    index("ga4_goals_project_idx").on(table.projectId),
+  ],
+);
 export const ga4Syncs = sqliteTable(
   "ga4_syncs",
   {

@@ -169,10 +169,24 @@ export async function listOpportunities(input: {
   projectId: string;
   status?: OpportunityStatus;
   type?: string;
+  page?: string;
+  keyword?: string;
+  source?: string;
+  priority?: string;
+  statuses?: OpportunityStatus[];
+  types?: string[];
+  priorities?: string[];
 }): Promise<OpportunityWithBreakdown[]> {
   const rows = await OpportunityRepository.listByProject(input.projectId, {
     status: input.status,
     type: input.type,
+    page: input.page,
+    keyword: input.keyword,
+    source: input.source,
+    priority: input.priority,
+    statuses: input.statuses,
+    types: input.types,
+    priorities: input.priorities,
   });
   return [...rows]
     .toSorted((a, b) => compareOpportunities(toComparable(a), toComparable(b)))

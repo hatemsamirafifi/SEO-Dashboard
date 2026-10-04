@@ -15,6 +15,7 @@ import {
   GscCard,
 } from "@/client/features/dashboard/DashboardCards";
 import { InsightSections } from "@/client/features/insights/InsightSections";
+import { IntelligenceSections } from "@/client/features/dashboard/IntelligenceSections";
 import { McpConnectCard } from "@/client/features/dashboard/McpConnectCard";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import type { DashboardActivation } from "@/server/features/dashboard/services/DashboardService";
@@ -369,6 +370,29 @@ export function DashboardPage({ projectId }: { projectId: string }) {
               <div key={card.key}>{card.node}</div>
             ))}
         </div>
+
+        {/* Stored-rollup intelligence sections (spec 011, US3/A1): additive
+          to the legacy cards above; consolidation of the two paths is a
+          later package. Values come from the same overview query — no new
+          fetches (P29). */}
+        {overview?.sections ? (
+          <section aria-label="Project intelligence">
+            <h2 className="mb-3 text-base font-semibold">
+              Project intelligence
+            </h2>
+            <div className="grid items-start gap-5 lg:grid-cols-2">
+              <IntelligenceSections
+                projectId={projectId}
+                sections={overview.sections}
+                onRetry={() =>
+                  void queryClient.invalidateQueries({
+                    queryKey: ["dashboardOverview", projectId],
+                  })
+                }
+              />
+            </div>
+          </section>
+        ) : null}
       </div>
     </div>
   );

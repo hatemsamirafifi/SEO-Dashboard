@@ -5,6 +5,7 @@ import { AuditRepository } from "@/server/features/audit/repositories/AuditRepos
 import { getIssueTypePageCountsForAudit } from "@/server/features/audit/repositories/auditSummaryQueries";
 import { BacklinkSnapshotRepository } from "@/server/features/dashboard/repositories/BacklinkSnapshotRepository";
 import { AnalyticsService } from "@/server/features/ga4/services/AnalyticsService";
+import { Ga4GoalService } from "@/server/features/ga4/services/Ga4GoalService";
 import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4ConnectionRepository";
 import { Ga4SyncRepository } from "@/server/features/ga4/repositories/Ga4SyncRepository";
 import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
@@ -701,19 +702,32 @@ async function getSearchVisibilitySection(
   projectId: string,
 ): Promise<OverviewSection<SearchVisibilityMetrics>> {
   const loaded = await loadRankRows(projectId);
-  if (!loaded) {
-    return unavailableSection<SearchVisibilityMetrics>(
-      "rank",
-      "empty",
-      "No rank tracking configurations",
-    );
-  }
-  if (loaded.trackedKeywords === 0) {
-    return unavailableSection<SearchVisibilityMetrics>(
-      "rank",
-      "no_data",
-      "No ranked keywords in the latest check",
-    );
+  // Unified state derivation (spec 011, A2): unconfigured reads resolve via
+  // the mapper — never configured means nothing ever synced (no_data, with
+  // setup guidance); a completed check with zero ranked keywords is honestly
+  // empty. This swaps the two pre-A2 labels into model-consistent states.
+  const state = mapStoredSectionState({
+    connected: true,
+    hasCurrent: loaded !== null,
+    hasPrevious: loaded !== null,
+    syncRunning: false,
+    syncFailed: false,
+    hasItems: loaded === null ? null : loaded.trackedKeywords > 0,
+  });
+  if (!loaded || state !== "ready") {
+    return {
+      state,
+      coverage: {
+        source: "rank",
+        freshness: loaded?.lastCheckedAt ?? null,
+        completeness: "none",
+        detail:
+          state === "no_data"
+            ? "No rank tracking configured yet — add keywords to start tracking"
+            : "Rank checks ran, but none of the tracked keywords rank yet",
+      },
+      metrics: null,
+    };
   }
   let top3 = 0;
   let top10 = 0;
@@ -730,7 +744,7 @@ async function getSearchVisibilitySection(
     else if (entry.position > entry.previousPosition) declined += 1;
   }
   return {
-    state: "ready",
+    state,
     coverage: {
       source: "rank",
       freshness: loaded.lastCheckedAt,
@@ -789,6 +803,9 @@ async function getTrafficEngagementSection(
       Ga4SyncRepository.getActiveSyncRun(projectId, connection.propertyId),
       Ga4SyncRepository.getLatestSyncRun(projectId, connection.propertyId),
     ]);
+  // Explicit connected guard first: it narrows the AnalyticsService
+  // unions for the reads below AND keeps the honest not_connected outcome.
+  // (No `state:` literal — see the T025 guard.)
   if (!overview.connected || !acquisition.connected) {
     return unavailableSection<TrafficEngagementMetrics>(
       "ga4",
@@ -796,8 +813,11 @@ async function getTrafficEngagementSection(
       "Google Analytics is not connected",
     );
   }
+  // Zero-row success is not failure (P21): an uncovered current window
+  // resolves to a sync/no-data state regardless of previous coverage. Kept
+  // explicit; the mapper below only decides between connected data states.
   if (overview.coverage.status === "none") {
-    if (activeSync) {
+    if (activeSync != null) {
       return unavailableSection<TrafficEngagementMetrics>(
         "ga4",
         "sync_running",
@@ -816,6 +836,34 @@ async function getTrafficEngagementSection(
       "no_data",
       "No Google Analytics data synced for this window",
     );
+  }
+  // Unified state derivation (spec 011, A2): the mapper decides between
+  // the connected data states (verified by the dashboard suite).
+  const state = mapStoredSectionState({
+    connected: overview.connected && acquisition.connected,
+    hasCurrent: true,
+    hasPrevious: prevCoverage.coveredDates.length > 0,
+    syncRunning: false,
+    syncFailed: false,
+  });
+  if (state !== "ready" && state !== "partial") {
+    return {
+      state,
+      coverage: {
+        source: "ga4",
+        freshness: overview.coverage.coveredThrough ?? null,
+        completeness: "none",
+        detail:
+          state === "not_connected"
+            ? "Google Analytics is not connected"
+            : state === "sync_running"
+              ? "Google Analytics sync is running"
+              : state === "sync_failed"
+                ? "Google Analytics sync failed"
+                : "No Google Analytics data synced for this window",
+      },
+      metrics: null,
+    };
   }
   const previousCovered = prevCoverage.coveredDates.length > 0;
   void current;
@@ -894,6 +942,9 @@ async function getConversionsSection(
     ),
   ]);
   void current;
+  // Explicit connected guard first: narrows the AnalyticsService unions for
+  // the reads below AND keeps the honest not_connected outcome.
+  // (No `state:` literal — see the T025 guard.)
   if (!conversions.connected || !overview.connected) {
     return unavailableSection<ConversionsMetrics>(
       "ga4",
@@ -901,6 +952,9 @@ async function getConversionsSection(
       "Google Analytics is not connected",
     );
   }
+  // Zero-row success is not failure (P21): an uncovered current window is
+  // no_data regardless of previous-window coverage. Kept as an explicit
+  // early return so the mapper below only decides between connected states.
   if (conversions.coverage.status === "none") {
     return unavailableSection<ConversionsMetrics>(
       "ga4",
@@ -908,26 +962,60 @@ async function getConversionsSection(
       "No conversion data synced for this window",
     );
   }
+  // Unified state derivation (spec 011, A2): hasItems reflects the empty
+  // case below (zero key events/goals AND zero transactions).
   const previousCovered = prevCoverage.coveredDates.length > 0;
   const transactions = gateDelta(overview.totals.transactions, previousCovered);
-  const keyEvents = conversions.rows.map((row) => ({
-    name: row.eventName,
-    count: gateDelta(row.eventCount, previousCovered),
-  }));
-  if (keyEvents.length === 0 && transactions.current === 0) {
+  // Project goals (spec 010/011): when active goals exist, conversion rows
+  // are named by the project's stored goal names. Goal reads are per-goal
+  // best-effort — a goal that fails (e.g. archived mid-read) is skipped and
+  // the section falls back to key events rather than failing or zeroing.
+  const goalRows = await getGoalConversionRows({
+    projectId,
+    organizationId,
+    propertyId: connection.propertyId,
+    current,
+    previous,
+    previousCovered,
+    limit: CONVERSION_ROW_LIMIT,
+  });
+  const keyEvents =
+    goalRows ??
+    conversions.rows.map((row) => ({
+      name: row.eventName,
+      count: gateDelta(row.eventCount, previousCovered),
+    }));
+  const isEmpty = keyEvents.length === 0 && transactions.current === 0;
+  const state = mapStoredSectionState({
+    connected: conversions.connected && overview.connected,
+    // Current-window coverage is established: the "none" case returned
+    // early above, so hasCurrent is statically true here.
+    hasCurrent: true,
+    hasPrevious: previousCovered,
+    syncRunning: false,
+    syncFailed: false,
+    hasItems: isEmpty ? false : null,
+  });
+  if (state !== "ready" && state !== "partial") {
     return {
-      state: "empty",
+      state,
       coverage: {
         source: "ga4",
         freshness: conversions.coverage.coveredThrough,
-        completeness: "full",
-        detail: "No key events recorded in this window",
+        completeness: state === "empty" ? "full" : "none",
+        detail:
+          state === "not_connected"
+            ? "Google Analytics is not connected"
+            : state === "empty"
+              ? "No key events recorded in this window"
+              : "No conversion data synced for this window",
       },
-      metrics: { keyEvents, transactions },
+      // Empty keeps its (zero) metrics — an honest empty, never a failure.
+      metrics: state === "empty" ? { keyEvents, transactions } : null,
     };
   }
   return {
-    state: previousCovered ? "ready" : "partial",
+    state,
     coverage: {
       source: "ga4",
       freshness: conversions.coverage.coveredThrough,
@@ -937,6 +1025,72 @@ async function getConversionsSection(
     },
     metrics: { keyEvents, transactions },
   };
+}
+
+/** Goal-scoped conversion rows named by stored goal name (spec 011, US3).
+ *  Returns null when no active goals exist (caller falls back to key
+ *  events) or when every goal read fails. Never throws: per-goal failures
+ *  degrade to fewer rows, never to a failed section. */
+async function getGoalConversionRows(input: {
+  projectId: string;
+  organizationId: string;
+  propertyId: string;
+  current: OverviewWindow;
+  previous: OverviewWindow;
+  previousCovered: boolean;
+  limit: number;
+}): Promise<{ name: string; count: PeriodDelta }[] | null> {
+  let goals: { id: string; name: string }[];
+  try {
+    goals = await Ga4GoalService.listGoals({
+      projectId: input.projectId,
+      organizationId: input.organizationId,
+    });
+  } catch (error) {
+    console.error("dashboard: goal list failed, using key events", error);
+    return null;
+  }
+  if (goals.length === 0) return null;
+  const rows = await Promise.all(
+    goals.slice(0, input.limit).map(async (goal) => {
+      try {
+        const [currentRead, previousRead] = await Promise.all([
+          Ga4GoalService.getGoalConversions({
+            projectId: input.projectId,
+            organizationId: input.organizationId,
+            propertyId: input.propertyId,
+            goalId: goal.id,
+            from: input.current.from,
+            to: input.current.to,
+          }),
+          Ga4GoalService.getGoalConversions({
+            projectId: input.projectId,
+            organizationId: input.organizationId,
+            propertyId: input.propertyId,
+            goalId: goal.id,
+            from: input.previous.from,
+            to: input.previous.to,
+          }),
+        ]);
+        return {
+          name: goal.name,
+          count: toPeriodDelta(
+            currentRead.conversions,
+            input.previousCovered ? previousRead.conversions : null,
+          ),
+        };
+      } catch (error) {
+        console.error(
+          "dashboard: goal conversions failed, skipping goal",
+          goal.id,
+          error,
+        );
+        return null;
+      }
+    }),
+  );
+  const kept = rows.filter((row) => row !== null);
+  return kept.length > 0 ? kept : null;
 }
 
 async function getOpportunitiesSection(
@@ -955,9 +1109,18 @@ async function getOpportunitiesSection(
     else if (row.priority === "Medium") medium += 1;
   }
   // Counts derive from stored lifecycle rows, so zero is a real zero here —
-  // never a provider failure rendered as absence.
+  // never a provider failure rendered as absence. Unified derivation
+  // (spec 011, A2): zero open items resolve to empty with metrics intact.
+  const state = mapStoredSectionState({
+    connected: true,
+    hasCurrent: true,
+    hasPrevious: true,
+    syncRunning: false,
+    syncFailed: false,
+    hasItems: openTotal > 0,
+  });
   return {
-    state: "ready",
+    state,
     coverage: {
       source: "opportunities",
       freshness: null,
@@ -985,24 +1148,36 @@ async function getTechnicalHealthSection(
     completeness: "none",
     detail: null,
   };
-  if (audit.status === "running") {
-    return {
-      state: "sync_running",
-      coverage: { ...baseCoverage, detail: "Site audit is running" },
-      metrics: null,
-    };
-  }
-  if (audit.status === "failed") {
-    return {
-      state: "sync_failed",
-      coverage: { ...baseCoverage, detail: "Latest site audit failed" },
-      metrics: null,
-    };
-  }
+  // Unified derivation (spec 011, A2): the audit lifecycle maps onto
+  // mapper inputs — outcomes match the pre-A2 branches exactly.
+  const completed = audit.status === "completed";
   const stale =
-    Date.now() - Date.parse(audit.startedAt) > AUDIT_STALE_AFTER_MS;
+    completed && Date.now() - Date.parse(audit.startedAt) > AUDIT_STALE_AFTER_MS;
+  const state = mapStoredSectionState({
+    connected: true,
+    hasCurrent: completed,
+    hasPrevious: completed,
+    syncRunning: audit.status === "running",
+    syncFailed: audit.status === "failed",
+    stale,
+  });
+  if (state !== "ready" && state !== "stale") {
+    return {
+      state,
+      coverage: {
+        ...baseCoverage,
+        detail:
+          state === "sync_running"
+            ? "Site audit is running"
+            : state === "sync_failed"
+              ? "Latest site audit failed"
+              : "No site audit has completed yet",
+      },
+      metrics: null,
+    };
+  }
   return {
-    state: stale ? "stale" : "ready",
+    state,
     coverage: {
       ...baseCoverage,
       completeness: "full",
@@ -1019,7 +1194,16 @@ async function getBacklinksSection(
   // Stored snapshot only — refresh stays on the explicit visit-triggered path
   // (refreshDashboardBacklinkSnapshot), never on overview reads.
   const snapshot = await getBacklinkSummary(projectId, domain);
-  if (!snapshot) {
+  // Unified derivation (spec 011, A2): outcomes match the pre-A2 branches.
+  const state = mapStoredSectionState({
+    connected: true,
+    hasCurrent: snapshot !== null,
+    hasPrevious: snapshot !== null,
+    syncRunning: false,
+    syncFailed: false,
+    stale: snapshot?.stale ?? false,
+  });
+  if (!snapshot || (state !== "ready" && state !== "stale")) {
     return unavailableSection<BacklinksMetrics>(
       "backlinks",
       "no_data",
@@ -1027,7 +1211,7 @@ async function getBacklinksSection(
     );
   }
   return {
-    state: snapshot.stale ? "stale" : "ready",
+    state,
     coverage: {
       source: "backlinks",
       freshness: snapshot.capturedAt,
@@ -1072,8 +1256,18 @@ async function getRecentChangesSection(
       severity: row.severity,
     }));
   const skippedCount = banner.skipped.length + banner.failed.length;
+  // Unified derivation (spec 011, A2): a completed insights read with zero
+  // items is honestly empty.
+  const state = mapStoredSectionState({
+    connected: true,
+    hasCurrent: true,
+    hasPrevious: true,
+    syncRunning: false,
+    syncFailed: false,
+    hasItems: items.length > 0,
+  });
   return {
-    state: items.length === 0 ? "empty" : "ready",
+    state,
     coverage: {
       source: "insights",
       freshness: banner.lastCompletedAt,

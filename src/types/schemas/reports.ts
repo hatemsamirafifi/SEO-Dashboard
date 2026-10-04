@@ -1,5 +1,42 @@
 import { z } from "zod";
-import { reportTypeSchema } from "@/shared/reports";
+import {
+  reportScheduleCadenceSchema,
+  reportTypeSchema,
+} from "@/shared/reports";
+
+const scheduleRecipientsSchema = z
+  .array(z.string().email())
+  .min(1, "At least one recipient is required")
+  .max(10, "At most 10 recipients per schedule");
+
+export const createReportScheduleSchema = z
+  .object({
+    projectId: z.string().min(1),
+    type: reportTypeSchema,
+    cadence: reportScheduleCadenceSchema,
+    recipients: scheduleRecipientsSchema,
+    shareId: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const updateReportScheduleSchema = z
+  .object({
+    projectId: z.string().min(1),
+    id: z.string().min(1),
+    type: reportTypeSchema.optional(),
+    cadence: reportScheduleCadenceSchema.optional(),
+    recipients: scheduleRecipientsSchema.optional(),
+    shareId: z.string().min(1).nullable().optional(),
+  })
+  .strict();
+
+export const reportScheduleIdSchema = z
+  .object({ projectId: z.string().min(1), id: z.string().min(1) })
+  .strict();
+
+export const listReportSchedulesSchema = z
+  .object({ projectId: z.string().min(1) })
+  .strict();
 
 const isoDateSchema = z
   .string()

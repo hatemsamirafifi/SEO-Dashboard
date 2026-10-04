@@ -6,6 +6,7 @@ import {
   formatPctChange,
   syncFailureKind,
   toAnalyticsPageView,
+  toGoalSelectState,
 } from "./analyticsCopy";
 
 describe("analytics page copy helpers", () => {
@@ -208,5 +209,24 @@ describe("analytics page copy helpers", () => {
       "last_30_days",
       "last_90_days",
     ]);
+  });
+
+  it("folds the goal select into loading, ready, and empty only", () => {
+    expect(
+      toGoalSelectState({ isPending: true, isError: false, goals: [] }),
+    ).toEqual({ kind: "loading" });
+    expect(
+      toGoalSelectState({ isPending: false, isError: true, goals: [] }),
+    ).toEqual({ kind: "loading" });
+    expect(
+      toGoalSelectState({ isPending: false, isError: false, goals: [] }),
+    ).toEqual({ kind: "empty" });
+    expect(
+      toGoalSelectState({
+        isPending: false,
+        isError: false,
+        goals: [{ id: "g1", name: "Signup" }],
+      }),
+    ).toEqual({ kind: "ready", goals: [{ id: "g1", name: "Signup" }] });
   });
 });

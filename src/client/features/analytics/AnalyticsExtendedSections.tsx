@@ -128,9 +128,11 @@ export function ConversionsSection({
         emptyNote="No key events in this period."
         showKeyBadge={false}
       />
-      <p className="mt-2 text-xs text-base-content/60">
-        {result.goalSelectionDeferredNote}
-      </p>
+      {result.goalSelectionDeferredNote ? (
+        <p className="mt-2 text-xs text-base-content/60">
+          {result.goalSelectionDeferredNote}
+        </p>
+      ) : null}
       {result.reservedFilterNote ? (
         <p className="mt-1 text-xs text-base-content/60">
           {result.reservedFilterNote}

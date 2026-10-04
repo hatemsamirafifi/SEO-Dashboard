@@ -123,13 +123,20 @@ export const refreshSavedKeywordMetrics = createServerFn({ method: "POST" })
 export const getSerpAnalysis = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(serpAnalysisSchema)
-  .handler(async ({ data, context }) =>
-    KeywordResearchService.getSerpAnalysis(
+  .handler(async ({ data, context }) => {
+    // E2E fixture branch (spec 011, T017): deterministic analysis so the
+    // mobile card view is verifiable without a live provider. Production
+    // path unchanged.
+    if (shouldUseKeywordE2eFixtures()) {
+      const fixtures = await getKeywordE2eFixtures();
+      return fixtures.getSerpAnalysisFixture(data.keyword);
+    }
+    return KeywordResearchService.getSerpAnalysis(
       {
         ...data,
         ...resolveMarket(data, context.project),
         projectId: context.projectId,
       },
       context,
-    ),
-  );
+    );
+  });

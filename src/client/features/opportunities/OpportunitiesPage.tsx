@@ -4,18 +4,21 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { listOpportunities } from "@/serverFunctions/opportunities";
-import {
+  import {
   applyClientFilters,
   OPPORTUNITY_PRIORITIES,
+  OPPORTUNITY_SOURCES,
   OPPORTUNITY_STATUSES,
   OPPORTUNITY_TYPES,
   PRIORITY_META,
   priorityBadgeClass,
   priorityLabel,
+  sourceLabel,
   STATUS_META,
   statusBadgeClass,
   statusLabel,
   toOpportunitiesPageView,
+  toPriorityParam,
   TYPE_META,
   typeLabel,
   formatDateTime,
@@ -94,50 +97,60 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  // Spec 010 (C3): source/page/keyword filter server-side with the other
+  // dimensions. Page/keyword are exact matches; the search box stays a
+  // free-text local refinement over the returned rows.
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [pageFilter, setPageFilter] = useState("");
+  const [keywordFilter, setKeywordFilter] = useState("");
   const [search, setSearch] = useState("");
 
+  const priorityParam = toPriorityParam(priorityFilter);
+  const serverFilters = {
+    ...(statusTab === "all" ? {} : { status: statusTab }),
+    ...(typeFilter === "all" ? {} : { type: typeFilter }),
+    ...(priorityParam ? { priority: priorityParam } : {}),
+    ...(sourceFilter === "all" ? {} : { source: sourceFilter }),
+    ...(pageFilter.trim() ? { page: pageFilter.trim() } : {}),
+    ...(keywordFilter.trim() ? { keyword: keywordFilter.trim() } : {}),
+  };
   const listQuery = useQuery({
-    queryKey: [
-      "opportunities",
-      projectId,
-      statusTab === "all" ? null : statusTab,
-      typeFilter === "all" ? null : typeFilter,
-    ],
+    queryKey: ["opportunities", projectId, serverFilters],
     queryFn: () =>
       listOpportunities({
-        data: {
-          projectId,
-          ...(statusTab === "all" ? {} : { status: statusTab }),
-          ...(typeFilter === "all" ? {} : { type: typeFilter }),
-        },
+        data: { projectId, ...serverFilters },
       }),
     placeholderData: keepPreviousData,
   });
 
   const rows = listQuery.data?.opportunities ?? [];
-  const filtered = applyClientFilters(rows, {
-    types: [],
-    priorities: priorityFilter === "all" ? [] : [priorityFilter],
-    search,
-  });
-  const view = toOpportunitiesPageView({
-    isPending: listQuery.isPending,
-    isError: listQuery.isError,
-    totalCount: rows.length,
-    filteredCount: filtered.length,
-  });
-  const isFiltering =
+  const filtered = applyClientFilters(rows, { search });
+  const filteringActive =
     statusTab !== "all" ||
     typeFilter !== "all" ||
     priorityFilter !== "all" ||
+    sourceFilter !== "all" ||
+    pageFilter.trim() !== "" ||
+    keywordFilter.trim() !== "" ||
     search.trim() !== "";
+  const view = toOpportunitiesPageView({
+    isPending: listQuery.isPending,
+    isError: listQuery.isError,
+    // All dimensions filter server-side now: zero rows with active filters
+    // means "no matches" (filtered-empty), not "project has none" (empty).
+    totalCount: rows.length === 0 && filteringActive ? 1 : rows.length,
+    filteredCount: filtered.length,
+  });
+  const isFiltering = filteringActive;
   const clearFilters = () => {
     setStatusTab("all");
     setTypeFilter("all");
     setPriorityFilter("all");
+    setSourceFilter("all");
+    setPageFilter("");
+    setKeywordFilter("");
     setSearch("");
   };
-
   return (
     <div className="overflow-auto px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
       <div className="mx-auto max-w-7xl space-y-4">
@@ -196,6 +209,37 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
                   </option>
                 ))}
               </select>
+              <select
+                aria-label="Filter by source"
+                className="select select-bordered select-sm"
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+              >
+                <option value="all">All sources</option>
+                {OPPORTUNITY_SOURCES.map((source) => (
+                  <option key={source} value={source}>
+                    {sourceLabel(source)}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                aria-label="Filter by page (exact match)"
+                className="input input-bordered input-sm w-full max-w-xs"
+                placeholder="Page (exact match)…"
+                title="Exact page match, e.g. https://example.com/guide"
+                value={pageFilter}
+                onChange={(e) => setPageFilter(e.target.value)}
+              />
+              <input
+                type="text"
+                aria-label="Filter by keyword (exact match)"
+                className="input input-bordered input-sm w-full max-w-xs"
+                placeholder="Keyword (exact match)…"
+                title="Exact keyword match"
+                value={keywordFilter}
+                onChange={(e) => setKeywordFilter(e.target.value)}
+              />
               <input
                 type="search"
                 aria-label="Search opportunities"

@@ -1,9 +1,17 @@
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { ExportToSheetsButton } from "@/client/components/table/ExportToSheetsButton";
 import type { SerpResultItem } from "@/types/keywords";
+import { toSerpFeatureBlocks } from "@/server/features/serp/featurePresentation";
+import type { SerpFeatureSet } from "@/server/features/serp/types";
+import { SerpFeatureBlocks } from "./SerpFeatureBlocks";
+import {
+  SerpResultCards,
+  type SerpResultCardRow,
+} from "@/client/features/serp/SerpResultCards";
 
 export function SerpAnalysisCard({
   items,
+  features,
   keyword,
   loading,
   error,
@@ -13,6 +21,9 @@ export function SerpAnalysisCard({
   onPageChange,
 }: {
   items: SerpResultItem[];
+  /** Normalized features observed in this analysis (spec 011, US1).
+   *  Null/absent = none observed — no placeholder section renders. */
+  features?: SerpFeatureSet | null;
   keyword?: string | null;
   loading: boolean;
   error?: string | null;
@@ -39,6 +50,31 @@ export function SerpAnalysisCard({
   }
   if (items.length === 0) return <SerpAnalysisEmptyState keyword={keyword} />;
 
+  // Feature blocks derive from the stored/normalized feature set only.
+  // Organic rows keep their stored ranks verbatim — features never displace
+  // or renumber positions (spec 011, S9).
+  const featureBlocks = features ? toSerpFeatureBlocks(features) : [];
+  // Mobile card rows share the exact same rows + blocks (one data path, two
+  // layouts — spec 011, R4). Cards show the current page slice, like the table.
+  const cardRows: SerpResultCardRow[] = pageItems.map((item) => ({
+    position: item.rank,
+    title: item.title ?? "",
+    url: item.url,
+    domain: item.domain,
+    summary: item.description || null,
+    featureRefs: [],
+    metrics: item.metricStatus
+      ? {
+          status: item.metricStatus,
+          domainRank: item.domainRank ?? null,
+          pageRank: item.pageRank ?? null,
+          referringDomains: item.referringDomains ?? null,
+          backlinks: item.backlinks ?? null,
+          etv: item.etv ?? null,
+        }
+      : null,
+  }));
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -56,7 +92,15 @@ export function SerpAnalysisCard({
           feature="serp_analysis"
         />
       </div>
-      <SerpAnalysisTable items={pageItems} />
+      {/* Desktop: dense table + feature sections. Mobile (below md): card
+          view in place of the table (spec 011, S9 UI). */}
+      <div className="hidden md:block">
+        <SerpAnalysisTable items={pageItems} />
+        <SerpFeatureBlocks blocks={featureBlocks} />
+      </div>
+      <div className="md:hidden">
+        <SerpResultCards rows={cardRows} blocks={featureBlocks} />
+      </div>
       <SerpAnalysisPagination
         page={page}
         totalPages={totalPages}

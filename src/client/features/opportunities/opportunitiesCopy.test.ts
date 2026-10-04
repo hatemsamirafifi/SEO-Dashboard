@@ -11,8 +11,10 @@ import {
   parseEventReason,
   priorityBadgeClass,
   priorityLabel,
+  sourceLabel,
   statusBadgeClass,
   statusLabel,
+  toPriorityParam,
   typeLabel,
   OPPORTUNITY_PRIORITIES,
   OPPORTUNITY_STATUSES,
@@ -142,58 +144,20 @@ describe("applyClientFilters", () => {
     }),
   ];
 
-  it("passes everything through on empty filters", () => {
-    expect(
-      applyClientFilters(rows, { types: [], priorities: [], search: "" }),
-    ).toHaveLength(3);
-  });
-
-  it("round-trips type and priority selections", () => {
-    expect(
-      applyClientFilters(rows, {
-        types: ["decay"],
-        priorities: [],
-        search: "",
-      }).map((r) => r.logicalKey),
-    ).toEqual(["content_decay:/guide"]);
-    expect(
-      applyClientFilters(rows, {
-        types: [],
-        priorities: ["Critical"],
-        search: "",
-      }).map((r) => r.logicalKey),
-    ).toEqual(["technical:missing_title:/pricing"]);
-    expect(
-      applyClientFilters(rows, {
-        types: ["ctr", "decay"],
-        priorities: ["High", "Medium"],
-        search: "",
-      }),
-    ).toHaveLength(2);
+  it("passes everything through on empty search", () => {
+    expect(applyClientFilters(rows, { search: "" })).toHaveLength(3);
   });
 
   it("searches keyword, page, title, and key case-insensitively", () => {
     expect(
-      applyClientFilters(rows, {
-        types: [],
-        priorities: [],
-        search: "PRICING",
-      }).map((r) => r.logicalKey),
+      applyClientFilters(rows, { search: "PRICING" }).map((r) => r.logicalKey),
     ).toEqual(["technical:missing_title:/pricing"]);
     expect(
-      applyClientFilters(rows, {
-        types: [],
-        priorities: [],
-        search: "low_ctr",
-      }).map((r) => r.logicalKey),
+      applyClientFilters(rows, { search: "low_ctr" }).map((r) => r.logicalKey),
     ).toEqual(["low_ctr_query:best shoes"]);
-    expect(
-      applyClientFilters(rows, {
-        types: [],
-        priorities: [],
-        search: "no such thing",
-      }),
-    ).toHaveLength(0);
+    expect(applyClientFilters(rows, { search: "no such thing" })).toHaveLength(
+      0,
+    );
   });
 });
 
@@ -256,6 +220,27 @@ describe("parseEvidenceJson", () => {
       parseEvidenceJson(JSON.stringify({ metrics: {}, sources: [42] })),
     ).toBeNull();
   });
+
+  it("parses source refs including ga4Keys, rejecting malformed refs", () => {
+    const withRefs = JSON.stringify({
+      metrics: { conversionsBefore: 40 },
+      sources: ["ga4"],
+      sourceRefs: {
+        ga4Keys: ["ga4:properties/123:events:signup:2026-01-01..2026-02-28"],
+        gscFactIds: ["fact-1"],
+      },
+    });
+    expect(parseEvidenceJson(withRefs)?.sourceRefs).toEqual({
+      ga4Keys: ["ga4:properties/123:events:signup:2026-01-01..2026-02-28"],
+      gscFactIds: ["fact-1"],
+    });
+    const badRefs = JSON.stringify({
+      metrics: {},
+      sources: ["ga4"],
+      sourceRefs: { ga4Keys: [{ nested: "object" }] },
+    });
+    expect(parseEvidenceJson(badRefs)).toBeNull();
+  });
 });
 
 describe("parseEventReason", () => {
@@ -283,5 +268,28 @@ describe("formatMissInfo", () => {
     expect(formatMissInfo({ consecutiveMisses: 3, stale: true })).toContain(
       "Stale",
     );
+  });
+});
+
+describe("spec 010 filter metadata", () => {
+  it("labels the GA4-backed types and sources, degrading unknown values", () => {
+    expect(typeLabel("ga4_conversion")).toBe("Conversion drop");
+    expect(typeLabel("ga4_engagement")).toBe("Engagement drop");
+    expect(typeLabel("striking_distance")).toBe("Striking distance");
+    expect(typeLabel("future_type")).toBe("future_type");
+    expect(sourceLabel("ga4")).toBe("Analytics");
+    expect(sourceLabel("gsc")).toBe("Search Console");
+    expect(sourceLabel("rank")).toBe("Rank tracking");
+    expect(sourceLabel("audit")).toBe("Site audit");
+    expect(sourceLabel("backlinks")).toBe("Backlinks");
+    expect(sourceLabel("future_source")).toBe("future_source");
+  });
+
+  it("narrows priority select values, dropping garbage to unfiltered", () => {
+    expect(toPriorityParam("Critical")).toBe("Critical");
+    expect(toPriorityParam("Low")).toBe("Low");
+    expect(toPriorityParam("critical")).toBeUndefined();
+    expect(toPriorityParam("bogus")).toBeUndefined();
+    expect(toPriorityParam("")).toBeUndefined();
   });
 });
