@@ -2,19 +2,14 @@
   "version": "1.0.9",
   "integration_state_schema": 1,
   "installed_integrations": [
-    "opencode",
-    "agy"
+    "claude"
   ],
   "integration_settings": {
-    "opencode": {
-      "script": "ps",
-      "invoke_separator": "."
-    },
-    "agy": {
+    "claude": {
       "script": "ps",
       "invoke_separator": "-"
     }
   },
-  "integration": "opencode",
-  "default_integration": "opencode"
+  "integration": "claude",
+  "default_integration": "claude"
 }
