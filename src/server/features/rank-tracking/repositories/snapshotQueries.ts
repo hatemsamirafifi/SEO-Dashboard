@@ -66,7 +66,7 @@ export async function getLatestPositionsMap(
 
   const runConditions = [
     eq(rankCheckRuns.configId, configId),
-    eq(rankCheckRuns.status, "completed"),
+    inArray(rankCheckRuns.status, ["completed", "partial"]),
   ];
   if (options?.excludeRunId) {
     runConditions.push(ne(rankCheckRuns.id, options.excludeRunId));

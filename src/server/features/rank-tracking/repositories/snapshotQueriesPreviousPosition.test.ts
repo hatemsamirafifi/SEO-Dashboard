@@ -13,7 +13,7 @@ interface TestSnapshot {
 interface TestRun {
   id: string;
   configId: string;
-  status: "completed" | "running" | "failed" | "pending";
+  status: "completed" | "running" | "failed" | "pending" | "partial";
 }
 
 /**
@@ -37,7 +37,7 @@ function resolvePreviousPosition(
       .filter(
         (r) =>
           r.configId === configId &&
-          r.status === "completed" &&
+          (r.status === "completed" || r.status === "partial") &&
           (!options?.excludeRunId || r.id !== options.excludeRunId),
       )
       .map((r) => r.id),
@@ -389,5 +389,30 @@ describe("previousPosition resolution semantics", () => {
     expect(batchAMap.get(`${kwX}:desktop`)).toBe(15);
     expect(batchBMap.get(`${kwY}:desktop`)).toBe(22);
     expect(batchARequery.get(`${kwX}:desktop`)).toBe(15);
+  });
+
+  it("9. includes positions from partial runs as valid previous positions", () => {
+    const runs: TestRun[] = [{ id: "run-partial", configId, status: "partial" }];
+    const snapshots: TestSnapshot[] = [
+      {
+        runId: "run-partial",
+        trackingKeywordId: kwX,
+        device: "desktop",
+        checkedAt: "2026-09-10 10:00:00",
+        position: 28,
+        previousPosition: null,
+        rankingStatus: "RANKED",
+      },
+    ];
+
+    const prevMap = resolvePreviousPosition(
+      configId,
+      [{ keywordId: kwX, device: "desktop" }],
+      runs,
+      snapshots,
+      { excludeRunId: "run-next" },
+    );
+
+    expect(prevMap.get(`${kwX}:desktop`)).toBe(28);
   });
 });
