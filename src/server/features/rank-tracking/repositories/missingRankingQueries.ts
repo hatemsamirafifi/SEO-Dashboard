@@ -1,4 +1,4 @@
-import { and, eq, inArray, max, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, max, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { rankCheckRuns, rankSnapshots } from "@/db/schema";
 import type { DeviceRankingFacts } from "@/shared/rank-tracking";
@@ -67,11 +67,13 @@ export async function getLatestRankingFactsForConfig(
       );
       collectFacts(rows, result);
     }
-    return result;
+  } else {
+    const rows = await selectLatestFactRows(baseConditions);
+    collectFacts(rows, result);
   }
 
-  const rows = await selectLatestFactRows(baseConditions);
-  collectFacts(rows, result);
+  await backfillPreviousPositionsForLostKeywords(configId, result);
+
   return result;
 }
 
@@ -136,3 +138,98 @@ function collectFacts(
     }
   }
 }
+
+/**
+ * When a pair's latest snapshot has no ranking (position === null) and no
+ * persisted previousPosition (e.g. legacy snapshots, runs where previous run
+ * was partial, or repeated NO_RESULT checks), inspect prior completed/partial
+ * runs for this config to see if a valid position was previously observed.
+ *
+ * If a prior valid rank existed, populate previousPosition so the pair is
+ * correctly classified as "lost" rather than "no_ranking", mirroring the
+ * table's historical baseline semantics.
+ */
+async function backfillPreviousPositionsForLostKeywords(
+  configId: string,
+  result: Map<string, DeviceRankingFacts>,
+): Promise<void> {
+  const unrankedIds: string[] = [];
+  for (const [key, fact] of result.entries()) {
+    if (
+      fact.hasSnapshot &&
+      fact.position === null &&
+      fact.previousPosition == null &&
+      fact.rankingStatus !== "CHECK_FAILED"
+    ) {
+      const [keywordId] = key.split(":");
+      if (!unrankedIds.includes(keywordId)) {
+        unrankedIds.push(keywordId);
+      }
+    }
+  }
+
+  if (unrankedIds.length === 0) return;
+
+  const validRunIds = db
+    .select({ id: rankCheckRuns.id })
+    .from(rankCheckRuns)
+    .where(
+      and(
+        eq(rankCheckRuns.configId, configId),
+        inArray(rankCheckRuns.status, ["completed", "partial"]),
+      ),
+    );
+
+  const CHUNK_SIZE = 40;
+  for (let i = 0; i < unrankedIds.length; i += CHUNK_SIZE) {
+    const chunk = unrankedIds.slice(i, i + CHUNK_SIZE);
+    const conditions: SQL[] = [
+      inArray(rankSnapshots.runId, validRunIds),
+      inArray(rankSnapshots.trackingKeywordId, chunk),
+      isNotNull(rankSnapshots.position),
+    ];
+
+    const grouped = db
+      .select({
+        trackingKeywordId: rankSnapshots.trackingKeywordId,
+        device: rankSnapshots.device,
+        targetCheckedAt: max(rankSnapshots.checkedAt).as("target_checked_at"),
+      })
+      .from(rankSnapshots)
+      .where(and(...conditions))
+      .groupBy(rankSnapshots.trackingKeywordId, rankSnapshots.device)
+      .as("grouped_valid");
+
+    const rows = await db
+      .select({
+        trackingKeywordId: rankSnapshots.trackingKeywordId,
+        device: rankSnapshots.device,
+        position: rankSnapshots.position,
+      })
+      .from(rankSnapshots)
+      .innerJoin(
+        grouped,
+        and(
+          eq(rankSnapshots.trackingKeywordId, grouped.trackingKeywordId),
+          eq(rankSnapshots.device, grouped.device),
+          eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
+        ),
+      )
+      .where(and(...conditions));
+
+    for (const row of rows) {
+      const key = `${row.trackingKeywordId}:${row.device}`;
+      const existing = result.get(key);
+      if (
+        existing &&
+        existing.position === null &&
+        existing.previousPosition == null &&
+        existing.rankingStatus !== "CHECK_FAILED" &&
+        typeof row.position === "number"
+      ) {
+        existing.previousPosition = row.position;
+      }
+    }
+  }
+}
+

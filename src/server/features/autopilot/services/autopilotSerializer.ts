@@ -27,6 +27,15 @@ export function containsBannedCausalVerb(text: string): boolean {
   return BANNED_CAUSAL.some((pattern) => pattern.test(text));
 }
 
+// Spec 013: mechanical uplift ban (SC-001). New workflows may never emit
+// unsupported uplift percentages — quantified impacts require an evidence
+// basis, so any bare "NN%" pattern in synthesized text is a violation.
+const UPLIFT_PATTERN = /\d+\s*%/;
+
+export function containsUpliftPattern(text: string): boolean {
+  return UPLIFT_PATTERN.test(text);
+}
+
 export function assertObservationalSafe(
   text: string,
   evidenceType: AutopilotEvidenceType,

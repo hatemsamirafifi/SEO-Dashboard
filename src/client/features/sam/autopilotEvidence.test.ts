@@ -6,10 +6,12 @@ import type {
 import {
   attemptNote,
   correlationRows,
+  monthlySummary,
   parseStepEvidence,
   recommendationCards,
   runStatusLabel,
   shouldPollRun,
+  technicalFacts,
   type AutopilotStepLike,
 } from "./autopilotEvidence";
 
@@ -94,5 +96,102 @@ describe("autopilotEvidence", () => {
     expect(runStatusLabel("cancelled")).toBe("Cancelled");
     expect(shouldPollRun("running")).toBe(true);
     expect(shouldPollRun("completed")).toBe(false);
+  });
+
+  // Spec 013 (US4 T025): evidence renderers for the new workflow shapes.
+  it("reads technical-SEO facts apart from recommendations", () => {
+    const facts = technicalFacts([
+      step(2, {
+        facts: {
+          auditCoverage: { state: "ready", auditId: "a1", pagesCrawled: 42 },
+          rankedIssues: [
+            { severity: "critical", type: "noindex-important", count: 2 },
+          ],
+        },
+        recommendations: [
+          {
+            suggestedAction: "Inspect noindex-important findings",
+            reasoningSummary: "2 pages observed in the latest stored audit",
+            confidence: { value: 70, why: "stored severity critical" },
+            dataSource: "audit:a1:noindex-important",
+          },
+        ],
+      }),
+    ]);
+    expect(facts?.coverageState).toBe("ready");
+    expect(facts?.rankedIssues).toEqual([
+      { severity: "critical", type: "noindex-important", count: 2 },
+    ]);
+    // Recommendations still flow through the shared cards reader.
+    expect(
+      recommendationCards([
+        step(2, {
+          recommendations: [
+            {
+              suggestedAction: "Run a site audit first",
+              reasoningSummary: "No audit evidence in stored state",
+              confidence: { value: 80, why: "observed absence" },
+              dataSource: "audit:coverage",
+            },
+          ],
+        }),
+      ]),
+    ).toHaveLength(1);
+    expect(technicalFacts([step(2, null)])).toBeNull();
+    expect(technicalFacts([step(2, { facts: null })])).toBeNull();
+  });
+
+  it("reads monthly-review sections with honest unavailable reasons", () => {
+    const summary = monthlySummary([
+      step(2, {
+        summary: {
+          changed: [
+            {
+              source: "gsc",
+              metric: "clicks",
+              monthValue: 1000,
+              priorValue: 1200,
+              delta: -200,
+              agreement: "corroborated",
+            },
+            {
+              source: "ga4",
+              metric: "pageViews",
+              monthValue: 11000,
+              priorValue: 11000,
+              delta: 0,
+              agreement: "single_source",
+            },
+          ],
+          ratios: [{ metric: "ctr", monthValue: 0.02, priorValue: 0.025 }],
+          unavailable: [{ source: "ga4", reason: "no_coverage (prior window)" }],
+          unresolved: [
+            { kind: "opportunity", label: "High", title: "Pricing lost rank" },
+          ],
+          nextActions: [
+            {
+              suggestedAction: "Review Pricing lost rank",
+              reasoningSummary: "remains High and unresolved",
+              confidence: { value: 68, why: "stored confidence" },
+              dataSource: "opportunity:ranking_drop:/pricing",
+            },
+          ],
+        },
+      }),
+    ]);
+    expect(summary?.changed).toHaveLength(2);
+    expect(
+      summary?.changed.find((row) => row.metric === "pageViews")?.agreement,
+    ).toBe("single_source");
+    expect(summary?.ratios).toEqual([
+      { metric: "ctr", monthValue: 0.02, priorValue: 0.025 },
+    ]);
+    // Unavailable reasons render verbatim — never zeros.
+    expect(summary?.unavailable).toEqual([
+      { source: "ga4", reason: "no_coverage (prior window)" },
+    ]);
+    expect(summary?.nextActionCount).toBe(1);
+    expect(monthlySummary([step(2, null)])).toBeNull();
+    expect(monthlySummary([step(2, { summary: null })])).toBeNull();
   });
 });

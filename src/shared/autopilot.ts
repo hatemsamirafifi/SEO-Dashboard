@@ -9,6 +9,9 @@ export const AUTOPILOT_WORKFLOW_TYPES = [
   "growth_plan",
   "quick_wins",
   "traffic_drop",
+  "content_refresh",
+  "technical_seo",
+  "monthly_review",
 ] as const;
 export type AutopilotWorkflowType = (typeof AUTOPILOT_WORKFLOW_TYPES)[number];
 
@@ -60,6 +63,9 @@ export const AUTOPILOT_WORKFLOW_LABELS: Record<AutopilotWorkflowType, string> =
     growth_plan: "Growth plan",
     quick_wins: "Quick wins",
     traffic_drop: "Traffic drop",
+    content_refresh: "Content refresh",
+    technical_seo: "Technical SEO",
+    monthly_review: "Monthly review",
   };
 
 export const AUTOPILOT_WORKFLOW_DESCRIPTIONS: Record<
@@ -71,6 +77,12 @@ export const AUTOPILOT_WORKFLOW_DESCRIPTIONS: Record<
   quick_wins: "Small reversible moves from Critical and High items only.",
   traffic_drop:
     "Overlap table across signals for a traffic move. Single-source rows stay provisional.",
+  content_refresh:
+    "Pages worth refreshing from stored opportunities, ranked by priority, impact, and confidence.",
+  technical_seo:
+    "Prioritized technical fixes from the latest stored audit, with explicit coverage when the audit is missing or stale.",
+  monthly_review:
+    "What changed last month, what remains unresolved, and evidence-backed next actions from frozen stored evidence.",
 };
 
 export const AUTOPILOT_STEP_KIND_LABELS: Record<AutopilotStepKind, string> = {

@@ -34,6 +34,13 @@ import {
   getAuditStatusTool,
   runSiteAuditTool,
 } from "@/server/mcp/tools/site-audit-tools";
+import {
+  cancelAutopilotRunTool,
+  getAutopilotRunTool,
+  listAutopilotRunsTool,
+  resumeAutopilotRunTool,
+  startAutopilotRunTool,
+} from "@/server/mcp/tools/autopilot-run-tools";
 import { whoamiTool } from "@/server/mcp/tools/whoami";
 import { discoverSiteUrls, readPages, readSite } from "@/server/lib/scrape";
 import openSeoFactSheet from "@/server/features/onboarding/openseo-fact-sheet.md?raw";
@@ -88,7 +95,13 @@ type McpToolDefinition<Shape extends ZodRawShape> = {
 // would make every repeat poll return the same stale result until the DO is
 // evicted (the failure mode that motivated Phase P). The reads are cheap D1
 // lookups, so skipping the cache costs nothing.
-const FRESH_READ_TOOLS = new Set(["get_audit_status"]);
+const FRESH_READ_TOOLS = new Set([
+  "get_audit_status",
+  // Autopilot run polls read mutable workflow state — same reason as above:
+  // a cached "running" snapshot would repeat stale state until DO eviction.
+  "get_autopilot_run",
+  "list_autopilot_runs",
+]);
 
 type AdaptMcpToolContext = {
   extra: ToolExtra;
@@ -328,6 +341,18 @@ export function buildSamMcpTools(
     }),
     get_audit_issues: adapt(getAuditIssuesTool),
     get_audit_pages: adapt(getAuditPagesTool),
+    start_autopilot_run: adapt(startAutopilotRunTool, {
+      // SAM-specific orchestration guidance: the shared MCP description stays
+      // untouched for future MCP clients; here it names the allowlisted
+      // workflows and routes the model to get_autopilot_run for polling
+      // instead of improvising a wait loop.
+      description:
+        "Start one allowlisted autopilot workflow run for this project: content_refresh (pages worth refreshing), technical_seo (prioritized fixes from the latest audit), monthly_review (last month's summary), growth_plan, quick_wins, or traffic_drop. Returns immediately with the run id. Call get_autopilot_run next to poll for a terminal state before answering — never report numbers from a running step. One workflow at a time.",
+    }),
+    get_autopilot_run: adapt(getAutopilotRunTool),
+    list_autopilot_runs: adapt(listAutopilotRunsTool),
+    cancel_autopilot_run: adapt(cancelAutopilotRunTool),
+    resume_autopilot_run: adapt(resumeAutopilotRunTool),
     ...(options?.poll && options.pollCoordinator
       ? {
           poll_site_audit: buildPollSiteAuditTool({
