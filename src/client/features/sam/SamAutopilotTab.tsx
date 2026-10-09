@@ -22,9 +22,11 @@ import {
 import {
   attemptNote,
   correlationRows,
+  monthlySummary,
   recommendationCards,
   runStatusLabel,
   shouldPollRun,
+  technicalFacts,
   type AutopilotAttemptLike,
   type AutopilotRunLike,
   type AutopilotStepLike,
@@ -225,6 +227,8 @@ function RunDetail({
     isAutopilotRunActive(view.run.status);
   const cards = recommendationCards(view.steps);
   const correlations = correlationRows(view.steps);
+  const facts = technicalFacts(view.steps);
+  const monthly = monthlySummary(view.steps);
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-base-300 p-3">
@@ -299,6 +303,82 @@ function RunDetail({
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {facts ? (
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium">Findings</p>
+          <p className="text-xs text-base-content/60">
+            Audit coverage: {facts.coverageState}
+          </p>
+          {facts.rankedIssues.length > 0 ? (
+            <ul className="flex flex-col gap-1 text-sm">
+              {facts.rankedIssues.map((issue) => (
+                <li
+                  key={`${issue.severity}:${issue.type}`}
+                  className="text-base-content/80"
+                >
+                  {issue.type} — {issue.severity} ({issue.count}{" "}
+                  {issue.count === 1 ? "page" : "pages"})
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {monthly ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-medium">What changed</p>
+          {monthly.changed.length > 0 ? (
+            <ul className="flex flex-col gap-1 text-sm">
+              {monthly.changed.map((row) => (
+                <li
+                  key={`${row.source}:${row.metric}`}
+                  className="text-base-content/80"
+                >
+                  {row.metric}: {row.monthValue ?? "—"} vs{" "}
+                  {row.priorValue ?? "—"}
+                  {row.agreement === "single_source" ? " (provisional)" : ""}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {monthly.ratios.length > 0 ? (
+            <ul className="flex flex-col gap-1 text-sm text-base-content/70">
+              {monthly.ratios.map((row) => (
+                <li key={row.metric}>
+                  {row.metric}: {row.monthValue ?? "—"} vs{" "}
+                  {row.priorValue ?? "—"}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {monthly.unavailable.length > 0 ? (
+            <ul className="flex flex-col gap-1 text-xs text-base-content/60">
+              {monthly.unavailable.map((row) => (
+                <li key={row.source}>
+                  {row.source}: {row.reason}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {monthly.unresolved.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">Unresolved</p>
+              <ul className="flex flex-col gap-1 text-sm">
+                {monthly.unresolved.map((row) => (
+                  <li
+                    key={`${row.kind}:${row.label}:${row.title}`}
+                    className="text-base-content/80"
+                  >
+                    {row.title} — {row.label}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

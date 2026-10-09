@@ -162,3 +162,110 @@ export const AUTOPILOT_RUN_STATUS_LABELS: Record<AutopilotRunStatus, string> =
 export function runStatusLabel(status: AutopilotRunStatus): string {
   return AUTOPILOT_RUN_STATUS_LABELS[status];
 }
+
+export type TechnicalFacts = {
+  coverageState: string;
+  rankedIssues: { severity: string; type: string; count: number }[];
+};
+
+/** Facts block from technical-SEO synthesize evidence (P27: facts apart). */
+export function technicalFacts(
+  steps: AutopilotStepLike[],
+): TechnicalFacts | null {
+  for (const step of [...steps].toSorted((a, b) => b.seq - a.seq)) {
+    const record = parseStepEvidence(step.evidenceJson);
+    const facts: unknown = record["facts"];
+    if (!isRecord(facts)) continue;
+    const coverage: unknown = facts["auditCoverage"];
+    if (!isRecord(coverage)) continue;
+    const state: unknown = coverage["state"];
+    if (typeof state !== "string") continue;
+    const rawIssues: unknown = facts["rankedIssues"];
+    const rankedIssues = Array.isArray(rawIssues)
+      ? rawIssues.filter(isRecord).map((row) => ({
+          severity: stringField(row, "severity"),
+          type: stringField(row, "type"),
+          count:
+            typeof row["count"] === "number" ? row["count"] : 0,
+        }))
+      : [];
+    return { coverageState: state, rankedIssues };
+  }
+  return null;
+}
+
+export type MonthlyChangedRow = {
+  source: string;
+  metric: string;
+  monthValue: number | null;
+  priorValue: number | null;
+  delta: number | null;
+  agreement: string;
+};
+
+export type MonthlySummary = {
+  changed: MonthlyChangedRow[];
+  ratios: { metric: string; monthValue: number | null; priorValue: number | null }[];
+  unavailable: { source: string; reason: string }[];
+  unresolved: { kind: string; label: string; title: string }[];
+  nextActionCount: number;
+};
+
+function nullableNumberField(
+  record: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value: unknown = record[key];
+  return typeof value === "number" ? value : null;
+}
+
+/** Monthly-review sections from synthesize evidence (changed/unresolved/actions). */
+export function monthlySummary(
+  steps: AutopilotStepLike[],
+): MonthlySummary | null {
+  for (const step of [...steps].toSorted((a, b) => b.seq - a.seq)) {
+    const record = parseStepEvidence(step.evidenceJson);
+    const summary: unknown = record["summary"];
+    if (!isRecord(summary)) continue;
+    const rawChanged: unknown = summary["changed"];
+    const rawRatios: unknown = summary["ratios"];
+    const rawUnavailable: unknown = summary["unavailable"];
+    const rawUnresolved: unknown = summary["unresolved"];
+    const rawActions: unknown = summary["nextActions"];
+    if (
+      !Array.isArray(rawChanged) ||
+      !Array.isArray(rawRatios) ||
+      !Array.isArray(rawUnavailable) ||
+      !Array.isArray(rawUnresolved) ||
+      !Array.isArray(rawActions)
+    ) {
+      continue;
+    }
+    return {
+      changed: rawChanged.filter(isRecord).map((row) => ({
+        source: stringField(row, "source"),
+        metric: stringField(row, "metric"),
+        monthValue: nullableNumberField(row, "monthValue"),
+        priorValue: nullableNumberField(row, "priorValue"),
+        delta: nullableNumberField(row, "delta"),
+        agreement: stringField(row, "agreement"),
+      })),
+      ratios: rawRatios.filter(isRecord).map((row) => ({
+        metric: stringField(row, "metric"),
+        monthValue: nullableNumberField(row, "monthValue"),
+        priorValue: nullableNumberField(row, "priorValue"),
+      })),
+      unavailable: rawUnavailable.filter(isRecord).map((row) => ({
+        source: stringField(row, "source"),
+        reason: stringField(row, "reason"),
+      })),
+      unresolved: rawUnresolved.filter(isRecord).map((row) => ({
+        kind: stringField(row, "kind"),
+        label: stringField(row, "label"),
+        title: stringField(row, "title"),
+      })),
+      nextActionCount: rawActions.filter(isRecord).length,
+    };
+  }
+  return null;
+}

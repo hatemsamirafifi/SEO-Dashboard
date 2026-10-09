@@ -46,18 +46,22 @@ import {
   InsightRepository,
   type InsightRow,
 } from "@/server/features/intelligence/repositories/InsightRepository";
-import { OpportunityRepository } from "@/server/features/intelligence/repositories/OpportunityRepository";
+import {
+  OpportunityRepository,
+  type OpportunityRow,
+} from "@/server/features/intelligence/repositories/OpportunityRepository";
 import { AutopilotBudgets } from "./autopilotBudgets";
 import { driveRunToCompletion } from "./stepExecutor";
 import {
   clearAutopilotWorkflows,
   getAutopilotWorkflow,
 } from "./autopilotTypes";
+import { WORKFLOW_PROMPTS } from "./autopilotWorkflowContent";
 import {
-  WORKFLOW_PROMPTS,
-  ensureAutopilotWorkflowsRegistered,
-} from "./autopilotWorkflows";
-import { containsBannedCausalVerb } from "./autopilotSerializer";
+  containsBannedCausalVerb,
+  containsUpliftPattern,
+} from "./autopilotSerializer";
+import { ensureAutopilotWorkflowsRegistered } from "./autopilotWorkflows";
 import { resetAutopilotTestDb, setupAutopilotTestDb } from "./autopilotTestDb";
 import {
   BILLING,
@@ -106,18 +110,6 @@ function totalConsideredOf(stepEvidenceJson: string | null): unknown {
   return parseJsonObject(stepEvidenceJson ?? "null")["totalConsidered"];
 }
 
-function correlationRowsOf(
-  stepEvidenceJson: string | null,
-): Record<string, unknown>[] {
-  const record = parseJsonObject(stepEvidenceJson ?? "null");
-  const raw: unknown = record["rows"];
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (entry: unknown): entry is Record<string, unknown> =>
-      typeof entry === "object" && entry !== null,
-  );
-}
-
 function stringField(record: Record<string, unknown>, key: string): string {
   const value: unknown = record[key];
   return typeof value === "string" ? value : "";
@@ -162,99 +154,102 @@ beforeEach(async () => {
   });
 });
 
-describe("autopilot workflow definitions", () => {
-  it("registers growth_plan, quick_wins, and traffic_drop with dense seqs", () => {
-    for (const type of ["growth_plan", "quick_wins", "traffic_drop"] as const) {
-      const def = getAutopilotWorkflow(type);
-      expect(def).not.toBeNull();
-      expect(def?.steps.map((step) => step.seq)).toEqual([0, 1, 2]);
-      expect(def?.steps.map((step) => step.kind)).toEqual([
-        "collect",
-        "correlate",
-        "synthesize",
-      ]);
-    }
+// Spec 013 (US1 T007/T008): registration shape and prompt language.
+describe("content_refresh registration", () => {
+  it("registers with collect/correlate/synthesize seqs", () => {
+    const def = getAutopilotWorkflow("content_refresh");
+    expect(def).not.toBeNull();
+    expect(def?.steps.map((step) => step.seq)).toEqual([0, 1, 2]);
+    expect(def?.steps.map((step) => step.kind)).toEqual([
+      "collect",
+      "correlate",
+      "synthesize",
+    ]);
+    expect(
+      def?.steps.some((step) => step.kind === "side_effect"),
+    ).toBe(false);
   });
 
-  it("keeps every prompt free of banned causal verbs", () => {
-    for (const prompt of Object.values(WORKFLOW_PROMPTS)) {
-      expect(containsBannedCausalVerb(prompt)).toBe(false);
-    }
+  it("keeps the content_refresh prompt observational", () => {
+    const prompt = WORKFLOW_PROMPTS["content_refresh"];
+    expect(typeof prompt).toBe("string");
+    expect(prompt.length).toBeGreaterThan(0);
+    expect(containsBannedCausalVerb(prompt)).toBe(false);
   });
+});
 
-  it("drives growth_plan to completion with evidence and confidence", async () => {
-    vi.spyOn(OpportunityRepository, "listActiveByProject").mockImplementation(
-      async () => [
-        makeOpportunity({ id: "opp-1" }),
-        makeOpportunity({
-          id: "opp-2",
-          logicalKey: "low_ctr_query:head term",
-          type: "low_ctr_query",
-          detectorKey: "low_ctr_query",
-          priority: "Medium",
-          impactScore: 45,
-          confidenceScore: 55,
-          title: "Head term CTR soft",
-          page: null,
-          keyword: "head term",
-        }),
-      ],
-    );
-    vi.spyOn(InsightRepository, "listUnresolvedByProject").mockImplementation(
-      async () => [] as InsightRow[],
-    );
-    const runId = await seedRun();
-    const workflow = getAutopilotWorkflow("growth_plan");
-    if (!workflow) throw new Error("growth_plan was not registered");
-    const result = await driveRunToCompletion({
-      runId,
-      projectId: "project-1",
-      organizationId: "org-1",
-      workflow,
-      billingCustomer: BILLING,
-      stepRunner: fakeRunner(),
-    });
-    expect(result.status).toBe("completed");
-    const attempts = await AutopilotRepository.listAttemptsByRun(runId);
-    const steps = await AutopilotRepository.listStepsByAttempt(
-      attempts[0]?.id ?? "",
-    );
-    const synthesis = steps.find((step) => step.seq === 2);
-    expect(evidenceTypeOf(synthesis?.evidenceJson ?? null)).toBe(
-      "observational",
-    );
-    const recommendations = recommendationsOf(synthesis?.evidenceJson ?? null);
-    expect(recommendations.length).toBeGreaterThan(0);
-    for (const rec of recommendations) {
-      const confidence = confidenceOf(rec);
-      expect(typeof confidence["value"]).toBe("number");
-      expect(String(confidence["why"]).length).toBeGreaterThan(0);
-    }
-    expect(synthesis?.toolCalls).toBe(1);
-  });
-
-  it("limits quick_wins to Critical and High opportunities", async () => {
-    vi.spyOn(OpportunityRepository, "listActiveByProject").mockImplementation(
-      async () => [
-        makeOpportunity({ id: "opp-1", priority: "High" }),
-        makeOpportunity({
-          id: "opp-low",
-          logicalKey: "backlink_change:example.com",
-          type: "backlink_change",
-          detectorKey: "backlink_change",
+// Spec 013 (US1 T007): end-to-end drive over stored engine state.
+describe("content_refresh drive", () => {
+  it("ranks refresh candidates by priority, impact, then confidence", async () => {
+    const make = (
+      id: string,
+      overrides: Partial<OpportunityRow> = {},
+    ) =>
+      makeOpportunity({
+        logicalKey: `content_decay:/page-${id}`,
+        type: "content_decay",
+        detectorKey: "content_decay",
+        page: `/page-${id}`,
+        keyword: null,
+        ...overrides,
+        id,
+      });
+    const candidates = [
+      make("low", { priority: "Low", impactScore: 90, confidenceScore: 90 }),
+      make("med", {
+        priority: "Medium",
+        impactScore: 50,
+        confidenceScore: 50,
+      }),
+      make("high-a", {
+        priority: "High",
+        impactScore: 60,
+        confidenceScore: 60,
+      }),
+      make("high-b", {
+        priority: "High",
+        impactScore: 80,
+        confidenceScore: 40,
+      }),
+      make("crit", {
+        priority: "Critical",
+        impactScore: 30,
+        confidenceScore: 30,
+      }),
+      // Keyword-only rows are not refresh candidates even at top priority.
+      make("nonpage", {
+        id: "nonpage",
+        logicalKey: "low_ctr_query:head term",
+        type: "low_ctr_query",
+        detectorKey: "low_ctr_query",
+        page: null,
+        keyword: "head term",
+        priority: "Critical",
+        impactScore: 99,
+        confidenceScore: 99,
+      }),
+    ];
+    // Seven more low-priority page rows: 12 page-bearing candidates, 10 ranked.
+    for (let i = 0; i < 7; i++) {
+      candidates.push(
+        make(`extra-${i}`, {
+          logicalKey: `content_decay:/extra-${i}`,
+          page: `/extra-${i}`,
           priority: "Low",
-          title: "Backlink drift",
-          page: null,
-          keyword: null,
+          impactScore: 10 + i,
+          confidenceScore: 10,
         }),
-      ],
+      );
+    }
+    vi.spyOn(OpportunityRepository, "listActiveByProject").mockImplementation(
+      async () => candidates,
     );
     vi.spyOn(InsightRepository, "listUnresolvedByProject").mockImplementation(
       async () => [] as InsightRow[],
     );
     const runId = await seedRun();
-    const workflow = getAutopilotWorkflow("quick_wins");
-    if (!workflow) throw new Error("quick_wins was not registered");
+    const workflow = getAutopilotWorkflow("content_refresh");
+    if (!workflow) throw new Error("content_refresh was not registered");
     const result = await driveRunToCompletion({
       runId,
       projectId: "project-1",
@@ -269,65 +264,40 @@ describe("autopilot workflow definitions", () => {
       attempts[0]?.id ?? "",
     );
     const correlate = steps.find((step) => step.seq === 1);
-    expect(totalConsideredOf(correlate?.evidenceJson ?? null)).toBe(1);
-    expect(rankedIdsOf(correlate?.evidenceJson ?? null)).toEqual(["opp-1"]);
-  });
-
-  it("builds a language-guarded correlation table for traffic_drop", async () => {
-    vi.spyOn(OpportunityRepository, "listActiveByProject").mockImplementation(
-      async () => [
-        makeOpportunity({ id: "opp-1" }),
-        makeOpportunity({
-          id: "opp-2",
-          logicalKey: "ga4_organic_change:/pricing",
-          type: "ga4_organic_change",
-          detectorKey: "ga4_organic_change",
-          title: "GA4 sessions moved",
-        }),
-        makeOpportunity({
-          id: "opp-3",
-          logicalKey: "low_ctr_query:other term",
-          type: "low_ctr_query",
-          detectorKey: "low_ctr_query",
-          priority: "Medium",
-          title: "Other CTR soft",
-          page: null,
-          keyword: "other term",
-        }),
-      ],
+    expect(totalConsideredOf(correlate?.evidenceJson ?? null)).toBe(12);
+    expect(rankedIdsOf(correlate?.evidenceJson ?? null)).toEqual([
+      "crit",
+      "high-b",
+      "high-a",
+      "med",
+      "low",
+      "extra-6",
+      "extra-5",
+      "extra-4",
+      "extra-3",
+      "extra-2",
+    ]);
+    const synthesis = steps.find((step) => step.seq === 2);
+    expect(evidenceTypeOf(synthesis?.evidenceJson ?? null)).toBe(
+      "observational",
     );
-    vi.spyOn(InsightRepository, "listUnresolvedByProject").mockImplementation(
-      async () => [] as InsightRow[],
-    );
-    const runId = await seedRun();
-    const workflow = getAutopilotWorkflow("traffic_drop");
-    if (!workflow) throw new Error("traffic_drop was not registered");
-    const result = await driveRunToCompletion({
-      runId,
-      projectId: "project-1",
-      organizationId: "org-1",
-      workflow,
-      billingCustomer: BILLING,
-      stepRunner: fakeRunner(),
-    });
-    expect(result.status).toBe("completed");
-    const attempts = await AutopilotRepository.listAttemptsByRun(runId);
-    const steps = await AutopilotRepository.listStepsByAttempt(
-      attempts[0]?.id ?? "",
-    );
-    const rows = correlationRowsOf(
-      steps.find((step) => step.seq === 1)?.evidenceJson ?? null,
-    );
-    expect(rows).toHaveLength(1);
-    expect(stringField(rows[0] ?? {}, "entity")).toBe("/pricing");
-    expect(stringField(rows[0] ?? {}, "agreement")).toBe("corroborated");
+    expect(synthesis?.toolCalls).toBe(1);
     const recommendations = recommendationsOf(
-      steps.find((step) => step.seq === 2)?.evidenceJson ?? null,
+      synthesis?.evidenceJson ?? null,
     );
+    expect(recommendations.length).toBeGreaterThan(0);
     for (const rec of recommendations) {
       expect(
         containsBannedCausalVerb(stringField(rec, "reasoningSummary")),
       ).toBe(false);
+      expect(
+        containsUpliftPattern(
+          `${stringField(rec, "reasoningSummary")} ${stringField(rec, "suggestedAction")}`,
+        ),
+      ).toBe(false);
+      expect(String(rec["dataSource"] ?? "")).toContain("opportunity:");
+      const confidence = confidenceOf(rec);
+      expect(typeof confidence["value"]).toBe("number");
     }
   });
 });

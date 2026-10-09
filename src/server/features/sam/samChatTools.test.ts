@@ -42,8 +42,51 @@ vi.mock("@/server/mcp/tools/site-audit-tools", () => {
   };
 });
 
+// Spec 013 (US4 T021): the autopilot run tools are stubbed at the same
+// shared-definition boundary; this suite exercises only SAM adapter behavior.
+const autopilotHandler = vi.fn<
+  (
+    name: string,
+    args: { projectId?: string },
+    extra: unknown,
+  ) => Promise<CallToolResult>
+>();
+vi.mock("@/server/mcp/tools/autopilot-run-tools", () => {
+  const def = (
+    name: string,
+    inputSchema: Record<string, z.ZodType>,
+  ): unknown => ({
+    name,
+    config: { description: `${name} shared description`, inputSchema },
+    handler: (args: { projectId?: string }, extra: unknown) =>
+      autopilotHandler(name, args, extra),
+  });
+  return {
+    startAutopilotRunTool: def("start_autopilot_run", {
+      projectId: z.string(),
+      workflowType: z.string(),
+    }),
+    getAutopilotRunTool: def("get_autopilot_run", {
+      projectId: z.string(),
+      runId: z.string(),
+    }),
+    listAutopilotRunsTool: def("list_autopilot_runs", {
+      projectId: z.string(),
+    }),
+    cancelAutopilotRunTool: def("cancel_autopilot_run", {
+      projectId: z.string(),
+      runId: z.string(),
+    }),
+    resumeAutopilotRunTool: def("resume_autopilot_run", {
+      projectId: z.string(),
+      runId: z.string(),
+    }),
+  };
+});
+
 import { buildSamMcpTools } from "./samChatTools";
 import { createPollCoordinator } from "./samLongRunningTools";
+import { createToolExecutionTracker } from "./samToolExecution";
 import type { McpToolAuthContext } from "@/server/mcp/context";
 
 const authContext: McpToolAuthContext = {
@@ -123,5 +166,77 @@ describe("samChatTools audit wiring", () => {
     const output = raw as { data: { auditId: string; state: string } };
     expect(output.data.auditId).toBe("a9");
     expect(output.data.state).toBe("started");
+  });
+});
+
+// Spec 013 (US4 T021): SAM adapter behavior for the five autopilot run tools.
+describe("samChatTools autopilot wiring", () => {
+  beforeEach(() => {
+    autopilotHandler.mockReset();
+  });
+
+  function tools(tracker?: ReturnType<typeof createToolExecutionTracker>) {
+    return buildSamMcpTools(authContext, project, tracker, {
+      poll: { initialMs: 1, maxMs: 2, maxAttempts: 1, timeoutMs: 10_000 },
+      pollCoordinator: createPollCoordinator(),
+    });
+  }
+
+  it("registers all five autopilot run tools", () => {
+    const set = tools();
+    expect(set.start_autopilot_run).toBeDefined();
+    expect(set.get_autopilot_run).toBeDefined();
+    expect(set.list_autopilot_runs).toBeDefined();
+    expect(set.cancel_autopilot_run).toBeDefined();
+    expect(set.resume_autopilot_run).toBeDefined();
+  });
+
+  it("injects the session project into run tool calls (model never passes it)", async () => {
+    autopilotHandler.mockResolvedValue(mcpResult({ runId: "run-1" }));
+    const set = tools();
+    await callTool(set.start_autopilot_run, {
+      workflowType: "content_refresh",
+    });
+    expect(autopilotHandler).toHaveBeenCalledTimes(1);
+    expect(autopilotHandler.mock.calls[0]?.[1].projectId).toBe("p1");
+  });
+
+  it("serves run polls fresh on every call (never from dedup cache)", async () => {
+    autopilotHandler.mockResolvedValue(
+      mcpResult({ run: { id: "run-1", status: "running" } }),
+    );
+    const set = tools();
+    await callTool(set.get_autopilot_run, { runId: "run-1" });
+    await callTool(set.get_autopilot_run, { runId: "run-1" });
+    await callTool(set.list_autopilot_runs);
+    await callTool(set.list_autopilot_runs);
+    expect(
+      autopilotHandler.mock.calls.filter(([name]) => name === "get_autopilot_run"),
+    ).toHaveLength(2);
+    expect(
+      autopilotHandler.mock.calls.filter(
+        ([name]) => name === "list_autopilot_runs",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("dedups repeat start calls within one conversation", async () => {
+    autopilotHandler.mockResolvedValue(mcpResult({ runId: "run-1" }));
+    const tracker = createToolExecutionTracker({
+      sessionId: "sam-test",
+      projectId: "p1",
+    });
+    const set = tools(tracker);
+    await callTool(set.start_autopilot_run, {
+      workflowType: "content_refresh",
+    });
+    await callTool(set.start_autopilot_run, {
+      workflowType: "content_refresh",
+    });
+    expect(
+      autopilotHandler.mock.calls.filter(
+        ([name]) => name === "start_autopilot_run",
+      ),
+    ).toHaveLength(1);
   });
 });

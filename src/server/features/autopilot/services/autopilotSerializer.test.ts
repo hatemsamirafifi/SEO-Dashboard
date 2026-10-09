@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   autopilotRecommendationSchema,
+  containsUpliftPattern,
   serializeRecommendation,
   serializeRecommendations,
 } from "./autopilotSerializer";
@@ -103,6 +104,21 @@ describe("autopilotSerializer", () => {
         causedBy: "migration",
       }),
     ).toThrow();
+  });
+
+  // Spec 013 (Setup T003): mechanical uplift ban over synthesized recommendation
+  // JSON — new workflows may never emit unsupported uplift percentages (SC-001).
+  it("detects uplift percentages in recommendation text", () => {
+    expect(containsUpliftPattern("increase traffic by 25%")).toBe(true);
+    expect(containsUpliftPattern("expect +12% more sessions")).toBe(true);
+    expect(
+      containsUpliftPattern(
+        "Sessions decreased during the same period as the overlapping signals",
+      ),
+    ).toBe(false);
+    expect(
+      containsUpliftPattern("Direction is clear; sizing needs a baseline"),
+    ).toBe(false);
   });
 
   it("bulk serializes with an observational default", () => {
