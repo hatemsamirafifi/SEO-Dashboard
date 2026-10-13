@@ -104,7 +104,9 @@ export function filterOperations(
           op.feature === "brand_lookup" ||
           op.feature === "prompt_explorer" ||
           // Spec 010: GA4 analytics reads sit with the other SEO surfaces.
-          op.feature === "analytics",
+          op.feature === "analytics" ||
+          // Spec 014: competitor-gap spike operations (observability only).
+          op.feature === "competitor_gap",
       );
     case "settings":
       return operations.filter((op) => op.feature === "settings");

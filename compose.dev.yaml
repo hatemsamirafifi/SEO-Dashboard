@@ -17,6 +17,10 @@ services:
       dockerfile: Dockerfile.dev
     image: open-seo-dev:local
     init: true
+    dns:
+      - ${DOCKER_DNS:-192.168.1.1}
+      - 8.8.8.8
+      - 1.1.1.1
     # Expose every variable defined in .env.docker (if present) plus the safe
     # local-development defaults below. Explicit `environment:` entries win
     # over `env_file` values for the same key.

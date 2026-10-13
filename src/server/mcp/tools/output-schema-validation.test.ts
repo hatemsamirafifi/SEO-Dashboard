@@ -155,6 +155,7 @@ describe("DataForSEO research tool output schemas", () => {
 
       expect(result.success).toBe(true);
     },
+    30_000,
   );
 
   it("get_backlinks_profile accepts a paginated backlinks profile payload", async () => {

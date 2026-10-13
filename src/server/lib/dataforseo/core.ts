@@ -180,7 +180,24 @@ async function resolveAuthenticatedDataforseoBasicAuth(): Promise<string> {
     );
   }
 
-  // Check legacy environment API key or login/password first
+  // Dynamic fallback: resolve effective settings from DB (project -> org -> env)
+  try {
+    const { resolveEffectiveDataforseoConfig } =
+      await import("@/server/features/settings/services/DataforseoSettingsService");
+    const effective = await resolveEffectiveDataforseoConfig({
+      organizationId: context?.organizationId,
+      projectId: context?.projectId,
+    });
+    if (effective.login && effective.password) {
+      return Buffer.from(`${effective.login}:${effective.password}`).toString(
+        "base64",
+      );
+    }
+  } catch {
+    // If DB is unavailable in pure endpoint unit test environments, fall through to raw env check
+  }
+
+  // Check legacy environment API key or login/password fallback
   try {
     const rawKey = await getRequiredEnvValue("DATAFORSEO_API_KEY");
     if (rawKey?.trim()) {
@@ -196,23 +213,6 @@ async function resolveAuthenticatedDataforseoBasicAuth(): Promise<string> {
     return Buffer.from(`${envLogin.trim()}:${envPassword.trim()}`).toString(
       "base64",
     );
-  }
-
-  // Dynamic fallback: resolve effective settings from DB if not in context
-  try {
-    const { resolveEffectiveDataforseoConfig } =
-      await import("@/server/features/settings/services/DataforseoSettingsService");
-    const effective = await resolveEffectiveDataforseoConfig({
-      organizationId: context?.organizationId,
-      projectId: context?.projectId,
-    });
-    if (effective.login && effective.password) {
-      return Buffer.from(`${effective.login}:${effective.password}`).toString(
-        "base64",
-      );
-    }
-  } catch {
-    // If DB is unavailable in pure endpoint unit test environments, fall through to error
   }
 
   throw new AppError(

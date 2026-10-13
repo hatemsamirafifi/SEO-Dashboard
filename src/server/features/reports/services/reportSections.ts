@@ -1,3 +1,5 @@
+import { AuditRepository } from "@/server/features/audit/repositories/AuditRepository";
+import { getIssueTypePageCountsForAudit } from "@/server/features/audit/repositories/auditSummaryQueries";
 import { DashboardService } from "@/server/features/dashboard/services/DashboardService";
 import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4ConnectionRepository";
 import { Ga4SyncRepository } from "@/server/features/ga4/repositories/Ga4SyncRepository";
@@ -316,4 +318,30 @@ export async function collectOpportunities(
     recommendation: row.recommendation,
     completedAt: row.completedAt,
   }));
+}
+
+export async function collectAuditSummary(projectId: string): Promise<{
+  latestAudit: {
+    id: string;
+    status: "running" | "completed" | "failed";
+    pagesCrawled: number;
+    completedAt: string | null;
+  } | null;
+  issues: { issueType: string; severity: string; pages: number }[];
+}> {
+  const latest = await AuditRepository.getLatestAuditForProject(projectId);
+  if (!latest) {
+    return { latestAudit: null, issues: [] };
+  }
+  const summaryAudit = {
+    id: latest.id,
+    status: latest.status,
+    pagesCrawled: latest.pagesCrawled,
+    completedAt: latest.completedAt,
+  };
+  if (latest.status !== "completed") {
+    return { latestAudit: summaryAudit, issues: [] };
+  }
+  const issues = await getIssueTypePageCountsForAudit(latest.id);
+  return { latestAudit: summaryAudit, issues };
 }

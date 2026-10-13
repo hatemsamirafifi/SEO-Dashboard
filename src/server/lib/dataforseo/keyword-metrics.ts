@@ -29,21 +29,36 @@ export type KeywordMetricRow = {
   monthlySearches: MonthlySearch[];
 };
 
-function toMonthlySearches(
-  entries:
-    | {
-        year?: number | null;
-        month?: number | null;
-        search_volume?: number | null;
-      }[]
-    | null
-    | undefined,
-): MonthlySearch[] {
-  return (entries ?? []).map((entry) => ({
-    year: entry.year ?? 0,
-    month: entry.month ?? 0,
-    searchVolume: entry.search_volume ?? 0,
-  }));
+/**
+ * Normalize the provider `monthly_searches` payload into `MonthlySearch[]`.
+ * The parameter is `unknown` because provider JSON is untrusted at runtime
+ * regardless of what the generated client types claim. Absent payloads
+ * (null/undefined) map to `[]` — absence is not malformation. A PRESENT but
+ * non-array payload means the provider changed shape: throw an explicit
+ * shape error rather than crashing downstream with "X.map is not a function"
+ * or silently coercing corruption to `[]`.
+ */
+function toMonthlySearches(entries: unknown): MonthlySearch[] {
+  if (entries === null || entries === undefined) return [];
+  if (!Array.isArray(entries)) {
+    throw new Error(
+      `Malformed DataForSEO monthly_searches payload: expected array, received ${typeof entries}`,
+    );
+  }
+  return entries.map((entry: unknown) => {
+    if (entry === null || typeof entry !== "object") {
+      return { year: 0, month: 0, searchVolume: 0 };
+    }
+    const year =
+      "year" in entry && typeof entry.year === "number" ? entry.year : 0;
+    const month =
+      "month" in entry && typeof entry.month === "number" ? entry.month : 0;
+    const searchVolume =
+      "search_volume" in entry && typeof entry.search_volume === "number"
+        ? entry.search_volume
+        : 0;
+    return { year, month, searchVolume };
+  });
 }
 
 function normalizeKeywordOverview(

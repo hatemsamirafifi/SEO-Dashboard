@@ -20,9 +20,100 @@ import {
   EcommerceSection,
   EventsSection,
 } from "@/client/features/analytics/AnalyticsExtendedSections";
-import { toAnalyticsPageView } from "@/client/features/analytics/analyticsCopy";
+import {
+  toAnalyticsPageView,
+  type AnalyticsPageView,
+} from "@/client/features/analytics/analyticsCopy";
 import { GoalsManager } from "@/client/features/analytics/GoalsManager";
 import { useAnalyticsQueries } from "./useAnalyticsQueries";
+
+function AnalyticsBanner({ view }: { view: AnalyticsPageView }) {
+  if (view.kind === "syncing") {
+    return (
+      <div className="alert alert-info">
+        <span className="text-sm">
+          Syncing Analytics data… sections below show the last synced snapshot.
+        </span>
+      </div>
+    );
+  }
+  if (view.kind === "quota-failed") {
+    return (
+      <div className="alert alert-warning">
+        <span className="text-sm">
+          Analytics sync hit the Google quota and stopped early: {view.message}{" "}
+          Data already synced stays visible.
+        </span>
+      </div>
+    );
+  }
+  if (view.kind === "perm-failed") {
+    return (
+      <div className="alert alert-error">
+        <span className="text-sm">
+          Analytics access failed and needs attention: {view.message}{" "}
+          Reconnect the property in Settings.
+        </span>
+      </div>
+    );
+  }
+  if (view.kind === "sync-failed") {
+    return (
+      <div className="alert alert-error">
+        <span className="text-sm">
+          Last Analytics sync failed: {view.message} Previously synced data
+          stays visible.
+        </span>
+      </div>
+    );
+  }
+  if (view.kind === "partial") {
+    return (
+      <div className="alert alert-warning">
+        <span className="text-sm">
+          Partial Analytics data
+          {view.coveredThrough ? ` through ${view.coveredThrough}` : ""}. Missing
+          dates are excluded, never zeroed.
+        </span>
+      </div>
+    );
+  }
+  return null;
+}
+
+function AnalyticsEmptyFallback({
+  view,
+  projectId,
+}: {
+  view: AnalyticsPageView;
+  projectId: string;
+}) {
+  let message = "";
+  let alertClass = "alert alert-error";
+
+  if (view.kind === "syncing") {
+    message = "Syncing Analytics data… This may take a few moments.";
+    alertClass = "alert alert-info";
+  } else if (view.kind === "quota-failed") {
+    message = `Analytics sync hit the Google quota and stopped early: ${view.message}`;
+    alertClass = "alert alert-warning";
+  } else if (view.kind === "perm-failed") {
+    message = `Analytics access failed and needs attention: ${view.message} Reconnect the property in Settings.`;
+  } else if (view.kind === "sync-failed") {
+    message = `Analytics sync failed: ${view.message}`;
+  }
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      {message ? (
+        <div className={alertClass}>
+          <span className="text-sm">{message}</span>
+        </div>
+      ) : null}
+      <Ga4SyncStatus projectId={projectId} />
+    </div>
+  );
+}
 
 export function AnalyticsPage({ projectId }: { projectId: string }) {
   const [range, setRange] = useState<AnalyticsRange>("last_28_days");
@@ -55,7 +146,11 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
   });
 
   const overview = overviewQuery.data;
-  const view = toAnalyticsPageView({    connectionLoading:
+  const hasRows =
+    overview?.connected === true &&
+    (overview.totals.sessions.current > 0 || overview.trends.length > 0);
+  const view = toAnalyticsPageView({
+    connectionLoading:
       connectionQuery.isPending ||
       (connectionQuery.data?.connected === true && syncQuery.isPending),
     syncLoading: false,
@@ -71,9 +166,7 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
         : null,
     coverageStatus:
       overview?.connected === true ? overview.coverage.status : "none",
-    hasRows:
-      overview?.connected === true &&
-      (overview.totals.sessions.current > 0 || overview.trends.length > 0),
+    hasRows,
     coveredThrough:
       overview?.connected === true ? overview.coverage.coveredThrough : null,
   });
@@ -105,34 +198,12 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
           <div className="max-w-2xl">
             <AnalyticsConnectionCard projectId={projectId} />
           </div>
-        ) : view.kind === "syncing" ? (
-          <div className="alert alert-info">
-            <span className="text-sm">
-              Syncing Analytics data… sections below show the last synced
-              snapshot.
-            </span>
-          </div>
-        ) : view.kind === "quota-failed" ? (
-          <div className="alert alert-warning">
-            <span className="text-sm">
-              Analytics sync hit the Google quota and stopped early:{" "}
-              {view.message} Data already synced stays visible.
-            </span>
-          </div>
-        ) : view.kind === "perm-failed" ? (
-          <div className="alert alert-error">
-            <span className="text-sm">
-              Analytics access failed and needs attention: {view.message}{" "}
-              Reconnect the property in Settings.
-            </span>
-          </div>
-        ) : view.kind === "sync-failed" ? (
-          <div className="alert alert-error">
-            <span className="text-sm">
-              Last Analytics sync failed: {view.message} Previously synced data
-              stays visible.
-            </span>
-          </div>
+        ) : (view.kind === "syncing" ||
+            view.kind === "sync-failed" ||
+            view.kind === "quota-failed" ||
+            view.kind === "perm-failed") &&
+          !hasRows ? (
+          <AnalyticsEmptyFallback view={view} projectId={projectId} />
         ) : view.kind === "no-data" ? (
           <div className="max-w-2xl space-y-4">
             <div className="rounded-xl border border-base-300 bg-base-100 p-6">
@@ -146,15 +217,7 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
           </div>
         ) : (
           <>
-            {view.kind === "partial" ? (
-              <div className="alert alert-warning">
-                <span className="text-sm">
-                  Partial Analytics data
-                  {view.coveredThrough ? ` through ${view.coveredThrough}` : ""}
-                  . Missing dates are excluded, never zeroed.
-                </span>
-              </div>
-            ) : null}
+            <AnalyticsBanner view={view} />
             <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100">
               <AnalyticsFilterToolbar
                 range={range}

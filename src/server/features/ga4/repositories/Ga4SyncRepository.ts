@@ -23,6 +23,7 @@ import {
 } from "@/db/schema";
 import { executeInBatches } from "@/db/runBatch";
 import {
+  GA4_STALE_RUN_MS,
   isGa4SyncGrain,
   isSuccessCoverageStatus,
   type Ga4CoverageStatus,
@@ -76,7 +77,9 @@ export async function deterministicGa4FactId(params: {
 async function getActiveSyncRun(
   projectId: string,
   propertyId: string,
+  staleBeforeIso: string = new Date(Date.now() - GA4_STALE_RUN_MS).toISOString(),
 ): Promise<Ga4SyncRow | null> {
+  await markStaleRunsFailed(projectId, propertyId, staleBeforeIso);
   const rows = await db
     .select()
     .from(ga4Syncs)
@@ -267,21 +270,25 @@ async function seedPendingUnits(input: {
   const resettable: Ga4CoverageStatus[] = input.force
     ? ["PENDING", "SUCCESS_WITH_DATA", "SUCCESS_ZERO_ROWS", "FAILED"]
     : ["PENDING", "FAILED"];
-  await db
-    .update(ga4SyncCoverage)
-    .set({ status: "pending", updatedAt: sql`(current_timestamp)` })
-    .where(
-      and(
-        eq(ga4SyncCoverage.projectId, input.projectId),
-        eq(ga4SyncCoverage.propertyId, input.propertyId),
-        inArray(ga4SyncCoverage.date, input.dates),
-        inArray(ga4SyncCoverage.grain, [...input.grains]),
-        inArray(
-          ga4SyncCoverage.status,
-          resettable.map((s) => s.toLowerCase()),
+  const DATE_CHUNK_SIZE = 40;
+  for (let i = 0; i < input.dates.length; i += DATE_CHUNK_SIZE) {
+    const chunk = input.dates.slice(i, i + DATE_CHUNK_SIZE);
+    await db
+      .update(ga4SyncCoverage)
+      .set({ status: "pending", updatedAt: sql`(current_timestamp)` })
+      .where(
+        and(
+          eq(ga4SyncCoverage.projectId, input.projectId),
+          eq(ga4SyncCoverage.propertyId, input.propertyId),
+          inArray(ga4SyncCoverage.date, chunk),
+          inArray(ga4SyncCoverage.grain, [...input.grains]),
+          inArray(
+            ga4SyncCoverage.status,
+            resettable.map((s) => s.toLowerCase()),
+          ),
         ),
-      ),
-    );
+      );
+  }
 }
 
 async function markUnits(

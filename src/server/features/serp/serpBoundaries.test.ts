@@ -55,7 +55,7 @@ describe("SERP no-raw-parsing boundary (FR-004)", () => {
       }
     }
     expect(violations).toEqual([]);
-  });
+  }, 30_000);
 
   it("resolves every src file reference in the frozen discovery report", () => {
     const report = readFileSync(

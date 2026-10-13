@@ -5,10 +5,10 @@ export { SerpAnalysisCard } from "./SerpAnalysisCard";
 
 export type { SortDir, SortField } from "./DisplayPrimitives";
 export {
-  AreaTrendChart,
   HeaderHelpLabel,
   SortHeader,
 } from "./DisplayPrimitives";
+export { AreaTrendChart } from "./AreaTrendChart";
 
 export function OverviewStats({ keyword }: { keyword: KeywordResearchRow }) {
   return (

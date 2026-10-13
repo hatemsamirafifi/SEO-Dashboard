@@ -1,10 +1,9 @@
 /* eslint-disable max-lines */
 import { InsightRepository } from "@/server/features/intelligence/repositories/InsightRepository";
 import { OpportunityRepository } from "@/server/features/intelligence/repositories/OpportunityRepository";
-import { AuditRepository } from "@/server/features/audit/repositories/AuditRepository";
-import { getIssueTypePageCountsForAudit } from "@/server/features/audit/repositories/auditSummaryQueries";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import {
+  collectAuditSummary,
   collectInsights,
   collectOpportunities,
   collectOverviewParts,
@@ -264,21 +263,11 @@ export async function collectAuditEvidence(projectId: string): Promise<{
   auditCoverage: AuditCoverage;
   issues: { issueType: string; severity: string; pages: number }[];
 }> {
-  const latest = await AuditRepository.getLatestAuditForProject(projectId);
-  const auditCoverage = auditCoverageOf(
-    latest
-      ? {
-          id: latest.id,
-          status: latest.status,
-          pagesCrawled: latest.pagesCrawled,
-          completedAt: latest.completedAt,
-        }
-      : null,
-  );
+  const { latestAudit, issues } = await collectAuditSummary(projectId);
+  const auditCoverage = auditCoverageOf(latestAudit);
   if (auditCoverage.state !== "ready") {
     return { auditCoverage, issues: [] };
   }
-  const issues = await getIssueTypePageCountsForAudit(auditCoverage.auditId);
   return { auditCoverage, issues };
 }
 

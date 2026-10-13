@@ -2,7 +2,7 @@ import { db } from "@/db";
 import { keywordMetrics, backlinkSnapshots, rankSnapshots } from "@/db/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import type { SEODataProvider, SEODataRequest } from "../types";
-import { ProviderUnsupportedError } from "../errors";
+import { ProviderUnavailableError, ProviderUnsupportedError } from "../errors";
 import { getLatestCompetitorSnapshot } from "../competitor-snapshot-repository";
 import { DomainOverviewSnapshotRepository } from "../domain-overview-snapshot-repository";
 
@@ -185,9 +185,62 @@ async function getInternalKeywordMetrics(
     competition: row.competition,
     keywordDifficulty: row.keywordDifficulty,
     intent: row.intent,
-    monthlySearches: row.monthlySearches,
+    monthlySearches: parseStoredMonthlySearches(
+      row.monthlySearches,
+      row.keyword,
+    ),
     fetchedAt: row.fetchedAt,
   }));
+}
+
+/**
+ * Parse the stored `monthly_searches` JSON text into the normalized
+ * `MonthlySearch[]` contract (spec 014 task B).
+ *
+ * - NULL / empty column = absent trend data → `[]`. This is the established
+ *   absent-data mapping (mirrors `parseMonthlySearches` in saved-keywords);
+ *   absence is not malformation.
+ * - Valid JSON that is not an array, or JSON that fails to parse = MALFORMED
+ *   stored payload → `ProviderUnavailableError`. The router falls through to
+ *   a fresh DataForSEO fetch (which also refreshes the corrupt row). Malformed
+ *   data is never coerced to `[]` (that would hide corruption as "no trend")
+ *   and never passed through as a string (that crashed
+ *   `toMcpKeywordMetricRow` with "row.monthlySearches.map is not a function").
+ */
+function parseStoredMonthlySearches(
+  stored: string | null | undefined,
+  keyword: string,
+): Array<{ year: number; month: number; searchVolume: number }> {
+  if (stored === null || stored === undefined || stored === "") return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    throw new ProviderUnavailableError(
+      "internal",
+      `Stored keyword_metrics monthly_searches is not valid JSON for keyword "${keyword}"`,
+    );
+  }
+  if (!Array.isArray(parsed)) {
+    throw new ProviderUnavailableError(
+      "internal",
+      `Stored keyword_metrics monthly_searches is not an array for keyword "${keyword}" (received ${typeof parsed})`,
+    );
+  }
+  return parsed.map((entry: unknown) => {
+    if (entry === null || typeof entry !== "object") {
+      return { year: 0, month: 0, searchVolume: 0 };
+    }
+    const year =
+      "year" in entry && typeof entry.year === "number" ? entry.year : 0;
+    const month =
+      "month" in entry && typeof entry.month === "number" ? entry.month : 0;
+    const searchVolume =
+      "search_volume" in entry && typeof entry.search_volume === "number"
+        ? entry.search_volume
+        : 0;
+    return { year, month, searchVolume };
+  });
 }
 
 /**
