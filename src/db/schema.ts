@@ -112,6 +112,7 @@ export const {
   projectActivationState,
   backlinkSnapshots,
   competitorSnapshots,
+  competitorGapVerdicts,
   domainOverviewSnapshots,
   audits,
   auditPages,

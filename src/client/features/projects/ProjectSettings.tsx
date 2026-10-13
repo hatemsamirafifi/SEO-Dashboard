@@ -8,6 +8,8 @@ import { ProjectMarketFields } from "@/client/features/projects/ProjectMarketFie
 import { ProjectAiSettingsSection } from "@/client/features/ai/ProjectAiSettingsSection";
 import { GlobalDebugTraceSettingsSection } from "@/client/features/tracing/GlobalDebugTraceSettingsSection";
 import { SerpProvidersSettingsSection } from "@/client/features/settings/SerpProvidersSettingsSection";
+import { MaintainerSpikeTrigger } from "@/client/features/competitor-gap/MaintainerSpikeTrigger";
+import { isMaintainerSurfaceEnabled } from "@/client/features/competitor-gap/maintainerAccess";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   traceSettingsMutation,
@@ -100,6 +102,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         </h2>
         <GlobalDebugTraceSettingsSection projectId={projectId} />
       </section>
+
+      <MaintainerToolsSection projectId={projectId} />
 
       <DangerSection project={project} canArchive={projects.length > 1} />
     </div>
@@ -300,6 +304,19 @@ function DangerSection({
           </button>
         </div>
       )}
+    </section>
+  );
+}
+
+function MaintainerToolsSection({ projectId }: { projectId: string }) {
+  if (!isMaintainerSurfaceEnabled()) return null;
+
+  return (
+    <section id="developer-tools" className="space-y-3 scroll-mt-6">
+      <h2 className="text-sm font-medium text-base-content/50">
+        Developer & Maintainer Tools
+      </h2>
+      <MaintainerSpikeTrigger projectId={projectId} />
     </section>
   );
 }
