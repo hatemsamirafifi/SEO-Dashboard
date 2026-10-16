@@ -10,23 +10,11 @@ import {
   ALL,
   AnalyticsFilterToolbar,
 } from "@/client/features/analytics/AnalyticsFilterToolbar";
-import {
-  AcquisitionSection,
-  CoverageBadge,
-  LandingSection,
-  OverviewSection,
-} from "@/client/features/analytics/AnalyticsSections";
-import {
-  AudienceSection,
-  ConversionsSection,
-  EcommerceSection,
-  EventsSection,
-} from "@/client/features/analytics/AnalyticsExtendedSections";
+import { AnalyticsContentSections } from "./AnalyticsContentSections";
 import {
   toAnalyticsPageView,
   type AnalyticsPageView,
 } from "@/client/features/analytics/analyticsCopy";
-import { GoalsManager } from "@/client/features/analytics/GoalsManager";
 import { useAnalyticsQueries } from "./useAnalyticsQueries";
 
 function AnalyticsBanner({ view }: { view: AnalyticsPageView }) {
@@ -53,8 +41,8 @@ function AnalyticsBanner({ view }: { view: AnalyticsPageView }) {
     return (
       <div className="alert alert-error">
         <span className="text-sm">
-          Analytics access failed and needs attention: {view.message}{" "}
-          Reconnect the property in Settings.
+          Analytics access failed and needs attention: {view.message} Reconnect
+          the property in Settings.
         </span>
       </div>
     );
@@ -74,8 +62,8 @@ function AnalyticsBanner({ view }: { view: AnalyticsPageView }) {
       <div className="alert alert-warning">
         <span className="text-sm">
           Partial Analytics data
-          {view.coveredThrough ? ` through ${view.coveredThrough}` : ""}. Missing
-          dates are excluded, never zeroed.
+          {view.coveredThrough ? ` through ${view.coveredThrough}` : ""}.
+          Missing dates are excluded, never zeroed.
         </span>
       </div>
     );
@@ -123,7 +111,9 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
   const [endDate, setEndDate] = useState<string | undefined>();
   const [compareMode, setCompareMode] =
     useState<CompareMode>("previous_period");
-  const [compareStartDate, setCompareStartDate] = useState<string | undefined>();
+  const [compareStartDate, setCompareStartDate] = useState<
+    string | undefined
+  >();
   const [compareEndDate, setCompareEndDate] = useState<string | undefined>();
 
   const [channel, setChannel] = useState("");
@@ -131,6 +121,9 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
   const [country, setCountry] = useState("");
   // Spec 010: goal filter for the conversions view. Empty = all conversions.
   const [goalId, setGoalId] = useState("");
+  const [techDimension, setTechDimension] = useState<
+    "device" | "browser" | "os"
+  >("device");
 
   const handleDateRangeChange = (values: DateRangeCompareValues) => {
     setRange(values.range);
@@ -154,19 +147,28 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
     conversionsQuery,
     ecommerceQuery,
     audienceQuery,
+    geoQuery,
+    prevGeoQuery,
+    techQuery,
+    prevTechQuery,
+    gscPagesQuery,
     isFetching,
-  } = useAnalyticsQueries(projectId, {
-    range,
-    startDate,
-    endDate,
-    compareMode,
-    compareStartDate,
-    compareEndDate,
-    channel,
-    device,
-    country,
-    goalId,
-  });
+  } = useAnalyticsQueries(
+    projectId,
+    {
+      range,
+      startDate,
+      endDate,
+      compareMode,
+      compareStartDate,
+      compareEndDate,
+      channel,
+      device,
+      country,
+      goalId,
+    },
+    techDimension,
+  );
 
   const overview = overviewQuery.data;
   const hasRows =
@@ -261,112 +263,24 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
                 goalsState={goalsState}
                 isFetching={isFetching && !overviewQuery.isPending}
               />
-              <div className="space-y-6 p-4">
-                <section aria-label="Overview">
-                  <div className="mb-2 flex items-center gap-2">
-                    <h2 className="font-semibold">Overview</h2>
-                    <CoverageBadge result={overview} />
-                  </div>
-                  <OverviewSection
-                    result={overview}
-                    pending={overviewQuery.isPending}
-                    queryError={
-                      overviewQuery.isError ? overviewQuery.error : null
-                    }
-                  />
-                </section>
-
-                <section aria-label="Acquisition">
-                  <h2 className="mb-2 font-semibold">Acquisition</h2>
-                  <AcquisitionSection
-                    result={acquisitionQuery.data}
-                    pending={acquisitionQuery.isPending}
-                    queryError={
-                      acquisitionQuery.isError ? acquisitionQuery.error : null
-                    }
-                    title="Acquisition"
-                    emptyNote="No acquisition rows in this period."
-                  />
-                </section>
-
-                <section aria-label="Organic">
-                  <h2 className="mb-2 font-semibold">Organic</h2>
-                  <AcquisitionSection
-                    result={organicQuery.data}
-                    pending={organicQuery.isPending}
-                    queryError={
-                      organicQuery.isError ? organicQuery.error : null
-                    }
-                    title="Organic acquisition"
-                    emptyNote="No organic rows in this period."
-                  />
-                </section>
-
-                <section aria-label="Landing pages">
-                  <h2 className="mb-2 font-semibold">Landing pages</h2>
-                  <LandingSection
-                    projectId={projectId}
-                    result={landingQuery.data}
-                    pending={landingQuery.isPending}
-                    queryError={
-                      landingQuery.isError ? landingQuery.error : null
-                    }
-                  />
-                </section>
-
-                <section aria-label="Events">
-                  <div className="mb-2 flex items-center gap-2">
-                    <h2 className="font-semibold">Events</h2>
-                    <CoverageBadge result={eventsQuery.data} />
-                  </div>
-                  <EventsSection
-                    result={eventsQuery.data}
-                    pending={eventsQuery.isPending}
-                    queryError={eventsQuery.isError ? eventsQuery.error : null}
-                  />
-                </section>
-
-                <section aria-label="Conversions">
-                  <div className="mb-2 flex items-center gap-2">
-                    <h2 className="font-semibold">Conversions</h2>
-                    <CoverageBadge result={conversionsQuery.data} />
-                  </div>
-                  <ConversionsSection
-                    result={conversionsQuery.data}
-                    pending={conversionsQuery.isPending}
-                    queryError={
-                      conversionsQuery.isError ? conversionsQuery.error : null
-                    }
-                  />
-                </section>
-
-                <section aria-label="Ecommerce">
-                  <h2 className="mb-2 font-semibold">Ecommerce</h2>
-                  <EcommerceSection
-                    result={ecommerceQuery.data}
-                    pending={ecommerceQuery.isPending}
-                    queryError={
-                      ecommerceQuery.isError ? ecommerceQuery.error : null
-                    }
-                  />
-                </section>
-
-                <section aria-label="Audience">
-                  <div className="mb-2 flex items-center gap-2">
-                    <h2 className="font-semibold">Audience</h2>
-                    <CoverageBadge result={audienceQuery.data} />
-                  </div>
-                  <AudienceSection
-                    result={audienceQuery.data}
-                    pending={audienceQuery.isPending}
-                    queryError={
-                      audienceQuery.isError ? audienceQuery.error : null
-                    }
-                  />
-                </section>
-
-                <GoalsManager projectId={projectId} />
-              </div>
+              <AnalyticsContentSections
+                projectId={projectId}
+                overviewQuery={overviewQuery}
+                acquisitionQuery={acquisitionQuery}
+                organicQuery={organicQuery}
+                landingQuery={landingQuery}
+                gscPagesQuery={gscPagesQuery}
+                eventsQuery={eventsQuery}
+                conversionsQuery={conversionsQuery}
+                ecommerceQuery={ecommerceQuery}
+                audienceQuery={audienceQuery}
+                geoQuery={geoQuery}
+                prevGeoQuery={prevGeoQuery}
+                techQuery={techQuery}
+                prevTechQuery={prevTechQuery}
+                techDimension={techDimension}
+                setTechDimension={setTechDimension}
+              />
             </div>
             <Ga4SyncStatus projectId={projectId} />
           </>

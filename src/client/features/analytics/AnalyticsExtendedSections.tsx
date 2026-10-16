@@ -236,7 +236,8 @@ export function AudienceSection({
         {result.newUsersFootnote} {result.distinctUsersNote}
       </p>
       <p className="mt-1 text-xs text-base-content/60">
-        {result.geoTechDeferredNote}
+        Country and technology breakdowns are available in the dedicated
+        sections below.
       </p>
       {result.reservedFilterNote ? (
         <p className="mt-1 text-xs text-base-content/60">
