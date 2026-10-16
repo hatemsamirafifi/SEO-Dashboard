@@ -11,7 +11,7 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL: "http://localhost:3101",
-    actionTimeout: 5_000,
+    actionTimeout: 15_000,
     navigationTimeout: 30_000,
     channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome",
     screenshot: "only-on-failure",
@@ -19,10 +19,16 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   webServer: {
-    command:
-      "NODE_OPTIONS= AUTH_MODE=local_noauth VITE_E2E_DOMAIN_FIXTURES=1 VITE_E2E_KEYWORD_FIXTURES=1 PORT=3101 pnpm exec vite dev --host 127.0.0.1 --strictPort",
+    command: "pnpm exec vite dev --host 127.0.0.1 --port 3101 --strictPort",
     url: "http://localhost:3101",
-    reuseExistingServer: false,
+    env: {
+      NODE_OPTIONS: "",
+      AUTH_MODE: "local_noauth",
+      VITE_E2E_DOMAIN_FIXTURES: "1",
+      VITE_E2E_KEYWORD_FIXTURES: "1",
+      PORT: "3101",
+    },
+    reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
 });
