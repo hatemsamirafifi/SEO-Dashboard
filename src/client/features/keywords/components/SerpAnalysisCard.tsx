@@ -15,6 +15,7 @@ export function SerpAnalysisCard({
   keyword,
   loading,
   error,
+  enrichmentAccountBlocked,
   onRetry,
   page,
   pageSize,
@@ -27,6 +28,7 @@ export function SerpAnalysisCard({
   keyword?: string | null;
   loading: boolean;
   error?: string | null;
+  enrichmentAccountBlocked?: "account_paused" | "billing" | null;
   onRetry?: () => void;
   page: number;
   pageSize: number;
@@ -71,12 +73,25 @@ export function SerpAnalysisCard({
           referringDomains: item.referringDomains ?? null,
           backlinks: item.backlinks ?? null,
           etv: item.etv ?? null,
+          spamScore: item.spamScore ?? null,
+          stale: item.stale ?? null,
+          provider: item.provider ?? null,
+          fetchedAt: item.fetchedAt ?? null,
         }
       : null,
   }));
 
   return (
     <div>
+      {enrichmentAccountBlocked ? (
+        <div className="alert alert-warning text-xs p-2 mb-3">
+          <span>
+            {enrichmentAccountBlocked === "account_paused"
+              ? "Competitive metrics paused: provider account is paused. Base SERP results remain intact."
+              : "Competitive metrics unavailable due to provider billing or credit exhaustion. Base SERP results remain intact."}
+          </span>
+        </div>
+      ) : null}
       <div className="flex items-center justify-between mb-3">
         <div className="text-xs text-base-content/50">
           {items.length} organic results
@@ -164,8 +179,15 @@ function SerpAnalysisTable({ items }: { items: SerpResultItem[] }) {
  * above always renders regardless of enrichment state.
  */
 function CompetitorMetricsLine({ item }: { item: SerpResultItem }) {
+  const providerTooltip = item.provider
+    ? `Provider: ${item.provider}${item.fetchedAt ? ` (observed ${item.fetchedAt})` : ""}`
+    : "DataForSEO competitive metrics";
+
   return (
-    <span className="text-xs text-base-content/60 flex flex-wrap gap-x-3 gap-y-0.5">
+    <span
+      className="text-xs text-base-content/60 flex flex-wrap gap-x-3 gap-y-0.5"
+      title={providerTooltip}
+    >
       <span title="DataForSEO Domain Rank">
         DR {metricValue(item.domainRank)}
       </span>
@@ -177,6 +199,19 @@ function CompetitorMetricsLine({ item }: { item: SerpResultItem }) {
       <span title="Provider-estimated traffic (not first-party analytics)">
         Est.traffic {metricValue(item.etv)}
       </span>
+      {item.spamScore !== null && item.spamScore !== undefined ? (
+        <span title="Backlinks Spam / Risk Score">
+          Spam {metricValue(item.spamScore)}
+        </span>
+      ) : null}
+      {item.stale ? (
+        <span
+          className="badge badge-warning badge-xs"
+          title="Stale cache fallback after refresh failure"
+        >
+          stale
+        </span>
+      ) : null}
       {item.metricStatus !== "available" ? (
         <span className="text-warning">{item.metricStatus}</span>
       ) : null}

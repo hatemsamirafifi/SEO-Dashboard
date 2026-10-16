@@ -79,6 +79,42 @@ describe("SerpAnalysisCard competitive row (spec 007)", () => {
     expect(html).not.toContain("Links 0");
   });
 
+  it("renders spam score, stale badge, and provider tooltip when provided", () => {
+    const html = renderCard([
+      baseItem({
+        domainRank: 50,
+        pageRank: 40,
+        referringDomains: 500,
+        backlinks: 2500,
+        spamScore: 12,
+        stale: true,
+        provider: "dataforseo",
+        fetchedAt: "2026-10-16T12:00:00.000Z",
+        metricStatus: "available",
+      }),
+    ]);
+    expect(html).toContain("Spam 12");
+    expect(html).toContain("stale");
+    expect(html).toContain(
+      "Provider: dataforseo (observed 2026-10-16T12:00:00.000Z)",
+    );
+  });
+
+  it("renders account blocked notice when enrichment is blocked at run-level", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(SerpAnalysisCard, {
+        items: [baseItem()],
+        keyword: "seo tools",
+        loading: false,
+        enrichmentAccountBlocked: "account_paused",
+        page: 0,
+        pageSize: 10,
+        onPageChange: () => {},
+      }),
+    );
+    expect(html).toContain("provider account is paused");
+  });
+
   it("renders no metrics line without enrichment", () => {
     const html = renderCard([baseItem()]);
     expect(html).toContain("Example");
@@ -109,7 +145,9 @@ describe("SerpAnalysisCard SERP features (spec 011, T010/T013)", () => {
       }),
     );
     // Stored ranks render in order, unaltered by the PAA block.
-    const positions = [...html.matchAll(/<td[^>]*>(\d+)<\/td>/g)].map((m) => m[1]);
+    const positions = [...html.matchAll(/<td[^>]*>(\d+)<\/td>/g)].map(
+      (m) => m[1],
+    );
     expect(positions).toEqual(["1", "2", "3"]);
     // The observed PAA block renders alongside — never as a numbered row.
     expect(html).toContain("People Also Ask");

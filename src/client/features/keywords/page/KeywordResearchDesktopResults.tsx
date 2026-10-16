@@ -379,6 +379,7 @@ function DesktopSerpPanel({ controller }: Props) {
             keyword={controller.activeSerpKeyword}
             loading={controller.serpLoading}
             error={controller.serpError}
+            enrichmentAccountBlocked={controller.serpEnrichmentAccountBlocked}
             onRetry={() => void controller.serpQuery.refetch()}
             page={controller.serpPage}
             pageSize={controller.SERP_PAGE_SIZE}

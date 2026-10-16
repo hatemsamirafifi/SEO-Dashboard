@@ -30,6 +30,8 @@ export function useKeywordSerpAnalysis(
 
   const serpResults = serpQuery.data?.items ?? [];
   const serpFeatures = serpQuery.data?.features ?? null;
+  const serpEnrichmentAccountBlocked =
+    serpQuery.data?.enrichmentAccountBlocked ?? null;
   const activeSerpKeyword =
     serpKeyword ?? serpQuery.data?.requestedKeyword ?? null;
   const serpLoading = !!serpKeyword && serpQuery.isLoading;
@@ -46,6 +48,7 @@ export function useKeywordSerpAnalysis(
     serpQuery,
     serpResults,
     serpFeatures,
+    serpEnrichmentAccountBlocked,
     activeSerpKeyword,
     serpLoading,
     serpError,

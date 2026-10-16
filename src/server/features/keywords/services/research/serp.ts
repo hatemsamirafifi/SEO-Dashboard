@@ -21,6 +21,7 @@ type SerpAnalysisResult = {
    *  Absent when no feature items were observed (never an empty placeholder). */
   features?: SerpFeatureSet;
   reason?: SerpAnalysisReason;
+  enrichmentAccountBlocked?: "account_paused" | "billing" | null;
 };
 
 function mapOrganicSerpItems(items: SerpLiveItem[]): SerpResultItem[] {
@@ -101,6 +102,9 @@ async function getSerpLiveAnalysis(
       const byIdentity = new Map(
         enriched.targets.map((entry) => [entry.target.identity, entry.metrics]),
       );
+      if (enriched.accountBlocked) {
+        result.enrichmentAccountBlocked = enriched.accountBlocked;
+      }
       result.items = items.map((item) => {
         const metrics = byIdentity.get(canonicalUrl(item.url));
         if (!metrics) return item;
@@ -112,6 +116,10 @@ async function getSerpLiveAnalysis(
           backlinks: metrics.backlinks ?? item.backlinks,
           domainRank: metrics.domainRank,
           pageRank: metrics.pageRank,
+          spamScore: metrics.spamScore,
+          stale: metrics.stale,
+          provider: metrics.provider,
+          fetchedAt: metrics.fetchedAt,
           metricStatus: metrics.status,
         };
       });
