@@ -156,33 +156,49 @@ function positionDelta(current: number, previous: number): Delta {
 
 export function TotalsCards({ report }: { report: Report }) {
   const { totals, prevTotals, range } = report;
-  const deltaTitle = `vs ${range.prevStartDate} to ${range.prevEndDate}`;
+  const deltaTitle = `Comparison: ${range.prevStartDate} to ${range.prevEndDate}`;
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <TotalCard
-        label="Clicks"
-        value={formatCount(totals.clicks)}
-        delta={percentDelta(totals.clicks, prevTotals.clicks)}
-        deltaTitle={deltaTitle}
-      />
-      <TotalCard
-        label="Impressions"
-        value={formatCount(totals.impressions)}
-        delta={percentDelta(totals.impressions, prevTotals.impressions)}
-        deltaTitle={deltaTitle}
-      />
-      <TotalCard
-        label="CTR"
-        value={formatCtr(totals.ctr)}
-        delta={percentDelta(totals.ctr, prevTotals.ctr)}
-        deltaTitle={deltaTitle}
-      />
-      <TotalCard
-        label="Avg position"
-        value={formatPosition(totals.position)}
-        delta={positionDelta(totals.position, prevTotals.position)}
-        deltaTitle={deltaTitle}
-      />
+    <div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <TotalCard
+          label="Clicks"
+          value={formatCount(totals.clicks)}
+          prevValue={formatCount(prevTotals.clicks)}
+          delta={percentDelta(totals.clicks, prevTotals.clicks)}
+          deltaTitle={deltaTitle}
+        />
+        <TotalCard
+          label="Impressions"
+          value={formatCount(totals.impressions)}
+          prevValue={formatCount(prevTotals.impressions)}
+          delta={percentDelta(totals.impressions, prevTotals.impressions)}
+          deltaTitle={deltaTitle}
+        />
+        <TotalCard
+          label="CTR"
+          value={formatCtr(totals.ctr)}
+          prevValue={formatCtr(prevTotals.ctr)}
+          delta={percentDelta(totals.ctr, prevTotals.ctr)}
+          deltaTitle={deltaTitle}
+        />
+        <TotalCard
+          label="Avg position"
+          value={formatPosition(totals.position)}
+          prevValue={formatPosition(prevTotals.position)}
+          delta={positionDelta(totals.position, prevTotals.position)}
+          deltaTitle={deltaTitle}
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between text-xs text-base-content/60 px-1">
+        <span>
+          Current: <strong className="text-base-content/80">{range.startDate}</strong> to{" "}
+          <strong className="text-base-content/80">{range.endDate}</strong>
+        </span>
+        <span>
+          Comparison: <strong className="text-base-content/80">{range.prevStartDate}</strong> to{" "}
+          <strong className="text-base-content/80">{range.prevEndDate}</strong>
+        </span>
+      </div>
     </div>
   );
 }
@@ -190,30 +206,44 @@ export function TotalsCards({ report }: { report: Report }) {
 function TotalCard({
   label,
   value,
+  prevValue,
   delta,
   deltaTitle,
 }: {
   label: string;
   value: string;
+  prevValue?: string;
   delta: Delta;
   deltaTitle: string;
 }) {
   return (
-    <div className="rounded-lg border border-base-300 bg-base-100 p-4">
-      <div className="text-xs uppercase tracking-wide text-base-content/60">
-        {label}
+    <div className="rounded-lg border border-base-300 bg-base-100 p-4 flex flex-col justify-between">
+      <div>
+        <div className="text-xs uppercase tracking-wide text-base-content/60 font-medium">
+          {label}
+        </div>
+        <div className="mt-1 flex items-baseline gap-2">
+          <span className="text-2xl font-bold tracking-tight">{value}</span>
+          {delta ? (
+            <span
+              className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                delta.improved
+                  ? "bg-success/10 text-success"
+                  : "bg-error/10 text-error"
+              }`}
+              title={deltaTitle}
+            >
+              {delta.text}
+            </span>
+          ) : null}
+        </div>
       </div>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className="text-2xl font-semibold">{value}</span>
-        {delta ? (
-          <span
-            className={`text-xs ${delta.improved ? "text-success" : "text-error"}`}
-            title={deltaTitle}
-          >
-            {delta.text}
-          </span>
-        ) : null}
-      </div>
+      {prevValue !== undefined ? (
+        <div className="mt-2 pt-2 border-t border-base-200 text-xs text-base-content/60 flex items-center justify-between">
+          <span>vs Previous:</span>
+          <span className="font-semibold text-base-content/80">{prevValue}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

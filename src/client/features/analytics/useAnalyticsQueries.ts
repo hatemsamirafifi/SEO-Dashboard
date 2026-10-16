@@ -13,11 +13,17 @@ import {
   getGa4SyncStatus,
   listGa4Goals,
 } from "@/serverFunctions/ga4";
+import type { CompareMode } from "@/types/schemas/date-range-compare";
 import { toDeviceParam } from "./AnalyticsFilterToolbar";
 import { toGoalSelectState } from "./analyticsCopy";
 
 export type AnalyticsFilterState = {
   range: AnalyticsRange;
+  startDate?: string;
+  endDate?: string;
+  compareMode?: CompareMode;
+  compareStartDate?: string;
+  compareEndDate?: string;
   channel: string;
   device: string;
   country: string;
@@ -26,6 +32,11 @@ export type AnalyticsFilterState = {
 
 function buildFilterInput(
   range: AnalyticsRange,
+  startDate: string | undefined,
+  endDate: string | undefined,
+  compareMode: CompareMode | undefined,
+  compareStartDate: string | undefined,
+  compareEndDate: string | undefined,
   channel: string,
   device: string,
   country: string,
@@ -33,6 +44,11 @@ function buildFilterInput(
   const deviceParam = toDeviceParam(device);
   return {
     range,
+    ...(startDate ? { startDate } : {}),
+    ...(endDate ? { endDate } : {}),
+    ...(compareMode ? { compareMode } : {}),
+    ...(compareStartDate ? { compareStartDate } : {}),
+    ...(compareEndDate ? { compareEndDate } : {}),
     ...(channel.trim() ? { channel: channel.trim() } : {}),
     ...(deviceParam ? { device: deviceParam } : {}),
     ...(country.trim() ? { country: country.trim() } : {}),
@@ -46,8 +62,29 @@ export function useAnalyticsQueries(
   projectId: string,
   filters: AnalyticsFilterState,
 ) {
-  const { range, channel, device, country, goalId } = filters;
-  const filterInput = buildFilterInput(range, channel, device, country);
+  const {
+    range,
+    startDate,
+    endDate,
+    compareMode,
+    compareStartDate,
+    compareEndDate,
+    channel,
+    device,
+    country,
+    goalId,
+  } = filters;
+  const filterInput = buildFilterInput(
+    range,
+    startDate,
+    endDate,
+    compareMode,
+    compareStartDate,
+    compareEndDate,
+    channel,
+    device,
+    country,
+  );
 
   const connectionQuery = useQuery({
     queryKey: ["ga4Connection", projectId],

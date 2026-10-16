@@ -34,9 +34,11 @@ function DeltaLine({
   format: (value: number) => string;
 }) {
   return (
-    <span className="block text-xs text-base-content/60">
-      {format(delta.current)} ({formatDelta(delta.change)},{" "}
-      {formatPctChange(delta.pctChange)})
+    <span className="block text-xs text-base-content/70">
+      vs <span className="font-medium text-base-content/90">{format(delta.previous)}</span>{" "}
+      <span className={delta.change >= 0 ? "text-success" : "text-error"}>
+        ({formatDelta(delta.change, format)}, {formatPctChange(delta.pctChange)})
+      </span>
     </span>
   );
 }
@@ -55,10 +57,10 @@ export function StatCard({
   return (
     <div className="stat rounded-xl border border-base-300 bg-base-100 px-4 py-3">
       <div className="stat-title text-xs">{label}</div>
-      <div className="stat-value text-2xl">{format(delta.current)}</div>
-      <div className="stat-desc">
+      <div className="stat-value text-2xl font-bold">{format(delta.current)}</div>
+      <div className="stat-desc mt-1">
         <DeltaLine delta={delta} format={format} />
-        {footnote ? <span className="block">{footnote}</span> : null}
+        {footnote ? <span className="block mt-0.5">{footnote}</span> : null}
       </div>
     </div>
   );
@@ -104,7 +106,17 @@ export function OverviewCards({
           footnote="New on each day"
         />
       </div>
-      <p className="mt-2 text-xs text-base-content/60">
+      <div className="mt-2 flex flex-wrap items-center justify-between text-xs text-base-content/60 px-1">
+        <span>
+          Current: <strong className="text-base-content/80">{overview.windows.current.from}</strong> to{" "}
+          <strong className="text-base-content/80">{overview.windows.current.to}</strong>
+        </span>
+        <span>
+          Comparison: <strong className="text-base-content/80">{overview.windows.previous.from}</strong> to{" "}
+          <strong className="text-base-content/80">{overview.windows.previous.to}</strong>
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-base-content/60">
         {overview.newUsersFootnote} {overview.currencyNote}
       </p>
     </div>
@@ -151,7 +163,15 @@ export function AcquisitionTable({
               <td className="text-right">
                 {formatCount(row.sessions.current)}
               </td>
-              <td className="text-right">
+              <td
+                className={`text-right tabular-nums ${
+                  row.sessions.change > 0
+                    ? "text-success font-medium"
+                    : row.sessions.change < 0
+                      ? "text-error font-medium"
+                      : "text-base-content/60"
+                }`}
+              >
                 {formatDelta(row.sessions.change)} (
                 {formatPctChange(row.sessions.pctChange)})
               </td>
@@ -201,7 +221,15 @@ export function LandingPagesTable({
               <td className="text-right">
                 {formatCount(row.sessions.current)}
               </td>
-              <td className="text-right">
+              <td
+                className={`text-right tabular-nums ${
+                  row.sessions.change > 0
+                    ? "text-success font-medium"
+                    : row.sessions.change < 0
+                      ? "text-error font-medium"
+                      : "text-base-content/60"
+                }`}
+              >
                 {formatDelta(row.sessions.change)} (
                 {formatPctChange(row.sessions.pctChange)})
               </td>

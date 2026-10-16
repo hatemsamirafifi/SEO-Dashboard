@@ -148,6 +148,9 @@ export function RankTrackingDomainDetail({
       ["rankTrackingCostEstimate"],
       ["rankTrackingResults"],
       ["rankTrackingLatestRun"],
+      ["rankConfigTrend"],
+      ["rankPositionMatrix"],
+      ["rankTrackingMissingRankings"],
     ]) {
       void queryClient.invalidateQueries({
         queryKey: [...key, projectId, config.id],

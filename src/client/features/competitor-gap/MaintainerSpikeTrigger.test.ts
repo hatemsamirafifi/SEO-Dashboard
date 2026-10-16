@@ -8,9 +8,7 @@ import {
   type VerdictStatusDisplayData,
 } from "./MaintainerSpikeTrigger";
 import { FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST } from "./frozenSpikeManifest";
-import type {
-  CompetitorGapSpikeEvidence,
-} from "@/shared/competitorGap";
+import type { CompetitorGapSpikeEvidence } from "@/shared/competitorGap";
 
 // Mock serverFunctions to avoid actual network/DB execution in unit tests
 const mocks = vi.hoisted(() => ({
@@ -90,7 +88,13 @@ describe("MaintainerSpikeTrigger Component Tests", () => {
       }),
     );
 
-    // Manifest values are present
+    // Manifest values and evaluation headers are present
+    expect(html).toContain("Evaluation:");
+    expect(html).toContain("Competitor Gap G5 R2");
+    expect(html).toContain("Previous evaluation:");
+    expect(html).toContain("COMPETITOR_GAP_BLOCKED");
+    expect(html).toContain("cgv_4c878e65_2026-10-14T20:09:49.856Z");
+    expect(html).toContain("Current evaluation: R2 — not yet executed");
     expect(html).toContain(FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST.projectId);
     expect(html).toContain("emtyiaz.com, manaraa.com, bahthy.com");
     expect(html).toContain("gsc-top-queries-2026-10-09");
@@ -121,7 +125,7 @@ describe("MaintainerSpikeTrigger Component Tests", () => {
       data: {
         verdict: "COMPETITOR_GAP_READY",
         gateState: "READY",
-        verdictId: "cgv_row_12345",
+        verdictId: "cgv_r2_12345",
         evidence: fixtureEvidence(),
         thresholds: FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST.thresholds,
       },
@@ -139,7 +143,7 @@ describe("MaintainerSpikeTrigger Component Tests", () => {
     // Displays recorded verdict & row ID
     expect(html).toContain("Spike Verdict Recorded");
     expect(html).toContain("COMPETITOR_GAP_READY");
-    expect(html).toContain("cgv_row_12345");
+    expect(html).toContain("cgv_r2_12345");
     expect(html).toContain("repeat execution is locked out");
 
     // The execution button is not present
@@ -285,5 +289,75 @@ describe("executeSpikeWithGuards Safety Engine Tests", () => {
     expect(mockGetVerdict).toHaveBeenCalledTimes(2);
     // Lock released after completion
     expect(inFlightLock.current).toBe(false);
+  });
+
+  it("R1 verdict does NOT block an authorized R2 evaluation", async () => {
+    // When checking for R2, getVerdict receives evaluationId: 'competitor-gap-g5-r2' and returns null
+    const mockGetVerdict = vi.fn().mockImplementation(({ data }) => {
+      if (data.evaluationId === "competitor-gap-g5-r2") {
+        return Promise.resolve(null);
+      }
+      // R1 historical row is blocked
+      return Promise.resolve({
+        verdict: "COMPETITOR_GAP_BLOCKED",
+        gateState: "BLOCKED",
+        verdictId: "cgv_4c878e65_2026-10-14T20:09:49.856Z",
+      });
+    });
+
+    const mockRunSpike = vi.fn().mockResolvedValue({
+      ok: true,
+      verdict: "COMPETITOR_GAP_READY",
+      verdictId: "cgv_r2_new",
+    });
+
+    const r2Manifest = {
+      ...FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST,
+      evaluationId: "competitor-gap-g5-r2",
+    };
+
+    const outcome = await executeSpikeWithGuards({
+      projectId: r2Manifest.projectId,
+      manifest: r2Manifest,
+      getVerdict: mockGetVerdict,
+      runSpike: mockRunSpike,
+    });
+
+    expect(outcome.type).toBe("INVOKED");
+    expect(mockRunSpike).toHaveBeenCalledTimes(1);
+    expect(mockGetVerdict).toHaveBeenCalledWith({
+      data: {
+        projectId: r2Manifest.projectId,
+        evaluationId: "competitor-gap-g5-r2",
+      },
+    });
+  });
+
+  it("existing R2 verdict prevents duplicate R2 execution", async () => {
+    const mockGetVerdict = vi.fn().mockResolvedValue({
+      verdict: "COMPETITOR_GAP_READY",
+      gateState: "READY",
+      verdictId: "cgv_r2_existing_row",
+    });
+    const mockRunSpike = vi.fn();
+
+    const r2Manifest = {
+      ...FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST,
+      evaluationId: "competitor-gap-g5-r2",
+    };
+
+    const outcome = await executeSpikeWithGuards({
+      projectId: r2Manifest.projectId,
+      manifest: r2Manifest,
+      getVerdict: mockGetVerdict,
+      runSpike: mockRunSpike,
+    });
+
+    expect(outcome).toEqual({
+      type: "ALREADY_RECORDED",
+      verdict: "COMPETITOR_GAP_READY",
+      verdictId: "cgv_r2_existing_row",
+    });
+    expect(mockRunSpike).not.toHaveBeenCalled();
   });
 });

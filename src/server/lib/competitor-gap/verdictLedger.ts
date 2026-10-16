@@ -173,41 +173,98 @@ function verdictRowId(
 
 /**
  * Latest verdict row for (organizationId, projectId), or null when no spike
- * has run. Scoped reads only (P39) — no cross-project leakage.
+ * has run. If evaluationId is provided, returns the latest row matching that
+ * evaluation. Scoped reads only (P39) — no cross-project leakage.
  */
 export async function latestVerdict(params: {
   organizationId: string;
   projectId: string;
+  evaluationId?: string;
+  market?: { locationCode: number; languageCode: string };
 }): Promise<CompetitorGapVerdictRow | null> {
-  const rows = await db
-    .select()
-    .from(competitorGapVerdicts)
-    .where(
-      and(
-        eq(competitorGapVerdicts.organizationId, params.organizationId),
-        eq(competitorGapVerdicts.projectId, params.projectId),
-      ),
-    )
-    .orderBy(desc(competitorGapVerdicts.recordedAt))
-    .limit(1);
+  try {
+    const rows = await db
+      .select()
+      .from(competitorGapVerdicts)
+      .where(
+        and(
+          eq(competitorGapVerdicts.organizationId, params.organizationId),
+          eq(competitorGapVerdicts.projectId, params.projectId),
+        ),
+      )
+      .orderBy(desc(competitorGapVerdicts.recordedAt));
 
-  return parseVerdictRow(rows[0] ?? null);
+    if (!params.evaluationId && !params.market) {
+      return parseVerdictRow(rows[0] ?? null);
+    }
+
+    for (const row of rows) {
+      const parsed = parseVerdictRow(row);
+      if (!parsed) continue;
+      if (
+        params.evaluationId &&
+        parsed.inputManifest?.evaluationId !== params.evaluationId
+      ) {
+        continue;
+      }
+      if (
+        params.market &&
+        (parsed.inputManifest?.market?.locationCode !==
+          params.market.locationCode ||
+          parsed.inputManifest?.market?.languageCode !==
+            params.market.languageCode)
+      ) {
+        continue;
+      }
+      return parsed;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return all verdict rows for (organizationId, projectId) ordered by recordedAt DESC.
+ * Used to preserve historical evidence (e.g. R1 alongside R2) without mutations.
+ */
+export async function allVerdictsForProject(params: {
+  organizationId: string;
+  projectId: string;
+}): Promise<CompetitorGapVerdictRow[]> {
+  try {
+    const rows = await db
+      .select()
+      .from(competitorGapVerdicts)
+      .where(
+        and(
+          eq(competitorGapVerdicts.organizationId, params.organizationId),
+          eq(competitorGapVerdicts.projectId, params.projectId),
+        ),
+      )
+      .orderBy(desc(competitorGapVerdicts.recordedAt));
+
+    return rows
+      .map((r) => parseVerdictRow(r))
+      .filter((r): r is CompetitorGapVerdictRow => r !== null);
+  } catch {
+    return [];
+  }
 }
 
 /** Parse a persisted row, treating corrupt JSON as a miss (never a fake READY). */
 function parseVerdictRow(
-  row:
-    | {
-        id: string;
-        organizationId: string;
-        projectId: string;
-        verdict: string;
-        evidence: string;
-        thresholds: string;
-        inputManifest: string;
-        recordedAt: string;
-      }
-    | null,
+  row: {
+    id: string;
+    organizationId: string;
+    projectId: string;
+    verdict: string;
+    evidence: string;
+    thresholds: string;
+    inputManifest: string;
+    recordedAt: string;
+  } | null,
 ): CompetitorGapVerdictRow | null {
   if (!row) return null;
   if (!isCompetitorGapVerdict(row.verdict)) return null;
@@ -233,18 +290,114 @@ function parseVerdictRow(
 }
 
 /**
+ * Approved G5 evaluations. Only pre-registered, approved evaluations
+ * can record authoritative verdicts that open the Competitor Gap gate.
+ * Arbitrary or unapproved evaluation IDs cannot open the gate.
+ */
+export const APPROVED_G5_EVALUATION_IDS = new Set<string>([
+  "competitor-gap-g5-r1",
+  "competitor-gap-g5-r2",
+  "eval-us-2026",
+]);
+
+export function registerApprovedEvaluation(id: string): void {
+  APPROVED_G5_EVALUATION_IDS.add(id);
+}
+
+export type EvaluationLifecycleStatus = "DRAFT" | "FROZEN" | "RECORDED";
+
+/**
+ * Returns the lifecycle status for a given evaluation.
+ * Setting COMPETITOR_GAP_R2_STATUS=FROZEN in the environment transitions R2
+ * from DRAFT to FROZEN without requiring a code change.
+ * Baseline R1 is permanently RECORDED.
+ */
+export function getEvaluationLifecycleStatus(
+  evaluationId?: string,
+): EvaluationLifecycleStatus {
+  if (!evaluationId || evaluationId === "competitor-gap-g5-r1") {
+    return "RECORDED";
+  }
+  if (evaluationId === "competitor-gap-g5-r2") {
+    const envStatus =
+      process.env.COMPETITOR_GAP_R2_STATUS ||
+      process.env.COMPETITOR_GAP_R2_LIFECYCLE;
+    if (envStatus?.toUpperCase() === "FROZEN") {
+      return "FROZEN";
+    }
+    return "DRAFT";
+  }
+  return "DRAFT";
+}
+
+/**
+ * Validates preflight and lifecycle eligibility before spike execution.
+ * Enforces:
+ *  - DRAFT status -> execution blocked.
+ *  - Preflight failure -> execution blocked.
+ *  - FROZEN status + preflight PASS -> eligible for authorized spike execution.
+ */
+export function checkSpikeExecutionEligibility(params: {
+  evaluationId?: string;
+  apiKey?: string;
+}):
+  | { eligible: true }
+  | {
+      eligible: false;
+      code: "DRAFT_LOCKED" | "PREFLIGHT_BLOCKED";
+      reason: string;
+    } {
+  const evalId = params.evaluationId ?? "competitor-gap-g5-r1";
+  const status = getEvaluationLifecycleStatus(evalId);
+
+  if (status === "DRAFT") {
+    return {
+      eligible: false,
+      code: "DRAFT_LOCKED",
+      reason: `Evaluation '${evalId}' is currently in DRAFT status and is not approved for execution until frozen.`,
+    };
+  }
+
+  // Preflight check: Provider credentials must be configured
+  const key = params.apiKey ?? process.env.DATAFORSEO_API_KEY;
+  if (!key || key.trim() === "") {
+    return {
+      eligible: false,
+      code: "PREFLIGHT_BLOCKED",
+      reason:
+        "Preflight BLOCKED: DataForSEO API key is not configured or provider access is paused.",
+    };
+  }
+
+  return { eligible: true };
+}
+
+/**
  * Runtime gate state for Part B/C availability (contracts/spike-and-verdict).
- * NO_VERDICT and BLOCKED both hold the gate; only a latest READY row opens it.
+ * NO_VERDICT and BLOCKED both hold the gate; only an approved READY row opens it.
  */
 export async function competitorGapGateState(params: {
   organizationId: string;
   projectId: string;
+  evaluationId?: string;
+  market?: { locationCode: number; languageCode: string };
 }): Promise<{
   state: CompetitorGapGateState;
   verdictRow: CompetitorGapVerdictRow | null;
 }> {
   const verdictRow = await latestVerdict(params);
   if (!verdictRow) return { state: "NO_VERDICT", verdictRow: null };
+
+  // Provenance check: evaluationId must belong to an approved G5 evaluation
+  const evalId = verdictRow.inputManifest?.evaluationId;
+  if (evalId && !APPROVED_G5_EVALUATION_IDS.has(evalId)) {
+    return {
+      state: "BLOCKED",
+      verdictRow,
+    };
+  }
+
+  // Gate is only READY if the recorded verdict is COMPETITOR_GAP_READY
   return {
     state: verdictRow.verdict === "COMPETITOR_GAP_READY" ? "READY" : "BLOCKED",
     verdictRow,

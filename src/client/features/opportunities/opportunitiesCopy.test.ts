@@ -275,6 +275,7 @@ describe("spec 010 filter metadata", () => {
   it("labels the GA4-backed types and sources, degrading unknown values", () => {
     expect(typeLabel("ga4_conversion")).toBe("Conversion drop");
     expect(typeLabel("ga4_engagement")).toBe("Engagement drop");
+    expect(typeLabel("competitor_gap")).toBe("Competitor gap");
     expect(typeLabel("striking_distance")).toBe("Striking distance");
     expect(typeLabel("future_type")).toBe("future_type");
     expect(sourceLabel("ga4")).toBe("Analytics");

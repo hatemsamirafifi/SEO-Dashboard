@@ -23,9 +23,9 @@ export const OPPORTUNITY_TYPES = [
   "backlinks",
   "lost_backlinks",
   "striking_distance",
-  // Spec 010: GA4-backed detector types.
   "ga4_conversion",
   "ga4_engagement",
+  "competitor_gap",
 ] as const;
 export type OpportunityType = (typeof OPPORTUNITY_TYPES)[number];
 
@@ -60,6 +60,7 @@ export const TYPE_META: Record<OpportunityType, { label: string }> = {
   striking_distance: { label: "Striking distance" },
   ga4_conversion: { label: "Conversion drop" },
   ga4_engagement: { label: "Engagement drop" },
+  competitor_gap: { label: "Competitor gap" },
 };
 
 /** Evidence source vocabulary (DetectionSource union): the fixed option set
@@ -93,7 +94,9 @@ export function sourceLabel(source: string): string {
 /** Narrow a raw priority select value to a server filter param. Unknown
  *  values mean unfiltered rather than reaching the validator as garbage
  *  (AnalyticsFilterToolbar.toDeviceParam precedent). */
-export function toPriorityParam(value: string): OpportunityPriority | undefined {
+export function toPriorityParam(
+  value: string,
+): OpportunityPriority | undefined {
   return isPriorityValue(value) ? value : undefined;
 }
 
@@ -306,7 +309,12 @@ export function parseEvidenceJson(json: string | null): EvidenceView | null {
   // corrupt evidence surfaces as an explicit note, never fabricated rows.
   if ("sourceRefs" in parsed && isRecord(parsed.sourceRefs)) {
     const refs: NonNullable<EvidenceView["sourceRefs"]> = {};
-    for (const key of ["gscFactIds", "rankSnapshotIds", "auditIssueIds", "ga4Keys"] as const) {
+    for (const key of [
+      "gscFactIds",
+      "rankSnapshotIds",
+      "auditIssueIds",
+      "ga4Keys",
+    ] as const) {
       if (key in parsed.sourceRefs) {
         const values = stringArrayValue(parsed.sourceRefs[key]);
         if (values === null) return null;

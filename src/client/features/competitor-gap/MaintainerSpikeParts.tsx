@@ -1,85 +1,60 @@
 // Spec 014: Presentation parts for Maintainer Competitor-Gap Spike UI
 
 import * as React from "react";
-import { CheckCircle2, Play, RefreshCw } from "lucide-react";
-import type {
-  CompetitorGapSpikeEvidence,
-  CompetitorGapVerdict,
-} from "@/shared/competitorGap";
+import { Play, RefreshCw } from "lucide-react";
+import type { CompetitorGapVerdict } from "@/shared/competitorGap";
 import type { FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST } from "./frozenSpikeManifest";
 
-export type VerdictStatusDisplayData = {
-  verdict: CompetitorGapVerdict | null;
-  gateState: "NO_VERDICT" | "BLOCKED" | "READY";
-  verdictId?: string;
-  recordedAt?: string;
-  evidence?: CompetitorGapSpikeEvidence;
-  thresholds?: typeof FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST.thresholds;
-};
+export {
+  formatSpikeEvidence,
+  type VerdictStatusDisplayData,
+} from "./MaintainerSpikeEvidence";
 
-/** Helper to extract and format the required dimensions from evidence */
-export function formatSpikeEvidence(evidence?: CompetitorGapSpikeEvidence) {
-  if (!evidence) return null;
-
-  const quality = evidence.quality;
-  const coverage = evidence.coverage;
-  const cost = evidence.cost;
-  const identity = evidence.identity;
-  const cache = evidence.cache;
-
-  const unavailableDimensions: string[] = [];
-  if (quality.status === "unavailable") {
-    unavailableDimensions.push(`Quality (${quality.reason})`);
-  }
-  if (coverage.status === "unavailable") {
-    unavailableDimensions.push(`Coverage (${coverage.reason})`);
-  }
-  if (cost.status === "unavailable") {
-    unavailableDimensions.push(`Cost (${cost.reason})`);
-  }
-  if (identity.status === "unavailable") {
-    unavailableDimensions.push(`Identity (${identity.reason})`);
-  }
-  if (cache.status === "unavailable") {
-    unavailableDimensions.push(`Cache (${cache.reason})`);
-  }
-
-  return {
-    keywordCoverageRatio:
-      quality.status === "measured"
-        ? `${(quality.value.keywordCoverageRatio * 100).toFixed(1)}%`
-        : "unavailable",
-    firstPartyCoverageRatio:
-      coverage.status === "measured"
-        ? `${(coverage.value.firstPartyCoverageRatio * 100).toFixed(1)}%`
-        : "unavailable",
-    costPerAnalysisCredits:
-      cost.status === "measured"
-        ? `${cost.value.measuredCreditsPerAnalysis} credits`
-        : "unavailable",
-    repeatCacheHitRate:
-      cache.status === "measured"
-        ? `${(cache.value.repeatCacheHitRate * 100).toFixed(1)}%`
-        : "unavailable",
-    repeatAnalysisPaidCalls:
-      cache.status === "measured"
-        ? String(cache.value.repeatAnalysisPaidCalls)
-        : "unavailable",
-    identityCollisions:
-      identity.status === "measured"
-        ? String(identity.value.collisionsObserved)
-        : "unavailable",
-    identityDeterministic:
-      identity.status === "measured"
-        ? identity.value.nonDeterministicMappings === 0
-          ? "YES"
-          : "NO"
-        : "unavailable",
-    unavailableDimensions:
-      unavailableDimensions.length > 0
-        ? unavailableDimensions.join(", ")
-        : "None (all dimensions measured)",
+export function PreviousVerdictCard({
+  previousVerdict,
+}: {
+  previousVerdict: {
+    verdict: CompetitorGapVerdict;
+    verdictId: string;
+    recordedAt: string;
   };
+}) {
+  return (
+    <div
+      data-testid="previous-verdict-card"
+      className="space-y-3 rounded-xl border border-error/30 bg-error/5 p-4 text-xs"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold uppercase tracking-wider text-base-content/70">
+            Previous evaluation:
+          </span>
+          <span
+            data-testid="previous-verdict-pill"
+            className="badge badge-error badge-sm font-bold"
+          >
+            {previousVerdict.verdict}
+          </span>
+        </div>
+        <span className="text-[11px] font-mono text-base-content/50">
+          R1 Historical
+        </span>
+      </div>
+      <div className="flex items-center gap-2 font-mono">
+        <span className="text-base-content/50">Row ID:</span>
+        <span
+          data-testid="previous-verdict-id"
+          className="font-bold text-base-content break-all"
+        >
+          {previousVerdict.verdictId}
+        </span>
+      </div>
+      <p className="text-[11px] text-base-content/60">
+        Historical R1 evidence preserved immutably. Authoritative ledger entry
+        is not superseded or deleted.
+      </p>
+    </div>
+  );
 }
 
 export function FrozenManifestSummary({
@@ -90,9 +65,20 @@ export function FrozenManifestSummary({
   return (
     <div className="space-y-3 rounded-lg border border-base-200 bg-base-200/50 p-4 text-xs">
       <div className="flex items-center justify-between border-b border-base-300 pb-2">
-        <span className="font-semibold uppercase tracking-wider text-base-content/70">
-          Frozen Manifest Values (Immutable)
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold uppercase tracking-wider text-base-content/70">
+            Evaluation:
+          </span>
+          <span
+            data-testid="evaluation-title"
+            className="font-bold text-base-content text-sm"
+          >
+            Competitor Gap G5 R2
+          </span>
+          <span className="badge badge-warning badge-xs font-mono">
+            {manifest.evaluationId ?? "competitor-gap-g5-r2"}
+          </span>
+        </div>
         <span className="badge badge-outline badge-xs font-mono">
           spec 014 §9
         </span>
@@ -160,160 +146,7 @@ export function FrozenManifestSummary({
   );
 }
 
-export function RecordedVerdictCard({
-  verdictData,
-}: {
-  verdictData: VerdictStatusDisplayData;
-}) {
-  const existingVerdict = verdictData.verdict;
-  const existingVerdictId = verdictData.verdictId;
-  const evidenceDetails = formatSpikeEvidence(verdictData.evidence);
-
-  return (
-    <div
-      data-testid="verdict-recorded-display"
-      className="space-y-4 rounded-xl border border-success/30 bg-success/5 p-5"
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <CheckCircle2 className="size-5 text-success" />
-          <h4 className="font-bold text-base-content">
-            Spike Verdict Recorded
-          </h4>
-        </div>
-        <span
-          data-testid="verdict-pill"
-          className={`badge font-bold ${
-            existingVerdict === "COMPETITOR_GAP_READY"
-              ? "badge-success text-success-content"
-              : "badge-error text-error-content"
-          }`}
-        >
-          {existingVerdict}
-        </span>
-      </div>
-
-      <p className="text-xs text-base-content/70">
-        A durable ledger row exists for this manifest. In accordance with the
-        exactly-once invariant, repeat execution is locked out.
-      </p>
-
-      <div className="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-4 text-xs sm:grid-cols-2">
-        <div>
-          <span className="text-base-content/50 uppercase font-semibold text-[10px]">
-            LEDGER_ROW_ID
-          </span>
-          <div
-            data-testid="verdict-row-id"
-            className="font-mono text-sm font-bold text-base-content break-all"
-          >
-            {existingVerdictId ?? "cgv_recorded"}
-          </div>
-        </div>
-        <div>
-          <span className="text-base-content/50 uppercase font-semibold text-[10px]">
-            VERDICT
-          </span>
-          <div
-            data-testid="verdict-name"
-            className="font-mono text-sm font-bold text-base-content"
-          >
-            {existingVerdict}
-          </div>
-        </div>
-
-        {evidenceDetails && (
-          <>
-            <div>
-              <span className="text-base-content/50">
-                keywordCoverageRatio:
-              </span>
-              <div
-                data-testid="metric-keyword-coverage"
-                className="font-mono font-medium text-base-content"
-              >
-                {evidenceDetails.keywordCoverageRatio}
-              </div>
-            </div>
-            <div>
-              <span className="text-base-content/50">
-                firstPartyCoverageRatio:
-              </span>
-              <div
-                data-testid="metric-first-party-coverage"
-                className="font-mono font-medium text-base-content"
-              >
-                {evidenceDetails.firstPartyCoverageRatio}
-              </div>
-            </div>
-            <div>
-              <span className="text-base-content/50">
-                costPerAnalysisCredits:
-              </span>
-              <div
-                data-testid="metric-cost-per-analysis"
-                className="font-mono font-medium text-base-content"
-              >
-                {evidenceDetails.costPerAnalysisCredits}
-              </div>
-            </div>
-            <div>
-              <span className="text-base-content/50">repeatCacheHitRate:</span>
-              <div
-                data-testid="metric-cache-hit-rate"
-                className="font-mono font-medium text-base-content"
-              >
-                {evidenceDetails.repeatCacheHitRate}
-              </div>
-            </div>
-            <div>
-              <span className="text-base-content/50">
-                repeatAnalysisPaidCalls:
-              </span>
-              <div
-                data-testid="metric-repeat-paid-calls"
-                className="font-mono font-medium text-base-content"
-              >
-                {evidenceDetails.repeatAnalysisPaidCalls}
-              </div>
-            </div>
-            <div>
-              <span className="text-base-content/50">identityCollisions:</span>
-              <div
-                data-testid="metric-identity-collisions"
-                className="font-mono font-medium text-base-content"
-              >
-                {evidenceDetails.identityCollisions}
-              </div>
-            </div>
-            <div>
-              <span className="text-base-content/50">
-                identityDeterministic:
-              </span>
-              <div
-                data-testid="metric-identity-deterministic"
-                className="font-mono font-medium text-base-content"
-              >
-                {evidenceDetails.identityDeterministic}
-              </div>
-            </div>
-            <div>
-              <span className="text-base-content/50">
-                unavailable dimensions:
-              </span>
-              <div
-                data-testid="metric-unavailable-dimensions"
-                className="font-mono font-medium text-base-content"
-              >
-                {evidenceDetails.unavailableDimensions}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
+export { RecordedVerdictCard } from "./RecordedVerdictCard";
 
 export function ExecutionArea({
   confirmed,
@@ -332,6 +165,17 @@ export function ExecutionArea({
 }) {
   return (
     <div className="space-y-4 rounded-xl border border-base-300 bg-base-100 p-5">
+      <div className="flex items-center justify-between border-b border-base-200 pb-2">
+        <span
+          data-testid="current-evaluation-status"
+          className="font-semibold text-xs text-base-content/70"
+        >
+          Current evaluation: R2 — not yet executed
+        </span>
+        <span className="badge badge-sm badge-warning badge-outline font-mono">
+          R2 Pending
+        </span>
+      </div>
       <div className="flex flex-col gap-3">
         <label className="flex items-start gap-2.5 cursor-pointer text-xs">
           <input
@@ -345,8 +189,8 @@ export function ExecutionArea({
           <span className="text-base-content/80 leading-relaxed">
             I explicitly confirm invocation of the frozen Competitor Gap Spike
             (budget cap: 500 credits, max projected spend: 6 credits). This
-            action executes real provider calls and permanently writes a
-            verdict ledger row.
+            action executes real provider calls and permanently writes a verdict
+            ledger row.
           </span>
         </label>
 

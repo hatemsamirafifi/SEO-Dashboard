@@ -17,6 +17,15 @@ export function Ga4SyncStatus({ projectId }: { projectId: string }) {
       void queryClient.invalidateQueries({
         queryKey: ["ga4SyncStatus", projectId],
       });
+      void queryClient.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) &&
+          query.queryKey[1] === projectId &&
+          typeof query.queryKey[0] === "string" &&
+          (query.queryKey[0].startsWith("analytics") ||
+            query.queryKey[0].startsWith("ga4")),
+      });
+      toast.success("Analytics data synced successfully.");
     },
     onError: (error) => toast.error(getStandardErrorMessage(error)),
   });

@@ -39,6 +39,8 @@ import {
   type SearchPerformanceDevice,
   type SearchPerformanceTableDimension,
 } from "@/types/schemas/search-performance";
+import type { CompareMode } from "@/types/schemas/date-range-compare";
+import type { DateRangeCompareValues } from "@/client/components/DateRangeCompareModal";
 
 function tabDimension(tab: Tab): SearchPerformanceTableDimension {
   return tab === "pages" ? "page" : "query";
@@ -46,17 +48,32 @@ function tabDimension(tab: Tab): SearchPerformanceTableDimension {
 
 type FilterInput = {
   dateRange: SearchPerformanceDateRange;
+  startDate?: string;
+  endDate?: string;
+  compareMode?: CompareMode;
+  compareStartDate?: string;
+  compareEndDate?: string;
   device?: SearchPerformanceDevice;
   country?: string;
 };
 
 function buildFilterInput(
   range: SearchPerformanceDateRange,
+  startDate: string | undefined,
+  endDate: string | undefined,
+  compareMode: CompareMode,
+  compareStartDate: string | undefined,
+  compareEndDate: string | undefined,
   device: SearchPerformanceDevice | typeof ALL,
   country: string,
 ): FilterInput {
   return {
     dateRange: range,
+    ...(startDate ? { startDate } : {}),
+    ...(endDate ? { endDate } : {}),
+    compareMode,
+    ...(compareStartDate ? { compareStartDate } : {}),
+    ...(compareEndDate ? { compareEndDate } : {}),
     ...(device === ALL ? {} : { device }),
     ...(country === ALL ? {} : { country }),
   };
@@ -89,6 +106,13 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const [range, setRange] =
     useState<SearchPerformanceDateRange>("last_28_days");
+  const [startDate, setStartDate] = useState<string | undefined>();
+  const [endDate, setEndDate] = useState<string | undefined>();
+  const [compareMode, setCompareMode] =
+    useState<CompareMode>("previous_period");
+  const [compareStartDate, setCompareStartDate] = useState<string | undefined>();
+  const [compareEndDate, setCompareEndDate] = useState<string | undefined>();
+
   const [device, setDevice] = useState<SearchPerformanceDevice | typeof ALL>(
     ALL,
   );
@@ -100,14 +124,54 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
   );
   const [isSyncing, setIsSyncing] = useState(false);
 
+  const handleDateRangeChange = (values: DateRangeCompareValues) => {
+    setRange(values.range);
+    setStartDate(values.startDate);
+    setEndDate(values.endDate);
+    setCompareMode(values.compareMode);
+    setCompareStartDate(values.compareStartDate);
+    setCompareEndDate(values.compareEndDate);
+  };
+
   useEffect(() => {
     setPage(1);
-  }, [tab, range, device, country, pageSize]);
+  }, [
+    tab,
+    range,
+    startDate,
+    endDate,
+    compareMode,
+    compareStartDate,
+    compareEndDate,
+    device,
+    country,
+    pageSize,
+  ]);
 
-  const filterInput = buildFilterInput(range, device, country);
+  const filterInput = buildFilterInput(
+    range,
+    startDate,
+    endDate,
+    compareMode,
+    compareStartDate,
+    compareEndDate,
+    device,
+    country,
+  );
 
   const reportQuery = useQuery({
-    queryKey: ["searchPerformance", projectId, range, device, country],
+    queryKey: [
+      "searchPerformance",
+      projectId,
+      range,
+      startDate,
+      endDate,
+      compareMode,
+      compareStartDate,
+      compareEndDate,
+      device,
+      country,
+    ],
     queryFn: async () => {
       const opId = globalTraceStore.startOperation({
         feature: "search_console",
@@ -120,7 +184,16 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
         budget: "PASS",
         cache: "HIT",
         provider: "GSC",
-        metadata: { range, device, country },
+        metadata: {
+          range,
+          startDate,
+          endDate,
+          compareMode,
+          compareStartDate,
+          compareEndDate,
+          device,
+          country,
+        },
       });
 
       try {
@@ -269,10 +342,10 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
         "query",
         1,
         SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE,
-        buildFilterInput(range, device, country),
+        filterInput,
       ),
     );
-  }, [report?.connected, projectId, range, device, country, queryClient]);
+  }, [report?.connected, projectId, filterInput, queryClient]);
 
   const handleExport = async (target: ExportTarget) => {
     if (!report?.connected) return;
@@ -328,7 +401,12 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
                 setCountry={setCountry}
                 countryOptions={report.countries}
                 range={range}
-                setRange={setRange}
+                startDate={startDate}
+                endDate={endDate}
+                compareMode={compareMode}
+                compareStartDate={compareStartDate}
+                compareEndDate={compareEndDate}
+                onDateRangeChange={handleDateRangeChange}
                 onExport={(target) => void handleExport(target)}
               />
 

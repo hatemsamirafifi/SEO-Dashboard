@@ -11,6 +11,7 @@ import { lostBacklinksDetector } from "./lostBacklinks";
 import { strikingDistanceDetector } from "./strikingDistance";
 import { conversionDropDetector } from "./conversionDrop";
 import { engagementDropDetector } from "./engagementDrop";
+import { competitorGapDetector } from "./competitorGap";
 
 /**
  * Explicit versioned detector list — no auto-glob (mirrors the explicitness
@@ -32,6 +33,7 @@ const DETECTORS: DetectorDef[] = [
   strikingDistanceDetector,
   conversionDropDetector,
   engagementDropDetector,
+  competitorGapDetector,
 ];
 
 export function listDetectors(): DetectorDef[] {

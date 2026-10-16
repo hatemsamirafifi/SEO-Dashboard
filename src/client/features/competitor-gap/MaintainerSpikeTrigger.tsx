@@ -12,11 +12,15 @@ import {
 } from "@/serverFunctions/competitorGap";
 import type { CompetitorGapVerdict } from "@/shared/competitorGap";
 import type { CompetitorGapSpikeInput } from "@/types/schemas/competitorGap";
-import { FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST } from "./frozenSpikeManifest";
+import {
+  FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST_R2,
+  type FrozenCompetitorGapSpikeManifest,
+} from "./frozenSpikeManifest";
 import { isMaintainerSurfaceEnabled } from "./maintainerAccess";
 import {
   ExecutionArea,
   FrozenManifestSummary,
+  PreviousVerdictCard,
   RecordedVerdictCard,
   type VerdictStatusDisplayData,
 } from "./MaintainerSpikeParts";
@@ -54,13 +58,11 @@ export async function executeSpikeWithGuards({
   inFlightLock,
 }: {
   projectId: string;
-  manifest: typeof FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST;
+  manifest: FrozenCompetitorGapSpikeManifest;
   getVerdict: (params: {
-    data: { projectId: string };
+    data: { projectId: string; evaluationId?: string };
   }) => Promise<VerdictStatusDisplayData | null>;
-  runSpike: (params: {
-    data: CompetitorGapSpikeInput;
-  }) => Promise<{
+  runSpike: (params: { data: CompetitorGapSpikeInput }) => Promise<{
     ok: boolean;
     verdict?: CompetitorGapVerdict;
     verdictId?: string;
@@ -76,8 +78,10 @@ export async function executeSpikeWithGuards({
   }
 
   try {
-    // Exactly-once safety: before invoking, check getCompetitorGapVerdict
-    const existing = await getVerdict({ data: { projectId } });
+    // Exactly-once safety: before invoking, check getCompetitorGapVerdict for this evaluation
+    const existing = await getVerdict({
+      data: { projectId, evaluationId: manifest.evaluationId },
+    });
     if (existing?.verdict) {
       return {
         type: "ALREADY_RECORDED",
@@ -103,7 +107,9 @@ export async function executeSpikeWithGuards({
     }
 
     // Poll getCompetitorGapVerdict after completion
-    const pollResult = await getVerdict({ data: { projectId } });
+    const pollResult = await getVerdict({
+      data: { projectId, evaluationId: manifest.evaluationId },
+    });
     return {
       type: "INVOKED",
       rowId: triggerRes.verdictId || pollResult?.verdictId,
@@ -135,7 +141,7 @@ export function MaintainerSpikeTrigger({
     return null;
   }
 
-  const manifest = FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST;
+  const manifest = FROZEN_COMPETITOR_GAP_SPIKE_MANIFEST_R2;
   const isProjectAligned = projectId === manifest.projectId;
 
   const [confirmed, setConfirmed] = React.useState(false);
@@ -143,10 +149,13 @@ export function MaintainerSpikeTrigger({
   const [serverError, setServerError] = React.useState<string | null>(null);
   const inFlightRef = React.useRef(false);
 
-  // Poll / fetch verdict status
+  // Poll / fetch verdict status for the specific evaluation
   const verdictQuery = useQuery({
-    queryKey: ["competitorGapVerdict", projectId],
-    queryFn: () => getCompetitorGapVerdict({ data: { projectId } }),
+    queryKey: ["competitorGapVerdict", projectId, manifest.evaluationId],
+    queryFn: () =>
+      getCompetitorGapVerdict({
+        data: { projectId, evaluationId: manifest.evaluationId },
+      }),
     refetchInterval: isExecuting ? 1500 : false,
   });
 
@@ -174,7 +183,9 @@ export function MaintainerSpikeTrigger({
         manifest,
         // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         getVerdict: (p) =>
-          getCompetitorGapVerdict(p) as Promise<VerdictStatusDisplayData | null>,
+          getCompetitorGapVerdict(
+            p,
+          ) as Promise<VerdictStatusDisplayData | null>,
         runSpike: (p) => runCompetitorGapSpike(p),
         inFlightLock: inFlightRef,
       });
@@ -244,6 +255,20 @@ export function MaintainerSpikeTrigger({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Historical Previous Evaluation (R1) */}
+      {(verdictData?.previousVerdict ||
+        manifest.evaluationId === "competitor-gap-g5-r2") && (
+        <PreviousVerdictCard
+          previousVerdict={
+            verdictData?.previousVerdict ?? {
+              verdict: "COMPETITOR_GAP_BLOCKED",
+              verdictId: "cgv_4c878e65_2026-10-14T20:09:49.856Z",
+              recordedAt: "2026-10-14T20:09:49.856Z",
+            }
+          }
+        />
       )}
 
       {/* Frozen Manifest Display */}

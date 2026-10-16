@@ -19,6 +19,7 @@ const competitorGapSpikeThresholdsSchema = z
 export const competitorGapSpikeInputSchema = z
   .object({
     projectId: z.string().min(1),
+    evaluationId: z.string().min(1).max(100).optional(),
     sampleDomains: z.array(z.string().min(1).max(253)).min(1).max(10),
     keywordSetRef: z.string().min(1).max(200),
     market: z
@@ -37,9 +38,12 @@ export type CompetitorGapSpikeInput = z.infer<
   typeof competitorGapSpikeInputSchema
 >;
 
-/** Latest-verdict poll input — project identity only. */
+/** Latest-verdict poll input — project identity and optional evaluationId. */
 export const competitorGapVerdictStatusSchema = z
-  .object({ projectId: z.string().min(1) })
+  .object({
+    projectId: z.string().min(1),
+    evaluationId: z.string().min(1).max(100).optional(),
+  })
   .strict();
 
 export type CompetitorGapVerdictStatusInput = z.infer<

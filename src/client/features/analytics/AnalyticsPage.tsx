@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import type { AnalyticsRange } from "@/types/schemas/ga4";
+import type { CompareMode } from "@/types/schemas/date-range-compare";
+import type { DateRangeCompareValues } from "@/client/components/DateRangeCompareModal";
 import { AnalyticsConnectionCard } from "@/client/features/ga4/AnalyticsConnectionCard";
 import { Ga4SyncStatus } from "@/client/features/ga4/Ga4SyncStatus";
 import {
@@ -117,11 +119,27 @@ function AnalyticsEmptyFallback({
 
 export function AnalyticsPage({ projectId }: { projectId: string }) {
   const [range, setRange] = useState<AnalyticsRange>("last_28_days");
+  const [startDate, setStartDate] = useState<string | undefined>();
+  const [endDate, setEndDate] = useState<string | undefined>();
+  const [compareMode, setCompareMode] =
+    useState<CompareMode>("previous_period");
+  const [compareStartDate, setCompareStartDate] = useState<string | undefined>();
+  const [compareEndDate, setCompareEndDate] = useState<string | undefined>();
+
   const [channel, setChannel] = useState("");
   const [device, setDevice] = useState<string>(ALL);
   const [country, setCountry] = useState("");
   // Spec 010: goal filter for the conversions view. Empty = all conversions.
   const [goalId, setGoalId] = useState("");
+
+  const handleDateRangeChange = (values: DateRangeCompareValues) => {
+    setRange(values.range);
+    setStartDate(values.startDate);
+    setEndDate(values.endDate);
+    setCompareMode(values.compareMode);
+    setCompareStartDate(values.compareStartDate);
+    setCompareEndDate(values.compareEndDate);
+  };
 
   const {
     connected,
@@ -139,6 +157,11 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
     isFetching,
   } = useAnalyticsQueries(projectId, {
     range,
+    startDate,
+    endDate,
+    compareMode,
+    compareStartDate,
+    compareEndDate,
     channel,
     device,
     country,
@@ -221,7 +244,12 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
             <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100">
               <AnalyticsFilterToolbar
                 range={range}
-                setRange={setRange}
+                startDate={startDate}
+                endDate={endDate}
+                compareMode={compareMode}
+                compareStartDate={compareStartDate}
+                compareEndDate={compareEndDate}
+                onDateRangeChange={handleDateRangeChange}
                 channel={channel}
                 setChannel={setChannel}
                 device={device}

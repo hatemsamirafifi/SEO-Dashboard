@@ -57,6 +57,14 @@ export const WORKFLOW_PROMPTS: Record<AutopilotWorkflowType, string> = {
     "and 'consistent with'. Keep confidence separate from impact. Never " +
     "state a precise uplift without a basis in the evidence. Missing data " +
     "stays visible as unavailable — never as zero.",
+  competitor_gap:
+    "Formulate an action plan from stored competitor-gap opportunities only. " +
+    "Use only the frozen evidence provided. Rank by stored priority, then " +
+    "impact, then confidence. Explain competitor positions and keyword " +
+    "targeting options with metrics from the evidence. Prefer phrasing such " +
+    "as 'observed ranking at position' and 'consistent with'. Keep confidence " +
+    "separate from impact. Never state a precise uplift without a basis in " +
+    "the evidence. When stored competitor opportunities are absent, state so plainly.",
 };
 
 export type CollectedOpportunity = {
@@ -371,12 +379,14 @@ export type AuditCoverage =
     };
 
 export function auditCoverageOf(
-  latest: {
-    id: string;
-    status: string;
-    pagesCrawled: number;
-    completedAt: string | null;
-  } | null
+  latest:
+    | {
+        id: string;
+        status: string;
+        pagesCrawled: number;
+        completedAt: string | null;
+      }
+    | null
     | undefined,
 ): AuditCoverage {
   if (!latest) return { state: "never_run" };
@@ -677,11 +687,15 @@ export type TrafficMonthEnvelope = {
   };
 };
 
-function monthTotals<T>(envelope: {
-  status: StatusEnvelope;
-  totals: T | null;
-} | null
-  | undefined): T | null {
+function monthTotals<T>(
+  envelope:
+    | {
+        status: StatusEnvelope;
+        totals: T | null;
+      }
+    | null
+    | undefined,
+): T | null {
   if (!envelope || typeof envelope !== "object") return null;
   if (envelope.status?.available !== true) return null;
   return envelope.totals ?? null;
@@ -771,9 +785,9 @@ export function buildChangedRows(input: {
       markUnavailable(
         spec.source,
         spec.source === "gsc"
-          ? (input.searchVisibility.month.totals === null
+          ? input.searchVisibility.month.totals === null
             ? input.searchVisibility.month.status.reason
-            : input.searchVisibility.prior.status.reason)
+            : input.searchVisibility.prior.status.reason
           : "ga4 coverage incomplete for the compared windows",
       );
       continue;
@@ -851,7 +865,11 @@ export function unresolvedReviewRows(
           (REVIEW_PRIORITY_RANK[b.priority] ?? 2) ||
         (b.impactScore ?? 0) - (a.impactScore ?? 0) ||
         (b.confidenceScore ?? 0) - (a.confidenceScore ?? 0) ||
-        (a.logicalKey < b.logicalKey ? -1 : a.logicalKey > b.logicalKey ? 1 : 0),
+        (a.logicalKey < b.logicalKey
+          ? -1
+          : a.logicalKey > b.logicalKey
+            ? 1
+            : 0),
     )
     .map((row) => ({
       kind: "opportunity" as const,
@@ -911,9 +929,7 @@ function isNullableNumber(field: unknown): boolean {
 
 function isMonthWindow(value: unknown): value is MonthWindow {
   if (!isRecord(value)) return false;
-  return (
-    typeof value["from"] === "string" && typeof value["to"] === "string"
-  );
+  return typeof value["from"] === "string" && typeof value["to"] === "string";
 }
 
 function isChangedRow(value: unknown): value is ChangedRow {
@@ -957,10 +973,7 @@ function isUnresolvedRow(value: unknown): value is UnresolvedRow {
   );
 }
 
-function recordList(
-  record: Record<string, unknown>,
-  key: string,
-): unknown[] {
+function recordList(record: Record<string, unknown>, key: string): unknown[] {
   const raw: unknown = record[key];
   return Array.isArray(raw) ? [...raw] : [];
 }
@@ -1010,9 +1023,7 @@ function isVisibilityEnvelope(value: unknown): value is VisibilityEnvelope {
   );
 }
 
-function isTrafficMonthEnvelope(
-  value: unknown,
-): value is TrafficMonthEnvelope {
+function isTrafficMonthEnvelope(value: unknown): value is TrafficMonthEnvelope {
   if (!isRecord(value)) return false;
   const traffic: unknown = value["traffic"];
   const conversions: unknown = value["conversions"];
@@ -1122,4 +1133,47 @@ export function monthlyCollectOf(evidence: unknown): {
     opportunities: opportunities.filter(isStoredOpportunity),
     insights: insights.filter(isStoredInsight),
   };
+}
+
+export function competitorGapRecommendations(
+  opportunities: CollectedOpportunity[],
+  targetIds: string[],
+): Record<string, unknown>[] {
+  const byId = new Map(opportunities.map((o) => [o.id, o]));
+  const ordered = targetIds
+    .map((id) => byId.get(id))
+    .filter((o): o is CollectedOpportunity => o !== undefined);
+
+  if (ordered.length === 0) {
+    return [];
+  }
+
+  return ordered.map((op) => {
+    const kw = op.keyword ?? op.logicalKey;
+    const isExistingPage = Boolean(op.page);
+    const suggestedAction = isExistingPage
+      ? `Expand search intent coverage for "${kw}" on ${op.page} with dedicated sections and internal links.`
+      : `Create dedicated content targeting "${kw}" matching user intent and linking from topically relevant pages.`;
+
+    return {
+      evidence: {
+        metrics: `Impact ${op.impactScore}, Confidence ${op.confidenceScore}`,
+        periods: op.lastDetectedAt
+          ? `Observed ${op.lastDetectedAt.slice(0, 10)}`
+          : "Current period",
+      },
+      dataSource: "competitor_snapshots + gsc",
+      reasoningSummary: op.title,
+      confidence: {
+        value: op.confidenceScore,
+        why: `Corroborated by competitor position and first-party search evidence (stored score ${op.confidenceScore}).`,
+      },
+      expectedImpact: {
+        kind: "qualitative",
+        explanation: `Captures keyword demand for "${kw}" where competitors currently hold visibility.`,
+      },
+      suggestedAction,
+      evidenceType: "observational",
+    };
+  });
 }

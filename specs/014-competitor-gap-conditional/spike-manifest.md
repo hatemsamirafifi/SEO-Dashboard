@@ -116,10 +116,45 @@ Expected paid spend: single-digit credits (projection 6; hard cap 500).
 
 ## 10. Verdict log (filled AFTER execution — T042)
 
-- [ ] Spike executed at: _
-- [ ] Verdict: `COMPETITOR_GAP_READY` | `COMPETITOR_GAP_BLOCKED`
-- [ ] Ledger row id: _
-- [ ] Frozen evidence summary (per-dimension measured/unavailable): _
-- [ ] Gate transition: NO_VERDICT → _
-- [ ] If READY → US2 unlocked (T020–T030). If BLOCKED → package closed as
-  blocked/dismissed with evidence; US2/US3 stay unimplemented.
+- Spike executed at:
+  2026-10-14T20:09:49.856Z
+
+- Verdict:
+  COMPETITOR_GAP_BLOCKED
+
+- Ledger row id:
+  cgv_4c878e65_2026-10-14T20:09:49.856Z
+
+- Frozen evidence summary:
+
+  keywordCoverageRatio:
+  unavailable
+  reason: DataForSEO account access temporarily paused by provider
+
+  firstPartyCoverageRatio:
+  0.9285714285714286
+
+  costPerAnalysisCredits:
+  0.4133600000000003
+
+  repeatCacheHitRate:
+  unavailable
+  reason: DataForSEO account access temporarily paused by provider
+
+  repeatAnalysisPaidCalls:
+  unavailable
+  reason: DataForSEO account access temporarily paused by provider
+
+  identityCollisions:
+  0
+
+  identityDeterministic:
+  YES
+
+  unavailableDimensions:
+  quality, cache
+
+- Gate transition:
+  NO_VERDICT → COMPETITOR_GAP_BLOCKED
+
+

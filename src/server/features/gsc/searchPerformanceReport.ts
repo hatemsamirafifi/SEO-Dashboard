@@ -15,20 +15,38 @@ type SearchPerformanceTotals = {
   position: number;
 };
 
-type SearchPerformanceDimensionRow = {
+export type SearchPerformanceDimensionRow = {
   key: string;
   clicks: number;
   impressions: number;
   ctr: number;
   position: number;
+  prevClicks?: number;
+  clicksChange?: number;
+  clicksPctChange?: number | null;
+  prevImpressions?: number;
+  impressionsChange?: number;
+  impressionsPctChange?: number | null;
+  prevCtr?: number;
+  ctrChange?: number;
+  prevPosition?: number;
+  positionChange?: number;
 };
 
-type StrikingDistanceRow = {
+export type StrikingDistanceRow = {
   query: string;
   page: string;
   clicks: number;
   impressions: number;
   position: number;
+  prevClicks?: number;
+  clicksChange?: number;
+  clicksPctChange?: number | null;
+  prevImpressions?: number;
+  impressionsChange?: number;
+  impressionsPctChange?: number | null;
+  prevPosition?: number;
+  positionChange?: number;
 };
 
 // "Striking distance" = already ranking, not yet in the top spots: the queries
@@ -59,18 +77,51 @@ export function sumSearchTotals(
 /** Flatten single-dimension rows (query or page) into a keyed table row. */
 export function toDimensionRows(
   rows: GscSearchAnalyticsRow[],
+  prevRows?: GscSearchAnalyticsRow[],
 ): SearchPerformanceDimensionRow[] {
+  const prevByKey = new Map<string, GscSearchAnalyticsRow>();
+  if (prevRows) {
+    for (const r of prevRows) {
+      const key = r.keys?.[0];
+      if (key && !prevByKey.has(key)) {
+        prevByKey.set(key, r);
+      }
+    }
+  }
+
   const output: SearchPerformanceDimensionRow[] = [];
   for (const row of rows) {
     const key = row.keys?.[0];
     if (!key) continue;
-    output.push({
+    const item: SearchPerformanceDimensionRow = {
       key,
       clicks: row.clicks,
       impressions: row.impressions,
       ctr: row.ctr,
       position: row.position,
-    });
+    };
+
+    const prev = prevByKey.get(key);
+    if (prev) {
+      item.prevClicks = prev.clicks;
+      item.clicksChange = row.clicks - prev.clicks;
+      item.clicksPctChange =
+        prev.clicks > 0
+          ? ((row.clicks - prev.clicks) / prev.clicks) * 100
+          : null;
+      item.prevImpressions = prev.impressions;
+      item.impressionsChange = row.impressions - prev.impressions;
+      item.impressionsPctChange =
+        prev.impressions > 0
+          ? ((row.impressions - prev.impressions) / prev.impressions) * 100
+          : null;
+      item.prevCtr = prev.ctr;
+      item.ctrChange = row.ctr - prev.ctr;
+      item.prevPosition = prev.position;
+      item.positionChange = prev.position - row.position;
+    }
+
+    output.push(item);
   }
   return output;
 }
@@ -93,8 +144,36 @@ export function toDimensionRows(
  *  it only when that top page is in band. Result is sorted by impressions. */
 export function buildStrikingDistanceRows(
   rows: GscSearchAnalyticsRow[],
-  limit: number = STRIKING_DISTANCE_ROW_LIMIT,
+  prevRowsOrLimit?: GscSearchAnalyticsRow[] | number,
+  limitArg: number = STRIKING_DISTANCE_ROW_LIMIT,
 ): StrikingDistanceRow[] {
+  const prevRows = Array.isArray(prevRowsOrLimit) ? prevRowsOrLimit : undefined;
+  const limit =
+    typeof prevRowsOrLimit === "number" ? prevRowsOrLimit : limitArg;
+
+  const prevByQuery = new Map<
+    string,
+    { clicks: number; impressions: number; position: number }
+  >();
+  if (prevRows) {
+    for (const r of prevRows) {
+      const query = r.keys?.[0];
+      if (!query) continue;
+      const existing = prevByQuery.get(query);
+      if (!existing) {
+        prevByQuery.set(query, {
+          clicks: r.clicks,
+          impressions: r.impressions,
+          position: r.position,
+        });
+      } else {
+        existing.clicks += r.clicks;
+        existing.impressions += r.impressions;
+        existing.position = Math.min(existing.position, r.position);
+      }
+    }
+  }
+
   const topPageByQuery = new Map<string, StrikingDistanceRow>();
   for (const row of rows) {
     const query = row.keys?.[0];
@@ -118,7 +197,7 @@ export function buildStrikingDistanceRows(
     });
   }
 
-  return Array.from(topPageByQuery.values())
+  const result = Array.from(topPageByQuery.values())
     .filter(
       (row) =>
         row.position >= STRIKING_DISTANCE_MIN_POSITION &&
@@ -126,6 +205,30 @@ export function buildStrikingDistanceRows(
     )
     .toSorted((a, b) => b.impressions - a.impressions)
     .slice(0, limit);
+
+  if (prevByQuery.size > 0) {
+    for (const row of result) {
+      const prev = prevByQuery.get(row.query);
+      if (prev) {
+        row.prevClicks = prev.clicks;
+        row.clicksChange = row.clicks - prev.clicks;
+        row.clicksPctChange =
+          prev.clicks > 0
+            ? ((row.clicks - prev.clicks) / prev.clicks) * 100
+            : null;
+        row.prevImpressions = prev.impressions;
+        row.impressionsChange = row.impressions - prev.impressions;
+        row.impressionsPctChange =
+          prev.impressions > 0
+            ? ((row.impressions - prev.impressions) / prev.impressions) * 100
+            : null;
+        row.prevPosition = prev.position;
+        row.positionChange = prev.position - row.position;
+      }
+    }
+  }
+
+  return result;
 }
 
 /** The same-length period immediately before [startDate, endDate], for the

@@ -91,20 +91,20 @@ description: "Task list for spec 014 — Competitor-Gap Conditional"
 
 > Write these FIRST, ensure they FAIL before implementation (P43).
 
-- [ ] T020 [P] [US2] Gate test in `src/server/features/intelligence/services/detectionStage.test.ts` (extend): detector present in the registry but recorded `skipped` with reason `G5_NO_READY_VERDICT` when no READY verdict exists for the project; never recorded `failed` for gate absence.
-- [ ] T021 [P] [US2] Trigger/no-trigger fixture tests in `src/server/features/intelligence/detectors/competitorGap.test.ts`: triggering fixture emits `FindingDraft` with `evidenceType: "observational"`, frozen `metrics` (competitor positions, overlap sets, user-site absence/weakness signals), `periods`, `thresholdsApplied` populated exclusively from injected thresholds; no-trigger fixtures (provider-failure input, insufficient coverage via `InsufficientCoverageError`, below-threshold overlap) emit zero findings.
-- [ ] T022 [P] [US2] Identity/idempotency test in `src/server/features/intelligence/detectors/competitorGap.test.ts`: `findingKey` stable across re-scans from `(detectorKey, version, entityKey, periodFrom, periodTo)` per `strikingDistance.ts` precedent; materialization re-run upserts — 0 duplicate opportunities (SC-004).
-- [ ] T023 [P] [US2] Cache-boundedness test in `src/server/features/intelligence/detectors/competitorGap.test.ts`: repeat input resolution over unchanged inputs performs 0 paid provider calls (instrumented via the seo-data router; SC-004).
-- [ ] T024 [P] [US2] Materialization language test in `src/server/features/intelligence/services/materializeFinding.test.ts` (extend for `competitor_gap`): `explanationFact` contains fact only; recommendation text comes only from the materializer template (P27); no causal verbs (P46).
+- [X] T020 [P] [US2] Gate test in `src/server/features/intelligence/services/detectionStage.test.ts` (extend): detector present in the registry but recorded `skipped` with reason `G5_NO_READY_VERDICT` when no READY verdict exists for the project; never recorded `failed` for gate absence.
+- [X] T021 [P] [US2] Trigger/no-trigger fixture tests in `src/server/features/intelligence/detectors/competitorGap.test.ts`: triggering fixture emits `FindingDraft` with `evidenceType: "observational"`, frozen `metrics` (competitor positions, overlap sets, user-site absence/weakness signals), `periods`, `thresholdsApplied` populated exclusively from injected thresholds; no-trigger fixtures (provider-failure input, insufficient coverage via `InsufficientCoverageError`, below-threshold overlap) emit zero findings.
+- [X] T022 [P] [US2] Identity/idempotency test in `src/server/features/intelligence/detectors/competitorGap.test.ts`: `findingKey` stable across re-scans from `(detectorKey, version, entityKey, periodFrom, periodTo)` per `strikingDistance.ts` precedent; materialization re-run upserts — 0 duplicate opportunities (SC-004).
+- [X] T023 [P] [US2] Cache-boundedness test in `src/server/features/intelligence/detectors/competitorGap.test.ts`: repeat input resolution over unchanged inputs performs 0 paid provider calls (instrumented via the seo-data router; SC-004).
+- [X] T024 [P] [US2] Materialization language test in `src/server/features/intelligence/services/materializeFinding.test.ts` (extend for `competitor_gap`): `explanationFact` contains fact only; recommendation text comes only from the materializer template (P27); no causal verbs (P46).
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Create `src/server/features/intelligence/detectors/competitorGap.ts` implementing `DetectorDef`: `detectorKey: "competitor_gap"`, `version: 1`, required sources/coverage declared, pure synchronous `detect(ctx, input)` over pre-fetched inputs (competitor snapshots via internal provider + GSC/rank coverage via `organicJoin.ts` patterns) — detector code performs no repository or provider reads (P11).
-- [ ] T026 [US2] Add `competitor_gap` thresholds to `src/shared/intelligence-thresholds.ts` consumed via `thresholdNumber` only (missing threshold = loud config error, never silent default).
-- [ ] T027 [US2] Wire the verdict gate in `src/server/features/intelligence/services/detectionStage.ts`: before running `competitor_gap`, consult `latestVerdict` (from T007); record `skipped` with `G5_NO_READY_VERDICT` unless READY.
-- [ ] T028 [US2] Register the detector in `src/server/features/intelligence/detectors/registry.ts` and **in the same PR** update boundary/vocabulary allowlists in `src/server/features/intelligence/intelligence-boundaries.test.ts` (plan §2.4 discipline — failing do the test first so the PR starts red).
-- [ ] T029 [US2] Add the materializer template for `competitor_gap` in `src/server/features/intelligence/services/opportunityTemplates.ts`: fact/recommendation split, provenance classification labels (`THIRD_PARTY_ESTIMATE` / `SERP_OBSERVED` per P47), accurate provider metric names only (P16: Domain Rank / Page Rank / Referring Domains / Backlinks / Spam-Risk — never DA/PA/DR/TF/CF).
-- [ ] T030 [US2] Verify `impactScore`/`confidenceScore` remain separate with available-factor renormalization on missing optional inputs in the materialized opportunity (P26) — extend `src/server/features/intelligence/services/materializeFinding.test.ts` accordingly.
+- [X] T025 [US2] Create `src/server/features/intelligence/detectors/competitorGap.ts` implementing `DetectorDef`: `detectorKey: "competitor_gap"`, `version: 1`, required sources/coverage declared, pure synchronous `detect(ctx, input)` over pre-fetched inputs (competitor snapshots via internal provider + GSC/rank coverage via `organicJoin.ts` patterns) — detector code performs no repository or provider reads (P11).
+- [X] T026 [US2] Add `competitor_gap` thresholds to `src/shared/intelligence-thresholds.ts` consumed via `thresholdNumber` only (missing threshold = loud config error, never silent default).
+- [X] T027 [US2] Wire the verdict gate in `src/server/features/intelligence/services/detectionStage.ts`: before running `competitor_gap`, consult `latestVerdict` (from T007); record `skipped` with `G5_NO_READY_VERDICT` unless READY.
+- [X] T028 [US2] Register the detector in `src/server/features/intelligence/detectors/registry.ts` and **in the same PR** update boundary/vocabulary allowlists in `src/server/features/intelligence/intelligence-boundaries.test.ts` (plan §2.4 discipline — failing do the test first so the PR starts red).
+- [X] T029 [US2] Add the materializer template for `competitor_gap` in `src/server/features/intelligence/services/opportunityTemplates.ts`: fact/recommendation split, provenance classification labels (`THIRD_PARTY_ESTIMATE` / `SERP_OBSERVED` per P47), accurate provider metric names only (P16: Domain Rank / Page Rank / Referring Domains / Backlinks / Spam-Risk — never DA/PA/DR/TF/CF).
+- [X] T030 [US2] Verify `impactScore`/`confidenceScore` remain separate with available-factor renormalization on missing optional inputs in the materialized opportunity (P26) — extend `src/server/features/intelligence/services/materializeFinding.test.ts` accordingly.
 
 **Checkpoint**: Quickstart Scenarios 2 & 3 pass; detection is gated, deterministic, deduplicated, zero-repeat-cost, and truthfully worded.
 
@@ -122,17 +122,17 @@ description: "Task list for spec 014 — Competitor-Gap Conditional"
 
 > Write these FIRST, ensure they FAIL before implementation (P43).
 
-- [ ] T031 [P] [US3] Workflow allowlist/boundary test: update `src/shared/autopilot.test.ts` — the existing G5/P36 structural exclusion assertion is flipped to membership **only in this PR**, with a comment recording the READY verdict reference (plan §2.4 discipline; mirror in `src/server/mcp/tools/autopilot-run-tools.test.ts` and the schema-level cases).
-- [ ] T032 [P] [US3] E2E test in `src/server/features/autopilot/services/autopilotWorkflows.test.ts` (or its E2E home): start → poll → resume for `competitor_gap` over pinned evidence fixtures completes with durable step history; resume replays without duplication; 0 paid provider calls during the run (SC-006).
-- [ ] T033 [P] [US3] Language-gate test in `src/server/features/autopilot/services/synthesisFirewall.test.ts` (extend): sampled `competitor_gap` outputs contain no causal verbs and no invented rankings/gaps/uplift figures (P27/P46); empty-evidence runs produce the explicit empty-state text, not inferred conclusions.
-- [ ] T034 [P] [US3] Failure-semantics test in `src/server/features/autopilot/services/stepExecutor.test.ts` (extend): mid-run failure + resume replays from the step ledger; terminal statuses never double-emit summaries; failed runs surface as failed with reason — never as "no gaps" output.
+- [X] T031 [P] [US3] Workflow allowlist/boundary test: update `src/shared/autopilot.test.ts` — the existing G5/P36 structural exclusion assertion is flipped to membership **only in this PR**, with a comment recording the READY verdict reference (plan §2.4 discipline; mirror in `src/server/mcp/tools/autopilot-run-tools.test.ts` and the schema-level cases).
+- [X] T032 [P] [US3] E2E test in `src/server/features/autopilot/services/autopilotWorkflows.test.ts` (or its E2E home): start → poll → resume for `competitor_gap` over pinned evidence fixtures completes with durable step history; resume replays without duplication; 0 paid provider calls during the run (SC-006).
+- [X] T033 [P] [US3] Language-gate test in `src/server/features/autopilot/services/synthesisFirewall.test.ts` (extend): sampled `competitor_gap` outputs contain no causal verbs and no invented rankings/gaps/uplift figures (P27/P46); empty-evidence runs produce the explicit empty-state text, not inferred conclusions.
+- [X] T034 [P] [US3] Failure-semantics test in `src/server/features/autopilot/services/stepExecutor.test.ts` (extend): mid-run failure + resume replays from the step ledger; terminal statuses never double-emit summaries; failed runs surface as failed with reason — never as "no gaps" output.
 
 ### Implementation for User Story 3
 
-- [ ] T035 [US3] Add `"competitor_gap"` to `AUTOPILOT_WORKFLOW_TYPES` in `src/shared/autopilot.ts` plus entries in `AUTOPILOT_WORKFLOW_LABELS` / `AUTOPILOT_WORKFLOW_DESCRIPTIONS` (observational wording, no uplift promises).
-- [ ] T036 [US3] Implement the workflow definition in `src/server/features/autopilot/services/autopilotWorkflows.ts` + content section in `src/server/features/autopilot/services/autopilotWorkflowContent.ts`: step kinds limited to `collect`/`correlate`/`synthesize` (no `side_effect`); inputs consumed via FindingService/OpportunityService stored reads; `sourceEvidenceRef` pins the frozen findings snapshot the run operates over.
-- [ ] T037 [US3] Enforce budgets via `src/server/features/autopilot/services/autopilotBudgets.ts` and step executor guards (`stepExecutor.ts`): bounded steps/tool calls, allowlisted tools only, idempotent re-entry, resumable attempts (P35).
-- [ ] T038 [US3] Route synthesized output through `src/server/features/autopilot/services/synthesisFirewall.ts` language gates before emission (P27/P46).
+- [X] T035 [US3] Add `"competitor_gap"` to `AUTOPILOT_WORKFLOW_TYPES` in `src/shared/autopilot.ts` plus entries in `AUTOPILOT_WORKFLOW_LABELS` / `AUTOPILOT_WORKFLOW_DESCRIPTIONS` (observational wording, no uplift promises).
+- [X] T036 [US3] Implement the workflow definition in `src/server/features/autopilot/services/autopilotWorkflows.ts` + content section in `src/server/features/autopilot/services/autopilotWorkflowContent.ts`: step kinds limited to `collect`/`correlate`/`synthesize` (no `side_effect`); inputs consumed via FindingService/OpportunityService stored reads; `sourceEvidenceRef` pins the frozen findings snapshot the run operates over.
+- [X] T037 [US3] Enforce budgets via `src/server/features/autopilot/services/autopilotBudgets.ts` and step executor guards (`stepExecutor.ts`): bounded steps/tool calls, allowlisted tools only, idempotent re-entry, resumable attempts (P35).
+- [X] T038 [US3] Route synthesized output through `src/server/features/autopilot/services/synthesisFirewall.ts` language gates before emission (P27/P46).
 
 **Checkpoint**: Quickstart Scenario 4 passes end-to-end; workflow is bounded, resumable, language-safe, and provably free of run-time paid calls.
 
@@ -140,10 +140,10 @@ description: "Task list for spec 014 — Competitor-Gap Conditional"
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T039 [P] Run the full quickstart.md validation suite (Scenarios 1–5) against the assembled package and record results in `specs/014-competitor-gap-conditional/quickstart.md` (append a validation-log section).
-- [ ] T040 [P] Quality gates: `pnpm types:check` + `pnpm oxlint` green; schema parity green for `competitor_gap_verdicts` (P45); document any externally-blocked live smoke per Constitution Appendix C (READY-with-external-blocker rules).
-- [ ] T041 Extend `intelligence-boundaries.test.ts` final sweep: confirm no parallel canonicalizer/engine/provider imports introduced by this package (P2/P24); confirm raw-token/credential vocabulary absent from public surfaces (P38/P40 — defense-in-depth, nothing in this package shares publicly).
-- [ ] T042 Documentation: record the executed spike manifest, verdict, and evidence pointer (ledger row id) in `specs/014-competitor-gap-conditional/` (append to research.md or a new `verdict-log.md`) so future reviewers can audit without re-running (SC-002).
+- [X] T039 [P] Run the full quickstart.md validation suite (Scenarios 1–5) against the assembled package and record results in `specs/014-competitor-gap-conditional/quickstart.md` (append a validation-log section).
+- [X] T040 [P] Quality gates: `pnpm types:check` + `pnpm oxlint` green; schema parity green for `competitor_gap_verdicts` (P45); document any externally-blocked live smoke per Constitution Appendix C (READY-with-external-blocker rules).
+- [X] T041 Extend `intelligence-boundaries.test.ts` final sweep: confirm no parallel canonicalizer/engine/provider imports introduced by this package (P2/P24); confirm raw-token/credential vocabulary absent from public surfaces (P38/P40 — defense-in-depth, nothing in this package shares publicly).
+- [x] T042 Documentation: record the executed spike manifest, verdict, and evidence pointer (ledger row id) in `specs/014-competitor-gap-conditional/` (append to research.md or a new `verdict-log.md`) so future reviewers can audit without re-running (SC-002).
 
 ---
 

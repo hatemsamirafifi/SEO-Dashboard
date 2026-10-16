@@ -8,6 +8,11 @@ export const ANALYTICS_RANGE_OPTIONS: Array<{
   { value: "last_28_days", label: "Last 28 days" },
   { value: "last_30_days", label: "Last 30 days" },
   { value: "last_90_days", label: "Last 90 days" },
+  { value: "last_3_months", label: "Last 3 months" },
+  { value: "last_6_months", label: "Last 6 months" },
+  { value: "last_12_months", label: "Last 12 months" },
+  { value: "last_16_months", label: "Last 16 months" },
+  { value: "custom", label: "Custom" },
 ];
 
 export function assertAnalyticsRangesComplete(): void {
@@ -25,10 +30,14 @@ export function formatPctChange(pct: number | null): string {
 }
 
 /** Absolute delta with sign; zero stays a plain zero. */
-export function formatDelta(change: number): string {
+export function formatDelta(
+  change: number,
+  format?: (value: number) => string,
+): string {
   if (change === 0) return "0";
   const sign = change < 0 ? "-" : "+";
-  return `${sign}${Math.abs(change)}`;
+  const formatted = format ? format(Math.abs(change)) : `${Math.abs(change)}`;
+  return `${sign}${formatted}`;
 }
 
 export type AnalyticsSyncFailureKind =

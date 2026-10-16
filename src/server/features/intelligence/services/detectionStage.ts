@@ -9,6 +9,8 @@ import {
   type DetectorDef,
 } from "../detectors/types";
 import type { DetectionSourceState } from "./SourceTokens";
+import { competitorGapGateState } from "@/server/lib/competitor-gap/verdictLedger";
+import { getProjectMarket } from "@/server/lib/seo-data/competitor-snapshot-repository";
 
 /** Fetches one detector's pre-fetched input. Detector-specific fetchers
  *  land with the detectors (Task 7); Stage 1 never reads source tables
@@ -49,6 +51,23 @@ export async function runDetectionStage(input: {
         skipReason: `required source has no committed version: ${missing.join(",")}`,
       });
       continue;
+    }
+    if (detector.detectorKey === "competitor_gap") {
+      const projectMarket = await getProjectMarket(input.projectId);
+      const gate = await competitorGapGateState({
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+        market: projectMarket ?? undefined,
+      });
+      if (gate.state !== "READY") {
+        await ScanLedgerRepository.recordDetectorOutcome({
+          runId: input.runId,
+          detectorKey: detector.detectorKey,
+          status: "skipped",
+          skipReason: "G5_NO_READY_VERDICT",
+        });
+        continue;
+      }
     }
     const ctx: DetectorContext = {
       projectId: input.projectId,

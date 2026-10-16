@@ -6,10 +6,13 @@ import { z } from "zod";
 export const SEARCH_PERFORMANCE_RANGES = [
   "last_7_days",
   "last_28_days",
+  "last_30_days",
+  "last_90_days",
   "last_3_months",
   "last_6_months",
   "last_12_months",
   "last_16_months",
+  "custom",
 ] as const;
 
 /** Device values exactly as the GSC `device` dimension returns/accepts them. */
@@ -24,6 +27,25 @@ export type SearchPerformanceDevice = (typeof GSC_DEVICES)[number];
 const searchPerformanceFilterShape = {
   projectId: z.string().min(1),
   dateRange: z.enum(SEARCH_PERFORMANCE_RANGES).default("last_28_days"),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  compareMode: z
+    .enum(["none", "previous_period", "previous_year", "custom"])
+    .default("none"),
+  compareStartDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  compareEndDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   device: z.enum(GSC_DEVICES).optional(),
   // ISO-3166-1 alpha-3, the code GSC returns in `country` dimension keys.
   country: z
@@ -90,6 +112,14 @@ export type SearchPerformanceStrikingRow = {
   clicks: number;
   impressions: number;
   position: number;
+  prevClicks?: number;
+  clicksChange?: number;
+  clicksPctChange?: number | null;
+  prevImpressions?: number;
+  impressionsChange?: number;
+  impressionsPctChange?: number | null;
+  prevPosition?: number;
+  positionChange?: number;
 };
 
 export type SearchPerformanceDimensionRowResult = {
@@ -98,4 +128,14 @@ export type SearchPerformanceDimensionRowResult = {
   impressions: number;
   ctr: number;
   position: number;
+  prevClicks?: number;
+  clicksChange?: number;
+  clicksPctChange?: number | null;
+  prevImpressions?: number;
+  impressionsChange?: number;
+  impressionsPctChange?: number | null;
+  prevCtr?: number;
+  ctrChange?: number;
+  prevPosition?: number;
+  positionChange?: number;
 };

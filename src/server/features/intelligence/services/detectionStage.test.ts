@@ -35,6 +35,14 @@ vi.mock("@/db/runBatch", () => ({
   },
 }));
 
+const gateMocks = vi.hoisted(() => ({
+  competitorGapGateState: vi.fn(),
+}));
+
+vi.mock("@/server/lib/competitor-gap/verdictLedger", () => ({
+  competitorGapGateState: gateMocks.competitorGapGateState,
+}));
+
 import { runDetectionStage } from "./detectionStage";
 import { ScanLedgerRepository } from "../repositories/ScanLedgerRepository";
 import type { DetectionSourceState } from "./SourceTokens";
@@ -281,5 +289,78 @@ describe("runDetectionStage", () => {
     const rows = await ScanLedgerRepository.getDetectorOutcomes(run.id);
     expect(rows[0]?.status).toBe("skipped");
     expect(rows[0]?.skipReason).toContain("INSUFFICIENT_COVERAGE");
+  });
+
+  it("skips competitor_gap detector with G5_NO_READY_VERDICT when gate is BLOCKED", async () => {
+    gateMocks.competitorGapGateState.mockResolvedValueOnce({
+      state: "BLOCKED",
+      latestVerdict: null,
+    });
+
+    const run = await ScanLedgerRepository.createRun({
+      projectId: "project-1",
+      organizationId: "org-1",
+      triggeredBy: "manual",
+    });
+
+    const findings = await runDetectionStage({
+      projectId: "project-1",
+      organizationId: "org-1",
+      runId: run.id,
+      state: stateWithVersions(),
+      detectors: [
+        detector({
+          detectorKey: "competitor_gap",
+          requiredSources: ["gsc"],
+          detect: () => [draft("crm")],
+        }),
+      ],
+      fetchInput: async () => ({ rows: [] }),
+    });
+
+    expect(findings).toHaveLength(0);
+    const rows = await ScanLedgerRepository.getDetectorOutcomes(run.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("skipped");
+    expect(rows[0]?.skipReason).toBe("G5_NO_READY_VERDICT");
+  });
+
+  it("allows competitor_gap detector when G5 gate is READY", async () => {
+    gateMocks.competitorGapGateState.mockResolvedValueOnce({
+      state: "READY",
+      latestVerdict: null,
+    });
+
+    const run = await ScanLedgerRepository.createRun({
+      projectId: "project-1",
+      organizationId: "org-1",
+      triggeredBy: "manual",
+    });
+
+    const findings = await runDetectionStage({
+      projectId: "project-1",
+      organizationId: "org-1",
+      runId: run.id,
+      state: stateWithVersions(),
+      detectors: [
+        detector({
+          detectorKey: "competitor_gap",
+          requiredSources: ["gsc"],
+          detect: () => [draft("crm")],
+        }),
+      ],
+      fetchInput: async () => ({ rows: [] }),
+    });
+
+    expect(findings).toHaveLength(1);
+    expect(gateMocks.competitorGapGateState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        projectId: "project-1",
+      }),
+    );
+    const rows = await ScanLedgerRepository.getDetectorOutcomes(run.id);
+    expect(rows[0]?.status).toBe("completed");
+    expect(rows[0]?.findingsCount).toBe(1);
   });
 });

@@ -57,3 +57,4 @@ tsconfig.tsbuildinfo
 
 # Local workspace utilities
 scripts/sync_conversations.*
+scratch/

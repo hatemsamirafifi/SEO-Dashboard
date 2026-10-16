@@ -12,6 +12,9 @@ import {
   getAutopilotWorkflow,
   type AutopilotWorkflowDef,
 } from "./autopilotTypes";
+import { competitorGapGateState } from "@/server/lib/competitor-gap/verdictLedger";
+import { getProjectMarket } from "@/server/lib/seo-data/competitor-snapshot-repository";
+import { OpportunityRepository } from "@/server/features/intelligence/repositories/OpportunityRepository";
 
 export type AutopilotRunView = {
   run: Exclude<Awaited<ReturnType<typeof AutopilotRepository.getRun>>, null>;
@@ -106,6 +109,57 @@ export async function startAutopilotRun(input: {
       "VALIDATION_ERROR",
       `Unknown autopilot workflow: ${input.workflowType}`,
     );
+  }
+  if (input.workflowType === "competitor_gap") {
+    const projectMarket = await getProjectMarket(input.projectId);
+    const gate = await competitorGapGateState({
+      organizationId: input.organizationId,
+      projectId: input.projectId,
+      market: projectMarket ?? undefined,
+    });
+    if (gate.state !== "READY") {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Competitor gap workflow locked: G5 gate not ready",
+      );
+    }
+
+    const opportunities = await OpportunityRepository.listActiveByProject(
+      input.projectId,
+    );
+    const gapOpportunities = opportunities.filter(
+      (op) => op.type === "competitor_gap" && !op.stale,
+    );
+    if (gapOpportunities.length === 0) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Competitor gap workflow locked: US2 operational acceptance requires valid materialized opportunity evidence",
+      );
+    }
+
+    // Freshness & coverage check: Opportunity must be fresh (<= 28d) and have valid evidence
+    const maxAgeMs = 28 * 86_400_000;
+    const nowMs = Date.now();
+    const validFreshOpportunity = gapOpportunities.find((op) => {
+      const detectedMs = Date.parse(op.lastDetectedAt);
+      if (!Number.isFinite(detectedMs) || nowMs - detectedMs > maxAgeMs) {
+        return false;
+      }
+      if (op.confidenceScore < 40) return false;
+      try {
+        const evidence = JSON.parse(op.evidenceJson) as unknown;
+        return typeof evidence === "object" && evidence !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    if (!validFreshOpportunity) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Competitor gap workflow locked: Materialized opportunity evidence lacks valid coverage or freshness (<= 28d)",
+      );
+    }
   }
   await reconcileAutopilotRuns({ projectId: input.projectId });
   const runId = crypto.randomUUID();

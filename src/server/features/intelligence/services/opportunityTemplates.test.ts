@@ -1,4 +1,4 @@
-/* eslint-disable max-lines */
+/* eslint-disable max-lines, max-lines-per-function */
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -68,6 +68,7 @@ const TEMPLATE_DETECTOR_KEYS = [
   "striking_distance",
   "conversion_drop",
   "engagement_drop",
+  "competitor_gap",
 ];
 
 describe("impact normalizers", () => {
@@ -491,6 +492,31 @@ describe("opportunity templates", () => {
             minSessionsPerWindow: 100,
             declineRatio: 0.25,
           },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: {},
+        },
+      }),
+      competitor_gap: finding("competitor_gap", {
+        entityKey: "enterprise crm",
+        entity: {
+          keyword: "enterprise crm",
+          competitorDomain: "salesforce.com",
+          competitorPosition: 2,
+          competitorUrl: "https://salesforce.com/crm",
+          targetUrl: "https://example.com/crm",
+        },
+        evidence: {
+          metrics: {
+            searchVolume: 1200,
+            competitorPosition: 2,
+            competitorCount: 3,
+            firstPartyPosition: 0,
+            hasFirstPartyRank: false,
+          },
+          sources: ["rank", "gsc"],
+          thresholdsApplied: {},
           correlations: [],
           evidenceType: "observational",
           partialData: [],

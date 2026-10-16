@@ -319,6 +319,23 @@ describe("Ga4SyncService.runSync successful windows", () => {
     expect(mocks.seedPendingUnits).toHaveBeenCalledWith(
       expect.objectContaining({ force: false }),
     );
+    vi.clearAllMocks();
+    mocks.getConnection.mockResolvedValue(CONNECTION);
+    mocks.getActiveSyncRun.mockResolvedValue(null);
+    mocks.createSyncRun.mockResolvedValue({ ok: true, sync: SYNC_ROW });
+    mocks.getCoverageMap.mockResolvedValue(new Map());
+    mocks.getLastFullyCoveredDate.mockResolvedValue(
+      new Date().toISOString().slice(0, 10),
+    );
+    mocks.batchRunReports.mockResolvedValue(weekBatch(DATES_7));
+    await Ga4SyncService.runSync({
+      projectId: "p1",
+      organizationId: "o1",
+      syncType: "manual",
+    });
+    expect(mocks.seedPendingUnits).toHaveBeenCalledWith(
+      expect.objectContaining({ force: true }),
+    );
   });
 
   it("completes a full window with one batch call per chunk", async () => {

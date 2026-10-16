@@ -10,6 +10,7 @@ const allowlisted = [
   "content_refresh",
   "technical_seo",
   "monthly_review",
+  "competitor_gap",
 ] as const;
 
 describe("startAutopilotRunSchema workflow allowlist", () => {
@@ -22,8 +23,8 @@ describe("startAutopilotRunSchema workflow allowlist", () => {
     }
   });
 
-  it("rejects gated and arbitrary workflow types", () => {
-    for (const workflowType of ["competitor_gap", "arbitrary_workflow", ""]) {
+  it("rejects non-allowlisted and arbitrary workflow types", () => {
+    for (const workflowType of ["arbitrary_workflow", ""]) {
       expect(
         startAutopilotRunSchema.safeParse({ projectId: "p1", workflowType })
           .success,

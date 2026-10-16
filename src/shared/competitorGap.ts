@@ -82,6 +82,7 @@ export type CompetitorGapSpikeEvidence = {
 export type CompetitorGapSpikeManifest = {
   organizationId: string;
   projectId: string;
+  evaluationId?: string;
   sampleDomains: string[];
   keywordSetRef: string;
   market: { locationCode: number; languageCode: string };

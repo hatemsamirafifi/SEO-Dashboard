@@ -1,7 +1,7 @@
+/* eslint-disable max-lines */
 import {
   and,
   asc,
-  count,
   desc,
   eq,
   gte,
@@ -170,34 +170,70 @@ export async function getKeywordHistory(
 }
 
 /**
- * Per-run keyword-position distribution for one device, oldest first. Grouped
- * by runId (not checkedAt — snapshots in a run don't share an exact insert
- * time); the run's startedAt is the x-axis timestamp. The buckets are disjoint
- * and cover every tracked keyword: a position past 20, or null (not found in
- * the tracked depth), falls into "not ranking" (derived from `total`).
+ * Keyword-position distribution for one device grouped by check date, oldest first.
+ * Resolves each tracked keyword's latest known ranking as of each check date
+ * so that subset checks (e.g. checking missing rankings, selected keywords, or
+ * partial runs) correctly update the portfolio's distribution without collapsing
+ * the total keyword count or being discarded.
  */
 export async function getConfigTrend(
   configId: string,
   device: "desktop" | "mobile",
   sinceDays: number,
 ) {
-  return db
-    .select({
-      runId: rankSnapshots.runId,
-      checkedAt: rankCheckRuns.startedAt,
-      total: count(),
-      top3: sql<number>`sum(case when ${rankSnapshots.position} between 1 and 3 then 1 else 0 end)`,
-      top4to10: sql<number>`sum(case when ${rankSnapshots.position} between 4 and 10 then 1 else 0 end)`,
-      top11to20: sql<number>`sum(case when ${rankSnapshots.position} between 11 and 20 then 1 else 0 end)`,
-    })
-    .from(rankSnapshots)
-    .innerJoin(rankCheckRuns, eq(rankSnapshots.runId, rankCheckRuns.id))
-    .where(
-      and(
-        eq(rankCheckRuns.configId, configId),
-        inArray(rankCheckRuns.status, ["completed", "partial"]),
-        eq(rankCheckRuns.isSubsetRun, false),
-        eq(rankSnapshots.device, device),
+  const cutoff = cutoffTimestamp(sinceDays);
+
+  const dateList = db.$with("date_list").as(
+    db
+      .select({
+        checkDate: sql<string>`substr(${rankCheckRuns.startedAt}, 1, 10)`.as(
+          "check_date",
+        ),
+        latestRunAt: sql<string>`max(${rankCheckRuns.startedAt})`.as(
+          "latest_run_at",
+        ),
+        runId: sql<string>`max(${rankCheckRuns.id})`.as("run_id"),
+      })
+      .from(rankCheckRuns)
+      .where(
+        and(
+          eq(rankCheckRuns.configId, configId),
+          inArray(rankCheckRuns.status, ["completed", "partial"]),
+          gte(rankCheckRuns.startedAt, cutoff),
+        ),
+      )
+      .groupBy(sql`substr(${rankCheckRuns.startedAt}, 1, 10)`),
+  );
+
+  const rankedSnapshots = db.$with("ranked_snapshots").as(
+    db
+      .select({
+        checkDate: sql<string>`date_list.check_date`.as("check_date"),
+        latestRunAt: sql<string>`date_list.latest_run_at`.as("latest_run_at"),
+        runId: sql<string>`date_list.run_id`.as("run_id"),
+        trackingKeywordId: rankSnapshots.trackingKeywordId,
+        position: rankSnapshots.position,
+        rn: sql<number>`row_number() over (partition by date_list.check_date, ${rankSnapshots.trackingKeywordId} order by ${rankSnapshots.checkedAt} desc)`.as(
+          "rn",
+        ),
+      })
+      .from(dateList)
+      .innerJoin(
+        rankSnapshots,
+        and(
+          eq(rankSnapshots.configId, configId),
+          eq(rankSnapshots.device, device),
+          sql`${rankSnapshots.checkedAt} <= date_list.latest_run_at`,
+        ),
+      )
+      .innerJoin(
+        rankCheckRuns,
+        and(
+          eq(rankCheckRuns.id, rankSnapshots.runId),
+          inArray(rankCheckRuns.status, ["completed", "partial"]),
+        ),
+      )
+      .where(
         or(
           isNull(rankSnapshots.rankingStatus),
           and(
@@ -205,11 +241,27 @@ export async function getConfigTrend(
             ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
           ),
         ),
-        gte(rankSnapshots.checkedAt, cutoffTimestamp(sinceDays)),
       ),
+  );
+
+  return db
+    .with(dateList, rankedSnapshots)
+    .select({
+      runId: sql<string>`ranked_snapshots.run_id`,
+      checkedAt: sql<string>`ranked_snapshots.latest_run_at`,
+      total: sql<number>`count(*)`,
+      top3: sql<number>`sum(case when ranked_snapshots.position between 1 and 3 then 1 else 0 end)`,
+      top4to10: sql<number>`sum(case when ranked_snapshots.position between 4 and 10 then 1 else 0 end)`,
+      top11to20: sql<number>`sum(case when ranked_snapshots.position between 11 and 20 then 1 else 0 end)`,
+    })
+    .from(rankedSnapshots)
+    .where(sql`ranked_snapshots.rn = 1`)
+    .groupBy(
+      sql`ranked_snapshots.check_date`,
+      sql`ranked_snapshots.latest_run_at`,
+      sql`ranked_snapshots.run_id`,
     )
-    .groupBy(rankSnapshots.runId, rankCheckRuns.startedAt)
-    .orderBy(asc(rankCheckRuns.startedAt));
+    .orderBy(asc(sql`ranked_snapshots.check_date`));
 }
 
 /**

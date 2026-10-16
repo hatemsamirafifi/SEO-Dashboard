@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { listOpportunities } from "@/serverFunctions/opportunities";
-  import {
+import {
   applyClientFilters,
   OPPORTUNITY_PRIORITIES,
   OPPORTUNITY_SOURCES,
@@ -161,6 +161,23 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
             confidence. Detections refresh automatically on schedule.
           </p>
         </div>
+
+        {typeFilter === "competitor_gap" ? (
+          <div
+            role="status"
+            className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning-content"
+          >
+            <div className="font-semibold text-warning">
+              Competitor Gap Analysis (Development State)
+            </div>
+            <p className="mt-1 text-base-content/80">
+              Live detector execution is locked pending DataForSEO
+              authentication recovery (authoritative G5 gate: BLOCKED). Real
+              opportunities will appear once provider recovery evaluation
+              completes.
+            </p>
+          </div>
+        ) : null}
 
         <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100">
           <div className="border-b border-base-300 p-4">

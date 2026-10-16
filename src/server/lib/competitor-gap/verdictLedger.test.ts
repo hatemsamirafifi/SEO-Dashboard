@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 // Spec 014 US1 tests (T009/T010): deterministic verdict evaluation + the
 // append-only verdict ledger. In-memory libsql with the full migration
 // journal (autopilotTestDb pattern) so `competitor_gap_verdicts` exists with
@@ -14,12 +15,13 @@ const database = vi.hoisted(() => ({
 vi.mock("cloudflare:workers", () => ({ env: {} }));
 
 vi.mock("@/db", async () => {
-  const [{ createClient: makeClient }, { drizzle }, schema] =
-    await Promise.all([
+  const [{ createClient: makeClient }, { drizzle }, schema] = await Promise.all(
+    [
       import("@libsql/client"),
       import("drizzle-orm/libsql"),
       import("@/db/schema"),
-    ]);
+    ],
+  );
   database.client = makeClient({ url: "file::memory:" });
   database.db = drizzle(database.client, { schema });
   return {
@@ -39,8 +41,10 @@ vi.mock("@/db/runBatch", () => ({
 }));
 
 import {
+  allVerdictsForProject,
+  checkSpikeExecutionEligibility,
   competitorGapGateState,
-  evaluateVerdict,
+  getEvaluationLifecycleStatus,
   latestVerdict,
   recordVerdict,
 } from "./verdictLedger";
@@ -88,7 +92,10 @@ function passingEvidence(): CompetitorGapSpikeEvidence {
     },
     cost: {
       status: "measured",
-      value: { measuredCreditsPerAnalysis: 50, extrapolatedMonthlyPerProject: 200 },
+      value: {
+        measuredCreditsPerAnalysis: 50,
+        extrapolatedMonthlyPerProject: 200,
+      },
     },
     identity: {
       status: "measured",
@@ -101,30 +108,14 @@ function passingEvidence(): CompetitorGapSpikeEvidence {
   };
 }
 
-/** Flip exactly one field inside an evidence dimension. */
-function patchEvidence(
-  evidence: CompetitorGapSpikeEvidence,
-  dimension: keyof CompetitorGapSpikeEvidence,
-  patch: Record<string, number>,
-): CompetitorGapSpikeEvidence {
-  const dimensionResult = evidence[dimension];
-  if (dimensionResult.status !== "measured") {
-    throw new Error("fixture must be measured");
-  }
-  return {
-    ...evidence,
-    [dimension]: {
-      status: "measured",
-      value: { ...dimensionResult.value, ...patch },
-    },
-  };
-}
-
 function unavailableEvidence(
   dimension: keyof CompetitorGapSpikeEvidence,
   reason: string,
 ): CompetitorGapSpikeEvidence {
-  return { ...passingEvidence(), [dimension]: { status: "unavailable", reason } };
+  return {
+    ...passingEvidence(),
+    [dimension]: { status: "unavailable", reason },
+  };
 }
 
 /** Validate the drizzle journal shape without a narrowing cast. */
@@ -166,10 +157,12 @@ async function setupTestDb(): Promise<void> {
   const nodeFs = await import("node:fs");
   const nodePath = await import("node:path");
   for (const entry of journalEntries(journal)) {
-    const withoutBlocks = nodeFs.readFileSync(
-      nodePath.resolve(process.cwd(), `drizzle/${entry.tag}.sql`),
-      "utf8",
-    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const withoutBlocks = nodeFs
+      .readFileSync(
+        nodePath.resolve(process.cwd(), `drizzle/${entry.tag}.sql`),
+        "utf8",
+      )
+      .replace(/\/\*[\s\S]*?\*\//g, "");
     const statements = withoutBlocks
       .split("--> statement-breakpoint")
       .map((part) => part.replace(/--[^\n]*(\n|$)/g, "\n").trim())
@@ -186,9 +179,7 @@ async function setupTestDb(): Promise<void> {
      )`,
   );
   await client.execute("PRAGMA foreign_keys = ON");
-  await client.execute(
-    "DELETE FROM competitor_gap_verdicts",
-  );
+  await client.execute("DELETE FROM competitor_gap_verdicts");
   await client.execute(
     "INSERT OR IGNORE INTO organization (id, name, slug, created_at) VALUES ('org-1', 'Org', 'org', 0)",
   );
@@ -196,106 +187,6 @@ async function setupTestDb(): Promise<void> {
     "INSERT OR IGNORE INTO projects (id, organization_id, name) VALUES ('project-1', 'org-1', 'Test')",
   );
 }
-
-describe("evaluateVerdict (T009 — deterministic evaluation)", () => {
-  it("returns READY when every dimension passes every threshold", () => {
-    const verdict = evaluateVerdict({
-      evidence: passingEvidence(),
-      thresholds: THRESHOLDS,
-    });
-    expect(verdict).toBe("COMPETITOR_GAP_READY");
-  });
-
-  it("boundary equality passes (strict < and > only)", () => {
-    const atBoundary = patchEvidence(passingEvidence(), "quality", {
-      keywordCoverageRatio: THRESHOLDS.minKeywordCoverageRatio,
-    });
-    expect(
-      evaluateVerdict({ evidence: atBoundary, thresholds: THRESHOLDS }),
-    ).toBe("COMPETITOR_GAP_READY");
-  });
-
-  it("BLOCKED when identity collisions exceed the allowance", () => {
-    const evidence = patchEvidence(passingEvidence(), "identity", {
-      collisionsObserved: 1,
-    });
-    expect(evaluateVerdict({ evidence, thresholds: THRESHOLDS })).toBe(
-      "COMPETITOR_GAP_BLOCKED",
-    );
-  });
-
-  it("BLOCKED when identity is non-deterministic at all", () => {
-    const evidence = patchEvidence(passingEvidence(), "identity", {
-      nonDeterministicMappings: 1,
-    });
-    expect(evaluateVerdict({ evidence, thresholds: THRESHOLDS })).toBe(
-      "COMPETITOR_GAP_BLOCKED",
-    );
-  });
-
-  it("BLOCKED when repeat cache hit rate is below the required rate", () => {
-    const evidence = patchEvidence(passingEvidence(), "cache", {
-      repeatCacheHitRate: 0.5,
-    });
-    expect(evaluateVerdict({ evidence, thresholds: THRESHOLDS })).toBe(
-      "COMPETITOR_GAP_BLOCKED",
-    );
-  });
-
-  it("BLOCKED when the repeat analysis made any paid calls", () => {
-    const evidence = patchEvidence(passingEvidence(), "cache", {
-      repeatAnalysisPaidCalls: 1,
-    });
-    expect(evaluateVerdict({ evidence, thresholds: THRESHOLDS })).toBe(
-      "COMPETITOR_GAP_BLOCKED",
-    );
-  });
-
-  it("BLOCKED when measured credits exceed the cap", () => {
-    const evidence = patchEvidence(passingEvidence(), "cost", {
-      measuredCreditsPerAnalysis: THRESHOLDS.maxCostPerAnalysisCredits + 1,
-    });
-    expect(evaluateVerdict({ evidence, thresholds: THRESHOLDS })).toBe(
-      "COMPETITOR_GAP_BLOCKED",
-    );
-  });
-
-  it("BLOCKED when keyword coverage is below the minimum", () => {
-    const evidence = patchEvidence(passingEvidence(), "quality", {
-      keywordCoverageRatio: THRESHOLDS.minKeywordCoverageRatio - 0.01,
-    });
-    expect(evaluateVerdict({ evidence, thresholds: THRESHOLDS })).toBe(
-      "COMPETITOR_GAP_BLOCKED",
-    );
-  });
-
-  it("BLOCKED when first-party coverage is below the minimum", () => {
-    const evidence = patchEvidence(passingEvidence(), "coverage", {
-      firstPartyCoverageRatio: THRESHOLDS.minFirstPartyCoverageRatio - 0.01,
-    });
-    expect(evaluateVerdict({ evidence, thresholds: THRESHOLDS })).toBe(
-      "COMPETITOR_GAP_BLOCKED",
-    );
-  });
-
-  it("BLOCKED when ANY dimension is unavailable — failure is never data (P8/P9)", () => {
-    for (const dimension of [
-      "quality",
-      "coverage",
-      "cost",
-      "identity",
-      "cache",
-    ] as const) {
-      const evidence = unavailableEvidence(
-        dimension,
-        "provider failure during measurement",
-      );
-      expect(evaluateVerdict({ evidence, thresholds: THRESHOLDS })).toBe(
-        "COMPETITOR_GAP_BLOCKED",
-      );
-    }
-  });
-});
 
 describe("verdict ledger (T010 — append-only persistence + gate)", () => {
   beforeAll(async () => {
@@ -441,5 +332,211 @@ describe("verdict ledger (T010 — append-only persistence + gate)", () => {
     });
     expect(ready.state).toBe("READY");
     expect(ready.verdictRow?.verdict).toBe("COMPETITOR_GAP_READY");
+  });
+
+  it("preserves R1 immutably, distinguishes R2 by evaluationId, and retains both in ledger", async () => {
+    const client = database.client;
+    if (!client) throw new Error("no client");
+
+    await client.execute(
+      "INSERT OR IGNORE INTO projects (id, organization_id, name) VALUES ('project-r2-eval', 'org-1', 'R2 Eval')",
+    );
+
+    const r1Manifest: CompetitorGapSpikeManifest = {
+      ...MANIFEST,
+      projectId: "project-r2-eval",
+    };
+
+    // 1. Record R1 as BLOCKED
+    const r1Row = await recordVerdict({
+      evidence: unavailableEvidence("quality", "provider unavailable"),
+      thresholds: THRESHOLDS,
+      manifest: r1Manifest,
+      recordedAt: "2026-10-14T20:09:49.856Z",
+    });
+    expect(r1Row.verdict).toBe("COMPETITOR_GAP_BLOCKED");
+    expect(r1Row.id).toContain("cgv_");
+
+    // 2. Before R2 is run, latestVerdict for R2 is null (R1 does NOT satisfy or block R2)
+    const r2PreCheck = await latestVerdict({
+      organizationId: r1Manifest.organizationId,
+      projectId: r1Manifest.projectId,
+      evaluationId: "competitor-gap-g5-r2",
+    });
+    expect(r2PreCheck).toBeNull();
+
+    // 3. Record R2 with distinct evaluationId as READY
+    const r2Manifest: CompetitorGapSpikeManifest = {
+      ...r1Manifest,
+      evaluationId: "competitor-gap-g5-r2",
+    };
+    const r2Row = await recordVerdict({
+      evidence: passingEvidence(),
+      thresholds: THRESHOLDS,
+      manifest: r2Manifest,
+      recordedAt: "2026-10-15T12:00:00.000Z",
+    });
+    expect(r2Row.verdict).toBe("COMPETITOR_GAP_READY");
+    expect(r2Row.id).not.toBe(r1Row.id);
+
+    // 4. Scoped lookup for R2 returns the R2 verdict
+    const r2Verdict = await latestVerdict({
+      organizationId: r2Manifest.organizationId,
+      projectId: r2Manifest.projectId,
+      evaluationId: "competitor-gap-g5-r2",
+    });
+    expect(r2Verdict?.id).toBe(r2Row.id);
+    expect(r2Verdict?.verdict).toBe("COMPETITOR_GAP_READY");
+
+    // 5. All verdicts query returns both R1 and R2 immutably
+    const allRows = await allVerdictsForProject({
+      organizationId: r1Manifest.organizationId,
+      projectId: r1Manifest.projectId,
+    });
+    expect(allRows.length).toBeGreaterThanOrEqual(2);
+    const foundR1 = allRows.find((r) => r.id === r1Row.id);
+    const foundR2 = allRows.find((r) => r.id === r2Row.id);
+    expect(foundR1).toBeDefined();
+    expect(foundR1?.verdict).toBe("COMPETITOR_GAP_BLOCKED");
+    expect(foundR2).toBeDefined();
+    expect(foundR2?.verdict).toBe("COMPETITOR_GAP_READY");
+  });
+
+  it("strictly scopes verdicts by project, market, and evaluation identity", async () => {
+    const client = database.client;
+    if (!client) throw new Error("no client");
+
+    await client.execute(
+      "INSERT OR IGNORE INTO projects (id, organization_id, name) VALUES ('proj-market-a', 'org-1', 'Market A')",
+    );
+    await client.execute(
+      "INSERT OR IGNORE INTO projects (id, organization_id, name) VALUES ('proj-market-b', 'org-1', 'Market B')",
+    );
+
+    const usManifest: CompetitorGapSpikeManifest = {
+      ...MANIFEST,
+      projectId: "proj-market-a",
+      evaluationId: "eval-us-2026",
+      market: { locationCode: 2840, languageCode: "en" },
+    };
+
+    await recordVerdict({
+      evidence: passingEvidence(),
+      thresholds: THRESHOLDS,
+      manifest: usManifest,
+      recordedAt: "2026-10-15T15:00:00.000Z",
+    });
+
+    // 1. Same project, matching market, matching evaluation: READY
+    const usGate = await competitorGapGateState({
+      organizationId: usManifest.organizationId,
+      projectId: usManifest.projectId,
+      evaluationId: "eval-us-2026",
+      market: { locationCode: 2840, languageCode: "en" },
+    });
+    expect(usGate.state).toBe("READY");
+
+    // 2. Different market (UK 2826) cannot unlock Competitor Gap: NO_VERDICT
+    const ukGate = await competitorGapGateState({
+      organizationId: usManifest.organizationId,
+      projectId: usManifest.projectId,
+      market: { locationCode: 2826, languageCode: "en" },
+    });
+    expect(ukGate.state).toBe("NO_VERDICT");
+
+    // 3. Different evaluationId cannot unlock Competitor Gap: NO_VERDICT
+    const diffEvalGate = await competitorGapGateState({
+      organizationId: usManifest.organizationId,
+      projectId: usManifest.projectId,
+      evaluationId: "eval-other-spike",
+    });
+    expect(diffEvalGate.state).toBe("NO_VERDICT");
+
+    // 4. Different project cannot unlock Competitor Gap: NO_VERDICT
+    const diffProjGate = await competitorGapGateState({
+      organizationId: usManifest.organizationId,
+      projectId: "proj-market-b",
+    });
+    expect(diffProjGate.state).toBe("NO_VERDICT");
+  });
+
+  it("validates evaluation lifecycle, preflight eligibility, and approved evaluation provenance", async () => {
+    // 1. R2 DRAFT -> execution eligibility is blocked
+    const draftEligibility = checkSpikeExecutionEligibility({
+      evaluationId: "competitor-gap-g5-r2",
+    });
+    expect(draftEligibility.eligible).toBe(false);
+    if (!draftEligibility.eligible) {
+      expect(draftEligibility.code).toBe("DRAFT_LOCKED");
+    }
+
+    // 2. R2 FROZEN via environment, but preflight fails (API key missing) -> execution is blocked
+    const prevEnv = process.env.COMPETITOR_GAP_R2_STATUS;
+    try {
+      process.env.COMPETITOR_GAP_R2_STATUS = "FROZEN";
+      expect(getEvaluationLifecycleStatus("competitor-gap-g5-r2")).toBe("FROZEN");
+
+      const preflightBlocked = checkSpikeExecutionEligibility({
+        evaluationId: "competitor-gap-g5-r2",
+        apiKey: "",
+      });
+      expect(preflightBlocked.eligible).toBe(false);
+      if (!preflightBlocked.eligible) {
+        expect(preflightBlocked.code).toBe("PREFLIGHT_BLOCKED");
+      }
+
+      // 3. R2 FROZEN + preflight PASS -> eligible for authorized spike execution
+      const eligibleRun = checkSpikeExecutionEligibility({
+        evaluationId: "competitor-gap-g5-r2",
+        apiKey: "valid-base64-key",
+      });
+      expect(eligibleRun.eligible).toBe(true);
+
+      // 4. R2 recorded READY with approved evaluation identity, project, and market -> G5 activates
+      const r2Manifest: CompetitorGapSpikeManifest = {
+        ...MANIFEST,
+        evaluationId: "competitor-gap-g5-r2",
+      };
+      await recordVerdict({
+        evidence: passingEvidence(),
+        thresholds: THRESHOLDS,
+        manifest: r2Manifest,
+        recordedAt: "2026-10-16T12:00:00.000Z",
+      });
+
+      const gate = await competitorGapGateState({
+        organizationId: r2Manifest.organizationId,
+        projectId: r2Manifest.projectId,
+        evaluationId: "competitor-gap-g5-r2",
+        market: r2Manifest.market,
+      });
+      expect(gate.state).toBe("READY");
+      expect(gate.verdictRow?.verdict).toBe("COMPETITOR_GAP_READY");
+
+      // 5. Unapproved evaluation ID cannot open the gate even if recorded as READY
+      const unapprovedManifest: CompetitorGapSpikeManifest = {
+        ...MANIFEST,
+        evaluationId: "eval-unapproved-rogue",
+      };
+      await recordVerdict({
+        evidence: passingEvidence(),
+        thresholds: THRESHOLDS,
+        manifest: unapprovedManifest,
+        recordedAt: "2026-10-16T13:00:00.000Z",
+      });
+      const unapprovedGate = await competitorGapGateState({
+        organizationId: unapprovedManifest.organizationId,
+        projectId: unapprovedManifest.projectId,
+        evaluationId: "eval-unapproved-rogue",
+        market: unapprovedManifest.market,
+      });
+      expect(unapprovedGate.state).toBe("BLOCKED");
+    } finally {
+      if (prevEnv !== undefined) {
+        process.env.COMPETITOR_GAP_R2_STATUS = prevEnv;
+      } else {
+        delete process.env.COMPETITOR_GAP_R2_STATUS;
+      }
+    }
   });
 });

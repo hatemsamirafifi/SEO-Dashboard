@@ -67,7 +67,15 @@ export function EventsTable({
               <td className="text-right">
                 {formatCount(row.eventCount.current)}
               </td>
-              <td className="text-right">
+              <td
+                className={`text-right tabular-nums ${
+                  row.eventCount.change > 0
+                    ? "text-success font-medium"
+                    : row.eventCount.change < 0
+                      ? "text-error font-medium"
+                      : "text-base-content/60"
+                }`}
+              >
                 {formatDelta(row.eventCount.change)} (
                 {formatPctChange(row.eventCount.pctChange)})
               </td>

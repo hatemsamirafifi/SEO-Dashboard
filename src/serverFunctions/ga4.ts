@@ -122,13 +122,12 @@ export const startSelfHostedGa4Link = createServerFn({ method: "POST" })
 export const triggerGa4Sync = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(triggerGa4SyncSchema)
-  .handler(async ({ data, context }) =>
+  .handler(async ({ context }) =>
     Ga4SyncService.runSync({
       projectId: context.projectId,
       organizationId: context.organizationId,
-      syncType: data.syncType,
-      startDate: data.startDate,
-      endDate: data.endDate,
+      syncType: "manual",
+      force: true,
     }),
   );
 export const getGa4SyncStatus = createServerFn({ method: "POST" })
@@ -183,6 +182,22 @@ export const getPeriodUsers = createServerFn({ method: "POST" })
       endDate: data.endDate,
     }),
   );
+function extractDateAndCompareParams(data: {
+  startDate?: string;
+  endDate?: string;
+  compareMode?: "none" | "previous_period" | "previous_year" | "custom";
+  compareStartDate?: string;
+  compareEndDate?: string;
+}) {
+  return {
+    ...(data.startDate ? { startDate: data.startDate } : {}),
+    ...(data.endDate ? { endDate: data.endDate } : {}),
+    ...(data.compareMode ? { compareMode: data.compareMode } : {}),
+    ...(data.compareStartDate ? { compareStartDate: data.compareStartDate } : {}),
+    ...(data.compareEndDate ? { compareEndDate: data.compareEndDate } : {}),
+  };
+}
+
 export const getAnalyticsOverview = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsOverviewSchema)
@@ -191,6 +206,7 @@ export const getAnalyticsOverview = createServerFn({ method: "POST" })
       projectId: context.projectId,
       organizationId: context.organizationId,
       range: data.range,
+      ...extractDateAndCompareParams(data),
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),
@@ -204,6 +220,7 @@ export const getAnalyticsAcquisition = createServerFn({ method: "POST" })
       projectId: context.projectId,
       organizationId: context.organizationId,
       range: data.range,
+      ...extractDateAndCompareParams(data),
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),
@@ -218,6 +235,7 @@ export const getAnalyticsLandingPages = createServerFn({ method: "POST" })
       organizationId: context.organizationId,
       range: data.range,
       limit: data.limit,
+      ...extractDateAndCompareParams(data),
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),
@@ -232,6 +250,7 @@ export const getAnalyticsEvents = createServerFn({ method: "POST" })
       organizationId: context.organizationId,
       range: data.range,
       limit: data.limit,
+      ...extractDateAndCompareParams(data),
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),
@@ -246,6 +265,7 @@ export const getAnalyticsConversions = createServerFn({ method: "POST" })
       organizationId: context.organizationId,
       range: data.range,
       limit: data.limit,
+      ...extractDateAndCompareParams(data),
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),
@@ -260,6 +280,7 @@ export const getAnalyticsEcommerce = createServerFn({ method: "POST" })
       projectId: context.projectId,
       organizationId: context.organizationId,
       range: data.range,
+      ...extractDateAndCompareParams(data),
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),
@@ -273,6 +294,7 @@ export const getAnalyticsAudience = createServerFn({ method: "POST" })
       projectId: context.projectId,
       organizationId: context.organizationId,
       range: data.range,
+      ...extractDateAndCompareParams(data),
       ...(data.channel ? { channel: data.channel } : {}),
       ...(data.device ? { device: data.device } : {}),
       ...(data.country ? { country: data.country } : {}),

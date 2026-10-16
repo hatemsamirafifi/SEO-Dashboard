@@ -7,7 +7,12 @@
 // gate consumed by future Part B/C code paths.
 
 import { createServerFn } from "@tanstack/react-start";
-import { competitorGapGateState } from "@/server/lib/competitor-gap/verdictLedger";
+import {
+  allVerdictsForProject,
+  checkSpikeExecutionEligibility,
+  latestVerdict,
+} from "@/server/lib/competitor-gap/verdictLedger";
+import { getProjectMarket } from "@/server/lib/seo-data/competitor-snapshot-repository";
 import {
   runSpike,
   SpikeBudgetExceededError,
@@ -41,9 +46,24 @@ export function toSpikeTriggerResponse(
 }
 
 /** Pure response shaping for the verdict poll (unit-tested directly). */
-export function toVerdictStatusResponse(row: CompetitorGapVerdictRow | null) {
+export function toVerdictStatusResponse(
+  row: CompetitorGapVerdictRow | null,
+  previousRow?: CompetitorGapVerdictRow | null,
+) {
+  const previousVerdict = previousRow
+    ? {
+        verdict: previousRow.verdict,
+        verdictId: previousRow.id,
+        recordedAt: previousRow.recordedAt,
+      }
+    : null;
+
   if (!row) {
-    return { verdict: null, gateState: "NO_VERDICT" as const };
+    return {
+      verdict: null,
+      gateState: "NO_VERDICT" as const,
+      previousVerdict,
+    };
   }
   return {
     verdict: row.verdict,
@@ -55,6 +75,7 @@ export function toVerdictStatusResponse(row: CompetitorGapVerdictRow | null) {
     recordedAt: row.recordedAt,
     evidence: row.evidence,
     thresholds: row.thresholds,
+    previousVerdict,
   };
 }
 
@@ -68,9 +89,21 @@ export const runCompetitorGapSpike = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(competitorGapSpikeInputSchema)
   .handler(async ({ context, data }) => {
+    const eligibility = checkSpikeExecutionEligibility({
+      evaluationId: data.evaluationId,
+    });
+    if (!eligibility.eligible) {
+      return toSpikeTriggerResponse({
+        ok: false,
+        budgetExceeded: true,
+        message: eligibility.reason,
+      });
+    }
+
     const manifest = {
       organizationId: context.organizationId,
       projectId: context.projectId,
+      evaluationId: data.evaluationId,
       sampleDomains: data.sampleDomains,
       keywordSetRef: data.keywordSetRef,
       market: data.market,
@@ -105,10 +138,22 @@ export const runCompetitorGapSpike = createServerFn({ method: "POST" })
 export const getCompetitorGapVerdict = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(competitorGapVerdictStatusSchema)
-  .handler(async ({ context }) => {
-    const { verdictRow } = await competitorGapGateState({
+  .handler(async ({ context, data }) => {
+    const projectMarket = await getProjectMarket(context.projectId);
+    const verdictRow = await latestVerdict({
+      organizationId: context.organizationId,
+      projectId: context.projectId,
+      evaluationId: data?.evaluationId,
+      market: projectMarket ?? undefined,
+    });
+    const allRows = await allVerdictsForProject({
       organizationId: context.organizationId,
       projectId: context.projectId,
     });
-    return toVerdictStatusResponse(verdictRow);
+    const previousRow =
+      allRows.find(
+        (r) => r.inputManifest.evaluationId !== data?.evaluationId,
+      ) ?? null;
+
+    return toVerdictStatusResponse(verdictRow, previousRow);
   });

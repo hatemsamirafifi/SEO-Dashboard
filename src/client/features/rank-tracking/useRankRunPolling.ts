@@ -99,6 +99,20 @@ export function useRankRunPolling(projectId: string, configId: string) {
         run?.status === "cancelled";
       if (run && isTerminal && !finalizedRunIdsRef.current.has(run.id)) {
         finalizedRunIdsRef.current.add(run.id);
+
+        for (const key of [
+          "rankTrackingResults",
+          "rankConfigTrend",
+          "rankPositionMatrix",
+          "rankTrackingMissingRankings",
+          "rankTrackingCostEstimate",
+          "rankTrackingLatestRun",
+        ]) {
+          void queryClient.invalidateQueries({
+            queryKey: [key, projectId, configId],
+          });
+        }
+
         const activeOps = findActiveTraces(run.id, projectId);
         for (const activeOp of activeOps) {
           void finalizeTraceForRun(
@@ -142,6 +156,12 @@ async function finalizeTraceForRun(
       // Best effort ΓÇö fall through to whatever the cache holds.
     }
     void queryClient.invalidateQueries({ queryKey: resultsPrefix });
+    void queryClient.invalidateQueries({
+      queryKey: ["rankConfigTrend", projectId, configId],
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["rankPositionMatrix", projectId, configId],
+    });
     const cached = queryClient.getQueriesData<{
       rows?: RankTrackingRow[];
     }>({ queryKey: resultsPrefix });

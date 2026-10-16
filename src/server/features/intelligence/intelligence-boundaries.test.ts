@@ -123,6 +123,8 @@ const DETECTOR_FILES = [
   // engagement_drop is per canonical page via the join).
   "src/server/features/intelligence/detectors/conversionDrop.ts",
   "src/server/features/intelligence/detectors/engagementDrop.ts",
+  // Spec 014: competitor gap detector
+  "src/server/features/intelligence/detectors/competitorGap.ts",
 ];
 
 const SOURCE_REPOSITORY_IMPORTS = [

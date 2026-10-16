@@ -2,6 +2,11 @@ import {
   GA4_ANALYTICS_DEVICES,
   type AnalyticsRange,
 } from "@/types/schemas/ga4";
+import type { CompareMode } from "@/types/schemas/date-range-compare";
+import {
+  DateRangeCompareModal,
+  type DateRangeCompareValues,
+} from "@/client/components/DateRangeCompareModal";
 import { ANALYTICS_RANGE_OPTIONS } from "./analyticsCopy";
 
 export const ALL = "ALL";
@@ -40,7 +45,12 @@ export type AnalyticsGoalsState =
 
 export function AnalyticsFilterToolbar({
   range,
-  setRange,
+  startDate,
+  endDate,
+  compareMode,
+  compareStartDate,
+  compareEndDate,
+  onDateRangeChange,
   channel,
   setChannel,
   device,
@@ -53,42 +63,34 @@ export function AnalyticsFilterToolbar({
   isFetching,
 }: {
   range: AnalyticsRange;
-  setRange: (r: AnalyticsRange) => void;
+  startDate?: string;
+  endDate?: string;
+  compareMode?: CompareMode;
+  compareStartDate?: string;
+  compareEndDate?: string;
+  onDateRangeChange: (values: DateRangeCompareValues) => void;
   channel: string;
   setChannel: (c: string) => void;
   device: string;
   setDevice: (d: string) => void;
   country: string;
   setCountry: (c: string) => void;
-  // Spec 010: goal filter for the conversions view. Empty string = all
-  // conversions; an id scopes to that goal's stored event binding.
   goalId: string;
   setGoalId: (id: string) => void;
-  // Honest select states: loading while goals load, empty (disabled with an
-  // explicit note) when the project has zero active goals.
   goalsState: AnalyticsGoalsState;
   isFetching: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3 border-b border-base-300 px-4 py-3 lg:flex-row lg:items-center lg:gap-4">
-      <label className="flex items-center gap-2 text-sm">
-        <span className="text-base-content/60">Range</span>
-        <select
-          className="select select-bordered select-sm"
-          value={range}
-          onChange={(event) => {
-            if (isAnalyticsRange(event.target.value))
-              setRange(event.target.value);
-          }}
-          aria-label="Date range"
-        >
-          {ANALYTICS_RANGE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <DateRangeCompareModal
+        range={range}
+        startDate={startDate}
+        endDate={endDate}
+        compareMode={compareMode}
+        compareStartDate={compareStartDate}
+        compareEndDate={compareEndDate}
+        onApply={onDateRangeChange}
+      />
       <label className="flex items-center gap-2 text-sm">
         <span className="text-base-content/60">Channel</span>
         <input
