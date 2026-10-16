@@ -229,10 +229,12 @@ export const reportPayloadSchema = z.object({
   searchVisibility: z.object({
     status: metricAvailabilitySchema,
     totals: gscTotalsSchema.nullable(),
+    previousTotals: gscTotalsSchema.nullable().optional(),
   }),
   traffic: z.object({
     status: metricAvailabilitySchema,
     totals: ga4TotalsSchema.nullable(),
+    previousTotals: ga4TotalsSchema.nullable().optional(),
   }),
   conversions: z.object({
     status: metricAvailabilitySchema,

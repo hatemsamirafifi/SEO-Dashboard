@@ -97,10 +97,12 @@ async function collectAttempt(input: {
     searchVisibility: searchVisibility ?? {
       status: { available: false, reason: "not_selected" },
       totals: null,
+      previousTotals: null,
     },
     traffic: trafficParts?.traffic ?? {
       status: { available: false, reason: "not_selected" },
       totals: null,
+      previousTotals: null,
     },
     conversions: trafficParts?.conversions ?? {
       status: { available: false, reason: "not_selected" },

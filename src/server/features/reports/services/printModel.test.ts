@@ -12,12 +12,7 @@ export function payloadFixture(
   return reportPayloadSchema.parse({
     version: 1,
     reportType: "overview",
-    sections: [
-      "search_visibility",
-      "traffic",
-      "opportunities",
-      "insights",
-    ],
+    sections: ["search_visibility", "traffic", "opportunities", "insights"],
     period: { from: "2026-01-01", to: "2026-01-14" },
     generatedAt: "2026-01-15T00:00:00.000Z",
     searchVisibility: {
@@ -122,25 +117,20 @@ describe("buildPrintModel", () => {
     expect(model.title).toBe("Overview report");
     expect(model.subtitle.startsWith("OpenSEO")).toBe(true);
     expect(model.footer).toBeNull();
-    const traffic = model.sections.find(
-      (section) => section.key === "traffic",
-    );
+    const traffic = model.sections.find((section) => section.key === "traffic");
     expect(traffic?.metricRows).toEqual([]);
     expect(traffic?.unavailableNote).toContain("Not connected");
   });
 
   it("notes empty lists and honors title overrides", () => {
-    const model = buildPrintModel(
-      payloadFixture(),
-      {
-        agency: null,
-        client: {
-          name: "Client Co",
-          logoR2Key: null,
-          titleOverride: "Q1 Review",
-        },
+    const model = buildPrintModel(payloadFixture(), {
+      agency: null,
+      client: {
+        name: "Client Co",
+        logoR2Key: null,
+        titleOverride: "Q1 Review",
       },
-    );
+    });
     expect(model.title).toBe("Q1 Review");
     const insights = model.sections.find(
       (section) => section.key === "insights",
@@ -151,5 +141,30 @@ describe("buildPrintModel", () => {
     );
     expect(opportunities?.items).toHaveLength(1);
     expect(opportunities?.items[0]?.lead).toBe("Critical / open");
+  });
+
+  it("formats previous period comparisons when previousTotals is present", () => {
+    const payload = payloadFixture({
+      searchVisibility: {
+        status: { available: true, reason: null },
+        totals: { clicks: 1200, impressions: 15000, ctr: 0.08, position: 4.5 },
+        previousTotals: {
+          clicks: 1000,
+          impressions: 12500,
+          ctr: 0.08,
+          position: 5.2,
+        },
+      },
+    });
+    const model = buildPrintModel(payload, BRANDING);
+    const visibility = model.sections.find(
+      (section) => section.key === "search_visibility",
+    );
+    expect(visibility?.metricRows).toEqual([
+      { label: "Clicks", value: "1200 (prev: 1000)" },
+      { label: "Impressions", value: "15000 (prev: 12500)" },
+      { label: "CTR", value: "8.0% (prev: 8.0%)" },
+      { label: "Avg. position", value: "4.5 (prev: 5.2)" },
+    ]);
   });
 });

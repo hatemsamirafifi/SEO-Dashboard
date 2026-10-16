@@ -10,6 +10,10 @@ import { GlobalDebugTraceSettingsSection } from "@/client/features/tracing/Globa
 import { SerpProvidersSettingsSection } from "@/client/features/settings/SerpProvidersSettingsSection";
 import { MaintainerSpikeTrigger } from "@/client/features/competitor-gap/MaintainerSpikeTrigger";
 import { isMaintainerSurfaceEnabled } from "@/client/features/competitor-gap/maintainerAccess";
+import {
+  AgencyBrandingSection,
+  ClientProfileSection,
+} from "@/client/features/reports/BrandingSettings";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   traceSettingsMutation,
@@ -101,6 +105,20 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           Debug Trace
         </h2>
         <GlobalDebugTraceSettingsSection projectId={projectId} />
+      </section>
+
+      <section id="agency-branding" className="space-y-3 scroll-mt-6">
+        <h2 className="text-sm font-medium text-base-content/50">
+          Agency branding
+        </h2>
+        <AgencyBrandingSection />
+      </section>
+
+      <section id="client-profile" className="space-y-3 scroll-mt-6">
+        <h2 className="text-sm font-medium text-base-content/50">
+          Client profile
+        </h2>
+        <ClientProfileSection projectId={projectId} />
       </section>
 
       <MaintainerToolsSection projectId={projectId} />
