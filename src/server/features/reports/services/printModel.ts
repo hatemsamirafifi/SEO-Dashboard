@@ -1,5 +1,6 @@
 import {
   consistencyBanner,
+  containsArabicText,
   REPORT_SECTION_TITLES,
   REPORT_TYPE_LABELS,
   unavailableSectionNote,
@@ -269,4 +270,39 @@ export function buildPrintModel(
     provenanceLines,
     sections,
   };
+}
+
+export function hasUnsupportedArabicText(model: PrintModel): boolean {
+  if (containsArabicText(model.title) || containsArabicText(model.subtitle)) {
+    return true;
+  }
+  if (containsArabicText(model.footer)) return true;
+  if (containsArabicText(model.banner)) return true;
+  for (const line of model.provenanceLines) {
+    if (containsArabicText(line)) return true;
+  }
+  for (const section of model.sections) {
+    if (containsArabicText(section.title)) return true;
+    if (
+      containsArabicText(section.emptyNote) ||
+      containsArabicText(section.unavailableNote)
+    ) {
+      return true;
+    }
+    for (const row of section.metricRows) {
+      if (containsArabicText(row.label) || containsArabicText(row.value)) {
+        return true;
+      }
+    }
+    for (const item of section.items) {
+      if (
+        containsArabicText(item.lead) ||
+        containsArabicText(item.title) ||
+        containsArabicText(item.body)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }

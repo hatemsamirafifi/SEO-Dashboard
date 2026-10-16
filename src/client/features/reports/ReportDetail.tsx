@@ -80,7 +80,12 @@ export function ReportDetail({
 
       <ConsistencyBanner payload={payload} />
       <ProvenanceBlock payload={payload} />
-      <ExportReportButtons projectId={projectId} reportId={reportId} />
+      <ExportReportButtons
+        projectId={projectId}
+        reportId={reportId}
+        payload={payload}
+        branding={parseBrandingSnapshot(report.brandingSnapshotJson)}
+      />
       <ReportBody payload={payload} />
 
       <ShareReportModal

@@ -79,7 +79,13 @@ import { ExportService } from "./ExportService";
 
 function sourceState(): DetectionSourceState {
   return {
-    versions: { gsc: null, ga4: null, rank: null, audit: null, backlinks: null },
+    versions: {
+      gsc: null,
+      ga4: null,
+      rank: null,
+      audit: null,
+      backlinks: null,
+    },
     sourceSet: [],
     detectorVersions: {},
     thresholdVersion: 2,
@@ -259,6 +265,82 @@ describe("requestExport", () => {
     expect(stored).not.toContain("<script");
   });
 
+  it("rejects lossy direct PDF export when report branding or payload contains Arabic text", async () => {
+    const reportId = await seedReport();
+    await db
+      .update(reports)
+      .set({
+        brandingSnapshotJson: JSON.stringify({
+          agency: {
+            name: "وكالة رقمية",
+            logoR2Key: null,
+            accentColor: null,
+            footerText: null,
+          },
+          client: null,
+        }),
+      })
+      .where(eq(reports.id, reportId));
+
+    await expect(
+      ExportService.requestExport({
+        reportId,
+        projectId: "project-1",
+        organizationId: "org-1",
+        format: "pdf",
+      }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
+
+    const status = await ExportService.getExportStatus({
+      reportId,
+      projectId: "project-1",
+      format: "pdf",
+    });
+    expect(status).toEqual({
+      status: "failed",
+      error: "ARABIC_PDF_UNSUPPORTED",
+    });
+  });
+
+  it("renders print-HTML view with RTL and print action button when report contains Arabic text", async () => {
+    const reportId = await seedReport();
+    await db
+      .update(reports)
+      .set({
+        brandingSnapshotJson: JSON.stringify({
+          agency: {
+            name: "وكالة رقمية",
+            logoR2Key: null,
+            accentColor: null,
+            footerText: null,
+          },
+          client: null,
+        }),
+      })
+      .where(eq(reports.id, reportId));
+
+    await ExportService.requestExport({
+      reportId,
+      projectId: "project-1",
+      organizationId: "org-1",
+      format: "html",
+    });
+    await flushExports();
+    const status = await ExportService.getExportStatus({
+      reportId,
+      projectId: "project-1",
+      format: "html",
+    });
+    expect(status.status).toBe("ready");
+    if (status.status !== "ready") throw new Error("Export did not complete");
+    const stored = r2Store.objects.get(status.r2Key) ?? "";
+    expect(stored).toContain('dir="rtl"');
+    expect(stored).toContain("وكالة رقمية");
+    expect(stored).toContain("طباعة / حفظ كـ PDF");
+  });
+
   it("dedupes unchanged snapshots without duplicate work", async () => {
     const reportId = await seedReport();
     const input = {
@@ -299,9 +381,7 @@ describe("requestExport", () => {
     });
     expect(status).toEqual({ status: "failed", error: "INTERNAL_ERROR" });
     const events = await SharingRepository.listEventsByReport(reportId);
-    expect(
-      events.some((event) => event.type === "exported_pdf"),
-    ).toBe(false);
+    expect(events.some((event) => event.type === "exported_pdf")).toBe(false);
   });
 
   it("rejects wrong-project access on every entry point", async () => {
@@ -318,9 +398,7 @@ describe("requestExport", () => {
     await expect(ExportService.getExportStatus(input)).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
-    expect(
-      await ExportService.downloadExport(input),
-    ).toBeNull();
+    expect(await ExportService.downloadExport(input)).toBeNull();
   });
 });
 

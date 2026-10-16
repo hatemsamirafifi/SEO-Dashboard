@@ -4,7 +4,7 @@ import {
   type BrandingSnapshot,
   type ReportPayload,
 } from "@/shared/reports";
-import { buildPrintModel } from "./printModel";
+import { buildPrintModel, hasUnsupportedArabicText } from "./printModel";
 
 export function payloadFixture(
   overrides: Partial<ReportPayload> = {},
@@ -166,5 +166,23 @@ describe("buildPrintModel", () => {
       { label: "CTR", value: "8.0% (prev: 8.0%)" },
       { label: "Avg. position", value: "4.5 (prev: 5.2)" },
     ]);
+  });
+
+  it("detects Arabic text in title, branding, or section contents", () => {
+    const payload = payloadFixture();
+    const latinModel = buildPrintModel(payload, BRANDING);
+    expect(hasUnsupportedArabicText(latinModel)).toBe(false);
+
+    const arabicBranding: BrandingSnapshot = {
+      agency: {
+        name: "وكالة رقمية",
+        logoR2Key: null,
+        accentColor: null,
+        footerText: null,
+      },
+      client: null,
+    };
+    const arabicModel = buildPrintModel(payload, arabicBranding);
+    expect(hasUnsupportedArabicText(arabicModel)).toBe(true);
   });
 });
