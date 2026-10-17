@@ -116,9 +116,7 @@ export function SearchPerformanceFilterToolbar({
           className="select select-bordered select-sm w-36"
           value={device}
           onChange={(event) => {
-            setDevice(
-              isDevice(event.target.value) ? event.target.value : ALL,
-            );
+            setDevice(isDevice(event.target.value) ? event.target.value : ALL);
           }}
           aria-label="Device filter"
         >

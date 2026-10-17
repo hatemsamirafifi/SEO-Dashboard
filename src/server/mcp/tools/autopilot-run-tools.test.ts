@@ -122,12 +122,16 @@ describe("autopilot run tools (SAM orchestration)", () => {
       ).toBe(false);
     }
     expect(
-      schema.safeParse({ projectId: "project_1", workflowType: "competitor_gap" })
-        .success,
+      schema.safeParse({
+        projectId: "project_1",
+        workflowType: "competitor_gap",
+      }).success,
     ).toBe(true);
     expect(
-      schema.safeParse({ projectId: "project_1", workflowType: "monthly_review" })
-        .success,
+      schema.safeParse({
+        projectId: "project_1",
+        workflowType: "monthly_review",
+      }).success,
     ).toBe(true);
   });
 
@@ -186,7 +190,10 @@ describe("autopilot run tools (SAM orchestration)", () => {
   });
 
   it("resume_autopilot_run delegates with user identity", async () => {
-    mocks.resumeAutopilotRun.mockResolvedValue({ runId: "run-1", resumed: true });
+    mocks.resumeAutopilotRun.mockResolvedValue({
+      runId: "run-1",
+      resumed: true,
+    });
     const { resumeAutopilotRunTool } = await import("./autopilot-run-tools");
     const result = await resumeAutopilotRunTool.handler(
       { projectId: "project_1", runId: "run-1" },
@@ -213,7 +220,9 @@ describe("autopilot run tools (SAM orchestration)", () => {
     expect(tools.resumeAutopilotRunTool.config.annotations?.readOnlyHint).toBe(
       false,
     );
-    expect(tools.getAutopilotRunTool.config.annotations?.readOnlyHint).toBe(true);
+    expect(tools.getAutopilotRunTool.config.annotations?.readOnlyHint).toBe(
+      true,
+    );
     expect(tools.listAutopilotRunsTool.config.annotations?.readOnlyHint).toBe(
       true,
     );

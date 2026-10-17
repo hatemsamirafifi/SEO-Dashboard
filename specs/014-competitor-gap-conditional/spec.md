@@ -8,7 +8,7 @@
 
 **Input**: User description: "spec 014 — F:\SEO-Dashboard\docs\speckit-implementation-plan.md §3 row 014: Competitor-gap conditional (PR19 → PR20 → E1d · C2d/C2e) — input spike first (DataForSEO quality, crawl coverage, cost, entity identity, cache reuse) → go/no-go → detector/workflow only on pass (Constitution Principle 36 / Gate G5). Never blocks other packages."
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Recorded go/no-go verdict on competitor-gap inputs (Priority: P1)
 
@@ -65,7 +65,7 @@ A user can run a competitor-gap Autopilot workflow (E1d) that orchestrates over 
 - Verdict recorded as READY, but input quality later degrades (e.g., endpoint behavior changes): detector no-trigger/partial semantics still apply per Principle 28; spike verdict is not a permanent license.
 - Project has zero competitors configured: both detector and workflow present an explicit not-configured state, not an empty result set.
 
-## Requirements *(mandatory)*
+## Requirements _(mandatory)_
 
 ### Functional Requirements
 
@@ -90,13 +90,13 @@ A user can run a competitor-gap Autopilot workflow (E1d) that orchestrates over 
 - **FR-011**: The workflow MUST obey the standard autopilot constraints: explicit workflow allowlist, bounded steps/tool calls, durable step history, idempotency, resumable attempts.
 - **FR-012**: All user-facing output (detector evidence, opportunity copy, workflow summaries) MUST use observational language: no causal claims, no invented rankings/gaps/uplift figures, and a clear distinction between observed fact and recommendation.
 
-### Key Entities *(include if feature involves data)*
+### Key Entities _(include if feature involves data)_
 
 - **CompetitorGapVerdict (spike verdict record)**: One per spike run; immutable verdict enum (`COMPETITOR_GAP_READY` | `COMPETITOR_GAP_BLOCKED`), frozen measurement evidence (match rates, coverage, cost, identity stability, cache behavior), threshold set evaluated, recorded-at timestamp; scoped to the organization/project context that ran it.
 - **Competitor reference**: A domain associated with a project used as gap comparison input; identity MUST be expressed via the canonical identity strategy (package 006); reused from existing project/competitor configuration where it already exists — no parallel entity.
 - **Competitor Gap Finding → Opportunity**: Standard Intelligence Engine Finding materialized into the existing Opportunity model; carries frozen evidence (query sets, competitor positions, user-site absence/weakness signals), stable `findingKey`, impact/confidence pair, and provenance classification (e.g., `THIRD_PARTY_ESTIMATE` / `SERP_OBSERVED`).
 
-## Success Criteria *(mandatory)*
+## Success Criteria _(mandatory)_
 
 ### Measurable Outcomes
 

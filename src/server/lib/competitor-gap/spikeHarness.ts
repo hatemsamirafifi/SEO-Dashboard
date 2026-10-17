@@ -238,7 +238,8 @@ export async function runSpike(input: {
         identities.add(first);
       }
       for (const canonicalIdentity of identities) {
-        const owners = identityByDomain.get(canonicalIdentity) ?? new Set<string>();
+        const owners =
+          identityByDomain.get(canonicalIdentity) ?? new Set<string>();
         owners.add(domain);
         identityByDomain.set(canonicalIdentity, owners);
       }

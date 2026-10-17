@@ -100,7 +100,8 @@ export function DateRangeCompareModal({
   // Draft state for modal edits
   const [draftRange, setDraftRange] = useState<DateRangePreset>(range);
   const [draftStartDate, setDraftStartDate] = useState<string>(
-    startDate || new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10),
+    startDate ||
+      new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10),
   );
   const [draftEndDate, setDraftEndDate] = useState<string>(
     endDate || new Date().toISOString().slice(0, 10),
@@ -181,7 +182,9 @@ export function DateRangeCompareModal({
         aria-label="Filter date range and comparison"
       >
         <Calendar className="size-4 shrink-0 text-base-content/70" />
-        <span className="truncate max-w-[240px] sm:max-w-none">{triggerLabel}</span>
+        <span className="truncate max-w-[240px] sm:max-w-none">
+          {triggerLabel}
+        </span>
         <ChevronDown className="size-3.5 shrink-0 opacity-60" />
       </button>
 
@@ -264,7 +267,9 @@ export function DateRangeCompareModal({
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <label className="flex flex-col gap-1 text-xs">
-                      <span className="text-base-content/60">Start Date (From)</span>
+                      <span className="text-base-content/60">
+                        Start Date (From)
+                      </span>
                       <input
                         type="date"
                         className="input input-bordered input-sm"
@@ -274,7 +279,9 @@ export function DateRangeCompareModal({
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs">
-                      <span className="text-base-content/60">End Date (To)</span>
+                      <span className="text-base-content/60">
+                        End Date (To)
+                      </span>
                       <input
                         type="date"
                         className="input input-bordered input-sm"

@@ -86,6 +86,7 @@ All NEEDS CLARIFICATION resolved: none existed — this research records decisio
 **T001 — §006 canonical identity state**: LANDED. `canonicalUrl()` (`src/shared/intelligence.ts:109`) now handles absolute http(s) URLs (scheme/host preserved, percent-encoding normalized), path-only rows resolved against a project host context without inventing hosts, and unparseable input degrading to deterministic distinct identities. Docblock documents the analytical-join-identity contract (lines 100–108). The spike's identity dimension (T016) measures against the FULL §006 chain — no gap to document.
 
 **T002 — competitor data surfaces** (read paths for spike reuse):
+
 - `src/server/lib/seo-data/competitor-snapshot-repository.ts` — `persistCompetitorSnapshot` (L24), `getLatestCompetitorSnapshot` (L45), `canonicalKeywordKey` (L17). Snapshots scoped `(projectId, keywordKey, locationCode, languageCode)`, rows accumulate, latest wins.
 - `src/server/lib/seo-data/data-router.ts:50` — `competitors: ["internal", "dataforseo"]` (free-first; internal serves persisted snapshot, DataForSEO write-throughs on paid fetch).
 - `src/server/lib/seo-data/providers/dataforseo-provider.ts` — `competitors` case + write-through (L498–L541).
@@ -93,6 +94,7 @@ All NEEDS CLARIFICATION resolved: none existed — this research records decisio
 - Cost instrumentation: `src/server/lib/seo-data/cost-tracker.ts` (`getCostCounters`, `recordDataforseoCall`, `assertDataforseoBudgetAvailable`); trace: `seo-data/trace.ts` (`traceProviderCall`, `traceCacheDecision`).
 
 **T003 — gate precedent anchors**:
+
 - `src/shared/autopilot.ts:8-15` — `AUTOPILOT_WORKFLOW_TYPES` (six entries; `competitor_gap` absent).
 - `src/shared/autopilot.test.ts:33-37` — structural G5/P36 exclusion test to flip only in the READY PR (US3, T031).
 - `src/server/features/intelligence/services/detectionStage.ts:40-52,102-124` — detector outcome recording: `skipped` (with `skipReason`) vs `failed` (with `error`); `InsufficientCoverageError` → `skipped` (L109-117). The verdict gate (T027) records `skipped` with `G5_NO_READY_VERDICT` following exactly this pattern.

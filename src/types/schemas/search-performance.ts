@@ -89,9 +89,17 @@ export const searchPerformanceTableExportInputSchema = z.object({
 
 export const searchPerformanceSyncInputSchema = z.object({
   projectId: z.string().min(1),
-  syncType: z.enum(["initial_backfill", "incremental", "manual"]).default("manual"),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  syncType: z
+    .enum(["initial_backfill", "incremental", "manual"])
+    .default("manual"),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   dateRange: z.enum(SEARCH_PERFORMANCE_RANGES).optional(),
 });
 

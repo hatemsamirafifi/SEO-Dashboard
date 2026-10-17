@@ -37,7 +37,7 @@ This package is the conditional Track C+E competitor-gap work: Part A is a time-
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 ### Post-design re-evaluation (2026-10-09)
 

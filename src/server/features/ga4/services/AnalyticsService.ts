@@ -105,8 +105,7 @@ export function resolveAnalyticsWindows(
     currentFrom = startDate <= endDate ? startDate : endDate;
     currentTo = startDate <= endDate ? endDate : startDate;
   } else {
-    const days =
-      range === "custom" ? 28 : (ANALYTICS_RANGE_DAYS[range] ?? 28);
+    const days = range === "custom" ? 28 : (ANALYTICS_RANGE_DAYS[range] ?? 28);
     currentTo = todayIso;
     currentFrom = addDaysIso(todayIso, -(days - 1));
   }
@@ -394,14 +393,16 @@ async function getOverview(input: {
  *  Revenue/conversion keys are summary-grain-only (the geo/technology grains
  *  store the six engagement metrics) and stay zero with the filter note
  *  carrying that scope. */
-function grainGroupToSummary(group: {
-  sessions: number;
-  engagedSessions: number;
-  userEngagementDuration: number;
-  screenPageViews: number;
-  eventCount: number;
-  newUsers: number;
-} | null): SummaryLike {
+function grainGroupToSummary(
+  group: {
+    sessions: number;
+    engagedSessions: number;
+    userEngagementDuration: number;
+    screenPageViews: number;
+    eventCount: number;
+    newUsers: number;
+  } | null,
+): SummaryLike {
   return {
     sessions: group?.sessions ?? 0,
     engagedSessions: group?.engagedSessions ?? 0,
@@ -608,7 +609,10 @@ async function getAnalyticsGeo(input: {
     propertyId: connection.propertyId,
     from: input.from,
     to: input.to,
-    coverage: toCoverage(grainCoverage, inclusiveDayCount(input.from, input.to)),
+    coverage: toCoverage(
+      grainCoverage,
+      inclusiveDayCount(input.from, input.to),
+    ),
     rows,
     emptyNote:
       rows.length === 0

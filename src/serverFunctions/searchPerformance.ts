@@ -121,12 +121,12 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         storedCoverage?.startDate ??
         (latestSync?.status === "completed"
           ? latestSync.requestedStartDate
-          : latestSync?.actualLastSuccessfulDate ?? null);
+          : (latestSync?.actualLastSuccessfulDate ?? null));
       const covEndDate =
         storedCoverage?.endDate ??
         (latestSync?.status === "completed"
           ? latestSync.requestedEndDate
-          : latestSync?.actualLastSuccessfulDate ?? null);
+          : (latestSync?.actualLastSuccessfulDate ?? null));
 
       let status: "completed" | "partial" | "failed" | "running" = "completed";
       if (activeSync !== null) {

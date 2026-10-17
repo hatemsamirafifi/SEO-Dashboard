@@ -4,7 +4,7 @@
 **Verdict**: `COMPETITOR_GAP_BLOCKED`  
 **Ledger Row ID**: `cgv_4c878e65_2026-10-14T20:09:49.856Z`  
 **Target Project**: `powersiment.ae` (`bb267736-5e5e-9f5f-7d78260abbde`)  
-**Organization ID**: `delegated-local-admin`  
+**Organization ID**: `delegated-local-admin`
 
 ---
 
@@ -14,11 +14,7 @@
 {
   "organizationId": "delegated-local-admin",
   "projectId": "bb267736-5e5e-9f5f-7d78260abbde",
-  "sampleDomains": [
-    "emtyiaz.com",
-    "manaraa.com",
-    "bahthy.com"
-  ],
+  "sampleDomains": ["emtyiaz.com", "manaraa.com", "bahthy.com"],
   "keywordSetRef": "gsc-top-queries-2026-10-09",
   "market": {
     "locationCode": 2784,
@@ -81,13 +77,13 @@
 
 ## 3. Dimension-by-Dimension Breakdown
 
-| Dimension | Status | Value / Measurement | Threshold / Condition | Result |
-|---|---|---|---|---|
-| **Quality** (Competitor Keyword Coverage) | `unavailable` | Provider paused access (`DataForSEO`) | `minKeywordCoverageRatio ≥ 0.50` | **HARD BLOCK** (Invariant P8/P9: failure is unavailable, never 0; unavailable blocks) |
-| **Coverage** (First-Party GSC Window) | `measured` | `0.9285714285714286` (~92.9% coverage over 28d) | `minFirstPartyCoverageRatio ≥ 0.50` | PASS |
-| **Cost** (Measured Credits per Analysis) | `measured` | `0.4133600000000003` credits | `maxCostPerAnalysisCredits ≤ 100` | PASS |
-| **Identity** (Cross-Domain Stability) | `measured` | `collisionsObserved: 0`, `nonDeterministicMappings: 0` | `identityCollisionsAllowed = 0` | PASS |
-| **Cache** (Repeat-Analysis Paid Calls) | `unavailable` | Provider paused access (`DataForSEO`) | `repeatCacheHitRate = 1.0` | **HARD BLOCK** (Invariant P8/P9) |
+| Dimension                                 | Status        | Value / Measurement                                    | Threshold / Condition               | Result                                                                                |
+| ----------------------------------------- | ------------- | ------------------------------------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------- |
+| **Quality** (Competitor Keyword Coverage) | `unavailable` | Provider paused access (`DataForSEO`)                  | `minKeywordCoverageRatio ≥ 0.50`    | **HARD BLOCK** (Invariant P8/P9: failure is unavailable, never 0; unavailable blocks) |
+| **Coverage** (First-Party GSC Window)     | `measured`    | `0.9285714285714286` (~92.9% coverage over 28d)        | `minFirstPartyCoverageRatio ≥ 0.50` | PASS                                                                                  |
+| **Cost** (Measured Credits per Analysis)  | `measured`    | `0.4133600000000003` credits                           | `maxCostPerAnalysisCredits ≤ 100`   | PASS                                                                                  |
+| **Identity** (Cross-Domain Stability)     | `measured`    | `collisionsObserved: 0`, `nonDeterministicMappings: 0` | `identityCollisionsAllowed = 0`     | PASS                                                                                  |
+| **Cache** (Repeat-Analysis Paid Calls)    | `unavailable` | Provider paused access (`DataForSEO`)                  | `repeatCacheHitRate = 1.0`          | **HARD BLOCK** (Invariant P8/P9)                                                      |
 
 ---
 

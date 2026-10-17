@@ -156,5 +156,3 @@ Expected paid spend: single-digit credits (projection 6; hard cap 500).
 
 - Gate transition:
   NO_VERDICT → COMPETITOR_GAP_BLOCKED
-
-

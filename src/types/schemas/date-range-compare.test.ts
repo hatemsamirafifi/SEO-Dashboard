@@ -31,7 +31,9 @@ describe("date-range-compare helpers", () => {
       endDate: "2026-09-16",
     });
     expect(daysBetweenIso(res.current.startDate, res.current.endDate)).toBe(28);
-    expect(daysBetweenIso(res.compare!.startDate, res.compare!.endDate)).toBe(28);
+    expect(daysBetweenIso(res.compare!.startDate, res.compare!.endDate)).toBe(
+      28,
+    );
   });
 
   it("resolves year over year compare", () => {

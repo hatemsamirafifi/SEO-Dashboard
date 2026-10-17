@@ -44,8 +44,7 @@ export async function persistCompetitorSnapshot(params: {
     params.itemsCount ??
     (typeof meta.items_count === "number" ? meta.items_count : undefined);
   const limit =
-    params.limit ??
-    (typeof meta.limit === "number" ? meta.limit : undefined);
+    params.limit ?? (typeof meta.limit === "number" ? meta.limit : undefined);
 
   if (
     totalCount !== undefined ||
@@ -169,8 +168,7 @@ export async function getLatestCompetitorSnapshotsForProject(
           typeof meta.total_count === "number" ? meta.total_count : null;
         itemsCount =
           typeof meta.items_count === "number" ? meta.items_count : null;
-        snapshotLimit =
-          typeof meta.limit === "number" ? meta.limit : null;
+        snapshotLimit = typeof meta.limit === "number" ? meta.limit : null;
       } else if (
         parsed &&
         typeof parsed === "object" &&
@@ -188,8 +186,7 @@ export async function getLatestCompetitorSnapshotsForProject(
           typeof obj.total_count === "number" ? obj.total_count : null;
         itemsCount =
           typeof obj.items_count === "number" ? obj.items_count : null;
-        snapshotLimit =
-          typeof obj.limit === "number" ? obj.limit : null;
+        snapshotLimit = typeof obj.limit === "number" ? obj.limit : null;
       } else {
         continue;
       }

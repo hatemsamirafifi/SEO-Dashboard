@@ -175,7 +175,9 @@ const analyticsGrainWindowShape = {
   to: ga4DateSchema,
 };
 
-function windowOrdered<T extends { from: string; to: string }>(schema: z.ZodType<T>) {
+function windowOrdered<T extends { from: string; to: string }>(
+  schema: z.ZodType<T>,
+) {
   return schema.refine((value) => value.from <= value.to, {
     message: "from must not be after to",
   });

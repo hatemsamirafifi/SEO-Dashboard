@@ -103,7 +103,6 @@ export function extractCompetitorPosition(
   return null;
 }
 
-
 export async function fetchCompetitorGapInput(
   projectId: string,
   ctx: DetectorContext,

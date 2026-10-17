@@ -191,11 +191,16 @@ export function TotalsCards({ report }: { report: Report }) {
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between text-xs text-base-content/60 px-1">
         <span>
-          Current: <strong className="text-base-content/80">{range.startDate}</strong> to{" "}
+          Current:{" "}
+          <strong className="text-base-content/80">{range.startDate}</strong> to{" "}
           <strong className="text-base-content/80">{range.endDate}</strong>
         </span>
         <span>
-          Comparison: <strong className="text-base-content/80">{range.prevStartDate}</strong> to{" "}
+          Comparison:{" "}
+          <strong className="text-base-content/80">
+            {range.prevStartDate}
+          </strong>{" "}
+          to{" "}
           <strong className="text-base-content/80">{range.prevEndDate}</strong>
         </span>
       </div>
@@ -241,7 +246,9 @@ function TotalCard({
       {prevValue !== undefined ? (
         <div className="mt-2 pt-2 border-t border-base-200 text-xs text-base-content/60 flex items-center justify-between">
           <span>vs Previous:</span>
-          <span className="font-semibold text-base-content/80">{prevValue}</span>
+          <span className="font-semibold text-base-content/80">
+            {prevValue}
+          </span>
         </div>
       ) : null}
     </div>

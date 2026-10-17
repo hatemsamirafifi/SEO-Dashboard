@@ -143,7 +143,10 @@ function verdictRowFixture(
       },
       cost: {
         status: "measured",
-        value: { measuredCreditsPerAnalysis: 10, extrapolatedMonthlyPerProject: 40 },
+        value: {
+          measuredCreditsPerAnalysis: 10,
+          extrapolatedMonthlyPerProject: 40,
+        },
       },
       identity: {
         status: "measured",

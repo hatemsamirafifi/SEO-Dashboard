@@ -540,7 +540,9 @@ async function getStrikingDistance(
         prev.clicks > 0 ? (clicksChange / prev.clicks) * 100 : null;
       const impressionsChange = row.impressions - prev.impressions;
       const impressionsPctChange =
-        prev.impressions > 0 ? (impressionsChange / prev.impressions) * 100 : null;
+        prev.impressions > 0
+          ? (impressionsChange / prev.impressions) * 100
+          : null;
       const positionChange =
         prev.position > 0 && row.position > 0
           ? prev.position - row.position

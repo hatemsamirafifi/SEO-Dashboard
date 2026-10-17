@@ -120,8 +120,7 @@ export function resolveDateWindows(
       currentEnd = input.startDate;
     }
   } else {
-    const days =
-      range === "custom" ? 28 : (PRESET_DAYS[range] ?? 28);
+    const days = range === "custom" ? 28 : (PRESET_DAYS[range] ?? 28);
     currentEnd = todayIso;
     currentStart = addDaysIso(todayIso, -(days - 1));
   }

@@ -77,7 +77,9 @@ export async function deterministicGa4FactId(params: {
 async function getActiveSyncRun(
   projectId: string,
   propertyId: string,
-  staleBeforeIso: string = new Date(Date.now() - GA4_STALE_RUN_MS).toISOString(),
+  staleBeforeIso: string = new Date(
+    Date.now() - GA4_STALE_RUN_MS,
+  ).toISOString(),
 ): Promise<Ga4SyncRow | null> {
   await markStaleRunsFailed(projectId, propertyId, staleBeforeIso);
   const rows = await db
@@ -774,9 +776,7 @@ async function geoEntityTotals(
   const [totals] = await db
     .select({
       sessions: sql<number | null>`sum(${ga4DailyGeo.sessions})`,
-      engagedSessions: sql<
-        number | null
-      >`sum(${ga4DailyGeo.engagedSessions})`,
+      engagedSessions: sql<number | null>`sum(${ga4DailyGeo.engagedSessions})`,
       userEngagementDuration: sql<
         number | null
       >`sum(${ga4DailyGeo.userEngagementDuration})`,
@@ -1160,9 +1160,7 @@ async function getGeoGroups(
     .select({
       country: ga4DailyGeo.country,
       sessions: sessionsSum,
-      engagedSessions: sql<
-        number | null
-      >`sum(${ga4DailyGeo.engagedSessions})`,
+      engagedSessions: sql<number | null>`sum(${ga4DailyGeo.engagedSessions})`,
       userEngagementDuration: sql<
         number | null
       >`sum(${ga4DailyGeo.userEngagementDuration})`,

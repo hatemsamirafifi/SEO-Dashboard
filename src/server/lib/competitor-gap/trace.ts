@@ -47,7 +47,9 @@ export function traceSpikeEvent(row: SpikeTraceRow): void {
       row.dimensionStatuses
         ? `dimensions=${JSON.stringify(row.dimensionStatuses)}`
         : null,
-      typeof row.durationMs === "number" ? `duration=${row.durationMs}ms` : null,
+      typeof row.durationMs === "number"
+        ? `duration=${row.durationMs}ms`
+        : null,
       typeof row.sampleDomains === "number"
         ? `sampleDomains=${row.sampleDomains}`
         : null,
@@ -58,9 +60,7 @@ export function traceSpikeEvent(row: SpikeTraceRow): void {
           : null,
       row.error ? `error=${row.error}` : null,
     ].filter(Boolean);
-    console.log(
-      scrubGlobalTraceText(`[competitor-gap] ${parts.join(" ")}`),
-    );
+    console.log(scrubGlobalTraceText(`[competitor-gap] ${parts.join(" ")}`));
   } catch {
     // Tracing must never break the spike.
   }

@@ -563,9 +563,9 @@ describe("materializeFinding", () => {
       );
       // Exactly one detected event: the re-scan records redetected, never a
       // second detected event for the same logical occurrence.
-      expect(
-        events.filter((event) => event.type === "detected"),
-      ).toHaveLength(1);
+      expect(events.filter((event) => event.type === "detected")).toHaveLength(
+        1,
+      );
     });
   });
 
@@ -675,8 +675,12 @@ describe("materializeFinding", () => {
       const row = await OpportunityRepository.getById(first.id);
       expect(row?.logicalKey).toBe("competitor_gap:enterprise crm");
       expect(row?.type).toBe("competitor_gap");
-      expect(row?.title).toContain('Competitor gap for "enterprise crm" (salesforce.com)');
-      expect(row?.recommendation).toContain('Create dedicated content targeting "enterprise crm"');
+      expect(row?.title).toContain(
+        'Competitor gap for "enterprise crm" (salesforce.com)',
+      );
+      expect(row?.recommendation).toContain(
+        'Create dedicated content targeting "enterprise crm"',
+      );
       expect(row?.keyword).toBe("enterprise crm");
       expect(row?.impactScore).toBeGreaterThan(0);
       expect(row?.confidenceScore).toBe(70);
@@ -704,9 +708,9 @@ describe("materializeFinding", () => {
         organizationId: "org-1",
       });
       expect(repeat.outcome).toBe("updated");
-      const active = await OpportunityRepository.listActiveByProject("project-1");
+      const active =
+        await OpportunityRepository.listActiveByProject("project-1");
       expect(active).toHaveLength(1);
     });
   });
 });
-

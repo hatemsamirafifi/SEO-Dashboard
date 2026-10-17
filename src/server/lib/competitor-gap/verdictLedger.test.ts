@@ -474,7 +474,9 @@ describe("verdict ledger (T010 — append-only persistence + gate)", () => {
     const prevEnv = process.env.COMPETITOR_GAP_R2_STATUS;
     try {
       process.env.COMPETITOR_GAP_R2_STATUS = "FROZEN";
-      expect(getEvaluationLifecycleStatus("competitor-gap-g5-r2")).toBe("FROZEN");
+      expect(getEvaluationLifecycleStatus("competitor-gap-g5-r2")).toBe(
+        "FROZEN",
+      );
 
       const preflightBlocked = checkSpikeExecutionEligibility({
         evaluationId: "competitor-gap-g5-r2",

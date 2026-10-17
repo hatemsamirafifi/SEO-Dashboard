@@ -94,10 +94,14 @@ export async function getLatestPositionsMap(
       ),
     ];
     if (options?.excludeRunId) {
-      validSnapshotConditions.push(ne(rankSnapshots.runId, options.excludeRunId));
+      validSnapshotConditions.push(
+        ne(rankSnapshots.runId, options.excludeRunId),
+      );
     }
     if (options?.beforeDate) {
-      validSnapshotConditions.push(lt(rankSnapshots.checkedAt, options.beforeDate));
+      validSnapshotConditions.push(
+        lt(rankSnapshots.checkedAt, options.beforeDate),
+      );
     }
 
     const grouped = db

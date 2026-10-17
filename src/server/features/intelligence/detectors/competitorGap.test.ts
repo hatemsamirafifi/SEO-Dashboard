@@ -303,4 +303,3 @@ describe("competitor_gap detector", () => {
     );
   });
 });
-

@@ -248,7 +248,7 @@ describe("per-keyword ranking correctness (Condition A)", () => {
         domain: "emtyiaz.com",
         avg_position: 3.4,
         keywords_positions: {
-          "اسايمنت": [1, 3],
+          اسايمنت: [1, 3],
           "بحث تخرج": [7, 2, 9],
         },
       };
@@ -301,7 +301,7 @@ describe("per-keyword ranking correctness (Condition A)", () => {
             {
               domain: "emtyiaz.com",
               avg_position: 2.5,
-              keywords_positions: { "اسايمنت": [1, 3] },
+              keywords_positions: { اسايمنت: [1, 3] },
             },
           ],
           fetchedAt: "2026-09-28T00:00:00Z",
@@ -346,7 +346,7 @@ describe("per-keyword ranking correctness (Condition A)", () => {
             {
               domain: "emtyiaz.com",
               avg_position: 2.5,
-              keywords_positions: { "اسايمنت": [1, 3] },
+              keywords_positions: { اسايمنت: [1, 3] },
             },
           ],
           fetchedAt: "2026-09-28T00:00:00Z",
@@ -392,7 +392,7 @@ describe("per-keyword ranking correctness (Condition A)", () => {
           items: [
             {
               domain: "emtyiaz.com",
-              keywords_positions: { "اسايمنت": [2] },
+              keywords_positions: { اسايمنت: [2] },
             },
           ],
           fetchedAt: "2026-09-28T00:00:00Z",

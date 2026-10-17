@@ -110,7 +110,9 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
   const [endDate, setEndDate] = useState<string | undefined>();
   const [compareMode, setCompareMode] =
     useState<CompareMode>("previous_period");
-  const [compareStartDate, setCompareStartDate] = useState<string | undefined>();
+  const [compareStartDate, setCompareStartDate] = useState<
+    string | undefined
+  >();
   const [compareEndDate, setCompareEndDate] = useState<string | undefined>();
 
   const [device, setDevice] = useState<SearchPerformanceDevice | typeof ALL>(

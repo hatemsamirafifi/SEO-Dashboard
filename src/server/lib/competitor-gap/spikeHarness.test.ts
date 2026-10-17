@@ -30,11 +30,14 @@ vi.mock("@/server/lib/seo-data/cost-tracker", () => ({
   getCostCounters: () => ({ estimatedDataforseoCostUsd: 0 }),
 }));
 
-vi.mock("@/server/features/gsc/repositories/GscSearchPerformanceRepository", () => ({
-  GscSearchPerformanceRepository: {
-    getStoredCoverageRange: vi.fn(),
-  },
-}));
+vi.mock(
+  "@/server/features/gsc/repositories/GscSearchPerformanceRepository",
+  () => ({
+    GscSearchPerformanceRepository: {
+      getStoredCoverageRange: vi.fn(),
+    },
+  }),
+);
 
 import {
   runSpike,
@@ -76,10 +79,12 @@ const BILLING: BillingCustomerContext = {
 
 function passingDeps(): SpikeHarnessDeps {
   return {
-    fetchCompetitors: vi.fn().mockResolvedValue([
-      { domain: "competitor-a.com", keyword_count: 10 },
-      { domain: "competitor-b.com" },
-    ]),
+    fetchCompetitors: vi
+      .fn()
+      .mockResolvedValue([
+        { domain: "competitor-a.com", keyword_count: 10 },
+        { domain: "competitor-b.com" },
+      ]),
     fetchFirstPartyCoverageRatio: vi.fn().mockResolvedValue(0.9),
     measureCredits: vi.fn().mockReturnValue(0),
     now: () => new Date("2026-10-09T12:00:00.000Z"),
@@ -125,12 +130,14 @@ describe("runSpike — evidence shape (T011a)", () => {
 
     expect(row.verdict).toBe("COMPETITOR_GAP_READY");
     expect(row.evidence.quality.status).toBe("measured");
-    if (row.evidence.quality.status !== "measured") throw new Error("unreachable");
+    if (row.evidence.quality.status !== "measured")
+      throw new Error("unreachable");
     expect(row.evidence.quality.value.keywordCoverageRatio).toBe(1);
     expect(row.evidence.quality.value.requiredFieldMissingRate).toBe(0);
 
     expect(row.evidence.coverage.status).toBe("measured");
-    if (row.evidence.coverage.status !== "measured") throw new Error("unreachable");
+    if (row.evidence.coverage.status !== "measured")
+      throw new Error("unreachable");
     expect(row.evidence.coverage.value.firstPartyCoverageRatio).toBe(0.9);
     expect(row.evidence.coverage.value.window).toEqual({
       from: "2026-09-11",
@@ -139,14 +146,16 @@ describe("runSpike — evidence shape (T011a)", () => {
 
     expect(row.evidence.cost.status).toBe("measured");
     expect(row.evidence.identity.status).toBe("measured");
-    if (row.evidence.identity.status !== "measured") throw new Error("unreachable");
+    if (row.evidence.identity.status !== "measured")
+      throw new Error("unreachable");
     // 6 raw variants per domain × 2 domains; distinct inputs never collide
     // under the §006 chain (www vs apex are deliberately DIFFERENT hosts).
     expect(row.evidence.identity.value.collisionsObserved).toBe(0);
     expect(row.evidence.identity.value.nonDeterministicMappings).toBe(0);
 
     expect(row.evidence.cache.status).toBe("measured");
-    if (row.evidence.cache.status !== "measured") throw new Error("unreachable");
+    if (row.evidence.cache.status !== "measured")
+      throw new Error("unreachable");
     expect(row.evidence.cache.value.repeatAnalysisPaidCalls).toBe(0);
     expect(row.evidence.cache.value.repeatCacheHitRate).toBe(1);
   });
@@ -165,13 +174,14 @@ describe("runSpike — evidence shape (T011a)", () => {
 describe("runSpike — provider failure → unavailable, never 0 (T011b, P8/P9)", () => {
   it("marks the quality dimension unavailable when competitor fetches fail", async () => {
     const deps = passingDeps();
-    deps.fetchCompetitors = vi.fn().mockRejectedValue(
-      new Error("DATAFORSEO_ACCESS_PAUSED"),
-    );
+    deps.fetchCompetitors = vi
+      .fn()
+      .mockRejectedValue(new Error("DATAFORSEO_ACCESS_PAUSED"));
     const row = await runSpike({ manifest: MANIFEST, billing: BILLING, deps });
 
     expect(row.evidence.quality.status).toBe("unavailable");
-    if (row.evidence.quality.status !== "unavailable") throw new Error("unreachable");
+    if (row.evidence.quality.status !== "unavailable")
+      throw new Error("unreachable");
     expect(row.evidence.quality.reason).toContain("DATAFORSEO_ACCESS_PAUSED");
     expect(row.verdict).toBe("COMPETITOR_GAP_BLOCKED");
   });
@@ -193,7 +203,8 @@ describe("runSpike — provider failure → unavailable, never 0 (T011b, P8/P9)"
     const row = await runSpike({ manifest: MANIFEST, billing: BILLING, deps });
 
     expect(row.evidence.quality.status).toBe("measured");
-    if (row.evidence.quality.status !== "measured") throw new Error("unreachable");
+    if (row.evidence.quality.status !== "measured")
+      throw new Error("unreachable");
     expect(row.evidence.quality.value.keywordCoverageRatio).toBe(0);
     // A measured 0-coverage still fails the threshold — BLOCKED, but with a
     // measured value, not an unavailable marker.
@@ -205,7 +216,8 @@ describe("runSpike — identity measurement (T011c)", () => {
   it("detects no collisions across scheme/case/trailing-slash/query variants", async () => {
     const deps = passingDeps();
     const row = await runSpike({ manifest: MANIFEST, billing: BILLING, deps });
-    if (row.evidence.identity.status !== "measured") throw new Error("unreachable");
+    if (row.evidence.identity.status !== "measured")
+      throw new Error("unreachable");
     expect(row.evidence.identity.value.collisionsObserved).toBe(0);
     expect(row.evidence.identity.value.nonDeterministicMappings).toBe(0);
   });
@@ -215,7 +227,8 @@ describe("runSpike — cache reuse (T011d, SC-004)", () => {
   it("reports zero repeat paid calls and hit rate 1 when the repeat fetch is free", async () => {
     const deps = passingDeps();
     const row = await runSpike({ manifest: MANIFEST, billing: BILLING, deps });
-    if (row.evidence.cache.status !== "measured") throw new Error("unreachable");
+    if (row.evidence.cache.status !== "measured")
+      throw new Error("unreachable");
     expect(row.evidence.cache.value.repeatAnalysisPaidCalls).toBe(0);
     expect(row.evidence.cache.value.repeatCacheHitRate).toBe(1);
     // One fetch per domain (quality) + one repeat (cache): 3 total calls.
@@ -231,7 +244,8 @@ describe("runSpike — cache reuse (T011d, SC-004)", () => {
       return [{ domain: "competitor-a.com" }];
     });
     const row = await runSpike({ manifest: MANIFEST, billing: BILLING, deps });
-    if (row.evidence.cache.status !== "measured") throw new Error("unreachable");
+    if (row.evidence.cache.status !== "measured")
+      throw new Error("unreachable");
     expect(row.evidence.cache.value.repeatAnalysisPaidCalls).toBe(1);
     expect(row.evidence.cache.value.repeatCacheHitRate).toBe(0);
     expect(row.verdict).toBe("COMPETITOR_GAP_BLOCKED");

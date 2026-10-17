@@ -6,16 +6,16 @@ D1/SQLite and PostgreSQL parity is mandatory (P3). All tables additive, project/
 
 Append-only durable ledger for spike verdicts. Authoritative gate for Part B/C availability (P42).
 
-| Field | Type | Notes |
-|-------|------|-------|
-| id | text (PK) | deterministic id from manifest hash + recordedAt |
-| organizationId | text (FK) | org scope |
-| projectId | text (FK) | project scope (P39) |
-| verdict | text | enum: `COMPETITOR_GAP_READY` \| `COMPETITOR_GAP_BLOCKED` (FR-002) |
-| evidence | text (JSON) | frozen measurements: 5 dimensions per research R3 (quality, coverage, cost, identity, cache) |
-| thresholds | text (JSON) | the pre-registered threshold set evaluated (R4) |
-| inputManifest | text (JSON) | spike config: sampled domains, keyword-set ref, market, budget cap, time box |
-| recordedAt | text (ISO) | immutable append timestamp |
+| Field          | Type        | Notes                                                                                        |
+| -------------- | ----------- | -------------------------------------------------------------------------------------------- |
+| id             | text (PK)   | deterministic id from manifest hash + recordedAt                                             |
+| organizationId | text (FK)   | org scope                                                                                    |
+| projectId      | text (FK)   | project scope (P39)                                                                          |
+| verdict        | text        | enum: `COMPETITOR_GAP_READY` \| `COMPETITOR_GAP_BLOCKED` (FR-002)                            |
+| evidence       | text (JSON) | frozen measurements: 5 dimensions per research R3 (quality, coverage, cost, identity, cache) |
+| thresholds     | text (JSON) | the pre-registered threshold set evaluated (R4)                                              |
+| inputManifest  | text (JSON) | spike config: sampled domains, keyword-set ref, market, budget cap, time box                 |
+| recordedAt     | text (ISO)  | immutable append timestamp                                                                   |
 
 - Indexes: `(organizationId, projectId, recordedAt desc)` for latest-verdict reads.
 - No updates/deletes by product code paths; supersession = new row (FR-003).
