@@ -13,7 +13,8 @@ const authModeSchema = z.enum(AUTH_MODES);
 const warnedInvalidAuthModes = new Set<string>();
 
 export function getAuthMode(value: string | null | undefined): AuthMode {
-  const parsed = authModeSchema.safeParse(value);
+  const normalized = value?.trim();
+  const parsed = authModeSchema.safeParse(normalized);
   if (parsed.success) return parsed.data;
 
   // Unset stays a silent fail-closed default; a SET-but-invalid value is a
