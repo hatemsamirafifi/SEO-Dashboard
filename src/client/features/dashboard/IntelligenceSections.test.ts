@@ -1,11 +1,12 @@
 /** Dashboard intelligence sections rendering (spec 011, US3 — T021).
  *
- *  TDD: FAILS until IntelligenceSections + SectionStateShell exist (T023).
  *  - metrics render only in data states (ready/partial/stale)
  *  - not_connected renders the connect CTA, never numbers
  *  - no_data and empty render distinct messages (never zeroed numbers)
  *  - failure renders retry affordance, never metric values
- *  - goal-named conversion rows render by stored name */
+ *  - goal-named conversion rows render by stored name
+ *  - renders full metric suite: CTR, avg position, organic sessions, engagement rate, top 100,
+ *    transactions, top issues breakdown, new/lost backlinks, fact vs recommendation */
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -22,7 +23,10 @@ function delta(current: number, previous: number | null = null) {
     current,
     previous,
     change: previous === null ? null : current - previous,
-    changePct: null,
+    changePct:
+      previous === null || previous === 0
+        ? null
+        : ((current - previous) / previous) * 100,
   };
 }
 
@@ -45,9 +49,9 @@ function readySections(): DashboardIntelligenceSections {
         top3: delta(1, null),
         top10: delta(1, null),
         top100: delta(2, null),
-        improved: 1,
+        improved: 3,
         declined: 1,
-        trackedKeywords: 1,
+        trackedKeywords: 10,
       },
     },
     trafficEngagement: {
@@ -71,18 +75,29 @@ function readySections(): DashboardIntelligenceSections {
     opportunities: {
       state: "ready",
       coverage: coverage("opportunities"),
-      metrics: { critical: 1, high: 1, medium: 1, openTotal: 3 },
+      metrics: { critical: 1, high: 2, medium: 3, openTotal: 6 },
     },
     technicalHealth: {
       state: "ready",
       coverage: coverage("audit"),
       metrics: {
         status: "completed",
-        pagesCrawled: 10,
-        startedAt: new Date().toISOString(),
-        topIssues: [],
-        totalIssueTypes: 0,
-        lastAuditAt: new Date().toISOString(),
+        pagesCrawled: 42,
+        startedAt: "2026-09-27T00:00:00.000Z",
+        topIssues: [
+          {
+            issueType: "broken_internal_links",
+            severity: "critical",
+            count: 3,
+          },
+          {
+            issueType: "missing_meta_descriptions",
+            severity: "warning",
+            count: 8,
+          },
+        ],
+        totalIssueTypes: 3,
+        lastAuditAt: "2026-09-27T00:00:00.000Z",
       },
     },
     backlinks: {
@@ -95,7 +110,7 @@ function readySections(): DashboardIntelligenceSections {
         lostBacklinks: 3,
         newReferringDomains: 4,
         lostReferringDomains: 1,
-        capturedAt: new Date().toISOString(),
+        capturedAt: "2026-09-27T00:00:00.000Z",
       },
     },
     recentChanges: {
@@ -128,13 +143,85 @@ function render(sections: DashboardIntelligenceSections) {
   );
 }
 
-describe("IntelligenceSections (spec 011, T021)", () => {
-  it("renders stored metrics in ready state, including goal-named conversions", () => {
+describe("IntelligenceSections (spec 011, T021 & Dashboard Intelligence UI)", () => {
+  it("renders stored metrics in ready state across all eight sections", () => {
     const html = render(readySections());
+    // SEO performance: clicks, impressions, ctr, avgPosition
+    expect(html).toContain("Clicks");
+    expect(html).toContain("Impressions");
+    expect(html).toContain("CTR");
+    expect(html).toContain("Avg position");
+    expect(html).toContain("10.0%"); // 0.1 * 100
+
+    // Search visibility: top 3, top 10, top 100, ranking movements
+    expect(html).toContain("Top 3");
+    expect(html).toContain("Top 10");
+    expect(html).toContain("Top 100");
+    expect(html).toContain("3 improved");
+    expect(html).toContain("1 declined");
+
+    // Traffic & engagement: sessions, organic sessions, engaged sessions, engagement rate
+    expect(html).toContain("Sessions");
+    expect(html).toContain("Organic sessions");
+    expect(html).toContain("Engaged sessions");
+    expect(html).toContain("Engagement rate");
+    expect(html).toContain("60.0%"); // 0.6 * 100
+
+    // Conversions: transactions & key events
+    expect(html).toContain("Transactions");
     expect(html).toContain("Newsletter signup");
+
+    // Opportunities: open, critical, high, medium
+    expect(html).toContain("Open Opportunities");
+    expect(html).toContain(">6<");
+
+    // Technical health: crawled pages & top issues breakdown
+    expect(html).toContain("42");
+    expect(html).toContain("broken_internal_links");
+    expect(html).toContain("3 pages");
+    expect(html).toContain("+ 1 more issue");
+
+    // Backlinks: totals and new/lost links
+    expect(html).toContain("1,000");
+    expect(html).toContain("500");
+    expect(html).toContain("▲ 10");
+    expect(html).toContain("▼ 3");
+
+    // Recent changes: fact vs recommendation, sources, severity
     expect(html).toContain("Traffic dip");
     expect(html).toContain("Clicks dropped 20% this week.");
-    expect(html).toContain("Open Opportunities");
+    expect(html).toContain("Recommendation:");
+    expect(html).toContain("Check decayed pages.");
+    expect(html).toContain("GSC");
+    expect(html).toContain("High");
+  });
+
+  it("renders healthy message when technical health audit has no issues", () => {
+    const sections = readySections();
+    sections.technicalHealth.metrics = {
+      status: "completed",
+      pagesCrawled: 50,
+      startedAt: "2026-09-27T00:00:00.000Z",
+      topIssues: [],
+      totalIssueTypes: 0,
+      lastAuditAt: "2026-09-27T00:00:00.000Z",
+    };
+    const html = render(sections);
+    expect(html).toContain("No issues found — your site looks healthy.");
+  });
+
+  it("does not render healthy banner when audit crawled 0 pages", () => {
+    const sections = readySections();
+    sections.technicalHealth.metrics = {
+      status: "completed",
+      pagesCrawled: 0,
+      startedAt: "2026-09-27T00:00:00.000Z",
+      topIssues: [],
+      totalIssueTypes: 0,
+      lastAuditAt: "2026-09-27T00:00:00.000Z",
+    };
+    const html = render(sections);
+    expect(html).not.toContain("No issues found — your site looks healthy.");
   });
 
   it("keeps metrics visible in partial and stale states with a footnote", () => {
@@ -156,8 +243,7 @@ describe("IntelligenceSections (spec 011, T021)", () => {
     const html = render(sections);
     expect(html).toContain("Connect Google Analytics");
     expect(html).toContain("Open Analytics");
-    // The disconnected section contributes no metric stats (other sections
-    // still render theirs — scope the absence to this section's labels).
+    // The disconnected section contributes no metric stats
     expect(html).not.toContain("Engaged sessions");
   });
 

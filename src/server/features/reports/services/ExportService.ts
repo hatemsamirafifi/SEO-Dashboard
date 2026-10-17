@@ -6,7 +6,7 @@ import { stableHash } from "@/shared/intelligence";
 import { parseBrandingSnapshot } from "@/shared/reports";
 import { ReportRepository } from "../repositories/ReportRepository";
 import { SharingRepository } from "../repositories/SharingRepository";
-import { buildPrintModel } from "./printModel";
+import { buildPrintModel, hasUnsupportedArabicText } from "./printModel";
 import { renderPrintHtml } from "./printHtml";
 import { renderPdfDocument } from "./pdfDocument";
 import { parseReportPayload } from "./ReportService";
@@ -51,7 +51,12 @@ async function readSidecar(
     };
     return typeof ready.r2Key === "string" &&
       typeof ready.sizeBytes === "number"
-      ? { status: "ready", format, r2Key: ready.r2Key, sizeBytes: ready.sizeBytes }
+      ? {
+          status: "ready",
+          format,
+          r2Key: ready.r2Key,
+          sizeBytes: ready.sizeBytes,
+        }
       : { status: "none" };
   }
   if (record.status === "failed") {
@@ -87,6 +92,27 @@ export async function requestExport(input: {
     input.projectId,
   );
   if (!report) throw new AppError("NOT_FOUND", "Report not found");
+  try {
+    const payload = parseReportPayload(report);
+    const branding = parseBrandingSnapshot(report.brandingSnapshotJson);
+    const earlyModel = buildPrintModel(payload, branding);
+
+    if (input.format === "pdf" && hasUnsupportedArabicText(earlyModel)) {
+      await writeSidecar(report.id, "pdf", {
+        status: "failed",
+        error: "ARABIC_PDF_UNSUPPORTED",
+      });
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Native PDF export does not support Arabic text. Please use the Print / Save as PDF view.",
+      );
+    }
+  } catch (err) {
+    if (err instanceof AppError && err.code === "VALIDATION_ERROR") throw err;
+    // Corrupt payload or schema parse error falls through to the async worker
+    // which records status: "failed" on the sidecar.
+  }
+
   // Content-addressed bytes: re-exporting an unchanged snapshot reuses the
   // stored object instead of rendering again.
   const contentHash = await stableHash(report.payloadSnapshotJson);
@@ -146,8 +172,7 @@ export async function requestExport(input: {
         });
       } catch (error) {
         // Failures surface as status with a code — never payload text or PII.
-        const code =
-          error instanceof AppError ? error.code : "EXPORT_FAILED";
+        const code = error instanceof AppError ? error.code : "EXPORT_FAILED";
         await writeSidecar(report.id, input.format, {
           status: "failed",
           error: code,
@@ -178,7 +203,11 @@ export async function downloadExport(input: {
   reportId: string;
   projectId: string;
   format: ExportFormat;
-}): Promise<{ body: ReadableStream | string; contentType: string; fileName: string } | null> {
+}): Promise<{
+  body: ReadableStream | string;
+  contentType: string;
+  fileName: string;
+} | null> {
   const report = await ReportRepository.getByIdForProject(
     input.reportId,
     input.projectId,
@@ -191,8 +220,7 @@ export async function downloadExport(input: {
   const fileName = status.r2Key.split("/").at(-1) ?? `report.${input.format}`;
   return {
     body: object.body,
-    contentType:
-      input.format === "pdf" ? "application/pdf" : "text/html",
+    contentType: input.format === "pdf" ? "application/pdf" : "text/html",
     fileName,
   };
 }

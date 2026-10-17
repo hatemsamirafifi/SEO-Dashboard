@@ -10,7 +10,7 @@ import {
 // workflows, consumed by the UI picker, Zod trust boundaries, and SAM tools.
 
 describe("autopilot workflow allowlist", () => {
-  it("lists the six registered workflows in wave order", () => {
+  it("lists the seven registered workflows in wave order", () => {
     expect([...AUTOPILOT_WORKFLOW_TYPES]).toEqual([
       "growth_plan",
       "quick_wins",
@@ -18,6 +18,7 @@ describe("autopilot workflow allowlist", () => {
       "content_refresh",
       "technical_seo",
       "monthly_review",
+      "competitor_gap",
     ]);
   });
 
@@ -30,8 +31,8 @@ describe("autopilot workflow allowlist", () => {
     }
   });
 
-  it("structurally excludes the gated competitor-gap workflow (G5/P36)", () => {
-    expect(isAutopilotWorkflowType("competitor_gap")).toBe(false);
+  it("includes the competitor-gap workflow implemented behind G5 gate (spec 014)", () => {
+    expect(isAutopilotWorkflowType("competitor_gap")).toBe(true);
     expect(isAutopilotWorkflowType("arbitrary_workflow")).toBe(false);
     expect(isAutopilotWorkflowType("")).toBe(false);
   });

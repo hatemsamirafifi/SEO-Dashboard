@@ -23,11 +23,12 @@ type SerpItem = {
   url: string | null;
   domain: string | null;
   description: string | null;
-  // Competitive enrichment overlay (spec 007, opt-in only).
   domainRank?: number | null;
   pageRank?: number | null;
   referringDomains?: number | null;
   backlinks?: number | null;
+  spamScore?: number | null;
+  stale?: boolean | null;
   metricStatus?: "available" | "partial" | "unavailable" | "failed";
 };
 
@@ -93,6 +94,8 @@ async function mergeCompetitiveMetrics(
     item.pageRank = metrics.pageRank;
     item.referringDomains = metrics.referringDomains;
     item.backlinks = metrics.backlinks;
+    item.spamScore = metrics.spamScore;
+    item.stale = metrics.stale;
     item.metricStatus = metrics.status;
   }
 }

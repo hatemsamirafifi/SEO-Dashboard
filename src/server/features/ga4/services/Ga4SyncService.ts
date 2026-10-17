@@ -40,6 +40,7 @@ export type Ga4SyncOptions = {
   startDate?: string;
   endDate?: string;
   chunkDays?: number;
+  force?: boolean;
 };
 
 export type Ga4SyncResult = {
@@ -110,6 +111,25 @@ async function resolveSyncWindow(
       todayUtc,
     );
     if (lastCovered) {
+      if (requestedType === "manual") {
+        // When a user clicks "Sync now", they explicitly want fresh data from GA4.
+        // Google Analytics 4 processing latency is 24-48 hours, and intraday data
+        // mutates throughout the day. Re-fetch a recent sliding window (last 3 days)
+        // up to today, or from lastCovered+1 if behind.
+        const recentFloor = addDaysUtc(todayUtc, -3);
+        const next = addDaysUtc(lastCovered, 1);
+        const startDate =
+          next > todayUtc
+            ? recentFloor
+            : next < recentFloor
+              ? next
+              : recentFloor;
+        return {
+          startDate,
+          endDate: todayUtc,
+          syncType: "manual",
+        };
+      }
       const next = addDaysUtc(lastCovered, 1);
       return {
         startDate: next > todayUtc ? lastCovered : next,
@@ -528,7 +548,10 @@ async function runSync(options: Ga4SyncOptions): Promise<Ga4SyncResult> {
   const sync = createResult.sync;
 
   const dates = eachDayUtc(startDate, endDate);
-  const force = Boolean(options.startDate && options.endDate);
+  const force =
+    options.force ??
+    (Boolean(options.startDate && options.endDate) ||
+      (options.syncType ?? "manual") === "manual");
   await Ga4SyncRepository.seedPendingUnits({
     projectId: options.projectId,
     propertyId,

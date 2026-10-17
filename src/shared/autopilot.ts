@@ -12,6 +12,7 @@ export const AUTOPILOT_WORKFLOW_TYPES = [
   "content_refresh",
   "technical_seo",
   "monthly_review",
+  "competitor_gap",
 ] as const;
 export type AutopilotWorkflowType = (typeof AUTOPILOT_WORKFLOW_TYPES)[number];
 
@@ -43,8 +44,10 @@ export const AUTOPILOT_STEP_KINDS = [
 ] as const;
 export type AutopilotStepKind = (typeof AUTOPILOT_STEP_KINDS)[number];
 
-export type AutopilotStepStatus =
-  | Extract<AutopilotAttemptStatus, "pending" | "running" | "completed" | "failed">;
+export type AutopilotStepStatus = Extract<
+  AutopilotAttemptStatus,
+  "pending" | "running" | "completed" | "failed"
+>;
 
 export function isAutopilotWorkflowType(
   value: unknown,
@@ -66,6 +69,7 @@ export const AUTOPILOT_WORKFLOW_LABELS: Record<AutopilotWorkflowType, string> =
     content_refresh: "Content refresh",
     technical_seo: "Technical SEO",
     monthly_review: "Monthly review",
+    competitor_gap: "Competitor gap",
   };
 
 export const AUTOPILOT_WORKFLOW_DESCRIPTIONS: Record<
@@ -83,6 +87,8 @@ export const AUTOPILOT_WORKFLOW_DESCRIPTIONS: Record<
     "Prioritized technical fixes from the latest stored audit, with explicit coverage when the audit is missing or stale.",
   monthly_review:
     "What changed last month, what remains unresolved, and evidence-backed next actions from frozen stored evidence.",
+  competitor_gap:
+    "Action plan from stored competitor gap opportunities, highlighting target keywords and pages without fabricated uplift.",
 };
 
 export const AUTOPILOT_STEP_KIND_LABELS: Record<AutopilotStepKind, string> = {
@@ -98,6 +104,9 @@ export const AUTOPILOT_TERMINAL_STATUSES = [
   "failed",
   "cancelled",
 ] as const;
+
+export const AUTOPILOT_MAX_STEPS = 12;
+export const AUTOPILOT_MAX_TOOL_CALLS = 20;
 
 export function isAutopilotRunActive(status: AutopilotRunStatus): boolean {
   return status === "pending" || status === "running";

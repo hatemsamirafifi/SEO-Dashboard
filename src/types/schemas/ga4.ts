@@ -37,13 +37,25 @@ export const ANALYTICS_RANGES = [
   "last_28_days",
   "last_30_days",
   "last_90_days",
+  "last_3_months",
+  "last_6_months",
+  "last_12_months",
+  "last_16_months",
+  "custom",
 ] as const;
 export type AnalyticsRange = (typeof ANALYTICS_RANGES)[number];
-export const ANALYTICS_RANGE_DAYS: Record<AnalyticsRange, number> = {
+export const ANALYTICS_RANGE_DAYS: Record<
+  Exclude<AnalyticsRange, "custom">,
+  number
+> = {
   last_7_days: 7,
   last_28_days: 28,
   last_30_days: 30,
   last_90_days: 90,
+  last_3_months: 90,
+  last_6_months: 180,
+  last_12_months: 365,
+  last_16_months: 480,
 };
 
 /** GA4 `deviceCategory` dimension values (lowercase, as the Data API
@@ -96,6 +108,25 @@ export const ga4GoalIdSchema = z
 const analyticsFilterShape = {
   projectId: z.string().min(1),
   range: z.enum(ANALYTICS_RANGES).default("last_28_days"),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  compareMode: z
+    .enum(["none", "previous_period", "previous_year", "custom"])
+    .default("none"),
+  compareStartDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  compareEndDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   channel: z.string().min(1).max(100).optional(),
   device: z.enum(GA4_ANALYTICS_DEVICES).optional(),
   country: z.string().min(1).max(100).optional(),
@@ -144,7 +175,9 @@ const analyticsGrainWindowShape = {
   to: ga4DateSchema,
 };
 
-function windowOrdered<T extends { from: string; to: string }>(schema: z.ZodType<T>) {
+function windowOrdered<T extends { from: string; to: string }>(
+  schema: z.ZodType<T>,
+) {
   return schema.refine((value) => value.from <= value.to, {
     message: "from must not be after to",
   });

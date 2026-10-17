@@ -360,7 +360,7 @@ describe("DataforseoSettingsService configuration and persistence", () => {
           password: "new-password",
           enabled: true,
           circuitBreakerEnabled: true,
-        maxRetries: 2,
+          maxRetries: 2,
         },
       });
 
@@ -855,6 +855,8 @@ describe("DataforseoSettingsService checkDataforseoApiStatus", () => {
     expect(result.status).toBe(504);
     expect(result.reason).toBe("TRANSIENT_UPSTREAM");
     expect(result.endpoints).toEqual([]);
+    // 1 initial attempt + 3 retries for transient 5xx.
+    expect(mockFetch).toHaveBeenCalledTimes(4);
   });
 
   it("handles network failure safely without throwing", async () => {
@@ -873,5 +875,138 @@ describe("DataforseoSettingsService checkDataforseoApiStatus", () => {
     expect(result.status).toBe(503);
     expect(result.reason).toBe("TRANSIENT_UPSTREAM");
     expect(result.endpoints).toEqual([]);
+    // 1 initial attempt + 3 retries for transport failures.
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("recovers when a transient failure clears on retry", async () => {
+    const okPayload = {
+      status_code: 20000,
+      tasks: [
+        {
+          status_code: 20000,
+          result: [{ api: "serp", status: "ok", endpoints: null }],
+        },
+      ],
+    };
+    const mockFetch = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error("Fetch failed"))
+      .mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(okPayload), { status: 200 }),
+      );
+
+    const result = await checkDataforseoApiStatus({
+      organizationId: "org-1",
+      login: "flaky-user",
+      password: "pass",
+      fetchFn: mockFetch,
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(result.ok).toBe(true);
+    expect(result.reason).toBe("CONNECTED");
+    expect(result.endpoints).toHaveLength(1);
+  });
+
+  it("does not retry permanent credential failures", async () => {
+    const mockFetch = vi.fn<typeof fetch>(
+      async () =>
+        new Response(JSON.stringify({ status_code: 40100 }), { status: 401 }),
+    );
+
+    const result = await checkDataforseoApiStatus({
+      organizationId: "org-1",
+      login: "bad-user",
+      password: "bad-password",
+      fetchFn: mockFetch,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("INVALID_CREDENTIALS");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry rate limiting", async () => {
+    const mockFetch = vi.fn<typeof fetch>(
+      async () =>
+        new Response(JSON.stringify({ status_code: 42900 }), { status: 429 }),
+    );
+
+    const result = await checkDataforseoApiStatus({
+      organizationId: "org-1",
+      login: "limited-user",
+      password: "pass",
+      fetchFn: mockFetch,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("RATE_LIMITED");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the shared circuit on deterministic credential failure and heals it on success", async () => {
+    const identity = {
+      provider: "dataforseo",
+      organizationId: "org-1",
+      projectId: null,
+      credentialFingerprint: await fingerprintProviderCredential("dataforseo", [
+        "circuit-user",
+        "circuit-pass",
+      ]),
+    };
+
+    const failingFetch = vi.fn<typeof fetch>(
+      async () => new Response("Unauthorized", { status: 401 }),
+    );
+    const failed = await checkDataforseoApiStatus({
+      organizationId: "org-1",
+      login: "circuit-user",
+      password: "circuit-pass",
+      fetchFn: failingFetch,
+    });
+    expect(failed.reason).toBe("INVALID_CREDENTIALS");
+    expect(getProviderCircuitState(identity)?.state).toBe("open");
+
+    const okPayload = { status_code: 20000, tasks: [] };
+    const succeedingFetch = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify(okPayload), { status: 200 }),
+    );
+    const recovered = await checkDataforseoApiStatus({
+      organizationId: "org-1",
+      login: "circuit-user",
+      password: "circuit-pass",
+      fetchFn: succeedingFetch,
+    });
+    expect(recovered.ok).toBe(true);
+    expect(getProviderCircuitState(identity)).toBeNull();
+  });
+
+  it("does not open the circuit on pure transient failures alone", async () => {
+    const identity = {
+      provider: "dataforseo",
+      organizationId: "org-1",
+      projectId: null,
+      credentialFingerprint: await fingerprintProviderCredential("dataforseo", [
+        "transient-user",
+        "transient-pass",
+      ]),
+    };
+
+    const mockFetch = vi.fn<typeof fetch>(async () => {
+      throw new Error("Fetch failed");
+    });
+    const result = await checkDataforseoApiStatus({
+      organizationId: "org-1",
+      login: "transient-user",
+      password: "transient-pass",
+      fetchFn: mockFetch,
+    });
+
+    expect(result.reason).toBe("TRANSIENT_UPSTREAM");
+    // Transient evidence alone never opens a closed circuit (mirrors the
+    // connection test's recordFailedProbe semantics).
+    expect(getProviderCircuitState(identity)).toBeNull();
   });
 });

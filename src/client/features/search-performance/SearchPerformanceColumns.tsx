@@ -33,6 +33,48 @@ export function formatPosition(value: number): string {
   return value.toFixed(1);
 }
 
+function MetricDiffCell({
+  value,
+  change,
+  pctChange,
+  prevValue,
+  isPosition = false,
+}: {
+  value: string;
+  change?: number;
+  pctChange?: number | null;
+  prevValue?: string;
+  isPosition?: boolean;
+}) {
+  if (change === undefined) {
+    return <span>{value}</span>;
+  }
+  const isImproved = change > 0;
+  const isZero = change === 0;
+  const colorClass = isZero
+    ? "text-base-content/40"
+    : isImproved
+      ? "text-success font-medium"
+      : "text-error font-medium";
+  const sign = change > 0 ? "+" : "";
+
+  return (
+    <div className="flex flex-col items-end leading-tight">
+      <span className="font-semibold text-base-content">{value}</span>
+      <span
+        className={`text-[11px] ${colorClass}`}
+        title={prevValue ? `Previous: ${prevValue}` : undefined}
+      >
+        {sign}
+        {isPosition ? change.toFixed(1) : formatCount(change)}
+        {pctChange !== undefined && pctChange !== null
+          ? ` (${sign}${pctChange.toFixed(1)}%)`
+          : ""}
+      </span>
+    </div>
+  );
+}
+
 const rightAligned = {
   headerClassName: "text-right",
   cellClassName: "text-right tabular-nums",
@@ -57,28 +99,71 @@ export function buildDimensionColumns(
       header: ({ column }) => (
         <SortableHeader column={column} label="Clicks" align="right" />
       ),
-      cell: ({ getValue }) => formatCount(getValue()),
+      cell: ({ row }) => (
+        <MetricDiffCell
+          value={formatCount(row.original.clicks)}
+          change={row.original.clicksChange}
+          pctChange={row.original.clicksPctChange}
+          prevValue={
+            row.original.prevClicks !== undefined
+              ? formatCount(row.original.prevClicks)
+              : undefined
+          }
+        />
+      ),
       meta: rightAligned,
     }),
     dimensionHelper.accessor("impressions", {
       header: ({ column }) => (
         <SortableHeader column={column} label="Impressions" align="right" />
       ),
-      cell: ({ getValue }) => formatCount(getValue()),
+      cell: ({ row }) => (
+        <MetricDiffCell
+          value={formatCount(row.original.impressions)}
+          change={row.original.impressionsChange}
+          pctChange={row.original.impressionsPctChange}
+          prevValue={
+            row.original.prevImpressions !== undefined
+              ? formatCount(row.original.prevImpressions)
+              : undefined
+          }
+        />
+      ),
       meta: rightAligned,
     }),
     dimensionHelper.accessor("ctr", {
       header: ({ column }) => (
         <SortableHeader column={column} label="CTR" align="right" />
       ),
-      cell: ({ getValue }) => formatCtr(getValue()),
+      cell: ({ row }) => (
+        <MetricDiffCell
+          value={formatCtr(row.original.ctr)}
+          change={row.original.ctrChange}
+          prevValue={
+            row.original.prevCtr !== undefined
+              ? formatCtr(row.original.prevCtr)
+              : undefined
+          }
+        />
+      ),
       meta: rightAligned,
     }),
     dimensionHelper.accessor("position", {
       header: ({ column }) => (
         <SortableHeader column={column} label="Position" align="right" />
       ),
-      cell: ({ getValue }) => formatPosition(getValue()),
+      cell: ({ row }) => (
+        <MetricDiffCell
+          value={formatPosition(row.original.position)}
+          change={row.original.positionChange}
+          prevValue={
+            row.original.prevPosition !== undefined
+              ? formatPosition(row.original.prevPosition)
+              : undefined
+          }
+          isPosition
+        />
+      ),
       meta: rightAligned,
     }),
   ];
@@ -103,8 +188,6 @@ export function buildStrikingColumns(
     strikingHelper.accessor("page", {
       enableSorting: false,
       header: () => "Page",
-      // GSC page keys are canonical http(s) URLs of the verified property;
-      // the scheme check is defense-in-depth before rendering an href.
       cell: ({ getValue }) =>
         /^https?:\/\//.test(getValue()) ? (
           <a
@@ -126,21 +209,54 @@ export function buildStrikingColumns(
       header: ({ column }) => (
         <SortableHeader column={column} label="Impressions" align="right" />
       ),
-      cell: ({ getValue }) => formatCount(getValue()),
+      cell: ({ row }) => (
+        <MetricDiffCell
+          value={formatCount(row.original.impressions)}
+          change={row.original.impressionsChange}
+          pctChange={row.original.impressionsPctChange}
+          prevValue={
+            row.original.prevImpressions !== undefined
+              ? formatCount(row.original.prevImpressions)
+              : undefined
+          }
+        />
+      ),
       meta: rightAligned,
     }),
     strikingHelper.accessor("clicks", {
       header: ({ column }) => (
         <SortableHeader column={column} label="Clicks" align="right" />
       ),
-      cell: ({ getValue }) => formatCount(getValue()),
+      cell: ({ row }) => (
+        <MetricDiffCell
+          value={formatCount(row.original.clicks)}
+          change={row.original.clicksChange}
+          pctChange={row.original.clicksPctChange}
+          prevValue={
+            row.original.prevClicks !== undefined
+              ? formatCount(row.original.prevClicks)
+              : undefined
+          }
+        />
+      ),
       meta: rightAligned,
     }),
     strikingHelper.accessor("position", {
       header: ({ column }) => (
         <SortableHeader column={column} label="Position" align="right" />
       ),
-      cell: ({ getValue }) => formatPosition(getValue()),
+      cell: ({ row }) => (
+        <MetricDiffCell
+          value={formatPosition(row.original.position)}
+          change={row.original.positionChange}
+          prevValue={
+            row.original.prevPosition !== undefined
+              ? formatPosition(row.original.prevPosition)
+              : undefined
+          }
+          isPosition
+        />
+      ),
       meta: rightAligned,
     }),
   ];

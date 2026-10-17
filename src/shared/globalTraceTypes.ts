@@ -23,7 +23,11 @@ export type GlobalTraceFeature =
   | "prompt_explorer"
   | "settings"
   // Spec 010: GA4 goals + goal-scoped analytics reads trace here.
-  | "analytics";
+  | "analytics"
+  // Spec 014 (G5/P36): competitor-gap input spike measurements + verdict
+  // recording. Observability only — the durable competitor_gap_verdicts
+  // ledger row is authoritative (P42).
+  | "competitor_gap";
 
 export type GlobalTraceStatus =
   | "pending"

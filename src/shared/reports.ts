@@ -229,10 +229,12 @@ export const reportPayloadSchema = z.object({
   searchVisibility: z.object({
     status: metricAvailabilitySchema,
     totals: gscTotalsSchema.nullable(),
+    previousTotals: gscTotalsSchema.nullable().optional(),
   }),
   traffic: z.object({
     status: metricAvailabilitySchema,
     totals: ga4TotalsSchema.nullable(),
+    previousTotals: ga4TotalsSchema.nullable().optional(),
   }),
   conversions: z.object({
     status: metricAvailabilitySchema,
@@ -297,3 +299,58 @@ export const reportPayloadSchema = z.object({
   provenance: reportProvenanceSchema,
 });
 export type ReportPayload = z.infer<typeof reportPayloadSchema>;
+
+const ARABIC_RTL_REGEX =
+  /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+export function containsArabicText(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return ARABIC_RTL_REGEX.test(text);
+}
+
+export function hasUnsupportedArabicPayload(
+  payload: ReportPayload,
+  branding?: BrandingSnapshot | null,
+): boolean {
+  if (branding?.agency?.name && containsArabicText(branding.agency.name)) {
+    return true;
+  }
+  if (
+    branding?.agency?.footerText &&
+    containsArabicText(branding.agency.footerText)
+  ) {
+    return true;
+  }
+  if (branding?.client?.name && containsArabicText(branding.client.name)) {
+    return true;
+  }
+  if (
+    branding?.client?.titleOverride &&
+    containsArabicText(branding.client.titleOverride)
+  ) {
+    return true;
+  }
+
+  for (const opp of payload.opportunities ?? []) {
+    if (
+      containsArabicText(opp.title) ||
+      containsArabicText(opp.explanationFact) ||
+      containsArabicText(opp.recommendation)
+    ) {
+      return true;
+    }
+  }
+  for (const ins of payload.insights ?? []) {
+    if (
+      containsArabicText(ins.title) ||
+      containsArabicText(ins.explanationFact) ||
+      containsArabicText(ins.recommendation)
+    ) {
+      return true;
+    }
+  }
+  for (const issue of payload.technical?.topIssues ?? []) {
+    if (containsArabicText(issue.issueType)) return true;
+  }
+  return false;
+}

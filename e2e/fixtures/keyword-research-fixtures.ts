@@ -135,5 +135,10 @@ export function getSerpAnalysisFixture(keyword: string) {
       ],
     },
   };
-  return { requestedKeyword: keyword, items, features };
+  return {
+    requestedKeyword: keyword,
+    items,
+    features,
+    enrichmentAccountBlocked: null,
+  };
 }

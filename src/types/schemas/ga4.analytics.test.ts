@@ -11,12 +11,17 @@ import {
 } from "./ga4";
 
 describe("analytics range filter schemas", () => {
-  it("exposes exactly the 7/28/30/90d ranges", () => {
+  it("exposes the analytics ranges", () => {
     expect([...ANALYTICS_RANGES]).toEqual([
       "last_7_days",
       "last_28_days",
       "last_30_days",
       "last_90_days",
+      "last_3_months",
+      "last_6_months",
+      "last_12_months",
+      "last_16_months",
+      "custom",
     ]);
   });
 
@@ -32,7 +37,7 @@ describe("analytics range filter schemas", () => {
   });
 
   it("rejects unknown ranges", () => {
-    for (const range of ["last_7d", "custom", "last_12_months", ""]) {
+    for (const range of ["last_7d", "invalid_range", "2024-01-01", ""]) {
       expect(
         analyticsOverviewSchema.safeParse({ projectId: "p1", range }).success,
       ).toBe(false);
@@ -114,7 +119,7 @@ describe("analytics range filter schemas", () => {
         range: "last_28_days",
       });
       expect(
-        schema.safeParse({ projectId: "p1", range: "last_12_months" }).success,
+        schema.safeParse({ projectId: "p1", range: "invalid_range" }).success,
       ).toBe(false);
     }
   });
@@ -135,7 +140,7 @@ describe("analytics range filter schemas", () => {
         false,
       );
       expect(
-        schema.safeParse({ projectId: "p1", range: "custom" }).success,
+        schema.safeParse({ projectId: "p1", range: "invalid_range" }).success,
       ).toBe(false);
       expect(
         schema.safeParse({ projectId: "p1", range: "last_7_days", bogus: 1 })
@@ -158,7 +163,7 @@ describe("analytics range filter schemas", () => {
         }),
       ).toMatchObject({ device: "mobile", country: "United States" });
       expect(
-        schema.safeParse({ projectId: "p1", range: "last_12_months" }).success,
+        schema.safeParse({ projectId: "p1", range: "invalid_range" }).success,
       ).toBe(false);
       expect(schema.safeParse({ projectId: "p1", limit: 10 }).success).toBe(
         false,

@@ -517,7 +517,16 @@ function sortCompetitors(
 
 // Project the shared canonical metric row onto this tool's snake_case API
 // shape (kept stable for MCP clients); an absent trend stays null as before.
+// The Array.isArray guard is defense-in-depth at the tool boundary: both
+// producers (fresh normalization, internal stored rows) guarantee arrays,
+// so reaching the throw means a new producer violated the KeywordMetricRow
+// contract — fail loud with diagnosis, never with "X.map is not a function".
 function toMcpKeywordMetricRow(row: KeywordMetricRow) {
+  if (!Array.isArray(row.monthlySearches)) {
+    throw new Error(
+      `KeywordMetricRow contract violation for keyword "${row.keyword}": monthlySearches is ${typeof row.monthlySearches}, expected MonthlySearch[]`,
+    );
+  }
   return {
     keyword: row.keyword,
     search_volume: row.searchVolume,

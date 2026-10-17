@@ -47,4 +47,82 @@ test.describe("public share boundary", () => {
     const response = await request.get("/api/public-report?token=nope");
     expect(response.headers()["cache-control"]).toContain("no-store");
   });
+
+  test("valid public report link access and subsequent revocation lifecycle", async ({
+    page,
+    browser,
+  }) => {
+    await page.goto("/");
+    await page.waitForURL(/\/p\/([^/]+)\/?$/, { timeout: 30_000 });
+    const match = page.url().match(/\/p\/([^/]+)/);
+    if (!match) throw new Error(`Could not read project id from ${page.url()}`);
+    const projectId = match[1];
+
+    await page.goto(`/p/${projectId}/reports`);
+    await expect(
+      page.getByRole("heading", { name: "Reports", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+
+    const openSnapshotBtn = page.getByRole("link", { name: "Open snapshot" });
+    if ((await openSnapshotBtn.count()) === 0) {
+      await page.getByRole("button", { name: "Generate report" }).click();
+      const modal = page.locator(".modal.modal-open");
+      await expect(modal).toBeVisible();
+      await modal
+        .getByRole("button", { name: "Generate", exact: true })
+        .click();
+      await expect(modal).toBeHidden({ timeout: 20_000 });
+      await expect(openSnapshotBtn.first()).toBeVisible({ timeout: 20_000 });
+    }
+
+    await openSnapshotBtn.first().click();
+    await page.waitForURL(new RegExp(`/p/${projectId}/reports/[^/]+`), {
+      timeout: 15_000,
+    });
+
+    await page.getByRole("button", { name: "Share" }).click();
+    const shareModal = page.locator(".modal.modal-open");
+    await expect(shareModal).toBeVisible();
+
+    await shareModal.getByRole("button", { name: "Create link" }).click();
+
+    const successAlert = shareModal.locator(".alert-success");
+    await expect(successAlert).toBeVisible({ timeout: 10_000 });
+    const linkText = (
+      await successAlert.locator("p.break-all").innerText()
+    ).trim();
+    expect(linkText).toMatch(/\/r\/[0-9a-f]{64}$/i);
+
+    // In an isolated anonymous context (outside the authenticated app shell), verify access
+    const incognito = await browser.newContext();
+    const publicPage = await incognito.newPage();
+    await publicPage.goto(linkText);
+
+    await expect(publicPage.getByRole("heading", { level: 1 })).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(publicPage.getByText("Link unavailable")).toBeHidden();
+
+    // Back on the authenticated page, revoke the link
+    const activeLinksList = shareModal.locator("ul");
+    await expect(activeLinksList).toBeVisible();
+    const revokeBtn = activeLinksList
+      .getByRole("button", { name: "Revoke" })
+      .first();
+    await revokeBtn.click();
+    await expect(activeLinksList.getByText("Revoked").first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Back on the incognito page, reload and assert revocation is enforced
+    await publicPage.reload();
+    await expect(publicPage.getByText("Link unavailable")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(
+      publicPage.getByText(/invalid, expired, or revoked/i).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await incognito.close();
+  });
 });

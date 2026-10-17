@@ -26,10 +26,13 @@ export const GSC_SEARCH_TYPES = [
 export const GSC_DATE_RANGES = [
   "last_7_days",
   "last_28_days",
+  "last_30_days",
+  "last_90_days",
   "last_3_months",
   "last_6_months",
   "last_12_months",
   "last_16_months",
+  "custom",
 ] as const;
 
 export const GSC_DEFAULT_ROW_LIMIT = 1000;
@@ -92,8 +95,13 @@ function subtractRange(end: Date, range: GscDateRange): Date {
       d.setUTCDate(d.getUTCDate() - 7);
       break;
     case "last_28_days":
+    case "custom":
       d.setUTCDate(d.getUTCDate() - 28);
       break;
+    case "last_30_days":
+      d.setUTCDate(d.getUTCDate() - 30);
+      break;
+    case "last_90_days":
     case "last_3_months":
       return subtractUtcMonths(d, 3);
     case "last_6_months":

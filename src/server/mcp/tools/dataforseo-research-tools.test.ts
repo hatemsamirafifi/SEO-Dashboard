@@ -461,3 +461,37 @@ describe("DataForSEO research MCP tools", () => {
     expect(rows[0]).not.toHaveProperty("monthly_searches");
   });
 });
+
+describe("get_keyword_metrics monthlySearches contract", () => {
+  beforeEach(() => {
+    mocks.seoDataRouter.route.mockReset();
+    mocks.getProjectForOrganization.mockReset();
+    mocks.getProjectForOrganization.mockResolvedValue(usProjectRow);
+  });
+
+  it("fails loud with a contract error when a row violates the monthlySearches array contract", async () => {
+    // Regression for "row.monthlySearches.map is not a function": a stored
+    // JSON string used to pass through the internal provider unparsed. The
+    // tool boundary must never crash with a TypeError on such rows.
+    mocks.seoDataRouter.route.mockResolvedValue(
+      routerResponse("keyword_metrics", [
+        {
+          ...kwRow("seo automation", 2400),
+          monthlySearches: '[{"year":2026,"month":1}]',
+        },
+      ]),
+    );
+
+    const { getKeywordMetricsTool } =
+      await import("./dataforseo-research-tools");
+
+    await expect(
+      getKeywordMetricsTool.handler(
+        { projectId: "project_1", keywords: ["seo automation"] },
+        toolExtra,
+      ),
+    ).rejects.toThrow(
+      'KeywordMetricRow contract violation for keyword "seo automation"',
+    );
+  });
+});

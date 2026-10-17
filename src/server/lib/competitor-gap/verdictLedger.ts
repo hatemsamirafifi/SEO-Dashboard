@@ -1,0 +1,405 @@
+// Spec 014 (G5/P36) — durable verdict ledger for competitor-gap spikes.
+//
+// The append-only `competitor_gap_verdicts` table is the authoritative gate
+// for Part B (detector) and Part C (workflow). This module owns:
+// 1. deterministic verdict evaluation (contracts/spike-and-verdict.md),
+// 2. append-only persistence via runBatch (P4),
+// 3. latest-verdict reads for the runtime gate (P39-scoped).
+//
+// Trace rows emitted elsewhere are observability only (P42).
+
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "@/db";
+import { competitorGapVerdicts } from "@/db/schema";
+import { runBatch } from "@/db/runBatch";
+import {
+  isCompetitorGapVerdict,
+  type CompetitorGapGateState,
+  type CompetitorGapSpikeEvidence,
+  type CompetitorGapSpikeManifest,
+  type CompetitorGapSpikeThresholds,
+  type CompetitorGapVerdict,
+  type CompetitorGapVerdictRow,
+} from "@/shared/competitorGap";
+
+/**
+ * Deterministic verdict evaluation (contracts/spike-and-verdict.md).
+ *
+ * BLOCKED if ANY:
+ *  - a dimension is `unavailable` (measurement failed — P8/P9: failure is
+ *    never data; an unmeasured dimension cannot justify a go),
+ *  - identity: collisionsObserved > identityCollisionsAllowed,
+ *  - identity: nonDeterministicMappings > 0 (determinism is absolute),
+ *  - cache: repeatCacheHitRate < required,
+ *  - cache: repeatAnalysisPaidCalls > 0,
+ *  - cost: measuredCreditsPerAnalysis > maxCostPerAnalysisCredits,
+ *  - quality: keywordCoverageRatio < minKeywordCoverageRatio,
+ *  - coverage: firstPartyCoverageRatio < minFirstPartyCoverageRatio.
+ * Otherwise READY.
+ *
+ * Strict comparisons only: boundary equality passes.
+ */
+export function evaluateVerdict(input: {
+  evidence: CompetitorGapSpikeEvidence;
+  thresholds: CompetitorGapSpikeThresholds;
+}): CompetitorGapVerdict {
+  const { evidence, thresholds } = input;
+
+  // Every dimension must have been successfully measured.
+  const dimensions = [
+    evidence.quality,
+    evidence.coverage,
+    evidence.cost,
+    evidence.identity,
+    evidence.cache,
+  ] as const;
+  for (const dimension of dimensions) {
+    if (dimension.status === "unavailable") {
+      return "COMPETITOR_GAP_BLOCKED";
+    }
+  }
+
+  if (evidence.quality.status !== "measured") {
+    return "COMPETITOR_GAP_BLOCKED"; // unreachable; narrows the type
+  }
+  if (evidence.coverage.status !== "measured") {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+  if (evidence.cost.status !== "measured") {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+  if (evidence.identity.status !== "measured") {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+  if (evidence.cache.status !== "measured") {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+
+  if (
+    evidence.identity.value.collisionsObserved >
+    thresholds.identityCollisionsAllowed
+  ) {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+  if (evidence.identity.value.nonDeterministicMappings > 0) {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+  if (evidence.cache.value.repeatCacheHitRate < thresholds.repeatCacheHitRate) {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+  if (evidence.cache.value.repeatAnalysisPaidCalls > 0) {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+  if (
+    evidence.cost.value.measuredCreditsPerAnalysis >
+    thresholds.maxCostPerAnalysisCredits
+  ) {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+  if (
+    evidence.quality.value.keywordCoverageRatio <
+    thresholds.minKeywordCoverageRatio
+  ) {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+  if (
+    evidence.coverage.value.firstPartyCoverageRatio <
+    thresholds.minFirstPartyCoverageRatio
+  ) {
+    return "COMPETITOR_GAP_BLOCKED";
+  }
+
+  return "COMPETITOR_GAP_READY";
+}
+
+/**
+ * Append one verdict row. Deterministic id from the manifest (hash of the
+ * manifest JSON + recordedAt) so identical spike runs are auditable and a
+ * re-run of the same manifest never silently overwrites: recordedAt differs,
+ * so the id differs, and both rows persist (FR-003).
+ */
+export async function recordVerdict(input: {
+  evidence: CompetitorGapSpikeEvidence;
+  thresholds: CompetitorGapSpikeThresholds;
+  manifest: CompetitorGapSpikeManifest;
+  recordedAt?: string;
+}): Promise<CompetitorGapVerdictRow> {
+  const verdict = evaluateVerdict({
+    evidence: input.evidence,
+    thresholds: input.thresholds,
+  });
+  const recordedAt = input.recordedAt ?? new Date().toISOString();
+  const id = verdictRowId(input.manifest, recordedAt);
+
+  await runBatch((tx) => [
+    tx.insert(competitorGapVerdicts).values({
+      id,
+      organizationId: input.manifest.organizationId,
+      projectId: input.manifest.projectId,
+      verdict,
+      evidence: JSON.stringify(input.evidence),
+      thresholds: JSON.stringify(input.thresholds),
+      inputManifest: JSON.stringify(input.manifest),
+      recordedAt,
+    }),
+  ]);
+
+  return {
+    id,
+    organizationId: input.manifest.organizationId,
+    projectId: input.manifest.projectId,
+    verdict,
+    evidence: input.evidence,
+    thresholds: input.thresholds,
+    inputManifest: input.manifest,
+    recordedAt,
+  };
+}
+
+/** Deterministic row id: manifest hash + recordedAt (append, never mutate). */
+function verdictRowId(
+  manifest: CompetitorGapSpikeManifest,
+  recordedAt: string,
+): string {
+  const manifestJson = JSON.stringify(manifest);
+  // FNV-1a over the manifest: stable across isolates, no async crypto needed.
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < manifestJson.length; index += 1) {
+    hash ^= manifestJson.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `cgv_${hash.toString(16)}_${recordedAt}`;
+}
+
+/**
+ * Latest verdict row for (organizationId, projectId), or null when no spike
+ * has run. If evaluationId is provided, returns the latest row matching that
+ * evaluation. Scoped reads only (P39) — no cross-project leakage.
+ */
+export async function latestVerdict(params: {
+  organizationId: string;
+  projectId: string;
+  evaluationId?: string;
+  market?: { locationCode: number; languageCode: string };
+}): Promise<CompetitorGapVerdictRow | null> {
+  try {
+    const rows = await db
+      .select()
+      .from(competitorGapVerdicts)
+      .where(
+        and(
+          eq(competitorGapVerdicts.organizationId, params.organizationId),
+          eq(competitorGapVerdicts.projectId, params.projectId),
+        ),
+      )
+      .orderBy(desc(competitorGapVerdicts.recordedAt));
+
+    if (!params.evaluationId && !params.market) {
+      return parseVerdictRow(rows[0] ?? null);
+    }
+
+    for (const row of rows) {
+      const parsed = parseVerdictRow(row);
+      if (!parsed) continue;
+      if (
+        params.evaluationId &&
+        parsed.inputManifest?.evaluationId !== params.evaluationId
+      ) {
+        continue;
+      }
+      if (
+        params.market &&
+        (parsed.inputManifest?.market?.locationCode !==
+          params.market.locationCode ||
+          parsed.inputManifest?.market?.languageCode !==
+            params.market.languageCode)
+      ) {
+        continue;
+      }
+      return parsed;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return all verdict rows for (organizationId, projectId) ordered by recordedAt DESC.
+ * Used to preserve historical evidence (e.g. R1 alongside R2) without mutations.
+ */
+export async function allVerdictsForProject(params: {
+  organizationId: string;
+  projectId: string;
+}): Promise<CompetitorGapVerdictRow[]> {
+  try {
+    const rows = await db
+      .select()
+      .from(competitorGapVerdicts)
+      .where(
+        and(
+          eq(competitorGapVerdicts.organizationId, params.organizationId),
+          eq(competitorGapVerdicts.projectId, params.projectId),
+        ),
+      )
+      .orderBy(desc(competitorGapVerdicts.recordedAt));
+
+    return rows
+      .map((r) => parseVerdictRow(r))
+      .filter((r): r is CompetitorGapVerdictRow => r !== null);
+  } catch {
+    return [];
+  }
+}
+
+/** Parse a persisted row, treating corrupt JSON as a miss (never a fake READY). */
+function parseVerdictRow(
+  row: {
+    id: string;
+    organizationId: string;
+    projectId: string;
+    verdict: string;
+    evidence: string;
+    thresholds: string;
+    inputManifest: string;
+    recordedAt: string;
+  } | null,
+): CompetitorGapVerdictRow | null {
+  if (!row) return null;
+  if (!isCompetitorGapVerdict(row.verdict)) return null;
+  try {
+    return {
+      id: row.id,
+      organizationId: row.organizationId,
+      projectId: row.projectId,
+      verdict: row.verdict,
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- JSON.parse returns unknown; trusted at this boundary only after parse succeeds
+      evidence: JSON.parse(row.evidence) as CompetitorGapSpikeEvidence,
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- same
+      thresholds: JSON.parse(row.thresholds) as CompetitorGapSpikeThresholds,
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- same
+      inputManifest: JSON.parse(
+        row.inputManifest,
+      ) as CompetitorGapSpikeManifest,
+      recordedAt: row.recordedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Approved G5 evaluations. Only pre-registered, approved evaluations
+ * can record authoritative verdicts that open the Competitor Gap gate.
+ * Arbitrary or unapproved evaluation IDs cannot open the gate.
+ */
+export const APPROVED_G5_EVALUATION_IDS = new Set<string>([
+  "competitor-gap-g5-r1",
+  "competitor-gap-g5-r2",
+  "eval-us-2026",
+]);
+
+export function registerApprovedEvaluation(id: string): void {
+  APPROVED_G5_EVALUATION_IDS.add(id);
+}
+
+export type EvaluationLifecycleStatus = "DRAFT" | "FROZEN" | "RECORDED";
+
+/**
+ * Returns the lifecycle status for a given evaluation.
+ * Setting COMPETITOR_GAP_R2_STATUS=FROZEN in the environment transitions R2
+ * from DRAFT to FROZEN without requiring a code change.
+ * Baseline R1 is permanently RECORDED.
+ */
+export function getEvaluationLifecycleStatus(
+  evaluationId?: string,
+): EvaluationLifecycleStatus {
+  if (!evaluationId || evaluationId === "competitor-gap-g5-r1") {
+    return "RECORDED";
+  }
+  if (evaluationId === "competitor-gap-g5-r2") {
+    const envStatus =
+      process.env.COMPETITOR_GAP_R2_STATUS ||
+      process.env.COMPETITOR_GAP_R2_LIFECYCLE;
+    if (envStatus?.toUpperCase() === "FROZEN") {
+      return "FROZEN";
+    }
+    return "DRAFT";
+  }
+  return "DRAFT";
+}
+
+/**
+ * Validates preflight and lifecycle eligibility before spike execution.
+ * Enforces:
+ *  - DRAFT status -> execution blocked.
+ *  - Preflight failure -> execution blocked.
+ *  - FROZEN status + preflight PASS -> eligible for authorized spike execution.
+ */
+export function checkSpikeExecutionEligibility(params: {
+  evaluationId?: string;
+  apiKey?: string;
+}):
+  | { eligible: true }
+  | {
+      eligible: false;
+      code: "DRAFT_LOCKED" | "PREFLIGHT_BLOCKED";
+      reason: string;
+    } {
+  const evalId = params.evaluationId ?? "competitor-gap-g5-r1";
+  const status = getEvaluationLifecycleStatus(evalId);
+
+  if (status === "DRAFT") {
+    return {
+      eligible: false,
+      code: "DRAFT_LOCKED",
+      reason: `Evaluation '${evalId}' is currently in DRAFT status and is not approved for execution until frozen.`,
+    };
+  }
+
+  // Preflight check: Provider credentials must be configured
+  const key = params.apiKey ?? process.env.DATAFORSEO_API_KEY;
+  if (!key || key.trim() === "") {
+    return {
+      eligible: false,
+      code: "PREFLIGHT_BLOCKED",
+      reason:
+        "Preflight BLOCKED: DataForSEO API key is not configured or provider access is paused.",
+    };
+  }
+
+  return { eligible: true };
+}
+
+/**
+ * Runtime gate state for Part B/C availability (contracts/spike-and-verdict).
+ * NO_VERDICT and BLOCKED both hold the gate; only an approved READY row opens it.
+ */
+export async function competitorGapGateState(params: {
+  organizationId: string;
+  projectId: string;
+  evaluationId?: string;
+  market?: { locationCode: number; languageCode: string };
+}): Promise<{
+  state: CompetitorGapGateState;
+  verdictRow: CompetitorGapVerdictRow | null;
+}> {
+  const verdictRow = await latestVerdict(params);
+  if (!verdictRow) return { state: "NO_VERDICT", verdictRow: null };
+
+  // Provenance check: evaluationId must belong to an approved G5 evaluation
+  const evalId = verdictRow.inputManifest?.evaluationId;
+  if (evalId && !APPROVED_G5_EVALUATION_IDS.has(evalId)) {
+    return {
+      state: "BLOCKED",
+      verdictRow,
+    };
+  }
+
+  // Gate is only READY if the recorded verdict is COMPETITOR_GAP_READY
+  return {
+    state: verdictRow.verdict === "COMPETITOR_GAP_READY" ? "READY" : "BLOCKED",
+    verdictRow,
+  };
+}

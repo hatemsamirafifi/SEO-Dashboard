@@ -12,6 +12,9 @@ import {
   getAutopilotWorkflow,
   type AutopilotWorkflowDef,
 } from "./autopilotTypes";
+import { competitorGapGateState } from "@/server/lib/competitor-gap/verdictLedger";
+import { getProjectMarket } from "@/server/lib/seo-data/competitor-snapshot-repository";
+import { OpportunityRepository } from "@/server/features/intelligence/repositories/OpportunityRepository";
 
 export type AutopilotRunView = {
   run: Exclude<Awaited<ReturnType<typeof AutopilotRepository.getRun>>, null>;
@@ -107,6 +110,57 @@ export async function startAutopilotRun(input: {
       `Unknown autopilot workflow: ${input.workflowType}`,
     );
   }
+  if (input.workflowType === "competitor_gap") {
+    const projectMarket = await getProjectMarket(input.projectId);
+    const gate = await competitorGapGateState({
+      organizationId: input.organizationId,
+      projectId: input.projectId,
+      market: projectMarket ?? undefined,
+    });
+    if (gate.state !== "READY") {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Competitor gap workflow locked: G5 gate not ready",
+      );
+    }
+
+    const opportunities = await OpportunityRepository.listActiveByProject(
+      input.projectId,
+    );
+    const gapOpportunities = opportunities.filter(
+      (op) => op.type === "competitor_gap" && !op.stale,
+    );
+    if (gapOpportunities.length === 0) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Competitor gap workflow locked: US2 operational acceptance requires valid materialized opportunity evidence",
+      );
+    }
+
+    // Freshness & coverage check: Opportunity must be fresh (<= 28d) and have valid evidence
+    const maxAgeMs = 28 * 86_400_000;
+    const nowMs = Date.now();
+    const validFreshOpportunity = gapOpportunities.find((op) => {
+      const detectedMs = Date.parse(op.lastDetectedAt);
+      if (!Number.isFinite(detectedMs) || nowMs - detectedMs > maxAgeMs) {
+        return false;
+      }
+      if (op.confidenceScore < 40) return false;
+      try {
+        const evidence = JSON.parse(op.evidenceJson) as unknown;
+        return typeof evidence === "object" && evidence !== null;
+      } catch {
+        return false;
+      }
+    });
+
+    if (!validFreshOpportunity) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "Competitor gap workflow locked: Materialized opportunity evidence lacks valid coverage or freshness (<= 28d)",
+      );
+    }
+  }
   await reconcileAutopilotRuns({ projectId: input.projectId });
   const runId = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -195,7 +249,18 @@ export async function cancelAutopilotRun(input: {
     const instance = await workflowBinding().get(run.id);
     await instance.terminate();
   } catch (error) {
-    console.error(`[autopilot:${run.id}] terminate failed`, error);
+    const isBenign =
+      error instanceof Error &&
+      /not found|already terminated|no such instance|not running/i.test(
+        error.message,
+      );
+    if (!isBenign) {
+      console.error(`[autopilot:${run.id}] terminate failed`, error);
+      throw new AppError(
+        "INTERNAL_ERROR",
+        `Failed to cancel autopilot run: ${error instanceof Error ? error.message : "Termination failed"}`,
+      );
+    }
   }
   await AutopilotRepository.updateRun(run.id, {
     status: "cancelled",
@@ -222,39 +287,73 @@ export async function resumeAutopilotRun(input: {
       "Only running or cancelled runs can resume",
     );
   }
-  let instanceAlive = false;
+  let existingInstance: {
+    status: () => Promise<{ status: string }>;
+    restart?: () => Promise<void>;
+  } | null = null;
+  let instanceStatus: string | null = null;
   try {
     const instance = await workflowBinding().get(run.id);
-    instanceAlive = (await instance.status()).status === "running";
+    existingInstance = instance as unknown as {
+      status: () => Promise<{ status: string }>;
+      restart?: () => Promise<void>;
+    };
+    instanceStatus = (await instance.status()).status;
   } catch {
-    instanceAlive = false;
+    existingInstance = null;
+    instanceStatus = null;
   }
-  if (instanceAlive) return { runId: run.id, resumed: false };
+  if (
+    instanceStatus === "running" ||
+    instanceStatus === "queued" ||
+    instanceStatus === "waiting"
+  ) {
+    return { runId: run.id, resumed: false };
+  }
+  if (instanceStatus === "complete") {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Cannot resume a completed workflow instance",
+    );
+  }
   const billingCustomer = billingCustomerFor({
     userId: input.userId,
     userEmail: input.userEmail,
     organizationId: input.organizationId,
     projectId: input.projectId,
   });
-  try {
-    await workflowBinding().create({
-      id: run.id,
-      params: {
-        runId: run.id,
-        projectId: input.projectId,
-        organizationId: input.organizationId,
-        workflowType: run.workflowType,
-        billingCustomer,
-      },
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      /already exists|duplicate|conflict/i.test(error.message)
-    ) {
-      return { runId: run.id, resumed: false };
+
+  if (existingInstance && typeof existingInstance.restart === "function") {
+    try {
+      await existingInstance.restart();
+    } catch (error) {
+      console.error(`[autopilot:${run.id}] restart failed`, error);
+      throw new AppError(
+        "INTERNAL_ERROR",
+        `Failed to restart workflow instance: ${error instanceof Error ? error.message : "Restart failed"}`,
+      );
     }
-    throw error;
+  } else {
+    try {
+      await workflowBinding().create({
+        id: run.id,
+        params: {
+          runId: run.id,
+          projectId: input.projectId,
+          organizationId: input.organizationId,
+          workflowType: run.workflowType,
+          billingCustomer,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /already exists|duplicate|conflict/i.test(error.message)
+      ) {
+        return { runId: run.id, resumed: false };
+      }
+      throw error;
+    }
   }
   await AutopilotRepository.updateRun(run.id, { status: "running" });
   return { runId: run.id, resumed: true };

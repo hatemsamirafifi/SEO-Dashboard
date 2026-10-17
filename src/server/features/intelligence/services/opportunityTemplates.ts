@@ -413,8 +413,7 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
         metricNumber(finding.evidence.metrics, "conversionsBefore") ?? 0;
       const after =
         metricNumber(finding.evidence.metrics, "conversionsAfter") ?? 0;
-      const ratio =
-        metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
+      const ratio = metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
       return (
         `Conversions for goal "${name}" fell ` +
         `${Math.abs(ratio * 100).toFixed(1)}% ` +
@@ -447,11 +446,9 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
     type: "ga4_engagement",
     title: (finding) => {
       const page = finding.entity.page;
-      const before =
-        metricNumber(finding.evidence.metrics, "rateBefore") ?? 0;
+      const before = metricNumber(finding.evidence.metrics, "rateBefore") ?? 0;
       const after = metricNumber(finding.evidence.metrics, "rateAfter") ?? 0;
-      const ratio =
-        metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
+      const ratio = metricNumber(finding.evidence.metrics, "changeRatio") ?? 0;
       return (
         `Engagement fell ${Math.abs(ratio * 100).toFixed(1)}% on ` +
         `${typeof page === "string" ? page : finding.entityKey} ` +
@@ -478,6 +475,71 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
       businessIntent: null,
       conversionSignal: null,
     }),
+  },
+  // Spec 014: competitor visibility gap against first-party ranking/absence.
+  competitor_gap: {
+    type: "competitor_gap",
+    title: (finding) => {
+      const keyword = finding.entity.keyword;
+      const compDomain = finding.entity.competitorDomain;
+      const compPos = metricNumber(
+        finding.evidence.metrics,
+        "competitorPosition",
+      );
+      const compPosStr =
+        compPos !== null ? ` at position ${compPos.toFixed(1)}` : "";
+      const domainStr =
+        typeof compDomain === "string" ? ` (${compDomain})` : "";
+      return (
+        `Competitor gap for "${typeof keyword === "string" ? keyword : finding.entityKey}"` +
+        `${domainStr}${compPosStr}`
+      );
+    },
+    recommendation: (finding) => {
+      const page = finding.entity.targetUrl ?? finding.entity.page;
+      const kw =
+        typeof finding.entity.keyword === "string"
+          ? finding.entity.keyword
+          : finding.entityKey;
+      if (typeof page === "string" && page) {
+        return (
+          `Target "${kw}" on existing page ${page}: align headings, expand search ` +
+          `intent coverage, and review internal link anchors.`
+        );
+      }
+      return (
+        `Create dedicated content targeting "${kw}": match search intent, ` +
+        `cover primary subtopics, and build internal links from related top pages.`
+      );
+    },
+    keywordOf: (finding) => {
+      const keyword = finding.entity.keyword;
+      return typeof keyword === "string" ? keyword : finding.entityKey;
+    },
+    pageOf: (finding) => {
+      const page = finding.entity.targetUrl ?? finding.entity.page;
+      return typeof page === "string" ? page : null;
+    },
+    factorsOf: (finding) => {
+      const volume =
+        metricNumber(finding.evidence.metrics, "searchVolume") ?? 0;
+      const firstPartyPos = metricNumber(
+        finding.evidence.metrics,
+        "firstPartyPosition",
+      );
+      const compPos =
+        metricNumber(finding.evidence.metrics, "competitorPosition") ?? 1;
+      return {
+        trafficPotential: logScaleVolume(volume),
+        proximity:
+          firstPartyPos !== null
+            ? proximityOf(firstPartyPos)
+            : proximityOf(compPos),
+        decline: null,
+        businessIntent: null,
+        conversionSignal: null,
+      };
+    },
   },
 };
 

@@ -8,9 +8,9 @@
 // Bumped 1 → 2 in PR7: low-CTR, cannibalization, and technical detectors
 // gained explicit stability/importance windows (previously implicit).
 // Bumped 2 → 3 in spec 010: conversion_drop (C2b) and engagement_drop (C2c)
-// GA4-backed detectors. No production artifacts exist yet, so no migration
-// is required.
-export const THRESHOLD_VERSION = 3;
+// GA4-backed detectors.
+// Bumped 3 → 4 in spec 014: competitor_gap detector.
+export const THRESHOLD_VERSION = 4;
 
 import {
   STRIKING_DISTANCE_MAX_POSITION,
@@ -108,6 +108,14 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     minSessionsPerWindow: 100,
     declineRatio: 0.25,
     rankHoldRequired: true,
+  },
+  // Spec 014: competitor keyword visibility gap against first party.
+  competitor_gap: {
+    minWindowDays: 28,
+    minCoverageRatio: 0.8,
+    minCompetitorRank: 10,
+    maxFirstPartyPosition: 20,
+    minVolume: 50,
   },
 };
 

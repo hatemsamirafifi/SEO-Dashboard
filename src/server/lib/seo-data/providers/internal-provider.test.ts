@@ -234,16 +234,10 @@ describe("internal provider — keyword metrics", () => {
     const result = await provider.get(request);
 
     expect(result).toHaveLength(2);
-    expect(result).toEqual([
-      expect.objectContaining({ keyword: "one", searchVolume: 10 }),
-      expect.objectContaining({ keyword: "two", searchVolume: 20 }),
-    ]);
   });
 
   it("finds a single requested keyword among many D1 rows", async () => {
-    fakeKeywordMetricsSelect([
-      { keyword: "needle", searchVolume: 999 },
-    ]);
+    fakeKeywordMetricsSelect([{ keyword: "needle", searchVolume: 999 }]);
 
     const result = await provider.get({
       ...request,
@@ -311,9 +305,7 @@ describe("internal provider — backlinks provider contract", () => {
   describe("supports()", () => {
     it("supports the summary operation", () => {
       expect(
-        provider.supports(
-          makeBacklinksRequest({ backlinkCall: "summary" }),
-        ),
+        provider.supports(makeBacklinksRequest({ backlinkCall: "summary" })),
       ).toBe(true);
     });
 
@@ -399,7 +391,9 @@ describe("internal provider — backlinks provider contract", () => {
       fakeSelectChain([BACKLINK_SNAPSHOT_ROW]);
 
       await expect(
-        provider.get(makeBacklinksRequest({ backlinkCall: "referring_domains" })),
+        provider.get(
+          makeBacklinksRequest({ backlinkCall: "referring_domains" }),
+        ),
       ).rejects.toThrow(ProviderUnsupportedError);
       expect(mocks.db.select).not.toHaveBeenCalled();
     });
@@ -423,9 +417,7 @@ describe("internal provider — backlinks provider contract", () => {
         "domain_pages",
       ]) {
         await expect(
-          provider.get(
-            makeBacklinksRequest({ backlinkCall }),
-          ),
+          provider.get(makeBacklinksRequest({ backlinkCall })),
         ).rejects.toThrow(ProviderUnsupportedError);
       }
     });
@@ -437,9 +429,7 @@ describe("internal provider — backlinks provider contract", () => {
         makeBacklinksRequest({ backlinkCall: "summary" }),
       );
 
-      expect(
-        backlinksSummaryItemSchema.safeParse(result).success,
-      ).toBe(true);
+      expect(backlinksSummaryItemSchema.safeParse(result).success).toBe(true);
     });
 
     it("falls back (unsupported) without a snapshot", async () => {

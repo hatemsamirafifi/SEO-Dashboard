@@ -24,6 +24,10 @@ describe("analytics page copy helpers", () => {
     expect(formatDelta(12)).toBe("+12");
     expect(formatDelta(-3)).toBe("-3");
     expect(formatDelta(0)).toBe("0");
+    expect(formatDelta(-0.004248, (v) => `${(v * 100).toFixed(1)}%`)).toBe(
+      "-0.4%",
+    );
+    expect(formatDelta(-4.2708, (v) => `${v.toFixed(1)}s`)).toBe("-4.3s");
   });
 
   it("classifies sync failures by error class", () => {
@@ -208,6 +212,11 @@ describe("analytics page copy helpers", () => {
       "last_28_days",
       "last_30_days",
       "last_90_days",
+      "last_3_months",
+      "last_6_months",
+      "last_12_months",
+      "last_16_months",
+      "custom",
     ]);
   });
 

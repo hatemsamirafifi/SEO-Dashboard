@@ -107,4 +107,30 @@ describe("SerpResultCards (spec 011, T016)", () => {
   it("renders an empty state for zero rows", () => {
     expect(render([], [])).toContain("No SERP details");
   });
+
+  it("renders spam score and stale badge when expanded", () => {
+    const rows: SerpResultCardRow[] = [
+      {
+        position: 1,
+        title: "Top result",
+        url: "https://example.com",
+        domain: "example.com",
+        summary: null,
+        featureRefs: [],
+        metrics: {
+          status: "available",
+          domainRank: 42,
+          pageRank: 38,
+          referringDomains: 1200,
+          backlinks: 5400,
+          etv: 900,
+          spamScore: 8,
+          stale: true,
+        },
+      },
+    ];
+    const html = render(rows, [], [1]);
+    expect(html).toContain("Spam 8");
+    expect(html).toContain("stale");
+  });
 });

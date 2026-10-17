@@ -59,6 +59,7 @@ describe("detector registry", () => {
     expect(keys).toEqual([
       "backlink_change",
       "cannibalization",
+      "competitor_gap",
       "content_decay",
       "conversion_drop",
       "engagement_drop",

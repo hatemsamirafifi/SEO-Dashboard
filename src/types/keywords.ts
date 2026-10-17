@@ -67,6 +67,10 @@ export type SerpResultItem = {
   // keep their snapshot values unless enrichment returned better ones.
   domainRank?: number | null;
   pageRank?: number | null;
+  spamScore?: number | null;
+  stale?: boolean | null;
+  provider?: string | null;
+  fetchedAt?: string | null;
   // Row enrichment status — mirrors SerpEnrichmentStatus in
   // server/features/serp/types.ts (kept as literals to avoid a
   // shared→server import; the vocabulary is frozen by contract).

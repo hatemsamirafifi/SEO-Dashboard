@@ -54,3 +54,7 @@ tsconfig.tsbuildinfo
 .gemini/
 .cursor/mcp.json
 .vscode/mcp.json
+
+# Local workspace utilities
+scripts/sync_conversations.*
+scratch/

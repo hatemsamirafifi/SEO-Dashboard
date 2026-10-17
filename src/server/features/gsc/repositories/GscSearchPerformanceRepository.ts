@@ -437,6 +437,8 @@ async function getStrikingDistance(
   startDate: string,
   endDate: string,
   limit: number = 100,
+  prevStartDate?: string,
+  prevEndDate?: string,
 ): Promise<SearchPerformanceStrikingRow[]> {
   const rows = await db
     .select({
@@ -484,10 +486,82 @@ async function getStrikingDistance(
   }
 
   // Filter 5..20 and sort by impressions descending
-  return Array.from(topPageByQuery.values())
+  const topStriking = Array.from(topPageByQuery.values())
     .filter((row) => row.position >= 5 && row.position <= 20)
     .toSorted((a, b) => b.impressions - a.impressions)
     .slice(0, limit);
+
+  if (prevStartDate && prevEndDate && topStriking.length > 0) {
+    const queryList = topStriking.map((r) => r.query);
+    const prevRows = await db
+      .select({
+        query: sql<string>`${gscSearchPerformance.query}`,
+        page: sql<string>`${gscSearchPerformance.page}`,
+        clicks: sql<number>`coalesce(sum(${gscSearchPerformance.clicks}), 0)`,
+        impressions: sql<number>`coalesce(sum(${gscSearchPerformance.impressions}), 0)`,
+        weightedPosition: sql<number>`coalesce(sum(${gscSearchPerformance.position} * ${gscSearchPerformance.impressions}), 0)`,
+      })
+      .from(gscSearchPerformance)
+      .where(
+        and(
+          eq(gscSearchPerformance.projectId, projectId),
+          eq(gscSearchPerformance.grain, "query_page"),
+          inArray(gscSearchPerformance.query, queryList),
+          gte(gscSearchPerformance.date, prevStartDate),
+          lte(gscSearchPerformance.date, prevEndDate),
+        ),
+      )
+      .groupBy(gscSearchPerformance.query, gscSearchPerformance.page);
+
+    const prevMap = new Map<
+      string,
+      { clicks: number; impressions: number; position: number }
+    >();
+    for (const r of prevRows) {
+      if (!r.query) continue;
+      const key = `${r.query}:::${r.page ?? ""}`;
+      const c = Number(r.clicks);
+      const imp = Number(r.impressions);
+      const wp = Number(r.weightedPosition);
+      prevMap.set(key, {
+        clicks: c,
+        impressions: imp,
+        position: imp > 0 ? wp / imp : 0,
+      });
+    }
+
+    return topStriking.map((row) => {
+      const prev =
+        prevMap.get(`${row.query}:::${row.page}`) ??
+        prevMap.get(`${row.query}:::`);
+      if (!prev) return row;
+      const clicksChange = row.clicks - prev.clicks;
+      const clicksPctChange =
+        prev.clicks > 0 ? (clicksChange / prev.clicks) * 100 : null;
+      const impressionsChange = row.impressions - prev.impressions;
+      const impressionsPctChange =
+        prev.impressions > 0
+          ? (impressionsChange / prev.impressions) * 100
+          : null;
+      const positionChange =
+        prev.position > 0 && row.position > 0
+          ? prev.position - row.position
+          : 0;
+      return {
+        ...row,
+        prevClicks: prev.clicks,
+        clicksChange,
+        clicksPctChange,
+        prevImpressions: prev.impressions,
+        impressionsChange,
+        impressionsPctChange,
+        prevPosition: prev.position,
+        positionChange,
+      };
+    });
+  }
+
+  return topStriking;
 }
 
 export interface GetTableRowsParams {
@@ -495,6 +569,8 @@ export interface GetTableRowsParams {
   dimension: "query" | "page";
   startDate: string;
   endDate: string;
+  prevStartDate?: string;
+  prevEndDate?: string;
   page: number;
   pageSize: number;
 }
@@ -504,6 +580,8 @@ async function getTableRows({
   dimension,
   startDate,
   endDate,
+  prevStartDate,
+  prevEndDate,
   page,
   pageSize,
 }: GetTableRowsParams): Promise<{
@@ -557,6 +635,78 @@ async function getTableRows({
       position: impressions > 0 ? weightedPosition / impressions : 0,
     };
   });
+
+  if (prevStartDate && prevEndDate && results.length > 0) {
+    const keyList = results.map((r) => r.key);
+    const prevRows = await db
+      .select({
+        key: sql<string>`${column}`,
+        clicks: sql<number>`coalesce(sum(${gscSearchPerformance.clicks}), 0)`,
+        impressions: sql<number>`coalesce(sum(${gscSearchPerformance.impressions}), 0)`,
+        weightedPosition: sql<number>`coalesce(sum(${gscSearchPerformance.position} * ${gscSearchPerformance.impressions}), 0)`,
+      })
+      .from(gscSearchPerformance)
+      .where(
+        and(
+          eq(gscSearchPerformance.projectId, projectId),
+          eq(gscSearchPerformance.grain, dimension),
+          inArray(column, keyList),
+          gte(gscSearchPerformance.date, prevStartDate),
+          lte(gscSearchPerformance.date, prevEndDate),
+        ),
+      )
+      .groupBy(column);
+
+    const prevMap = new Map<
+      string,
+      { clicks: number; impressions: number; ctr: number; position: number }
+    >();
+    for (const r of prevRows) {
+      if (!r.key) continue;
+      const c = Number(r.clicks);
+      const imp = Number(r.impressions);
+      const wp = Number(r.weightedPosition);
+      prevMap.set(r.key, {
+        clicks: c,
+        impressions: imp,
+        ctr: imp > 0 ? c / imp : 0,
+        position: imp > 0 ? wp / imp : 0,
+      });
+    }
+
+    const compared = results.map((row) => {
+      const prev = prevMap.get(row.key);
+      if (!prev) return row;
+      const clicksChange = row.clicks - prev.clicks;
+      const clicksPctChange =
+        prev.clicks > 0 ? (clicksChange / prev.clicks) * 100 : null;
+      const impressionsChange = row.impressions - prev.impressions;
+      const impressionsPctChange =
+        prev.impressions > 0
+          ? (impressionsChange / prev.impressions) * 100
+          : null;
+      const ctrChange = row.ctr - prev.ctr;
+      const positionChange =
+        prev.position > 0 && row.position > 0
+          ? prev.position - row.position
+          : 0;
+      return {
+        ...row,
+        prevClicks: prev.clicks,
+        clicksChange,
+        clicksPctChange,
+        prevImpressions: prev.impressions,
+        impressionsChange,
+        impressionsPctChange,
+        prevCtr: prev.ctr,
+        ctrChange,
+        prevPosition: prev.position,
+        positionChange,
+      };
+    });
+
+    return { rows: compared, hasNextPage };
+  }
 
   return { rows: results, hasNextPage };
 }

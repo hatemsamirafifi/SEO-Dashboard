@@ -11,6 +11,7 @@ import { fetchLostBacklinksInput } from "./lostBacklinks";
 import { fetchStrikingDistanceInput } from "./strikingDistance";
 import { fetchConversionDropInput } from "./conversionDrop";
 import { fetchEngagementDropInput } from "./engagementDrop";
+import { fetchCompetitorGapInput } from "./competitorGap";
 
 /**
  * Explicit per-detector input dispatcher (final-plan §4: detectors run over
@@ -50,6 +51,8 @@ export async function fetchDetectorInput(
       return fetchConversionDropInput(projectId, ctx);
     case "engagement_drop":
       return fetchEngagementDropInput(projectId, ctx);
+    case "competitor_gap":
+      return fetchCompetitorGapInput(projectId, ctx);
     default:
       return null;
   }

@@ -373,6 +373,21 @@ describe("Ga4SyncRepository run ledger", () => {
     ).toBe(0);
   });
 
+  it("getActiveSyncRun automatically recovers stale runs", async () => {
+    const created = await Ga4SyncRepository.createSyncRun(runInput);
+    if (!created.ok) throw new Error("expected run creation");
+    if (!database.client) throw new Error("Test database was not initialized");
+    await database.client.execute({
+      sql: "UPDATE ga4_syncs SET updated_at = '2000-01-01T00:00:00.000Z' WHERE id = ?",
+      args: [created.sync.id],
+    });
+    const active = await Ga4SyncRepository.getActiveSyncRun(PROJECT, PROPERTY);
+    expect(active).toBeNull();
+    const latest = await Ga4SyncRepository.getLatestSyncRun(PROJECT, PROPERTY);
+    expect(latest?.status).toBe("failed");
+    expect(latest?.errorClass).toBe("STALE_RUN");
+  });
+
   it("selects the version token as the latest run with successful units", async () => {
     const first = await Ga4SyncRepository.createSyncRun(runInput);
     if (!first.ok) throw new Error("expected run creation");

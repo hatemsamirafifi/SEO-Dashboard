@@ -1,8 +1,11 @@
+import { AuditRepository } from "@/server/features/audit/repositories/AuditRepository";
+import { getIssueTypePageCountsForAudit } from "@/server/features/audit/repositories/auditSummaryQueries";
 import { DashboardService } from "@/server/features/dashboard/services/DashboardService";
 import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4ConnectionRepository";
 import { Ga4SyncRepository } from "@/server/features/ga4/repositories/Ga4SyncRepository";
 import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
 import { GscSearchPerformanceRepository } from "@/server/features/gsc/repositories/GscSearchPerformanceRepository";
+import { previousPeriod } from "@/server/features/gsc/searchPerformanceReport";
 import { InsightRepository } from "@/server/features/intelligence/repositories/InsightRepository";
 import { OpportunityService } from "@/server/features/intelligence/services/OpportunityService";
 import type { ReportPayload } from "@/shared/reports";
@@ -22,10 +25,13 @@ export async function collectSearchVisibility(
   to: string,
 ): Promise<ReportPayload["searchVisibility"]> {
   try {
-    const connection =
-      await GscConnectionRepository.getByProjectId(projectId);
+    const connection = await GscConnectionRepository.getByProjectId(projectId);
     if (!connection) {
-      return { status: unavailable("not_connected"), totals: null };
+      return {
+        status: unavailable("not_connected"),
+        totals: null,
+        previousTotals: null,
+      };
     }
     const covered = await GscSearchPerformanceRepository.hasCoverage(
       projectId,
@@ -33,13 +39,37 @@ export async function collectSearchVisibility(
       to,
     );
     if (!covered) {
-      return { status: unavailable("no_coverage"), totals: null };
+      return {
+        status: unavailable("no_coverage"),
+        totals: null,
+        previousTotals: null,
+      };
     }
     const totals = await GscSearchPerformanceRepository.getTotals(
       projectId,
       from,
       to,
     );
+    const prev = previousPeriod(from, to);
+    const prevCovered = await GscSearchPerformanceRepository.hasCoverage(
+      projectId,
+      prev.startDate,
+      prev.endDate,
+    );
+    let previousTotals: ReportPayload["searchVisibility"]["totals"] = null;
+    if (prevCovered) {
+      const prevTotals = await GscSearchPerformanceRepository.getTotals(
+        projectId,
+        prev.startDate,
+        prev.endDate,
+      );
+      previousTotals = {
+        clicks: prevTotals.clicks,
+        impressions: prevTotals.impressions,
+        ctr: prevTotals.ctr,
+        position: prevTotals.position,
+      };
+    }
     return {
       status: READY,
       totals: {
@@ -48,9 +78,14 @@ export async function collectSearchVisibility(
         ctr: totals.ctr,
         position: totals.position,
       },
+      previousTotals,
     };
   } catch {
-    return { status: unavailable("provider_failed"), totals: null };
+    return {
+      status: unavailable("provider_failed"),
+      totals: null,
+      previousTotals: null,
+    };
   }
 }
 
@@ -67,7 +102,11 @@ export async function collectTrafficAndConversions(
   to: string,
 ): Promise<TrafficAndConversions> {
   const down: TrafficAndConversions = {
-    traffic: { status: unavailable("provider_failed"), totals: null },
+    traffic: {
+      status: unavailable("provider_failed"),
+      totals: null,
+      previousTotals: null,
+    },
     conversions: {
       status: unavailable("provider_failed"),
       keyEvents: null,
@@ -82,7 +121,7 @@ export async function collectTrafficAndConversions(
     if (!connection) {
       const status = unavailable("not_connected");
       return {
-        traffic: { status, totals: null },
+        traffic: { status, totals: null, previousTotals: null },
         conversions: { status, keyEvents: null, transactions: null },
       };
     }
@@ -123,8 +162,36 @@ export async function collectTrafficAndConversions(
     if (summaryCoverage.coveredDates.length === 0) {
       const status = unavailable("no_coverage");
       return {
-        traffic: { status, totals: null },
+        traffic: { status, totals: null, previousTotals: null },
         conversions: { status, keyEvents: null, transactions: null },
+      };
+    }
+    const prev = previousPeriod(from, to);
+    const prevCoverage = await Ga4SyncRepository.getGrainCoverage(
+      projectId,
+      connection.propertyId,
+      "summary",
+      prev.startDate,
+      prev.endDate,
+    );
+    let previousTotals: ReportPayload["traffic"]["totals"] = null;
+    if (prevCoverage.coveredDates.length > 0) {
+      const prevSummary = await Ga4SyncRepository.getSummaryTotals(
+        projectId,
+        connection.propertyId,
+        prev.startDate,
+        prev.endDate,
+        connection.currencyCode,
+      );
+      previousTotals = {
+        sessions: prevSummary.sessions,
+        engagedSessions: prevSummary.engagedSessions,
+        screenPageViews: prevSummary.screenPageViews,
+        eventCount: prevSummary.eventCount,
+        newUsers: prevSummary.newUsers,
+        keyEvents: 0,
+        totalRevenue: prevSummary.totalRevenue,
+        transactions: prevSummary.transactions,
       };
     }
     // Key-event counts are events-grain data: without events coverage they
@@ -160,6 +227,7 @@ export async function collectTrafficAndConversions(
           totalRevenue: totals.totalRevenue,
           transactions: totals.transactions,
         },
+        previousTotals,
       },
       conversions,
     };
@@ -268,7 +336,11 @@ export async function collectInsights(
     .toSorted(
       (a, b) =>
         severityRank(a.severity) - severityRank(b.severity) ||
-        (a.detectedAt < b.detectedAt ? 1 : a.detectedAt > b.detectedAt ? -1 : 0),
+        (a.detectedAt < b.detectedAt
+          ? 1
+          : a.detectedAt > b.detectedAt
+            ? -1
+            : 0),
     )
     .map((row) => ({
       insightKey: row.insightKey,
@@ -316,4 +388,30 @@ export async function collectOpportunities(
     recommendation: row.recommendation,
     completedAt: row.completedAt,
   }));
+}
+
+export async function collectAuditSummary(projectId: string): Promise<{
+  latestAudit: {
+    id: string;
+    status: "running" | "completed" | "failed";
+    pagesCrawled: number;
+    completedAt: string | null;
+  } | null;
+  issues: { issueType: string; severity: string; pages: number }[];
+}> {
+  const latest = await AuditRepository.getLatestAuditForProject(projectId);
+  if (!latest) {
+    return { latestAudit: null, issues: [] };
+  }
+  const summaryAudit = {
+    id: latest.id,
+    status: latest.status,
+    pagesCrawled: latest.pagesCrawled,
+    completedAt: latest.completedAt,
+  };
+  if (latest.status !== "completed") {
+    return { latestAudit: summaryAudit, issues: [] };
+  }
+  const issues = await getIssueTypePageCountsForAudit(latest.id);
+  return { latestAudit: summaryAudit, issues };
 }

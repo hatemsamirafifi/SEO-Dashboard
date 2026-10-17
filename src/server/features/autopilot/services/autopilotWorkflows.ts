@@ -1,10 +1,9 @@
 /* eslint-disable max-lines */
 import { InsightRepository } from "@/server/features/intelligence/repositories/InsightRepository";
 import { OpportunityRepository } from "@/server/features/intelligence/repositories/OpportunityRepository";
-import { AuditRepository } from "@/server/features/audit/repositories/AuditRepository";
-import { getIssueTypePageCountsForAudit } from "@/server/features/audit/repositories/auditSummaryQueries";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import {
+  collectAuditSummary,
   collectInsights,
   collectOpportunities,
   collectOverviewParts,
@@ -21,6 +20,7 @@ import {
   auditCoverageOf,
   buildChangedRows,
   buildCorrelationTable,
+  competitorGapRecommendations,
   correlationRowsOf,
   deriveMonthWindows,
   growthRecommendations,
@@ -244,6 +244,72 @@ function trafficDropDef(): AutopilotWorkflowDef {
   };
 }
 
+function competitorGapDef(): AutopilotWorkflowDef {
+  return {
+    type: "competitor_gap",
+    steps: [
+      {
+        seq: 0,
+        kind: "collect",
+        name: "collect-gap-evidence",
+        run: async (ctx) => {
+          const { opportunities, insights } = await collectEngineState(
+            ctx.projectId,
+          );
+          return {
+            evidence: {
+              opportunities: opportunities.filter(
+                (row) => row.type === "competitor_gap",
+              ),
+              insights,
+              collectedAt: new Date().toISOString(),
+            },
+          };
+        },
+      },
+      {
+        seq: 1,
+        kind: "correlate",
+        name: "correlate-gap-pages",
+        run: async (ctx) => {
+          const { opportunities } = priorCollect(ctx);
+          return {
+            evidence: {
+              rankedIds: rankedIds(opportunities, 10),
+              totalConsidered: opportunities.length,
+            },
+          };
+        },
+      },
+      {
+        seq: 2,
+        kind: "synthesize",
+        name: "synthesize-gap-plan",
+        run: async (ctx) => {
+          const { opportunities } = priorCollect(ctx);
+          const ids = rankedIdsOf(ctx.priorEvidence[1]?.evidence);
+          const recommendations = competitorGapRecommendations(
+            opportunities,
+            ids,
+          );
+          return {
+            evidence: {
+              recommendations: serializeRecommendations(recommendations),
+              evidenceType: "observational",
+              emptyState:
+                opportunities.length === 0
+                  ? "No stored competitor-gap opportunities found for this project."
+                  : undefined,
+              promptVersion: 1,
+            },
+            toolCalls: 1,
+          };
+        },
+      },
+    ],
+  };
+}
+
 export function ensureAutopilotWorkflowsRegistered(): void {
   const defs = [
     growthPlanDef(),
@@ -252,6 +318,7 @@ export function ensureAutopilotWorkflowsRegistered(): void {
     contentRefreshDef(),
     technicalSeoDef(),
     monthlyReviewDef(),
+    competitorGapDef(),
   ];
   for (const def of defs) {
     if (!getAutopilotWorkflow(def.type)) {
@@ -264,21 +331,11 @@ export async function collectAuditEvidence(projectId: string): Promise<{
   auditCoverage: AuditCoverage;
   issues: { issueType: string; severity: string; pages: number }[];
 }> {
-  const latest = await AuditRepository.getLatestAuditForProject(projectId);
-  const auditCoverage = auditCoverageOf(
-    latest
-      ? {
-          id: latest.id,
-          status: latest.status,
-          pagesCrawled: latest.pagesCrawled,
-          completedAt: latest.completedAt,
-        }
-      : null,
-  );
+  const { latestAudit, issues } = await collectAuditSummary(projectId);
+  const auditCoverage = auditCoverageOf(latestAudit);
   if (auditCoverage.state !== "ready") {
     return { auditCoverage, issues: [] };
   }
-  const issues = await getIssueTypePageCountsForAudit(auditCoverage.auditId);
   return { auditCoverage, issues };
 }
 

@@ -330,4 +330,89 @@ describe("autopilot workflow definitions", () => {
       ).toBe(false);
     }
   });
+
+  it("executes competitor_gap workflow over stored opportunities with observational language", async () => {
+    vi.spyOn(OpportunityRepository, "listActiveByProject").mockImplementation(
+      async () => [
+        makeOpportunity({
+          id: "opp-cg-1",
+          logicalKey: "competitor_gap:enterprise crm",
+          type: "competitor_gap",
+          detectorKey: "competitor_gap",
+          title:
+            'Competitor gap for "enterprise crm" (salesforce.com at position 2.0)',
+          keyword: "enterprise crm",
+          page: "/products/crm",
+          impactScore: 78,
+          confidenceScore: 70,
+        }),
+      ],
+    );
+    vi.spyOn(InsightRepository, "listUnresolvedByProject").mockImplementation(
+      async () => [] as InsightRow[],
+    );
+    const runId = await seedRun();
+    const workflow = getAutopilotWorkflow("competitor_gap");
+    if (!workflow) throw new Error("competitor_gap was not registered");
+
+    const result = await driveRunToCompletion({
+      runId,
+      projectId: "project-1",
+      organizationId: "org-1",
+      workflow,
+      billingCustomer: BILLING,
+      stepRunner: fakeRunner(),
+    });
+    expect(result.status).toBe("completed");
+
+    const attempts = await AutopilotRepository.listAttemptsByRun(runId);
+    const steps = await AutopilotRepository.listStepsByAttempt(
+      attempts[0]?.id ?? "",
+    );
+    expect(steps).toHaveLength(3);
+
+    const synthStep = steps.find((s) => s.seq === 2);
+    const recommendations = recommendationsOf(synthStep?.evidenceJson ?? null);
+    expect(recommendations).toHaveLength(1);
+    expect(stringField(recommendations[0] ?? {}, "dataSource")).toBe(
+      "competitor_snapshots + gsc",
+    );
+    for (const rec of recommendations) {
+      expect(
+        containsBannedCausalVerb(stringField(rec, "reasoningSummary")),
+      ).toBe(false);
+      expect(
+        containsBannedCausalVerb(stringField(rec, "suggestedAction")),
+      ).toBe(false);
+    }
+  });
+
+  it("handles empty competitor_gap opportunities with an explicit empty state", async () => {
+    vi.spyOn(OpportunityRepository, "listActiveByProject").mockImplementation(
+      async () => [],
+    );
+    const runId = await seedRun();
+    const workflow = getAutopilotWorkflow("competitor_gap");
+    if (!workflow) throw new Error("competitor_gap was not registered");
+
+    const result = await driveRunToCompletion({
+      runId,
+      projectId: "project-1",
+      organizationId: "org-1",
+      workflow,
+      billingCustomer: BILLING,
+      stepRunner: fakeRunner(),
+    });
+    expect(result.status).toBe("completed");
+
+    const attempts = await AutopilotRepository.listAttemptsByRun(runId);
+    const steps = await AutopilotRepository.listStepsByAttempt(
+      attempts[0]?.id ?? "",
+    );
+    const synthStep = steps.find((s) => s.seq === 2);
+    const parsed = parseJsonObject(synthStep?.evidenceJson ?? "null");
+    expect(parsed["emptyState"]).toContain(
+      "No stored competitor-gap opportunities",
+    );
+  });
 });

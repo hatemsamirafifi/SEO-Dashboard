@@ -498,6 +498,41 @@ export const competitorSnapshots = sqliteTable(
   ],
 );
 
+// Spec 014 (G5/P36): append-only durable ledger for competitor-gap input-spike
+// verdicts. One row per spike run; rows are never updated or deleted by
+// product code (supersession = a new row). The latest READY verdict per
+// (organizationId, projectId) is the authoritative runtime gate for the
+// competitor_gap detector/workflow — Global Trace rows are observability
+// only (P42). Frozen evidence JSON carries the five measured dimensions;
+// a dimension that failed to measure is recorded as `unavailable` in its
+// evidence object, never coerced to 0 (P8/P9).
+export const competitorGapVerdicts = sqliteTable(
+  "competitor_gap_verdicts",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    verdict: text("verdict").notNull(),
+    evidence: text("evidence").notNull(),
+    thresholds: text("thresholds").notNull(),
+    inputManifest: text("input_manifest").notNull(),
+    recordedAt: text("recorded_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    index("competitor_gap_verdicts_latest_idx").on(
+      table.organizationId,
+      table.projectId,
+      table.recordedAt,
+    ),
+  ],
+);
+
 // Organization-scoped normalized domain overview snapshots. These rows retain
 // only the organic metrics needed by DomainService; raw provider payloads and
 // credentials are never persisted. Freshness is enforced by the repository.

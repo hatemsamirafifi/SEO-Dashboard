@@ -37,6 +37,19 @@ import {
   requireProjectContext,
 } from "./middleware";
 
+function shouldUseGa4E2eFixtures() {
+  if (import.meta.env.VITE_E2E_GA4_FIXTURES === "1") return true;
+  try {
+    return getRequest().headers.get("x-e2e-ga4-fixture") === "1";
+  } catch {
+    return false;
+  }
+}
+
+async function getGa4E2eFixtures() {
+  return import("../../e2e/fixtures/ga4-analytics-fixtures");
+}
+
 export const getGa4GrantStatus = createServerFn({ method: "GET" })
   .middleware(requireAuthenticatedContext)
   .handler(async ({ context }) => ({
@@ -46,6 +59,11 @@ export const getGa4Connection = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(ga4ProjectSchema)
   .handler(async ({ context }) => {
+    if (shouldUseGa4E2eFixtures()) {
+      const fixtures = await getGa4E2eFixtures();
+      return fixtures.getFixtureGa4Connection();
+    }
+
     const [connection, currentUserHasGrant, hosted, configured] =
       await Promise.all([
         Ga4Service.getConnection(context.projectId, context.organizationId),
@@ -122,19 +140,23 @@ export const startSelfHostedGa4Link = createServerFn({ method: "POST" })
 export const triggerGa4Sync = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(triggerGa4SyncSchema)
-  .handler(async ({ data, context }) =>
+  .handler(async ({ context }) =>
     Ga4SyncService.runSync({
       projectId: context.projectId,
       organizationId: context.organizationId,
-      syncType: data.syncType,
-      startDate: data.startDate,
-      endDate: data.endDate,
+      syncType: "manual",
+      force: true,
     }),
   );
 export const getGa4SyncStatus = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(ga4SyncStatusSchema)
   .handler(async ({ context }) => {
+    if (shouldUseGa4E2eFixtures()) {
+      const fixtures = await getGa4E2eFixtures();
+      return fixtures.getFixtureGa4SyncStatus();
+    }
+
     const connection = await Ga4Service.getConnection(
       context.projectId,
       context.organizationId,
@@ -183,123 +205,151 @@ export const getPeriodUsers = createServerFn({ method: "POST" })
       endDate: data.endDate,
     }),
   );
+function extractAnalyticsFilterParams(data: {
+  startDate?: string;
+  endDate?: string;
+  compareMode?: "none" | "previous_period" | "previous_year" | "custom";
+  compareStartDate?: string;
+  compareEndDate?: string;
+  channel?: string;
+  device?: string;
+  country?: string;
+}) {
+  return {
+    ...(data.startDate ? { startDate: data.startDate } : {}),
+    ...(data.endDate ? { endDate: data.endDate } : {}),
+    ...(data.compareMode ? { compareMode: data.compareMode } : {}),
+    ...(data.compareStartDate
+      ? { compareStartDate: data.compareStartDate }
+      : {}),
+    ...(data.compareEndDate ? { compareEndDate: data.compareEndDate } : {}),
+    ...(data.channel ? { channel: data.channel } : {}),
+    ...(data.device ? { device: data.device } : {}),
+    ...(data.country ? { country: data.country } : {}),
+  };
+}
+
 export const getAnalyticsOverview = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsOverviewSchema)
   .handler(async ({ data, context }) =>
-    AnalyticsService.getOverview({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      range: data.range,
-      ...(data.channel ? { channel: data.channel } : {}),
-      ...(data.device ? { device: data.device } : {}),
-      ...(data.country ? { country: data.country } : {}),
-    }),
+    shouldUseGa4E2eFixtures()
+      ? (await getGa4E2eFixtures()).getFixtureGa4Overview()
+      : AnalyticsService.getOverview({
+          projectId: context.projectId,
+          organizationId: context.organizationId,
+          range: data.range,
+          ...extractAnalyticsFilterParams(data),
+        }),
   );
 export const getAnalyticsAcquisition = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsAcquisitionSchema)
   .handler(async ({ data, context }) =>
-    AnalyticsService.getAcquisition({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      range: data.range,
-      ...(data.channel ? { channel: data.channel } : {}),
-      ...(data.device ? { device: data.device } : {}),
-      ...(data.country ? { country: data.country } : {}),
-    }),
+    shouldUseGa4E2eFixtures()
+      ? (await getGa4E2eFixtures()).getFixtureGa4Acquisition()
+      : AnalyticsService.getAcquisition({
+          projectId: context.projectId,
+          organizationId: context.organizationId,
+          range: data.range,
+          ...extractAnalyticsFilterParams(data),
+        }),
   );
 export const getAnalyticsLandingPages = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsLandingPagesSchema)
   .handler(async ({ data, context }) =>
-    AnalyticsService.getLandingPages({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      range: data.range,
-      limit: data.limit,
-      ...(data.channel ? { channel: data.channel } : {}),
-      ...(data.device ? { device: data.device } : {}),
-      ...(data.country ? { country: data.country } : {}),
-    }),
+    shouldUseGa4E2eFixtures()
+      ? (await getGa4E2eFixtures()).getFixtureGa4LandingPages()
+      : AnalyticsService.getLandingPages({
+          projectId: context.projectId,
+          organizationId: context.organizationId,
+          range: data.range,
+          limit: data.limit,
+          ...extractAnalyticsFilterParams(data),
+        }),
   );
 export const getAnalyticsEvents = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsEventsSchema)
   .handler(async ({ data, context }) =>
-    AnalyticsService.getEvents({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      range: data.range,
-      limit: data.limit,
-      ...(data.channel ? { channel: data.channel } : {}),
-      ...(data.device ? { device: data.device } : {}),
-      ...(data.country ? { country: data.country } : {}),
-    }),
+    shouldUseGa4E2eFixtures()
+      ? (await getGa4E2eFixtures()).getFixtureGa4Events()
+      : AnalyticsService.getEvents({
+          projectId: context.projectId,
+          organizationId: context.organizationId,
+          range: data.range,
+          limit: data.limit,
+          ...extractAnalyticsFilterParams(data),
+        }),
   );
 export const getAnalyticsConversions = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsConversionsSchema)
   .handler(async ({ data, context }) =>
-    AnalyticsService.getConversions({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      range: data.range,
-      limit: data.limit,
-      ...(data.channel ? { channel: data.channel } : {}),
-      ...(data.device ? { device: data.device } : {}),
-      ...(data.country ? { country: data.country } : {}),
-      ...(data.goalId ? { goalId: data.goalId } : {}),
-    }),
+    shouldUseGa4E2eFixtures()
+      ? (await getGa4E2eFixtures()).getFixtureGa4Conversions()
+      : AnalyticsService.getConversions({
+          projectId: context.projectId,
+          organizationId: context.organizationId,
+          range: data.range,
+          limit: data.limit,
+          ...extractAnalyticsFilterParams(data),
+          ...(data.goalId ? { goalId: data.goalId } : {}),
+        }),
   );
 export const getAnalyticsEcommerce = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsEcommerceSchema)
   .handler(async ({ data, context }) =>
-    AnalyticsService.getEcommerce({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      range: data.range,
-      ...(data.channel ? { channel: data.channel } : {}),
-      ...(data.device ? { device: data.device } : {}),
-      ...(data.country ? { country: data.country } : {}),
-    }),
+    shouldUseGa4E2eFixtures()
+      ? (await getGa4E2eFixtures()).getFixtureGa4Ecommerce()
+      : AnalyticsService.getEcommerce({
+          projectId: context.projectId,
+          organizationId: context.organizationId,
+          range: data.range,
+          ...extractAnalyticsFilterParams(data),
+        }),
   );
 export const getAnalyticsAudience = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsAudienceSchema)
   .handler(async ({ data, context }) =>
-    AnalyticsService.getAudience({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      range: data.range,
-      ...(data.channel ? { channel: data.channel } : {}),
-      ...(data.device ? { device: data.device } : {}),
-      ...(data.country ? { country: data.country } : {}),
-    }),
+    shouldUseGa4E2eFixtures()
+      ? (await getGa4E2eFixtures()).getFixtureGa4Audience()
+      : AnalyticsService.getAudience({
+          projectId: context.projectId,
+          organizationId: context.organizationId,
+          range: data.range,
+          ...extractAnalyticsFilterParams(data),
+        }),
   );
 export const getAnalyticsGeo = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsGeoSchema)
   .handler(async ({ data, context }) =>
-    AnalyticsService.getAnalyticsGeo({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      from: data.from,
-      to: data.to,
-    }),
+    shouldUseGa4E2eFixtures()
+      ? (await getGa4E2eFixtures()).getFixtureGa4Geo()
+      : AnalyticsService.getAnalyticsGeo({
+          projectId: context.projectId,
+          organizationId: context.organizationId,
+          from: data.from,
+          to: data.to,
+        }),
   );
 export const getAnalyticsTechnology = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(analyticsTechnologySchema)
   .handler(async ({ data, context }) =>
-    AnalyticsService.getAnalyticsTechnology({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      from: data.from,
-      to: data.to,
-      dimension: data.dimension,
-    }),
+    shouldUseGa4E2eFixtures()
+      ? (await getGa4E2eFixtures()).getFixtureGa4Technology(data.dimension)
+      : AnalyticsService.getAnalyticsTechnology({
+          projectId: context.projectId,
+          organizationId: context.organizationId,
+          from: data.from,
+          to: data.to,
+          dimension: data.dimension,
+        }),
   );
 
 /**

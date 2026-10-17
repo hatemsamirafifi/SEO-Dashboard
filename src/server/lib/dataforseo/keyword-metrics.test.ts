@@ -189,4 +189,55 @@ describe("fetchKeywordMetricsForList", () => {
       intent: "transactional",
     });
   });
+
+  it("rejects a present-but-non-array monthly_searches provider payload with an explicit shape error", async () => {
+    const keywordOverview = vi.fn().mockResolvedValue([
+      {
+        keyword: "best crm",
+        keyword_info: {
+          search_volume: 1000,
+          // Provider changed shape: object instead of array.
+          monthly_searches: { year: 2026, month: 1, search_volume: 1000 },
+        },
+      },
+    ]);
+    const client = fakeClient({ keywordOverview });
+
+    await expect(
+      fetchKeywordMetricsForList(client, {
+        keywords: ["best crm"],
+        locationCode: 2840,
+        languageCode: "en",
+        creditFeature: "keyword_research",
+      }),
+    ).rejects.toThrow(
+      "Malformed DataForSEO monthly_searches payload: expected array, received object",
+    );
+  });
+
+  it("maps absent monthly_searches to an empty array (absence is not malformation)", async () => {
+    const keywordOverview = vi.fn().mockResolvedValue([
+      {
+        keyword: "best crm",
+        keyword_info: { search_volume: 1000, monthly_searches: null },
+      },
+      {
+        keyword: "other crm",
+        keyword_info: { search_volume: 500 },
+      },
+    ]);
+    const client = fakeClient({ keywordOverview });
+
+    const rows = await fetchKeywordMetricsForList(client, {
+      keywords: ["best crm", "other crm"],
+      locationCode: 2840,
+      languageCode: "en",
+      creditFeature: "keyword_research",
+    });
+
+    expect(rows).toMatchObject([
+      { keyword: "best crm", monthlySearches: [] },
+      { keyword: "other crm", monthlySearches: [] },
+    ]);
+  });
 });

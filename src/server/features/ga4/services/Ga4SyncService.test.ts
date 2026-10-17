@@ -8,10 +8,7 @@ import type { Ga4Connection } from "../repositories/Ga4ConnectionRepository";
 import { Ga4ConnectionRepository } from "../repositories/Ga4ConnectionRepository";
 // oxlint-disable-next-line typescript/consistent-type-imports -- typeof queries need the value import; erased to types only
 import { Ga4SyncRepository } from "../repositories/Ga4SyncRepository";
-import type {
-  Ga4CoverageStatus,
-  Ga4SyncGrain,
-} from "./ga4SyncUtils";
+import type { Ga4CoverageStatus, Ga4SyncGrain } from "./ga4SyncUtils";
 
 type Ga4Client = ReturnType<typeof createGa4Client>;
 
@@ -235,7 +232,8 @@ function techFixture(dates: string[]) {
 function geoTechDefault(request: { dimensions?: string[] }): Ga4ReportResult {
   const dimensions = request.dimensions ?? [];
   if (dimensions.includes("country")) return report(geoFixture(DATES_7));
-  if (dimensions.includes("deviceCategory")) return report(techFixture(DATES_7));
+  if (dimensions.includes("deviceCategory"))
+    return report(techFixture(DATES_7));
   return report([]);
 }
 
@@ -249,9 +247,9 @@ beforeEach(() => {
   mocks.getLastFullyCoveredDate.mockResolvedValue("2025-01-07");
   mocks.getPropertyCreateTime.mockResolvedValue("2024-01-15");
   mocks.batchRunReports.mockResolvedValue(weekBatch(DATES_7));
-    mocks.runReport.mockImplementation(async (request) =>
-      geoTechDefault(request),
-    );
+  mocks.runReport.mockImplementation(async (request) =>
+    geoTechDefault(request),
+  );
 });
 
 describe("Ga4SyncService.runSync connection and concurrency", () => {
@@ -318,6 +316,23 @@ describe("Ga4SyncService.runSync successful windows", () => {
     });
     expect(mocks.seedPendingUnits).toHaveBeenCalledWith(
       expect.objectContaining({ force: false }),
+    );
+    vi.clearAllMocks();
+    mocks.getConnection.mockResolvedValue(CONNECTION);
+    mocks.getActiveSyncRun.mockResolvedValue(null);
+    mocks.createSyncRun.mockResolvedValue({ ok: true, sync: SYNC_ROW });
+    mocks.getCoverageMap.mockResolvedValue(new Map());
+    mocks.getLastFullyCoveredDate.mockResolvedValue(
+      new Date().toISOString().slice(0, 10),
+    );
+    mocks.batchRunReports.mockResolvedValue(weekBatch(DATES_7));
+    await Ga4SyncService.runSync({
+      projectId: "p1",
+      organizationId: "o1",
+      syncType: "manual",
+    });
+    expect(mocks.seedPendingUnits).toHaveBeenCalledWith(
+      expect.objectContaining({ force: true }),
     );
   });
 
@@ -695,14 +710,19 @@ describe("Ga4SyncService.runSync geo grain", () => {
   });
 
   it("stores the (not set) sentinel for missing countries", async () => {
-    mocks.runReport.mockImplementation(async (request: { dimensions?: string[] }) => {
-      if ((request.dimensions ?? []).includes("country")) {
-        return report([
-          { dimensionValues: ["20250101", ""], metricValues: [4, 1, 9, 3, 5, 1] },
-        ]);
-      }
-      return geoTechDefault(request);
-    });
+    mocks.runReport.mockImplementation(
+      async (request: { dimensions?: string[] }) => {
+        if ((request.dimensions ?? []).includes("country")) {
+          return report([
+            {
+              dimensionValues: ["20250101", ""],
+              metricValues: [4, 1, 9, 3, 5, 1],
+            },
+          ]);
+        }
+        return geoTechDefault(request);
+      },
+    );
     await Ga4SyncService.runSync({
       projectId: "p1",
       organizationId: "o1",
@@ -721,12 +741,14 @@ describe("Ga4SyncService.runSync geo grain", () => {
       dimensionValues: ["20250101", `Country ${String(i).padStart(3, "0")}`],
       metricValues: [301 - i, 1, 10, 2, 3, 1],
     }));
-    mocks.runReport.mockImplementation(async (request: { dimensions?: string[] }) => {
-      if ((request.dimensions ?? []).includes("country")) {
-        return report(overflow, { rowCount: 301 });
-      }
-      return geoTechDefault(request);
-    });
+    mocks.runReport.mockImplementation(
+      async (request: { dimensions?: string[] }) => {
+        if ((request.dimensions ?? []).includes("country")) {
+          return report(overflow, { rowCount: 301 });
+        }
+        return geoTechDefault(request);
+      },
+    );
     await Ga4SyncService.runSync({
       projectId: "p1",
       organizationId: "o1",
@@ -769,9 +791,9 @@ describe("Ga4SyncService.runSync geo grain", () => {
     mocks.getConnection.mockResolvedValue(CONNECTION);
     mocks.getActiveSyncRun.mockResolvedValue(null);
     mocks.createSyncRun.mockResolvedValue({ ok: true, sync: SYNC_ROW });
-  mocks.runReport.mockImplementation(async (request) =>
-    geoTechDefault(request),
-  );
+    mocks.runReport.mockImplementation(async (request) =>
+      geoTechDefault(request),
+    );
     const failed = new Map<string, Map<Ga4SyncGrain, Ga4CoverageStatus>>();
     for (const date of [
       "2025-01-01",
@@ -856,12 +878,14 @@ describe("Ga4SyncService.runSync technology grain", () => {
       ],
       metricValues: [1001 - i, 1, 10, 2, 3, 1],
     }));
-    mocks.runReport.mockImplementation(async (request: { dimensions?: string[] }) => {
-      if ((request.dimensions ?? []).includes("deviceCategory")) {
-        return report(overflow, { rowCount: 1001 });
-      }
-      return geoTechDefault(request);
-    });
+    mocks.runReport.mockImplementation(
+      async (request: { dimensions?: string[] }) => {
+        if ((request.dimensions ?? []).includes("deviceCategory")) {
+          return report(overflow, { rowCount: 1001 });
+        }
+        return geoTechDefault(request);
+      },
+    );
     await Ga4SyncService.runSync({
       projectId: "p1",
       organizationId: "o1",
@@ -899,14 +923,16 @@ describe("Ga4SyncService.runSync technology grain", () => {
 describe("Ga4SyncService.runSync quota honesty for geo/tech grains", () => {
   it("halts with the remainder PENDING when the geo fetch hits quota", async () => {
     let runReportCalls = 0;
-    mocks.runReport.mockImplementation(async (request: { dimensions?: string[] }) => {
-      runReportCalls += 1;
-      // Chunk 1 (geo + tech) succeeds; chunk 2 geo hits quota.
-      if (runReportCalls === 3) {
-        throw new Ga4ApiError(429, "quota");
-      }
-      return geoTechDefault(request);
-    });
+    mocks.runReport.mockImplementation(
+      async (request: { dimensions?: string[] }) => {
+        runReportCalls += 1;
+        // Chunk 1 (geo + tech) succeeds; chunk 2 geo hits quota.
+        if (runReportCalls === 3) {
+          throw new Ga4ApiError(429, "quota");
+        }
+        return geoTechDefault(request);
+      },
+    );
     const result = await Ga4SyncService.runSync({
       projectId: "p1",
       organizationId: "o1",
@@ -919,9 +945,9 @@ describe("Ga4SyncService.runSync quota honesty for geo/tech grains", () => {
     expect(result.successfulUnits).toBe(42);
     const marked = mocks.markUnits.mock.calls.flatMap((call) => call[0]);
     expect(marked).toHaveLength(42);
-    expect(
-      marked.every((unit) => unit.status === "SUCCESS_WITH_DATA"),
-    ).toBe(true);
+    expect(marked.every((unit) => unit.status === "SUCCESS_WITH_DATA")).toBe(
+      true,
+    );
     const markedDates = new Set(marked.map((unit) => unit.date));
     for (const date of [
       "2025-01-08",
@@ -945,7 +971,14 @@ describe("Ga4SyncService.runSync quota honesty for geo/tech grains", () => {
     });
     expect(mocks.seedPendingUnits).toHaveBeenCalledWith(
       expect.objectContaining({
-        grains: ["summary", "acquisition", "landing_pages", "events", "geo", "technology"],
+        grains: [
+          "summary",
+          "acquisition",
+          "landing_pages",
+          "events",
+          "geo",
+          "technology",
+        ],
       }),
     );
   });
@@ -958,11 +991,13 @@ describe("Ga4SyncService.runSync quota honesty for geo/tech grains", () => {
       endDate: "2025-01-07",
     };
     let runReportCalls = 0;
-    mocks.runReport.mockImplementation(async (request: { dimensions?: string[] }) => {
-      runReportCalls += 1;
-      if (runReportCalls === 1) throw new Ga4ApiError(429, "quota");
-      return geoTechDefault(request);
-    });
+    mocks.runReport.mockImplementation(
+      async (request: { dimensions?: string[] }) => {
+        runReportCalls += 1;
+        if (runReportCalls === 1) throw new Ga4ApiError(429, "quota");
+        return geoTechDefault(request);
+      },
+    );
     const halted = await Ga4SyncService.runSync(window);
     expect(halted.status).toBe("failed");
     expect(halted.errorClass).toBe("QUOTA_EXHAUSTED");
@@ -987,8 +1022,6 @@ describe("Ga4SyncService.runSync quota honesty for geo/tech grains", () => {
     const geo = mocks.markUnits.mock.calls
       .flatMap((call) => call[0])
       .filter((unit) => unit.grain === "geo");
-    expect(geo.every((unit) => unit.status === "SUCCESS_WITH_DATA")).toBe(
-      true,
-    );
+    expect(geo.every((unit) => unit.status === "SUCCESS_WITH_DATA")).toBe(true);
   });
 });

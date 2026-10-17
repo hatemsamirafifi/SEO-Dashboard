@@ -19,6 +19,10 @@ export type SerpResultCardMetrics = {
   referringDomains: number | null;
   backlinks: number | null;
   etv: number | null;
+  spamScore?: number | null;
+  stale?: boolean | null;
+  provider?: string | null;
+  fetchedAt?: string | null;
 };
 
 export type SerpResultCardRow = {
@@ -59,6 +63,19 @@ function MetricsBody({ metrics }: { metrics: SerpResultCardMetrics }) {
       <span>
         Est.traffic <MetricValue value={metrics.etv} />
       </span>
+      {metrics.spamScore !== null && metrics.spamScore !== undefined ? (
+        <span>
+          Spam <MetricValue value={metrics.spamScore} />
+        </span>
+      ) : null}
+      {metrics.stale ? (
+        <span
+          className="badge badge-warning badge-xs"
+          title="Stale cache fallback after refresh failure"
+        >
+          stale
+        </span>
+      ) : null}
       {metrics.status !== "available" ? (
         <span className="text-warning">{metrics.status}</span>
       ) : null}

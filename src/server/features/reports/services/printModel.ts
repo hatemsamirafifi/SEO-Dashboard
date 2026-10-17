@@ -1,5 +1,6 @@
 import {
   consistencyBanner,
+  containsArabicText,
   REPORT_SECTION_TITLES,
   REPORT_TYPE_LABELS,
   unavailableSectionNote,
@@ -77,6 +78,171 @@ function listSection(
   };
 }
 
+function buildVisibilitySection(payload: ReportPayload): PrintSection {
+  const totals = payload.searchVisibility.totals;
+  const prev = payload.searchVisibility.previousTotals;
+  return metricSection("search_visibility", payload.searchVisibility.status, [
+    {
+      label: "Clicks",
+      value: prev
+        ? `${formatCount(totals?.clicks ?? null)} (prev: ${formatCount(prev.clicks)})`
+        : formatCount(totals?.clicks ?? null),
+    },
+    {
+      label: "Impressions",
+      value: prev
+        ? `${formatCount(totals?.impressions ?? null)} (prev: ${formatCount(prev.impressions)})`
+        : formatCount(totals?.impressions ?? null),
+    },
+    {
+      label: "CTR",
+      value: prev
+        ? `${formatPercent(totals?.ctr ?? null)} (prev: ${formatPercent(prev.ctr)})`
+        : formatPercent(totals?.ctr ?? null),
+    },
+    {
+      label: "Avg. position",
+      value: prev
+        ? `${formatPosition(totals?.position ?? null)} (prev: ${formatPosition(prev.position)})`
+        : formatPosition(totals?.position ?? null),
+    },
+  ]);
+}
+
+function buildTrafficSection(payload: ReportPayload): PrintSection {
+  const totals = payload.traffic.totals;
+  const prev = payload.traffic.previousTotals;
+  return metricSection("traffic", payload.traffic.status, [
+    {
+      label: "Sessions",
+      value: prev
+        ? `${formatCount(totals?.sessions ?? null)} (prev: ${formatCount(prev.sessions)})`
+        : formatCount(totals?.sessions ?? null),
+    },
+    {
+      label: "Engaged sessions",
+      value: prev
+        ? `${formatCount(totals?.engagedSessions ?? null)} (prev: ${formatCount(prev.engagedSessions)})`
+        : formatCount(totals?.engagedSessions ?? null),
+    },
+    {
+      label: "Page views",
+      value: prev
+        ? `${formatCount(totals?.screenPageViews ?? null)} (prev: ${formatCount(prev.screenPageViews)})`
+        : formatCount(totals?.screenPageViews ?? null),
+    },
+    {
+      label: "New users",
+      value: prev
+        ? `${formatCount(totals?.newUsers ?? null)} (prev: ${formatCount(prev.newUsers)})`
+        : formatCount(totals?.newUsers ?? null),
+    },
+  ]);
+}
+
+function buildTechnicalSection(payload: ReportPayload): PrintSection {
+  const topIssues = payload.technical.topIssues ?? [];
+  return {
+    key: "technical",
+    title: REPORT_SECTION_TITLES.technical,
+    metricRows: payload.technical.status.available
+      ? [
+          {
+            label: "Audit status",
+            value: payload.technical.auditStatus ?? "—",
+          },
+          {
+            label: "Pages crawled",
+            value: formatCount(payload.technical.pagesCrawled),
+          },
+        ]
+      : [],
+    items: topIssues.map((issue) => ({
+      lead: issue.severity,
+      title: issue.issueType,
+      body: `${issue.count} pages`,
+    })),
+    emptyNote:
+      payload.technical.status.available && topIssues.length === 0
+        ? "No issues recorded."
+        : null,
+    unavailableNote: payload.technical.status.available
+      ? null
+      : (unavailableSectionNote(payload.technical.status.reason) ??
+        "Unavailable."),
+  };
+}
+
+function buildSectionByKey(
+  key: ReportSectionKey,
+  payload: ReportPayload,
+): PrintSection {
+  switch (key) {
+    case "search_visibility":
+      return buildVisibilitySection(payload);
+    case "traffic":
+      return buildTrafficSection(payload);
+    case "conversions":
+      return metricSection(key, payload.conversions.status, [
+        {
+          label: "Key events",
+          value: formatCount(payload.conversions.keyEvents),
+        },
+        {
+          label: "Transactions",
+          value: formatCount(payload.conversions.transactions),
+        },
+      ]);
+    case "rankings":
+      return metricSection(key, payload.rankings.status, [
+        {
+          label: "Tracked keywords",
+          value: formatCount(payload.rankings.trackedKeywords),
+        },
+        { label: "Improved", value: formatCount(payload.rankings.improved) },
+        { label: "Declined", value: formatCount(payload.rankings.declined) },
+        { label: "Top 10", value: formatCount(payload.rankings.top10) },
+        {
+          label: "Last checked",
+          value: payload.rankings.lastCheckedAt ?? "—",
+        },
+      ]);
+    case "technical":
+      return buildTechnicalSection(payload);
+    case "backlinks":
+      return metricSection(key, payload.backlinks.status, [
+        {
+          label: "Referring domains",
+          value: formatCount(payload.backlinks.referringDomains),
+        },
+        {
+          label: "Captured",
+          value: payload.backlinks.capturedAt ?? "—",
+        },
+      ]);
+    case "opportunities":
+      return listSection(
+        key,
+        payload.opportunities.map((opportunity) => ({
+          lead: `${opportunity.priority} / ${opportunity.status}`,
+          title: opportunity.title,
+          body: opportunity.explanationFact,
+        })),
+        "No opportunities in this snapshot.",
+      );
+    case "insights":
+      return listSection(
+        key,
+        payload.insights.map((insight) => ({
+          lead: `${insight.severity} / ${insight.type}`,
+          title: insight.title,
+          body: insight.explanationFact,
+        })),
+        "No insights in this snapshot.",
+      );
+  }
+}
+
 export function buildPrintModel(
   payload: ReportPayload,
   branding: BrandingSnapshot | null,
@@ -92,154 +258,10 @@ export function buildPrintModel(
       ? `Intelligence from scan ${payload.provenance.intelligenceRunId?.slice(0, 8) ?? "unknown"}${payload.provenance.intelligenceStale ? " (stale)" : ""}${payload.provenance.intelligenceCompletedAt ? `, completed ${payload.provenance.intelligenceCompletedAt}` : ""}`
       : "No successful intelligence scan at generation time.",
   ];
-  const sections: PrintSection[] = [];
-  for (const key of payload.sections) {
-    switch (key) {
-      case "search_visibility": {
-        const totals = payload.searchVisibility.totals;
-        sections.push(
-          metricSection(key, payload.searchVisibility.status, [
-            { label: "Clicks", value: formatCount(totals?.clicks ?? null) },
-            {
-              label: "Impressions",
-              value: formatCount(totals?.impressions ?? null),
-            },
-            { label: "CTR", value: formatPercent(totals?.ctr ?? null) },
-            {
-              label: "Avg. position",
-              value: formatPosition(totals?.position ?? null),
-            },
-          ]),
-        );
-        break;
-      }
-      case "traffic": {
-        const totals = payload.traffic.totals;
-        sections.push(
-          metricSection(key, payload.traffic.status, [
-            { label: "Sessions", value: formatCount(totals?.sessions ?? null) },
-            {
-              label: "Engaged sessions",
-              value: formatCount(totals?.engagedSessions ?? null),
-            },
-            {
-              label: "Page views",
-              value: formatCount(totals?.screenPageViews ?? null),
-            },
-            {
-              label: "New users",
-              value: formatCount(totals?.newUsers ?? null),
-            },
-          ]),
-        );
-        break;
-      }
-      case "conversions":
-        sections.push(
-          metricSection(key, payload.conversions.status, [
-            {
-              label: "Key events",
-              value: formatCount(payload.conversions.keyEvents),
-            },
-            {
-              label: "Transactions",
-              value: formatCount(payload.conversions.transactions),
-            },
-          ]),
-        );
-        break;
-      case "rankings":
-        sections.push(
-          metricSection(key, payload.rankings.status, [
-            {
-              label: "Tracked keywords",
-              value: formatCount(payload.rankings.trackedKeywords),
-            },
-            { label: "Improved", value: formatCount(payload.rankings.improved) },
-            { label: "Declined", value: formatCount(payload.rankings.declined) },
-            { label: "Top 10", value: formatCount(payload.rankings.top10) },
-            {
-              label: "Last checked",
-              value: payload.rankings.lastCheckedAt ?? "—",
-            },
-          ]),
-        );
-        break;
-      case "technical": {
-        const topIssues = payload.technical.topIssues ?? [];
-        sections.push({
-          key,
-          title: REPORT_SECTION_TITLES[key],
-          metricRows: payload.technical.status.available
-            ? [
-                {
-                  label: "Audit status",
-                  value: payload.technical.auditStatus ?? "—",
-                },
-                {
-                  label: "Pages crawled",
-                  value: formatCount(payload.technical.pagesCrawled),
-                },
-              ]
-            : [],
-          items: topIssues.map((issue) => ({
-            lead: issue.severity,
-            title: issue.issueType,
-            body: `${issue.count} pages`,
-          })),
-          emptyNote:
-            payload.technical.status.available && topIssues.length === 0
-              ? "No issues recorded."
-              : null,
-          unavailableNote: payload.technical.status.available
-            ? null
-            : (unavailableSectionNote(payload.technical.status.reason) ??
-              "Unavailable."),
-        });
-        break;
-      }
-      case "backlinks":
-        sections.push(
-          metricSection(key, payload.backlinks.status, [
-            {
-              label: "Referring domains",
-              value: formatCount(payload.backlinks.referringDomains),
-            },
-            {
-              label: "Captured",
-              value: payload.backlinks.capturedAt ?? "—",
-            },
-          ]),
-        );
-        break;
-      case "opportunities":
-        sections.push(
-          listSection(
-            key,
-            payload.opportunities.map((opportunity) => ({
-              lead: `${opportunity.priority} / ${opportunity.status}`,
-              title: opportunity.title,
-              body: opportunity.explanationFact,
-            })),
-            "No opportunities in this snapshot.",
-          ),
-        );
-        break;
-      case "insights":
-        sections.push(
-          listSection(
-            key,
-            payload.insights.map((insight) => ({
-              lead: `${insight.severity} / ${insight.type}`,
-              title: insight.title,
-              body: insight.explanationFact,
-            })),
-            "No insights in this snapshot.",
-          ),
-        );
-        break;
-    }
-  }
+
+  const sections = payload.sections.map((key) =>
+    buildSectionByKey(key, payload),
+  );
   return {
     title,
     subtitle: `${agencyName}${clientName ? ` for ${clientName}` : ""} · ${payload.period.from} → ${payload.period.to}`,
@@ -248,4 +270,39 @@ export function buildPrintModel(
     provenanceLines,
     sections,
   };
+}
+
+export function hasUnsupportedArabicText(model: PrintModel): boolean {
+  if (containsArabicText(model.title) || containsArabicText(model.subtitle)) {
+    return true;
+  }
+  if (containsArabicText(model.footer)) return true;
+  if (containsArabicText(model.banner)) return true;
+  for (const line of model.provenanceLines) {
+    if (containsArabicText(line)) return true;
+  }
+  for (const section of model.sections) {
+    if (containsArabicText(section.title)) return true;
+    if (
+      containsArabicText(section.emptyNote) ||
+      containsArabicText(section.unavailableNote)
+    ) {
+      return true;
+    }
+    for (const row of section.metricRows) {
+      if (containsArabicText(row.label) || containsArabicText(row.value)) {
+        return true;
+      }
+    }
+    for (const item of section.items) {
+      if (
+        containsArabicText(item.lead) ||
+        containsArabicText(item.title) ||
+        containsArabicText(item.body)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }

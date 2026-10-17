@@ -1,6 +1,10 @@
 /* eslint-disable max-lines */
 import { ORGANIC_CHANNEL_GROUP } from "@/shared/ga4";
 import { ANALYTICS_RANGE_DAYS, type AnalyticsRange } from "@/types/schemas/ga4";
+import {
+  daysBetweenIso,
+  subtractYearIso,
+} from "@/types/schemas/date-range-compare";
 import { AppError } from "@/server/lib/errors";
 import { Ga4ConnectionRepository } from "../repositories/Ga4ConnectionRepository";
 import { Ga4GoalRepository } from "../repositories/Ga4GoalRepository";
@@ -32,6 +36,11 @@ export type AnalyticsCoverage = {
 
 export type AnalyticsFilters = {
   range: AnalyticsRange;
+  startDate?: string;
+  endDate?: string;
+  compareMode?: "none" | "previous_period" | "previous_year" | "custom";
+  compareStartDate?: string;
+  compareEndDate?: string;
   channel?: string;
   device?: string;
   country?: string;
@@ -52,18 +61,86 @@ function addDaysIso(iso: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Current window (range ending today) plus the equivalent previous period
- *  of the same length, both as inclusive ISO date ranges. */
+/** Current window (range ending today or custom) plus the comparison period
+ *  (previous period, previous year, or custom compare), as inclusive ISO date ranges. */
 export function resolveAnalyticsWindows(
-  range: AnalyticsRange,
+  rangeOrInput:
+    | AnalyticsRange
+    | {
+        range: AnalyticsRange;
+        startDate?: string;
+        endDate?: string;
+        compareMode?: "none" | "previous_period" | "previous_year" | "custom";
+        compareStartDate?: string;
+        compareEndDate?: string;
+      },
   todayIso: string,
 ): AnalyticsWindows {
-  const days = ANALYTICS_RANGE_DAYS[range];
-  const current = { from: addDaysIso(todayIso, -(days - 1)), to: todayIso };
-  const previousTo = addDaysIso(current.from, -1);
+  if (typeof rangeOrInput === "string") {
+    const days =
+      rangeOrInput === "custom"
+        ? 28
+        : (ANALYTICS_RANGE_DAYS[rangeOrInput] ?? 28);
+    const current = { from: addDaysIso(todayIso, -(days - 1)), to: todayIso };
+    const previousTo = addDaysIso(current.from, -1);
+    return {
+      current,
+      previous: { from: addDaysIso(previousTo, -(days - 1)), to: previousTo },
+    };
+  }
+
+  const {
+    range,
+    startDate,
+    endDate,
+    compareMode,
+    compareStartDate,
+    compareEndDate,
+  } = rangeOrInput;
+
+  let currentFrom: string;
+  let currentTo: string;
+
+  if (range === "custom" && startDate && endDate) {
+    currentFrom = startDate <= endDate ? startDate : endDate;
+    currentTo = startDate <= endDate ? endDate : startDate;
+  } else {
+    const days = range === "custom" ? 28 : (ANALYTICS_RANGE_DAYS[range] ?? 28);
+    currentTo = todayIso;
+    currentFrom = addDaysIso(todayIso, -(days - 1));
+  }
+
+  const durationDays = daysBetweenIso(currentFrom, currentTo);
+
+  if (compareMode === "previous_year") {
+    return {
+      current: { from: currentFrom, to: currentTo },
+      previous: {
+        from: subtractYearIso(currentFrom),
+        to: subtractYearIso(currentTo),
+      },
+    };
+  }
+
+  if (compareMode === "custom" && compareStartDate && compareEndDate) {
+    const pFrom =
+      compareStartDate <= compareEndDate ? compareStartDate : compareEndDate;
+    const pTo =
+      compareStartDate <= compareEndDate ? compareEndDate : compareStartDate;
+    return {
+      current: { from: currentFrom, to: currentTo },
+      previous: { from: pFrom, to: pTo },
+    };
+  }
+
+  // default / "previous_period": preceding period of identical length
+  const previousTo = addDaysIso(currentFrom, -1);
   return {
-    current,
-    previous: { from: addDaysIso(previousTo, -(days - 1)), to: previousTo },
+    current: { from: currentFrom, to: currentTo },
+    previous: {
+      from: addDaysIso(previousTo, -(durationDays - 1)),
+      to: previousTo,
+    },
   };
 }
 
@@ -139,6 +216,11 @@ function reservedFilterNoteFor(input: {
 
 function filtersOf(input: {
   range: AnalyticsRange;
+  startDate?: string;
+  endDate?: string;
+  compareMode?: "none" | "previous_period" | "previous_year" | "custom";
+  compareStartDate?: string;
+  compareEndDate?: string;
   channel?: string;
   device?: string;
   country?: string;
@@ -146,6 +228,13 @@ function filtersOf(input: {
 }): AnalyticsFilters {
   return {
     range: input.range,
+    ...(input.startDate ? { startDate: input.startDate } : {}),
+    ...(input.endDate ? { endDate: input.endDate } : {}),
+    ...(input.compareMode ? { compareMode: input.compareMode } : {}),
+    ...(input.compareStartDate
+      ? { compareStartDate: input.compareStartDate }
+      : {}),
+    ...(input.compareEndDate ? { compareEndDate: input.compareEndDate } : {}),
     ...(input.channel ? { channel: input.channel } : {}),
     ...(input.device ? { device: input.device } : {}),
     ...(input.country ? { country: input.country } : {}),
@@ -242,8 +331,8 @@ async function getOverview(input: {
   if (!connection) return { connected: false };
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const windows = resolveAnalyticsWindows(input.range, todayIso);
-  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const windows = resolveAnalyticsWindows(input, todayIso);
+  const days = daysBetweenIso(windows.current.from, windows.current.to);
   if (input.country ?? input.device) {
     return getScopedOverview(input, connection, windows, days);
   }
@@ -304,14 +393,16 @@ async function getOverview(input: {
  *  Revenue/conversion keys are summary-grain-only (the geo/technology grains
  *  store the six engagement metrics) and stay zero with the filter note
  *  carrying that scope. */
-function grainGroupToSummary(group: {
-  sessions: number;
-  engagedSessions: number;
-  userEngagementDuration: number;
-  screenPageViews: number;
-  eventCount: number;
-  newUsers: number;
-} | null): SummaryLike {
+function grainGroupToSummary(
+  group: {
+    sessions: number;
+    engagedSessions: number;
+    userEngagementDuration: number;
+    screenPageViews: number;
+    eventCount: number;
+    newUsers: number;
+  } | null,
+): SummaryLike {
   return {
     sessions: group?.sessions ?? 0,
     engagedSessions: group?.engagedSessions ?? 0,
@@ -518,7 +609,10 @@ async function getAnalyticsGeo(input: {
     propertyId: connection.propertyId,
     from: input.from,
     to: input.to,
-    coverage: toCoverage(grainCoverage, inclusiveDayCount(input.from, input.to)),
+    coverage: toCoverage(
+      grainCoverage,
+      inclusiveDayCount(input.from, input.to),
+    ),
     rows,
     emptyNote:
       rows.length === 0
@@ -663,8 +757,8 @@ async function getAcquisition(input: {
   if (!connection) return { connected: false };
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const windows = resolveAnalyticsWindows(input.range, todayIso);
-  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const windows = resolveAnalyticsWindows(input, todayIso);
+  const days = daysBetweenIso(windows.current.from, windows.current.to);
   const filter = input.channel ? { channelGroup: input.channel } : {};
   const [currentGroups, previousGroups, grainCoverage] = await Promise.all([
     Ga4SyncRepository.getAcquisitionGroups(
@@ -805,8 +899,8 @@ async function getLandingPages(input: {
   if (!connection) return { connected: false };
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const windows = resolveAnalyticsWindows(input.range, todayIso);
-  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const windows = resolveAnalyticsWindows(input, todayIso);
+  const days = daysBetweenIso(windows.current.from, windows.current.to);
   // Landing rows carry no channel dimension; the channel filter is echoed
   // but cannot narrow page rows (documented in the filter contract).
   const [currentGroups, previousGroups, grainCoverage] = await Promise.all([
@@ -954,8 +1048,8 @@ async function getEventRows(input: {
   if (!connection) return { connected: false };
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const windows = resolveAnalyticsWindows(input.range, todayIso);
-  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const windows = resolveAnalyticsWindows(input, todayIso);
+  const days = daysBetweenIso(windows.current.from, windows.current.to);
   const [currentGroups, previousGroups, grainCoverage] = await Promise.all([
     Ga4SyncRepository.getEventGroups(
       input.projectId,
@@ -1060,8 +1154,8 @@ async function getConversions(input: {
     );
   }
   const todayIso = new Date().toISOString().slice(0, 10);
-  const windows = resolveAnalyticsWindows(input.range, todayIso);
-  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const windows = resolveAnalyticsWindows(input, todayIso);
+  const days = daysBetweenIso(windows.current.from, windows.current.to);
   const [current, previous, grainCoverage] = await Promise.all([
     Ga4SyncRepository.getGoalConversions({
       projectId: input.projectId,
@@ -1152,8 +1246,8 @@ async function getEcommerce(input: {
   }
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const windows = resolveAnalyticsWindows(input.range, todayIso);
-  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const windows = resolveAnalyticsWindows(input, todayIso);
+  const days = daysBetweenIso(windows.current.from, windows.current.to);
   const [current, previous, grainCoverage] = await Promise.all([
     Ga4SyncRepository.getSummaryTotals(
       input.projectId,
@@ -1236,8 +1330,8 @@ async function getAudience(input: {
   if (!connection) return { connected: false };
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  const windows = resolveAnalyticsWindows(input.range, todayIso);
-  const days = ANALYTICS_RANGE_DAYS[input.range];
+  const windows = resolveAnalyticsWindows(input, todayIso);
+  const days = daysBetweenIso(windows.current.from, windows.current.to);
   const [current, previous, grainCoverage] = await Promise.all([
     Ga4SyncRepository.getSummaryTotals(
       input.projectId,

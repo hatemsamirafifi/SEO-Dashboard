@@ -563,9 +563,9 @@ describe("materializeFinding", () => {
       );
       // Exactly one detected event: the re-scan records redetected, never a
       // second detected event for the same logical occurrence.
-      expect(
-        events.filter((event) => event.type === "detected"),
-      ).toHaveLength(1);
+      expect(events.filter((event) => event.type === "detected")).toHaveLength(
+        1,
+      );
     });
   });
 
@@ -613,6 +613,96 @@ describe("materializeFinding", () => {
 
       const repeat = await materializeFinding({
         finding: lostFinding(),
+        scanId: "run-2",
+        projectId: "project-1",
+        organizationId: "org-1",
+      });
+      expect(repeat.outcome).toBe("updated");
+      const active =
+        await OpportunityRepository.listActiveByProject("project-1");
+      expect(active).toHaveLength(1);
+    });
+  });
+
+  describe("competitor_gap lifecycle (spec 014)", () => {
+    function competitorGapFinding(overrides: Partial<Finding> = {}): Finding {
+      return ctrFinding({
+        findingKey: "finding-cg-1",
+        detectorKey: "competitor_gap",
+        detectorVersion: 1,
+        entityKey: "enterprise crm",
+        entity: {
+          keyword: "enterprise crm",
+          competitorDomain: "salesforce.com",
+          competitorPosition: 2,
+        },
+        explanationFact:
+          'Competitor "salesforce.com" ranks at position 2.0 for "enterprise crm" (search volume: 1,200), while our domain is absent from top search results.',
+        evidence: {
+          metrics: {
+            searchVolume: 1200,
+            competitorPosition: 2,
+            competitorCount: 2,
+            firstPartyPosition: 0,
+            hasFirstPartyRank: false,
+          },
+          periods: { from: "2026-09-01", to: "2026-09-28" },
+          sources: ["rank", "gsc"],
+          thresholdsApplied: {
+            minCompetitorRank: 10,
+            maxFirstPartyPosition: 20,
+            minVolume: 50,
+          },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: { competitorRank: 2, volumeMultiple: 24 },
+        },
+        confidenceScore: 70,
+        ...overrides,
+      });
+    }
+
+    it("materializes competitor_gap finding into opportunity with observational title and recommendation", async () => {
+      const first = await materializeFinding({
+        finding: competitorGapFinding(),
+        scanId: "run-1",
+        projectId: "project-1",
+        organizationId: "org-1",
+      });
+      expect(first.outcome).toBe("created");
+      if (first.outcome !== "created") return;
+      const row = await OpportunityRepository.getById(first.id);
+      expect(row?.logicalKey).toBe("competitor_gap:enterprise crm");
+      expect(row?.type).toBe("competitor_gap");
+      expect(row?.title).toContain(
+        'Competitor gap for "enterprise crm" (salesforce.com)',
+      );
+      expect(row?.recommendation).toContain(
+        'Create dedicated content targeting "enterprise crm"',
+      );
+      expect(row?.keyword).toBe("enterprise crm");
+      expect(row?.impactScore).toBeGreaterThan(0);
+      expect(row?.confidenceScore).toBe(70);
+
+      // Verify no causal phrasing in title or recommendation
+      const banned = [
+        /\bcaused\b/i,
+        /\bcauses\b/i,
+        /\bbecause of/i,
+        /\bdue to/i,
+        /\bled to/i,
+        /\bresulted in/i,
+        /\btriggered\b/i,
+      ];
+      for (const pat of banned) {
+        expect(pat.test(row?.title ?? "")).toBe(false);
+        expect(pat.test(row?.recommendation ?? "")).toBe(false);
+      }
+
+      // Re-scan is idempotent
+      const repeat = await materializeFinding({
+        finding: competitorGapFinding(),
         scanId: "run-2",
         projectId: "project-1",
         organizationId: "org-1",

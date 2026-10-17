@@ -293,8 +293,27 @@ export function DataforseoApiHealthCard({
         </div>
       ) : statusResult && !statusResult.ok ? (
         <div className="text-xs text-error py-1">
-          Failed to retrieve API health ({statusResult.reason}). Check your
-          credentials.
+          {statusResult.reason === "INVALID_CREDENTIALS" ||
+          statusResult.reason === "NOT_CONFIGURED" ? (
+            <>
+              Failed to retrieve API health ({statusResult.reason}). Check your
+              credentials.
+            </>
+          ) : statusResult.reason === "RATE_LIMITED" ? (
+            <>
+              Failed to retrieve API health ({statusResult.reason}). The API
+              rate limit was reached — this is not a credential problem. Try
+              again shortly.
+            </>
+          ) : (
+            <>
+              Failed to retrieve API health ({statusResult.reason}). DataForSEO
+              API health could not be retrieved due to a temporary upstream
+              error. This does not indicate a credential problem — if the
+              connection test above passed, your credentials are fine. Try again
+              shortly.
+            </>
+          )}
         </div>
       ) : (
         <div className="text-xs text-base-content/40 italic py-1">

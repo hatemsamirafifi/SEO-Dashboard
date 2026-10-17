@@ -65,18 +65,41 @@ function isExpectedConnectionFailure(error: unknown): boolean {
  * 1. Database-first: reads stored normalized facts when available.
  * 2. Controlled fallback: queries live GSC when date range is not yet stored.
  */
+import { subtractYearIso } from "@/types/schemas/date-range-compare";
+
 export const getSearchPerformanceReport = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(searchPerformanceInputSchema)
   .handler(async ({ data, context }) => {
     const { startDate, endDate } = resolveDateRange({
       dateRange: data.dateRange,
+      startDate: data.startDate,
+      endDate: data.endDate,
     });
-    const prev = previousPeriod(startDate, endDate);
+    let prev: { startDate: string; endDate: string } | undefined;
+    if (data.compareMode === "none") {
+      prev = undefined;
+    } else if (data.compareMode === "previous_year") {
+      prev = {
+        startDate: subtractYearIso(startDate),
+        endDate: subtractYearIso(endDate),
+      };
+    } else if (
+      data.compareMode === "custom" &&
+      data.compareStartDate &&
+      data.compareEndDate
+    ) {
+      prev = {
+        startDate: data.compareStartDate,
+        endDate: data.compareEndDate,
+      };
+    } else {
+      prev = previousPeriod(startDate, endDate);
+    }
     const projectId = context.projectId;
     const { deviceFilters, filters } = buildGscFilters(data);
     const floor = sixteenMonthFloor();
-    const hasPrevious = prev.endDate > floor;
+    const hasPrevious = Boolean(prev && prev.endDate > floor);
 
     // Check DB coverage and sync state
     const [hasCoverage, latestSync, activeSync, storedCoverage] =
@@ -98,12 +121,12 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         storedCoverage?.startDate ??
         (latestSync?.status === "completed"
           ? latestSync.requestedStartDate
-          : latestSync?.actualLastSuccessfulDate ?? null);
+          : (latestSync?.actualLastSuccessfulDate ?? null));
       const covEndDate =
         storedCoverage?.endDate ??
         (latestSync?.status === "completed"
           ? latestSync.requestedEndDate
-          : latestSync?.actualLastSuccessfulDate ?? null);
+          : (latestSync?.actualLastSuccessfulDate ?? null));
 
       let status: "completed" | "partial" | "failed" | "running" = "completed";
       if (activeSync !== null) {
@@ -141,7 +164,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
               country: data.country,
             },
           ),
-          hasPrevious
+          hasPrevious && prev
             ? GscSearchPerformanceRepository.getTotals(
                 projectId,
                 prev.startDate,
@@ -161,6 +184,9 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
             projectId,
             startDate,
             endDate,
+            100,
+            hasPrevious && prev ? prev.startDate : undefined,
+            hasPrevious && prev ? prev.endDate : undefined,
           ),
           GscSearchPerformanceRepository.getCountries(
             projectId,
@@ -179,8 +205,8 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         range: {
           startDate,
           endDate,
-          prevStartDate: prev.startDate,
-          prevEndDate: prev.endDate,
+          prevStartDate: prev?.startDate,
+          prevEndDate: prev?.endDate,
         },
         totals,
         prevTotals,
@@ -191,42 +217,53 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
 
     // Controlled live GSC fallback when database is not yet synchronized
     try {
-      const [current, previous, queryPages, countries] = await Promise.all([
-        GscService.getPerformance({
-          projectId,
-          startDate,
-          endDate,
-          dimensions: ["date"],
-          filters,
-          rowLimit: DAILY_ROW_LIMIT,
-        }),
-        hasPrevious
-          ? GscService.getPerformance({
-              projectId,
-              startDate: prev.startDate,
-              endDate: prev.endDate,
-              dimensions: ["date"],
-              filters,
-              rowLimit: DAILY_ROW_LIMIT,
-            })
-          : Promise.resolve({ rows: [] }),
-        GscService.getPerformance({
-          projectId,
-          startDate,
-          endDate,
-          dimensions: ["query", "page"],
-          filters,
-          rowLimit: STRIKING_DISTANCE_FETCH_LIMIT,
-        }),
-        GscService.getPerformance({
-          projectId,
-          startDate,
-          endDate,
-          dimensions: ["country"],
-          filters: deviceFilters,
-          rowLimit: COUNTRY_ROW_LIMIT,
-        }),
-      ]);
+      const [current, previous, queryPages, prevQueryPages, countries] =
+        await Promise.all([
+          GscService.getPerformance({
+            projectId,
+            startDate,
+            endDate,
+            dimensions: ["date"],
+            filters,
+            rowLimit: DAILY_ROW_LIMIT,
+          }),
+          hasPrevious && prev
+            ? GscService.getPerformance({
+                projectId,
+                startDate: prev.startDate,
+                endDate: prev.endDate,
+                dimensions: ["date"],
+                filters,
+                rowLimit: DAILY_ROW_LIMIT,
+              })
+            : Promise.resolve({ rows: [] }),
+          GscService.getPerformance({
+            projectId,
+            startDate,
+            endDate,
+            dimensions: ["query", "page"],
+            filters,
+            rowLimit: STRIKING_DISTANCE_FETCH_LIMIT,
+          }),
+          hasPrevious && prev
+            ? GscService.getPerformance({
+                projectId,
+                startDate: prev.startDate,
+                endDate: prev.endDate,
+                dimensions: ["query", "page"],
+                filters,
+                rowLimit: STRIKING_DISTANCE_FETCH_LIMIT,
+              })
+            : Promise.resolve({ rows: [] }),
+          GscService.getPerformance({
+            projectId,
+            startDate,
+            endDate,
+            dimensions: ["country"],
+            filters: deviceFilters,
+            rowLimit: COUNTRY_ROW_LIMIT,
+          }),
+        ]);
 
       return {
         connected: true as const,
@@ -238,12 +275,15 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         range: {
           startDate,
           endDate,
-          prevStartDate: prev.startDate,
-          prevEndDate: prev.endDate,
+          prevStartDate: prev?.startDate,
+          prevEndDate: prev?.endDate,
         },
         totals: sumSearchTotals(current.rows),
         prevTotals: sumSearchTotals(previous.rows),
-        strikingDistance: buildStrikingDistanceRows(queryPages.rows),
+        strikingDistance: buildStrikingDistanceRows(
+          queryPages.rows,
+          prevQueryPages.rows,
+        ),
         countries: toDimensionRows(countries.rows),
       };
     } catch (error) {
@@ -263,8 +303,31 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { startDate, endDate } = resolveDateRange({
       dateRange: data.dateRange,
+      startDate: data.startDate,
+      endDate: data.endDate,
     });
     const projectId = context.projectId;
+
+    let prev: { startDate: string; endDate: string } | undefined;
+    if (data.compareMode === "none") {
+      prev = undefined;
+    } else if (data.compareMode === "previous_year") {
+      prev = {
+        startDate: subtractYearIso(startDate),
+        endDate: subtractYearIso(endDate),
+      };
+    } else if (
+      data.compareMode === "custom" &&
+      data.compareStartDate &&
+      data.compareEndDate
+    ) {
+      prev = {
+        startDate: data.compareStartDate,
+        endDate: data.compareEndDate,
+      };
+    } else {
+      prev = previousPeriod(startDate, endDate);
+    }
 
     const hasCoverage = await GscSearchPerformanceRepository.hasCoverage(
       projectId,
@@ -278,6 +341,8 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
         dimension: data.dimension,
         startDate,
         endDate,
+        prevStartDate: prev?.startDate,
+        prevEndDate: prev?.endDate,
         page: data.page,
         pageSize: data.pageSize,
       });
@@ -297,17 +362,29 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
     const offset = (data.page - 1) * data.pageSize;
 
     try {
-      const result = await GscService.getPerformance({
-        projectId: context.projectId,
-        startDate,
-        endDate,
-        dimensions: [data.dimension],
-        filters,
-        rowLimit: data.pageSize + 1,
-        startRow: offset,
-      });
+      const [result, prevResult] = await Promise.all([
+        GscService.getPerformance({
+          projectId: context.projectId,
+          startDate,
+          endDate,
+          dimensions: [data.dimension],
+          filters,
+          rowLimit: data.pageSize + 1,
+          startRow: offset,
+        }),
+        prev
+          ? GscService.getPerformance({
+              projectId: context.projectId,
+              startDate: prev.startDate,
+              endDate: prev.endDate,
+              dimensions: [data.dimension],
+              filters,
+              rowLimit: 500,
+            })
+          : Promise.resolve({ rows: [] }),
+      ]);
 
-      const fetched = toDimensionRows(result.rows);
+      const fetched = toDimensionRows(result.rows, prevResult.rows);
       const hasNextPage = fetched.length > data.pageSize;
       const rows = hasNextPage ? fetched.slice(0, data.pageSize) : fetched;
 

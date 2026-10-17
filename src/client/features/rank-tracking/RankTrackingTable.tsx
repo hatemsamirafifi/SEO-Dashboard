@@ -207,6 +207,12 @@ export function RankTrackingTable({
         queryKey: ["rankTrackingResults", projectId, configId],
       });
       void queryClient.invalidateQueries({
+        queryKey: ["rankConfigTrend", projectId, configId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["rankPositionMatrix", projectId, configId],
+      });
+      void queryClient.invalidateQueries({
         queryKey: ["rankTrackingCostEstimate", projectId, configId],
       });
       toast.success(

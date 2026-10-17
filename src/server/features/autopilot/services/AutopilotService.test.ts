@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import type { Client } from "@libsql/client";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,8 +22,19 @@ const workflowMocks = vi.hoisted(() => ({
       terminate: async () => {
         instances.states.set(id, "terminated");
       },
+      restart: async () => {
+        instances.states.set(id, "running");
+      },
     };
   }),
+}));
+
+const gateMocks = vi.hoisted(() => ({
+  competitorGapGateState: vi.fn(),
+}));
+
+vi.mock("@/server/lib/competitor-gap/verdictLedger", () => ({
+  competitorGapGateState: gateMocks.competitorGapGateState,
 }));
 
 const database = vi.hoisted(() => ({
@@ -75,6 +87,7 @@ vi.mock("@/server/lib/posthog", () => ({
 
 import { captureServerEvent } from "@/server/lib/posthog";
 import { AutopilotRepository } from "../repositories/AutopilotRepository";
+import { OpportunityRepository } from "@/server/features/intelligence/repositories/OpportunityRepository";
 import { AutopilotService } from "./AutopilotService";
 import {
   clearAutopilotWorkflows,
@@ -142,6 +155,169 @@ describe("startAutopilotRun", () => {
     expect(runs).toHaveLength(1);
     expect(runs[0]?.status).toBe("failed");
     expect(runs[0]?.errorClass).toBe("WORKFLOW_START_FAILED");
+  });
+
+  it("rejects competitor_gap workflow when G5 gate is not READY", async () => {
+    registerAutopilotWorkflow({ type: "competitor_gap", steps: [] });
+    gateMocks.competitorGapGateState.mockResolvedValueOnce({
+      state: "BLOCKED",
+      latestVerdict: null,
+    });
+    await expect(
+      AutopilotService.startAutopilotRun({
+        ...BASE,
+        workflowType: "competitor_gap",
+      }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: expect.stringContaining("G5 gate not ready"),
+    });
+  });
+
+  it("rejects competitor_gap workflow when G5 is READY but no US2 materialized evidence exists", async () => {
+    registerAutopilotWorkflow({ type: "competitor_gap", steps: [] });
+    gateMocks.competitorGapGateState.mockResolvedValueOnce({
+      state: "READY",
+      latestVerdict: null,
+    });
+    await expect(
+      AutopilotService.startAutopilotRun({
+        ...BASE,
+        workflowType: "competitor_gap",
+      }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: expect.stringContaining(
+        "US2 operational acceptance requires valid materialized opportunity evidence",
+      ),
+    });
+  });
+
+  it("allows competitor_gap workflow when G5 gate is READY and US2 opportunities exist", async () => {
+    registerAutopilotWorkflow({ type: "competitor_gap", steps: [] });
+    gateMocks.competitorGapGateState.mockResolvedValueOnce({
+      state: "READY",
+      latestVerdict: null,
+    });
+    await OpportunityRepository.insertIgnoreConflict({
+      id: "op-gap-1",
+      projectId: BASE.projectId,
+      organizationId: BASE.organizationId,
+      logicalKey: "competitor_gap:crm",
+      type: "competitor_gap",
+      detectorKey: "competitor_gap",
+      detectorVersion: 1,
+      scoreVersion: 1,
+      status: "open",
+      impactScore: 80,
+      confidenceScore: 85,
+      priority: "High",
+      title: 'Competitor gap for "crm"',
+      explanationFact: "Competitor ranks at position 2",
+      recommendation: "Create content",
+      evidenceJson: "{}",
+      firstDetectedAt: "2026-09-28T00:00:00.000Z",
+      lastDetectedAt: "2026-09-28T00:00:00.000Z",
+    });
+    const { runId } = await AutopilotService.startAutopilotRun({
+      ...BASE,
+      workflowType: "competitor_gap",
+    });
+    const run = await AutopilotRepository.getRun(runId);
+    expect(run?.status).toBe("pending");
+    expect(run?.workflowType).toBe("competitor_gap");
+    expect(gateMocks.competitorGapGateState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: BASE.organizationId,
+        projectId: BASE.projectId,
+      }),
+    );
+  });
+
+  it("allows competitor_gap workflow when G5 gate is READY from approved R2 evaluation and US2 evidence is fresh", async () => {
+    registerAutopilotWorkflow({ type: "competitor_gap", steps: [] });
+    gateMocks.competitorGapGateState.mockResolvedValueOnce({
+      state: "READY",
+      verdictRow: {
+        id: "cgv_test_r2",
+        organizationId: BASE.organizationId,
+        projectId: BASE.projectId,
+        verdict: "COMPETITOR_GAP_READY",
+        inputManifest: {
+          evaluationId: "competitor-gap-g5-r2",
+        },
+      },
+    });
+    const nowIso = new Date().toISOString();
+    await OpportunityRepository.insertIgnoreConflict({
+      id: "op-gap-r2-fresh",
+      projectId: BASE.projectId,
+      organizationId: BASE.organizationId,
+      logicalKey: "competitor_gap:crm-fresh",
+      type: "competitor_gap",
+      detectorKey: "competitor_gap",
+      detectorVersion: 1,
+      scoreVersion: 1,
+      status: "open",
+      impactScore: 80,
+      confidenceScore: 85,
+      priority: "High",
+      title: 'Competitor gap for "crm"',
+      explanationFact: "Competitor ranks at position 2",
+      recommendation: "Create content",
+      evidenceJson: JSON.stringify({ competitor: "comp.com", rank: 2 }),
+      firstDetectedAt: nowIso,
+      lastDetectedAt: nowIso,
+    });
+    const result = await AutopilotService.startAutopilotRun({
+      ...BASE,
+      workflowType: "competitor_gap",
+    });
+    expect(result.runId).toBeTruthy();
+  });
+
+  it("rejects competitor_gap workflow when US2 materialized evidence is stale (> 28d)", async () => {
+    registerAutopilotWorkflow({ type: "competitor_gap", steps: [] });
+    gateMocks.competitorGapGateState.mockResolvedValueOnce({
+      state: "READY",
+      verdictRow: {
+        id: "cgv_test_ok",
+        organizationId: BASE.organizationId,
+        projectId: BASE.projectId,
+        verdict: "COMPETITOR_GAP_READY",
+        inputManifest: {},
+      },
+    });
+    // Opportunity older than 28 days (e.g. 60 days old)
+    await OpportunityRepository.insertIgnoreConflict({
+      id: "op-gap-stale",
+      projectId: BASE.projectId,
+      organizationId: BASE.organizationId,
+      logicalKey: "competitor_gap:old",
+      type: "competitor_gap",
+      detectorKey: "competitor_gap",
+      detectorVersion: 1,
+      scoreVersion: 1,
+      status: "open",
+      impactScore: 80,
+      confidenceScore: 85,
+      priority: "High",
+      title: 'Competitor gap for "old"',
+      explanationFact: "Competitor ranks at position 2",
+      recommendation: "Create content",
+      evidenceJson: "{}",
+      firstDetectedAt: "2026-01-01T00:00:00.000Z",
+      lastDetectedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await expect(
+      AutopilotService.startAutopilotRun({
+        ...BASE,
+        workflowType: "competitor_gap",
+      }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: expect.stringContaining("lacks valid coverage or freshness"),
+    });
   });
 });
 
@@ -218,6 +394,32 @@ describe("cancelAutopilotRun", () => {
       }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("fails loudly when instance termination fails and does not mark run as cancelled", async () => {
+    const { runId } = await AutopilotService.startAutopilotRun({
+      ...BASE,
+      workflowType: "test-flow",
+    });
+    vi.mocked(workflowMocks.get).mockResolvedValueOnce({
+      status: async () => ({ status: "running" }),
+      terminate: async () => {
+        throw new Error("terminate RPC failure");
+      },
+      restart: async () => {},
+    });
+    await expect(
+      AutopilotService.cancelAutopilotRun({
+        runId,
+        projectId: "project-1",
+        organizationId: "org-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      message: expect.stringContaining("terminate RPC failure"),
+    });
+    const run = await AutopilotRepository.getRun(runId);
+    expect(run?.status).toBe("pending");
+  });
 });
 
 describe("resumeAutopilotRun", () => {
@@ -269,5 +471,21 @@ describe("resumeAutopilotRun", () => {
     await expect(
       AutopilotService.resumeAutopilotRun({ ...BASE, runId: "missing" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("refuses to resume when the workflow instance is already complete", async () => {
+    const { runId } = await AutopilotService.startAutopilotRun({
+      ...BASE,
+      workflowType: "test-flow",
+    });
+    instances.states.set(runId, "complete");
+    await expect(
+      AutopilotService.resumeAutopilotRun({ ...BASE, runId }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: expect.stringContaining(
+        "Cannot resume a completed workflow instance",
+      ),
+    });
   });
 });

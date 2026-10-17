@@ -583,10 +583,13 @@ describe("full-scan integration over seeded sources", () => {
       expect(finding.confidenceScore).toBeGreaterThanOrEqual(40);
     }
     const outcomes = await ScanLedgerRepository.getDetectorOutcomes(run.id);
-    expect(outcomes).toHaveLength(12);
-    for (const outcome of outcomes) {
-      expect(outcome.status).toBe("completed");
-    }
+    expect(outcomes).toHaveLength(13);
+    const completed = outcomes.filter((o) => o.status === "completed");
+    const skipped = outcomes.filter((o) => o.status === "skipped");
+    expect(completed).toHaveLength(12);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]?.detectorKey).toBe("competitor_gap");
+    expect(skipped[0]?.skipReason).toBe("G5_NO_READY_VERDICT");
     // The lost-backlinks detector ran and completed but correctly emitted
     // nothing: the fixture's single lost referring domain is below the floor.
     expect(byDetector.lost_backlinks).toBeUndefined();
@@ -595,6 +598,8 @@ describe("full-scan integration over seeded sources", () => {
     // landing seed carries zero engagement (no rate to collapse).
     expect(byDetector.conversion_drop).toBeUndefined();
     expect(byDetector.engagement_drop).toBeUndefined();
+    // Spec 014: competitor_gap skipped safely behind G5 gate
+    expect(byDetector.competitor_gap).toBeUndefined();
   });
 });
 
