@@ -82,6 +82,7 @@ export function MissingRankingsConfirmModal({
   isPending,
   onRunNow,
   onCancel,
+  initialStates,
 }: {
   configId: string;
   projectId: string;
@@ -95,12 +96,11 @@ export function MissingRankingsConfirmModal({
     missingRankingStates?: MissingRankingBucket[],
   ) => void;
   onCancel: () => void;
+  initialStates?: MissingRankingBucket[];
 }) {
-  const [selectedStates, setSelectedStates] = useState<MissingRankingBucket[]>([
-    "ranking_unavailable",
-    "lost",
-    "no_ranking",
-  ]);
+  const [selectedStates, setSelectedStates] = useState<MissingRankingBucket[]>(
+    initialStates ?? ["ranking_unavailable", "lost", "no_ranking"],
+  );
 
   const { data: summary, isLoading } = useQuery({
     queryKey: [

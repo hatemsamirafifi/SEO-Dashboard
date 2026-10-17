@@ -71,6 +71,7 @@ interface DataforseoResponseLike<T extends DataforseoTaskLike> {
   status_code?: number;
   status_message?: string;
   tasks?: T[];
+  task?: T;
   [key: string]: unknown;
 }
 
@@ -215,7 +216,7 @@ export function findDataforseoAccountPausedItem(
     const found = response.tasks.find((t) => isDataforseoAccountPaused(t));
     if (found) return found;
   }
-  const singleTask = (response as { task?: DataforseoTaskLike }).task;
+  const singleTask = response.task;
   if (singleTask && isDataforseoAccountPaused(singleTask)) return singleTask;
   return null;
 }
@@ -224,6 +225,12 @@ export function defaultClassifyDataforseoTask(
   statusCode: number | undefined,
   message: string,
 ): ErrorCode | null {
+  if (
+    statusCode === 40100 ||
+    (typeof statusCode === "number" && statusCode >= 40100 && statusCode < 40200)
+  ) {
+    return "DATAFORSEO_AUTH_FAILED";
+  }
   if (statusCode === 40201) return "DATAFORSEO_ACCESS_PAUSED";
   if (statusCode === 40200) return "CREDITS_UNAVAILABLE";
   if (statusCode === 40210) return "INSUFFICIENT_FUNDS";

@@ -78,23 +78,30 @@ export function useRankRunPolling(projectId: string, configId: string) {
             rankCheckRunId: run.id,
             rankChecksStarted: run.keywordsChecked,
             providerCalls: run.providerCalls.length,
-            rankChecksSucceeded: run.keywordsChecked,
             counters: {
+              ...activeOp.counters,
               checked: run.keywordsChecked,
+              attempted: run.keywordsChecked,
               total: run.keywordsTotal,
+              pending: Math.max(
+                0,
+                (activeOp.validatedCount ?? run.keywordsTotal) -
+                  run.keywordsChecked,
+              ),
             },
           });
         }
       }
 
       // When a run reaches a terminal state, invalidate results & finalize
-      // the correlated trace. Finalization is keyed by run id (idempotent ΓÇö
+      // the correlated trace. Finalization is keyed by run id (idempotent —
       // a second call finds no RUNNING op), so this also covers the
       // mount-after-terminal case: a page opened while/after the run
       // finished still completes its trace instead of leaving it RUNNING
       // forever.
       const isTerminal =
         run?.status === "completed" ||
+        run?.status === "partial" ||
         run?.status === "failed" ||
         run?.status === "cancelled";
       if (run && isTerminal && !finalizedRunIdsRef.current.has(run.id)) {
@@ -194,6 +201,10 @@ async function finalizeTraceForRun(
     // Correlate the client trace with the server run for the operation card.
     globalTraceStore.completeOperation(activeOp.operationId, {
       ...patch,
+      counters: {
+        ...activeOp.counters,
+        ...patch.counters,
+      },
       metadata: {
         ...activeOp.metadata,
         runId: run.id,
@@ -209,7 +220,7 @@ async function finalizeTraceForRun(
         status:
           run.status === "cancelled"
             ? "cancelled"
-            : run.status === "failed"
+            : run.status === "failed" || run.status === "partial"
               ? "failed"
               : "success",
         errorMessage: run.errorMessage || undefined,

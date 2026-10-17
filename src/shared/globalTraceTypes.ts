@@ -143,10 +143,19 @@ export type GlobalTraceOperation = {
   selectedCount?: number;
   validatedCount?: number;
   rankChecksStarted?: number;
+  rankChecksAttempted?: number;
   rankChecksSucceeded?: number;
+  succeededWithValidSerp?: number;
   rankChecksFailed?: number;
   rankChecksSkipped?: number;
   selectedKeywordIds?: string[];
+  runStatus?:
+    | "pending"
+    | "running"
+    | "completed"
+    | "partial"
+    | "failed"
+    | "cancelled";
 
   // Provider summary & breakdown
   provider?: string; // e.g. "DataForSEO ×4"

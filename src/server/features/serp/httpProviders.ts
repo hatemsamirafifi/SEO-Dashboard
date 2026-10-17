@@ -38,7 +38,10 @@ function errorCode(
 ): { code: string; deterministic: boolean } {
   if (status === 401 || status === 403)
     return { code: "AUTH_FAILED", deterministic: true };
-  if (status === 429 && /quota|credit|exhaust/i.test(body)) {
+  if (
+    status === 402 ||
+    /quota|credit|exhaust|not enough credits|insufficient/i.test(body)
+  ) {
     return { code: "QUOTA_EXHAUSTED", deterministic: true };
   }
   if (status === 429) return { code: "RATE_LIMITED", deterministic: false };

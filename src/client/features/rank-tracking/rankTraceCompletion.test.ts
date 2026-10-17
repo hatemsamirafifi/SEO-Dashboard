@@ -242,7 +242,9 @@ describe("buildRankCompletionPatch — snapshot-evidence completion", () => {
       targetIds: ["kw_1"],
     });
 
-    expect(patch.counters).toEqual({ checked: 3, total: 4 });
+    expect(patch.counters).toEqual(
+      expect.objectContaining({ checked: 3, total: 4, succeededWithValidSerp: 1 }),
+    );
   });
 
   it("marks a fresh CHECK_FAILED snapshot as failed with task and HTTP diagnostics", () => {

@@ -2,9 +2,17 @@ import {
   scrubGlobalTraceText,
   type GlobalTraceKeywordChild,
   type GlobalTraceOperation,
-  type GlobalTraceProviderCall,
 } from "@/shared/globalTraceTypes";
 import { parseDataforseoDiagnosticsFromErrorMessage } from "@/shared/dataforseoDiagnosticsParser";
+import {
+  buildKeywordChild,
+  applyProviderDiagnostics,
+  isFreshSnapshot,
+  providerLabel,
+  PROVIDER_MARKER_RE,
+} from "./rankTraceHelpers";
+
+export { providerLabel, isFreshSnapshot, PROVIDER_MARKER_RE };
 
 /**
  * Pure, testable decision logic for the rank-check Global Debug Trace
@@ -23,13 +31,6 @@ import { parseDataforseoDiagnosticsFromErrorMessage } from "@/shared/dataforseoD
  */
 
 export type RankCheckDevices = "both" | "desktop" | "mobile";
-
-function providerLabel(provider: string | null | undefined): string {
-  if (provider === "dataforseo") return "DataForSEO";
-  if (provider === "serper") return "Serper.dev";
-  if (provider === "zenserp") return "Zenserp";
-  return provider ?? "DataForSEO";
-}
 
 /** Number of DataForSEO live tasks the manual workflow issues per keyword. */
 export function providerTaskCount(
@@ -153,20 +154,6 @@ export interface RankRowForTrace {
   } | null;
 }
 
-/**
- * A snapshot belongs to this run when it was checked at/after the run
- * started. Without a run start time we fall back to any checkedAt evidence
- * (best effort, documented in metadata by the caller).
- */
-function isFreshSnapshot(
-  checkedAt: string | null | undefined,
-  runStartedAt: string | null | undefined,
-): boolean {
-  if (!checkedAt) return false;
-  if (!runStartedAt) return true;
-  return checkedAt >= runStartedAt;
-}
-
 export type RankCompletionPatch = Partial<GlobalTraceOperation> & {
   status: "success" | "failed" | "cancelled";
   children: GlobalTraceKeywordChild[];
@@ -186,100 +173,9 @@ export function buildRankCompletionPatch(input: {
   const { run, rows, targetIds } = input;
   const rowMap = new Map(rows.map((r) => [r.trackingKeywordId, r]));
 
-  const children: GlobalTraceKeywordChild[] = targetIds.map((id) => {
-    const row = rowMap.get(id);
-    const devices = [row?.desktop, row?.mobile].filter(
-      (d): d is NonNullable<typeof d> => d != null,
-    );
-    const fresh = devices.filter((d) =>
-      isFreshSnapshot(d.checkedAt, run.startedAt),
-    );
-
-    if (fresh.length === 0) {
-      if (run.status === "cancelled") {
-        return {
-          keywordId: id,
-          keyword: row?.keyword,
-          status: "cancelled" as const,
-          rankingStatus: "NOT_CHECKED" as const,
-          error: "Cancelled before check",
-        };
-      }
-
-      const hasProviderMarker = run.errorMessage
-        ? PROVIDER_MARKER_RE.test(run.errorMessage)
-        : false;
-      const diag = hasProviderMarker
-        ? parseDataforseoDiagnosticsFromErrorMessage(run.errorMessage)
-        : null;
-      return {
-        keywordId: id,
-        keyword: row?.keyword,
-        status: "failed" as const,
-        rankingStatus: "CHECK_FAILED" as const,
-        provider: providerLabel(
-          row?.desktop?.provider ?? row?.mobile?.provider,
-        ),
-        httpStatus: diag?.httpStatus ?? undefined,
-        taskStatus: diag?.dataforseoStatusCode ?? undefined,
-        // Scrubbed: the run message crosses into a visible trace record.
-        error: run.errorMessage
-          ? scrubGlobalTraceText(run.errorMessage)
-          : "No snapshot recorded for this run",
-      };
-    }
-
-    const failedDevice = fresh.find(
-      (d) => d.status === "failed" || d.rankingStatus === "CHECK_FAILED",
-    );
-
-    if (failedDevice) {
-      const childErrMsg = failedDevice.errorMessage || run.errorMessage;
-      const hasProviderMarker = childErrMsg
-        ? PROVIDER_MARKER_RE.test(childErrMsg)
-        : false;
-      const diag = hasProviderMarker
-        ? parseDataforseoDiagnosticsFromErrorMessage(childErrMsg)
-        : null;
-      const taskStatus =
-        failedDevice.providerStatusCode ??
-        diag?.dataforseoStatusCode ??
-        undefined;
-      const httpStatus = diag?.httpStatus ?? undefined;
-
-      return {
-        keywordId: id,
-        keyword: row?.keyword,
-        status: "failed" as const,
-        rankingStatus: "CHECK_FAILED" as const,
-        provider: "DataForSEO",
-        httpStatus,
-        taskStatus,
-        error: childErrMsg
-          ? scrubGlobalTraceText(childErrMsg)
-          : "Rank check attempt failed",
-      };
-    }
-
-    const positionAfter =
-      fresh.find((d) => d.position != null)?.position ?? null;
-    const positionBefore =
-      fresh.find((d) => d.previousPosition != null)?.previousPosition ?? null;
-    return {
-      keywordId: id,
-      keyword: row?.keyword,
-      status:
-        positionAfter != null ? ("success" as const) : ("no_result" as const),
-      rankingStatus:
-        positionAfter != null ? ("RANKED" as const) : ("NO_RESULT" as const),
-      provider: providerLabel(
-        fresh.find((device) => device.position != null)?.provider ??
-          fresh[0]?.provider,
-      ),
-      positionBefore,
-      positionAfter,
-    };
-  });
+  const children: GlobalTraceKeywordChild[] = targetIds.map((id) =>
+    buildKeywordChild(id, rowMap.get(id), run),
+  );
 
   const succeeded = children.filter(
     (c) => c.status === "success" || c.status === "no_result",
@@ -298,6 +194,8 @@ export function buildRankCompletionPatch(input: {
   const patch: RankCompletionPatch = {
     status,
     rankChecksSucceeded: succeeded,
+    succeededWithValidSerp: succeeded,
+    rankChecksAttempted: succeeded + failed,
     rankChecksFailed: failed,
     rankChecksSkipped: cancelled,
     completedBeforeCancellation: isCancelledRun
@@ -306,6 +204,15 @@ export function buildRankCompletionPatch(input: {
     remainingItems: isCancelledRun ? cancelled : undefined,
     children,
     counters: {
+      candidates: targetIds.length,
+      eligible: targetIds.length,
+      selected: targetIds.length,
+      attempted: succeeded + failed,
+      succeededWithValidSerp: succeeded,
+      failed,
+      skipped: cancelled,
+      cancelled,
+      pending: 0,
       checked: run.keywordsChecked,
       total: run.keywordsTotal,
     },
@@ -435,50 +342,3 @@ export function buildRankCompletionPatch(input: {
   return patch;
 }
 
-/**
- * Canonical provider markers emitted by the DataForSEO HTTP seam
- * (`DataForSEO HTTP <status> on <path>…`) and the task envelope
- * (`DataForSEO task error (<code>): …`). Only when one is present do we map
- * provider/endpoint/HTTP/task/transport into the trace — otherwise the
- * caller keeps its generic classification and nothing is fabricated.
- *
- * Distinguishes: HTTP 5xx (TRANSIENT_UPSTREAM) ≠ task error inside HTTP 200
- * (TASK_ERROR / CREDITS_UNAVAILABLE / DATAFORSEO_ACCOUNT_PAUSED) ≠ 402 ≠ 429.
- * Returns true when applied.
- */
-const PROVIDER_MARKER_RE =
-  /DataForSEO HTTP \d{3}|DataForSEO task error \(\d+\)/i;
-
-function applyProviderDiagnostics(
-  patch: RankCompletionPatch,
-  rawMessage: string,
-  succeeded: number,
-): boolean {
-  if (!PROVIDER_MARKER_RE.test(rawMessage)) return false;
-  const d = parseDataforseoDiagnosticsFromErrorMessage(rawMessage);
-  const isCreditBlocked = d.errorClass === "CREDITS_UNAVAILABLE";
-  const providerCall: GlobalTraceProviderCall = {
-    provider: d.provider,
-    endpoint: d.endpoint,
-    httpStatus: d.httpStatus,
-    taskStatus: d.dataforseoStatusCode,
-    statusMessage: d.dataforseoStatusMessage,
-    transport: d.transport,
-    billing: "Paid",
-    metered: true,
-    budgetGuard: isCreditBlocked ? "BLOCKED" : "PASS",
-  };
-  patch.providers = [providerCall];
-  patch.httpStatus = d.httpStatus ?? undefined;
-  patch.errorClass = d.errorClass;
-  patch.budget = isCreditBlocked ? "BLOCKED" : "PASS";
-  if (isCreditBlocked) {
-    patch.blockedReason = scrubGlobalTraceText(rawMessage);
-    // A credit block before any snapshot means no billable call completed.
-    // Never zero the count when snapshots prove calls happened.
-    if (succeeded === 0) {
-      patch.providerCalls = 0;
-    }
-  }
-  return true;
-}

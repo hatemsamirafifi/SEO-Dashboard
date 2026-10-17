@@ -8,6 +8,7 @@ import {
   estimateRankCheckCost,
   getMissingRankingsSummary,
 } from "@/serverFunctions/rank-tracking";
+import { useRankRunCancel } from "./useRankRunCancel";
 import { ArrowLeft } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 import { getCustomerPlanStatus } from "@/client/features/billing/plan-detection";
@@ -30,6 +31,7 @@ import type {
   RankTrackingConfig,
   ComparePeriod,
 } from "@/types/schemas/rank-tracking";
+import type { MissingRankingBucket } from "@/shared/rank-tracking";
 import { AddKeywordsPanel } from "./AddKeywordsPanel";
 import {
   FilterPanel,
@@ -38,8 +40,7 @@ import {
   EMPTY_FILTERS,
   type Filters,
 } from "./RankTrackingFilters";
-import { CheckConfirmModal } from "./CheckConfirmModal";
-import { MissingRankingsConfirmModal } from "./MissingRankingsConfirmModal";
+import { RankCheckModals } from "./RankCheckModals";
 import { useMetricsRefresh } from "./useMetricsRefresh";
 import { useRankCheckTrigger } from "./useRankCheckTrigger";
 import { useRankRunPolling } from "./useRankRunPolling";
@@ -104,6 +105,11 @@ export function RankTrackingDomainDetail({
   });
 
   const latestRun = useRankRunPolling(projectId, config.id);
+  const { isCancelling, handleCancelRun } = useRankRunCancel(
+    projectId,
+    config.id,
+    latestRun?.id,
+  );
 
   // Also feeds the History toggle: the matrix view only earns its tab once
   // there are two checks to compare.
@@ -138,6 +144,7 @@ export function RankTrackingDomainDetail({
     count: number;
     keywordIds?: string[];
     missingRankings?: boolean;
+    initialStates?: MissingRankingBucket[];
   } | null>(null);
 
   const handleKeywordsAdded = (result: {
@@ -216,12 +223,19 @@ export function RankTrackingDomainDetail({
   };
   // Config-scope variant: eligible ids are resolved server-side from persisted
   // state; the trigger intersects any selection with that set.
-  const requestMissingRankingsCheck = (keywordIds?: string[]) =>
+  const requestMissingRankingsCheck = (
+    keywordIds?: string[],
+    initialStates?: MissingRankingBucket[],
+  ) =>
     setPendingCheck({
       count: keywordIds?.length ?? 0,
       keywordIds,
       missingRankings: true,
+      initialStates,
     });
+
+  const handleRetryFailed = () =>
+    requestMissingRankingsCheck(undefined, ["ranking_unavailable"]);
 
   const rows = resultsData?.rows;
   const run = resultsData?.run;
@@ -249,7 +263,12 @@ export function RankTrackingDomainDetail({
         Back to domains
       </button>
 
-      <ConfigAlerts config={config} latestRun={latestRun} />
+      <ConfigAlerts
+        config={config}
+        latestRun={latestRun}
+        onDismissStale={handleCancelRun}
+        isDismissing={isCancelling}
+      />
 
       <FreePlanAlert visible={isFreePlan} />
 
@@ -296,6 +315,8 @@ export function RankTrackingDomainDetail({
           activeFilterCount={activeFilterCount}
           isRunning={isRunning}
           latestRun={latestRun}
+          onCancelRun={handleCancelRun}
+          isCancelling={isCancelling}
           keywordCount={filtered.length}
           viewMode={effectiveViewMode}
           onViewModeChange={setViewMode}
@@ -335,6 +356,7 @@ export function RankTrackingDomainDetail({
           checkBusy={isBusy}
           checkDisabled={isFreePlan}
           hasData={filtered.length > 0}
+          onRetryFailed={handleRetryFailed}
         />
 
         {/* Filters panel */}
@@ -382,35 +404,16 @@ export function RankTrackingDomainDetail({
         </div>
       </div>
 
-      {pendingCheck && !pendingCheck.missingRankings && (
-        <CheckConfirmModal
-          keywordCount={pendingCheck.count}
-          devices={config.devices}
-          serpDepth={config.serpDepth}
-          isPending={isPending}
-          onRunNow={() => startCheck({ keywordIds: pendingCheck.keywordIds })}
-          onCancel={() => setPendingCheck(null)}
-        />
-      )}
-
-      {pendingCheck?.missingRankings && (
-        <MissingRankingsConfirmModal
-          configId={config.id}
-          projectId={projectId}
-          keywordIds={pendingCheck.keywordIds}
-          devices={config.devices}
-          serpDepth={config.serpDepth}
-          isPending={isPending}
-          onRunNow={(_count, keywordIds, missingRankingStates) =>
-            startCheck({
-              keywordIds,
-              missingRankings: true,
-              missingRankingStates,
-            })
-          }
-          onCancel={() => setPendingCheck(null)}
-        />
-      )}
+      <RankCheckModals
+        pendingCheck={pendingCheck}
+        config={config}
+        projectId={projectId}
+        isPending={isPending}
+        onRunCheck={startCheck}
+        onCancel={() => setPendingCheck(null)}
+      />
     </div>
   );
 }
+
+

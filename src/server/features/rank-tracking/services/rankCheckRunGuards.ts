@@ -54,6 +54,7 @@ const ACTIVE_WORKFLOW_STATUSES = new Set<RankCheckWorkflowStatus["status"]>([
   "paused",
 ]);
 
+export const MAX_ACTIVE_RUN_AGE_MS = 30 * 60 * 1000;
 const RANK_CHECK_STARTUP_GRACE_MS = 60 * 1000;
 
 async function getRankCheckWorkflowStatus(
@@ -94,6 +95,10 @@ async function getStaleRankCheckRunReason(input: {
   runId: string;
   ageMs: number;
 }) {
+  if (input.ageMs > MAX_ACTIVE_RUN_AGE_MS) {
+    return "Workflow run exceeded maximum active duration (timed out or interrupted)";
+  }
+
   const workflowStatus = await getRankCheckWorkflowStatus(input.runId);
 
   if (workflowStatus && ACTIVE_WORKFLOW_STATUSES.has(workflowStatus.status)) {
@@ -127,7 +132,8 @@ export async function failRunIfActive(
   if (
     !current ||
     current.status === "completed" ||
-    current.status === "failed"
+    current.status === "failed" ||
+    current.status === "cancelled"
   ) {
     return;
   }
@@ -136,6 +142,12 @@ export async function failRunIfActive(
     errorMessage: reason,
     completedAt: new Date().toISOString(),
   });
+  try {
+    const instance = await env.RANK_CHECK_WORKFLOW.get(runId);
+    await instance.terminate();
+  } catch {
+    // Best-effort termination if workflow instance exists
+  }
 }
 
 export async function beginRankCheckRun(input: {
