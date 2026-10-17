@@ -8,6 +8,8 @@ import {
   AUTOPILOT_ATTEMPT_STATUSES,
   AUTOPILOT_RUN_STATUSES,
   AUTOPILOT_STEP_KINDS,
+  AUTOPILOT_MAX_STEPS,
+  AUTOPILOT_MAX_TOOL_CALLS,
   type AutopilotAttemptStatus,
   type AutopilotRunStatus,
   type AutopilotStepKind,
@@ -16,6 +18,8 @@ import {
 
 export {
   AUTOPILOT_ATTEMPT_STATUSES,
+  AUTOPILOT_MAX_STEPS,
+  AUTOPILOT_MAX_TOOL_CALLS,
   AUTOPILOT_RUN_STATUSES,
   AUTOPILOT_STEP_KINDS,
   type AutopilotAttemptStatus,
@@ -28,8 +32,6 @@ export {
 // the registration seam; workflow DEFINITIONS (step lists + prompts) are
 // Task 16. Executor tests register synthetic definitions.
 
-export const AUTOPILOT_MAX_STEPS = 12;
-export const AUTOPILOT_MAX_TOOL_CALLS = 20;
 /** Chosen default: twelve steps with room for retries and polling legs. */
 export const AUTOPILOT_WALL_CLOCK_MS = 15 * 60 * 1000;
 /** Source-changed invalidations before the run fails outright. */

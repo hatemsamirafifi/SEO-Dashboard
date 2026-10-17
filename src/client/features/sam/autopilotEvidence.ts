@@ -27,6 +27,7 @@ export type AutopilotStepLike = {
   name: string;
   status: AutopilotStepStatus | string;
   evidenceJson: string | null;
+  toolCalls?: number | null;
 };
 
 export type AutopilotAttemptLike = {
@@ -41,6 +42,8 @@ export type AutopilotRunLike = {
   workflowType: AutopilotWorkflowType | string;
   status: AutopilotRunStatus | string;
   evidenceHash: string | null;
+  error?: string | null;
+  errorClass?: string | null;
 };
 
 export type RecommendationCard = {
@@ -150,14 +153,13 @@ export function shouldPollRun(status: AutopilotRunStatus): boolean {
   return isAutopilotRunActive(status);
 }
 
-export const AUTOPILOT_RUN_STATUS_LABELS: Record<AutopilotRunStatus, string> =
-  {
-    pending: "Queued",
-    running: "Running",
-    completed: "Completed",
-    failed: "Failed",
-    cancelled: "Cancelled",
-  };
+export const AUTOPILOT_RUN_STATUS_LABELS: Record<AutopilotRunStatus, string> = {
+  pending: "Queued",
+  running: "Running",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
 
 export function runStatusLabel(status: AutopilotRunStatus): string {
   return AUTOPILOT_RUN_STATUS_LABELS[status];
@@ -185,8 +187,7 @@ export function technicalFacts(
       ? rawIssues.filter(isRecord).map((row) => ({
           severity: stringField(row, "severity"),
           type: stringField(row, "type"),
-          count:
-            typeof row["count"] === "number" ? row["count"] : 0,
+          count: typeof row["count"] === "number" ? row["count"] : 0,
         }))
       : [];
     return { coverageState: state, rankedIssues };
@@ -205,7 +206,11 @@ export type MonthlyChangedRow = {
 
 export type MonthlySummary = {
   changed: MonthlyChangedRow[];
-  ratios: { metric: string; monthValue: number | null; priorValue: number | null }[];
+  ratios: {
+    metric: string;
+    monthValue: number | null;
+    priorValue: number | null;
+  }[];
   unavailable: { source: string; reason: string }[];
   unresolved: { kind: string; label: string; title: string }[];
   nextActionCount: number;

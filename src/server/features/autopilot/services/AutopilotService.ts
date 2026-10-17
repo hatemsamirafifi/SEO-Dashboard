@@ -249,7 +249,18 @@ export async function cancelAutopilotRun(input: {
     const instance = await workflowBinding().get(run.id);
     await instance.terminate();
   } catch (error) {
-    console.error(`[autopilot:${run.id}] terminate failed`, error);
+    const isBenign =
+      error instanceof Error &&
+      /not found|already terminated|no such instance|not running/i.test(
+        error.message,
+      );
+    if (!isBenign) {
+      console.error(`[autopilot:${run.id}] terminate failed`, error);
+      throw new AppError(
+        "INTERNAL_ERROR",
+        `Failed to cancel autopilot run: ${error instanceof Error ? error.message : "Termination failed"}`,
+      );
+    }
   }
   await AutopilotRepository.updateRun(run.id, {
     status: "cancelled",
@@ -276,39 +287,73 @@ export async function resumeAutopilotRun(input: {
       "Only running or cancelled runs can resume",
     );
   }
-  let instanceAlive = false;
+  let existingInstance: {
+    status: () => Promise<{ status: string }>;
+    restart?: () => Promise<void>;
+  } | null = null;
+  let instanceStatus: string | null = null;
   try {
     const instance = await workflowBinding().get(run.id);
-    instanceAlive = (await instance.status()).status === "running";
+    existingInstance = instance as unknown as {
+      status: () => Promise<{ status: string }>;
+      restart?: () => Promise<void>;
+    };
+    instanceStatus = (await instance.status()).status;
   } catch {
-    instanceAlive = false;
+    existingInstance = null;
+    instanceStatus = null;
   }
-  if (instanceAlive) return { runId: run.id, resumed: false };
+  if (
+    instanceStatus === "running" ||
+    instanceStatus === "queued" ||
+    instanceStatus === "waiting"
+  ) {
+    return { runId: run.id, resumed: false };
+  }
+  if (instanceStatus === "complete") {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Cannot resume a completed workflow instance",
+    );
+  }
   const billingCustomer = billingCustomerFor({
     userId: input.userId,
     userEmail: input.userEmail,
     organizationId: input.organizationId,
     projectId: input.projectId,
   });
-  try {
-    await workflowBinding().create({
-      id: run.id,
-      params: {
-        runId: run.id,
-        projectId: input.projectId,
-        organizationId: input.organizationId,
-        workflowType: run.workflowType,
-        billingCustomer,
-      },
-    });
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      /already exists|duplicate|conflict/i.test(error.message)
-    ) {
-      return { runId: run.id, resumed: false };
+
+  if (existingInstance && typeof existingInstance.restart === "function") {
+    try {
+      await existingInstance.restart();
+    } catch (error) {
+      console.error(`[autopilot:${run.id}] restart failed`, error);
+      throw new AppError(
+        "INTERNAL_ERROR",
+        `Failed to restart workflow instance: ${error instanceof Error ? error.message : "Restart failed"}`,
+      );
     }
-    throw error;
+  } else {
+    try {
+      await workflowBinding().create({
+        id: run.id,
+        params: {
+          runId: run.id,
+          projectId: input.projectId,
+          organizationId: input.organizationId,
+          workflowType: run.workflowType,
+          billingCustomer,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /already exists|duplicate|conflict/i.test(error.message)
+      ) {
+        return { runId: run.id, resumed: false };
+      }
+      throw error;
+    }
   }
   await AutopilotRepository.updateRun(run.id, { status: "running" });
   return { runId: run.id, resumed: true };

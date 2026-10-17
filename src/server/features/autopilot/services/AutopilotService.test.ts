@@ -22,6 +22,9 @@ const workflowMocks = vi.hoisted(() => ({
       terminate: async () => {
         instances.states.set(id, "terminated");
       },
+      restart: async () => {
+        instances.states.set(id, "running");
+      },
     };
   }),
 }));
@@ -391,6 +394,32 @@ describe("cancelAutopilotRun", () => {
       }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("fails loudly when instance termination fails and does not mark run as cancelled", async () => {
+    const { runId } = await AutopilotService.startAutopilotRun({
+      ...BASE,
+      workflowType: "test-flow",
+    });
+    vi.mocked(workflowMocks.get).mockResolvedValueOnce({
+      status: async () => ({ status: "running" }),
+      terminate: async () => {
+        throw new Error("terminate RPC failure");
+      },
+      restart: async () => {},
+    });
+    await expect(
+      AutopilotService.cancelAutopilotRun({
+        runId,
+        projectId: "project-1",
+        organizationId: "org-1",
+      }),
+    ).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+      message: expect.stringContaining("terminate RPC failure"),
+    });
+    const run = await AutopilotRepository.getRun(runId);
+    expect(run?.status).toBe("pending");
+  });
 });
 
 describe("resumeAutopilotRun", () => {
@@ -442,5 +471,21 @@ describe("resumeAutopilotRun", () => {
     await expect(
       AutopilotService.resumeAutopilotRun({ ...BASE, runId: "missing" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("refuses to resume when the workflow instance is already complete", async () => {
+    const { runId } = await AutopilotService.startAutopilotRun({
+      ...BASE,
+      workflowType: "test-flow",
+    });
+    instances.states.set(runId, "complete");
+    await expect(
+      AutopilotService.resumeAutopilotRun({ ...BASE, runId }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: expect.stringContaining(
+        "Cannot resume a completed workflow instance",
+      ),
+    });
   });
 });

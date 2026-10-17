@@ -105,6 +105,9 @@ export const AUTOPILOT_TERMINAL_STATUSES = [
   "cancelled",
 ] as const;
 
+export const AUTOPILOT_MAX_STEPS = 12;
+export const AUTOPILOT_MAX_TOOL_CALLS = 20;
+
 export function isAutopilotRunActive(status: AutopilotRunStatus): boolean {
   return status === "pending" || status === "running";
 }
