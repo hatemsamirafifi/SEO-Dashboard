@@ -73,7 +73,7 @@ async function getConfigByProjectDomainLocation(
         eq(rankTrackingConfigs.projectId, projectId),
         eq(rankTrackingConfigs.domain, domain),
         eq(rankTrackingConfigs.locationCode, locationCode),
-        // National (NULL) and per-city configs are distinct rows ΓÇö mirrors
+        // National (NULL) and per-city configs are distinct rows — mirrors
         // the partial unique indexes, so a national config and any number of
         // city configs can coexist for the same domain.
         locationName === null
@@ -141,7 +141,7 @@ async function getDueConfigsWithOrganization(nowIso: string) {
 /**
  * Try to insert a new pending run. Returns true if inserted, false if blocked
  * by the partial unique index on (config_id) WHERE status IN ('pending',
- * 'running') ΓÇö i.e. another active run exists for this config.
+ * 'running') — i.e. another active run exists for this config.
  *
  * This is how duplicate-trigger protection is enforced: the DB rejects the
  * second insert rather than a separate lock table.

@@ -6,7 +6,9 @@ import {
   formatDataforseoTaskErrorMessage,
 } from "@/shared/dataforseoDiagnosticsParser";
 import {
+  buildInFlightRankPatch,
   buildRankCompletionPatch,
+  extractProviderPatch,
   busyBlockedReason,
   classifyRunError,
   providerTaskCount,
@@ -14,6 +16,11 @@ import {
   type RankRowForTrace,
   type RankRunForTrace,
 } from "./rankTraceCompletion";
+import {
+  formatProviderBreakdown,
+  formatTraceDuration,
+  statusLabel,
+} from "@/client/features/tracing/globalTraceFormat";
 
 function run(overrides: Partial<RankRunForTrace> = {}): RankRunForTrace {
   return {
@@ -972,5 +979,136 @@ describe("multi-provider trace accounting", () => {
 
     expect(patch.providerCalls).toBe(2);
     expect(patch.retry).toMatchObject({ attempted: false, count: 0 });
+  });
+});
+
+describe("buildInFlightRankPatch — real-time progress & provider attribution", () => {
+  it("builds in-flight progress counters, duration, and provider breakdown", () => {
+    const providerCalls = [
+      {
+        provider: "dataforseo",
+        endpoint: "/v3/serp/google/organic/live/advanced",
+        status: "success" as const,
+        httpStatus: 200,
+        errorCode: null,
+        durationMs: 120,
+        trackingKeywordId: "kw_1",
+        device: "desktop",
+      },
+      {
+        provider: "serper",
+        endpoint: "/search",
+        status: "failed" as const,
+        httpStatus: 400,
+        errorCode: "QUOTA_EXHAUSTED",
+        durationMs: 45,
+        trackingKeywordId: "kw_1",
+        device: "desktop",
+      },
+    ];
+
+    const patch = buildInFlightRankPatch({
+      run: {
+        id: "run_active_123",
+        status: "running",
+        keywordsChecked: 136,
+        keywordsTotal: 145,
+        startedAt: "2026-10-18T22:00:00.000Z",
+        providerCalls,
+      },
+      activeOp: {
+        startedAt: 1000,
+        validatedCount: 145,
+        counters: { candidates: 1000 },
+      },
+      now: 15400,
+    });
+
+    expect(patch.rankChecksStarted).toBe(136);
+    expect(patch.rankChecksAttempted).toBe(136);
+    expect(patch.durationMs).toBe(14400); // 15400 - 1000
+    expect(patch.counters).toEqual({
+      candidates: 1000,
+      checked: 136,
+      attempted: 136,
+      total: 145,
+      pending: 9, // 145 - 136
+    });
+    expect(patch.providersConsidered).toBe(2);
+    expect(patch.providerCalls).toBe(2);
+    expect(patch.providerBreakdown).toEqual([
+      { provider: "DataForSEO", count: 1 },
+      { provider: "Serper.dev", count: 1 },
+    ]);
+    expect(patch.provider).toBe("DataForSEO ×1 · Serper.dev ×1");
+    // Bounded summary mechanism: in-flight polling omits large trace arrays
+    expect(patch.providers).toBeUndefined();
+    expect(patch.retry).toEqual({
+      attempted: true,
+      count: 1,
+    });
+
+    // Conversely, terminal completion attaches full detailed provider calls
+    const completionPatch = buildRankCompletionPatch({
+      run: run({ providerCalls }),
+      rows: [row()],
+      targetIds: ["kw_1"],
+    });
+    expect(completionPatch.providers).toHaveLength(2);
+    expect(completionPatch.retry?.details).toHaveLength(1);
+  });
+
+  it("handles in-flight run with empty providerCalls gracefully", () => {
+    const patch = buildInFlightRankPatch({
+      run: {
+        id: "run_starting",
+        status: "running",
+        keywordsChecked: 0,
+        keywordsTotal: 100,
+        providerCalls: [],
+      },
+      activeOp: {
+        startedAt: 5000,
+        validatedCount: 100,
+      },
+      now: 7500,
+    });
+
+    expect(patch.rankChecksStarted).toBe(0);
+    expect(patch.durationMs).toBe(2500);
+    expect(patch.providerCalls).toBeUndefined();
+    expect(patch.providersConsidered).toBeUndefined();
+    expect(patch.provider).toBeUndefined();
+  });
+
+  it("extractProviderPatch returns empty object when given empty or undefined calls", () => {
+    expect(extractProviderPatch(undefined)).toEqual({});
+    expect(extractProviderPatch([])).toEqual({});
+  });
+});
+
+describe("globalTraceFormat — clean UTF-8 symbols without mojibake", () => {
+  it("formats duration with proper em-dash when undefined", () => {
+    expect(formatTraceDuration(undefined)).toBe("—");
+    expect(formatTraceDuration(-1)).toBe("—");
+    expect(formatTraceDuration(500)).toBe("500ms");
+    expect(formatTraceDuration(1500)).toBe("1.5s");
+  });
+
+  it("formats provider breakdown with multiplication sign and middle dot", () => {
+    expect(
+      formatProviderBreakdown([
+        { provider: "DataForSEO", count: 142 },
+        { provider: "Serper", count: 14 },
+      ]),
+    ).toBe("DataForSEO ×142 · Serper ×14");
+    expect(formatProviderBreakdown([])).toBe("No provider calls");
+    expect(formatProviderBreakdown(undefined)).toBe("No provider calls");
+  });
+
+  it("formats status labels cleanly", () => {
+    expect(statusLabel("running")).toBe("Running…");
+    expect(statusLabel("success")).toBe("SUCCESS");
+    expect(statusLabel("failed")).toBe("FAILED");
   });
 });

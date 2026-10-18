@@ -6,7 +6,7 @@ import type {
 } from "@/shared/globalTraceTypes";
 
 export function formatTraceDuration(durationMs?: number): string {
-  if (typeof durationMs !== "number" || durationMs < 0) return "ΓÇö";
+  if (typeof durationMs !== "number" || durationMs < 0) return "—";
   if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
   return `${(durationMs / 1000).toFixed(1)}s`;
 }
@@ -15,9 +15,7 @@ export function formatProviderBreakdown(
   breakdown?: Array<{ provider: string; count: number }>,
 ): string {
   if (!breakdown || breakdown.length === 0) return "No provider calls";
-  return breakdown
-    .map((item) => `${item.provider} ├ù${item.count}`)
-    .join(" ┬╖ ");
+  return breakdown.map((item) => `${item.provider} ×${item.count}`).join(" · ");
 }
 
 export function computeProviderBreakdown(
@@ -38,7 +36,7 @@ export function computeProviderBreakdown(
 export function statusLabel(status: GlobalTraceStatus): string {
   switch (status) {
     case "running":
-      return "RunningΓÇª";
+      return "Running…";
     case "success":
       return "SUCCESS";
     case "failed":

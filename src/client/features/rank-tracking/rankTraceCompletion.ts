@@ -4,6 +4,7 @@ import {
   type GlobalTraceOperation,
 } from "@/shared/globalTraceTypes";
 import { parseDataforseoDiagnosticsFromErrorMessage } from "@/shared/dataforseoDiagnosticsParser";
+import { formatProviderBreakdown } from "@/client/features/tracing/globalTraceFormat";
 import {
   buildKeywordChild,
   applyProviderDiagnostics,
@@ -190,11 +191,152 @@ export type RankCompletionPatch = Partial<GlobalTraceOperation> & {
 };
 
 /**
- * Builds the completion patch for a terminal rank run from authoritative
- * runtime facts only: the run row + latest result rows. Target keywords are
- * the trace's validated selected IDs (falling back to all row IDs for
- * check-all runs that recorded no explicit selection).
+ * Extracts provider metrics, breakdown, and call lists from run provider calls.
+ * Shared between in-flight polling updates and terminal completion patches.
  */
+export function extractProviderPatch(
+  providerCalls?: RankRunForTrace["providerCalls"],
+  options?: { includeDetailedCalls?: boolean },
+): {
+  providerCalls?: number;
+  providersConsidered?: number;
+  providerBreakdown?: Array<{ provider: string; count: number }>;
+  provider?: string;
+  providers?: GlobalTraceOperation["providers"];
+  retry?: GlobalTraceOperation["retry"];
+} {
+  if (!providerCalls || providerCalls.length === 0) {
+    return {};
+  }
+  const includeDetailedCalls = options?.includeDetailedCalls ?? true;
+  const dispatchedCalls = providerCalls.filter(
+    (call) => call.dispatched !== false,
+  );
+  const providersConsidered = new Set(
+    providerCalls.map((call) => call.provider),
+  ).size;
+  const breakdown = new Map<string, number>();
+  for (const call of dispatchedCalls) {
+    const label = providerLabel(call.provider);
+    breakdown.set(label, (breakdown.get(label) ?? 0) + 1);
+  }
+  const providerBreakdown = [...breakdown].map(([provider, count]) => ({
+    provider,
+    count,
+  }));
+  const provider = formatProviderBreakdown(providerBreakdown);
+
+  const attemptsByTarget = new Map<string, number>();
+  let retryCount = 0;
+  const retryDetails = dispatchedCalls.flatMap((call) => {
+    const target = `${call.trackingKeywordId ?? "unknown"}:${call.device ?? "unknown"}`;
+    const attempt = (attemptsByTarget.get(target) ?? 0) + 1;
+    attemptsByTarget.set(target, attempt);
+    if (attempt > 1) {
+      retryCount++;
+      return includeDetailedCalls
+        ? [
+            {
+              attempt,
+              provider: providerLabel(call.provider),
+              httpStatus: call.httpStatus,
+              durationMs: call.durationMs,
+              error: call.errorCode ?? undefined,
+            },
+          ]
+        : [];
+    }
+    return [];
+  });
+
+  const retry = {
+    attempted: retryCount > 0,
+    count: retryCount,
+    ...(includeDetailedCalls ? { details: retryDetails } : {}),
+  };
+
+  const providers: GlobalTraceOperation["providers"] = includeDetailedCalls
+    ? providerCalls.map((call) => ({
+        provider: providerLabel(call.provider),
+        endpoint: call.endpoint,
+        httpStatus: call.httpStatus,
+        statusMessage: call.errorCode ?? call.status,
+        durationMs: call.durationMs,
+        billing: "Paid",
+        metered: true,
+        cost: call.provider === "dataforseo" ? undefined : "Not available",
+        resultCount: call.resultCount ?? undefined,
+        requestedDepth: call.requestedDepth,
+        inspectedDepth: call.inspectedDepth,
+        pagesRequested: call.pagesRequested,
+        resultCompleteness: call.resultCompleteness,
+        dispatched: call.dispatched,
+        circuitBreakerEnabled: call.circuitBreakerEnabled,
+        attempt: call.attempt ?? undefined,
+        maxRetries: call.maxRetries ?? undefined,
+        retryable: call.retryable ?? undefined,
+        retryAfterMs: call.retryAfterMs ?? undefined,
+        skipReason:
+          call.skipReason ??
+          (call.status === "skipped" ? call.errorCode : undefined),
+        circuitReason: call.circuitReason,
+        circuitOpenedAt: call.circuitOpenedAt,
+        circuitExpiresAt: call.circuitExpiresAt,
+      }))
+    : undefined;
+
+  return {
+    providerCalls: dispatchedCalls.length,
+    providersConsidered,
+    providerBreakdown,
+    provider,
+    providers,
+    retry,
+  };
+}
+
+/**
+ * Builds the in-flight patch for an active rank check run while polling.
+ * Accurately reports progress counters, durationMs, and provider attribution in real-time.
+ * Avoids unnecessarily duplicating large trace arrays on every 1s poll by using
+ * the bounded summary mechanism (providersConsidered, providerBreakdown, provider, retry count).
+ */
+export function buildInFlightRankPatch(input: {
+  run: RankRunForTrace;
+  activeOp: {
+    startedAt?: number;
+    validatedCount?: number;
+    counters?: Record<string, number>;
+  };
+  now?: number;
+}): Partial<GlobalTraceOperation> {
+  const { run, activeOp, now = Date.now() } = input;
+  const providerPatch = extractProviderPatch(run.providerCalls, {
+    includeDetailedCalls: false,
+  });
+
+  return {
+    supportsCancellation: true,
+    rankCheckRunId: run.id,
+    rankChecksStarted: run.keywordsChecked,
+    rankChecksAttempted: run.keywordsChecked,
+    durationMs:
+      typeof activeOp.startedAt === "number"
+        ? Math.max(0, now - activeOp.startedAt)
+        : undefined,
+    ...providerPatch,
+    counters: {
+      ...activeOp.counters,
+      checked: run.keywordsChecked,
+      attempted: run.keywordsChecked,
+      total: run.keywordsTotal,
+      pending: Math.max(
+        0,
+        (activeOp.validatedCount ?? run.keywordsTotal) - run.keywordsChecked,
+      ),
+    },
+  };
+}
 export function buildRankCompletionPatch(input: {
   run: RankRunForTrace;
   rows: RankRowForTrace[];
@@ -249,71 +391,8 @@ export function buildRankCompletionPatch(input: {
   };
 
   if (run.providerCalls) {
-    const dispatchedCalls = run.providerCalls.filter(
-      (call) => call.dispatched !== false,
-    );
-    patch.providerCalls = dispatchedCalls.length;
-    patch.providersConsidered = new Set(
-      run.providerCalls.map((call) => call.provider),
-    ).size;
-    const breakdown = new Map<string, number>();
-    for (const call of dispatchedCalls) {
-      const label = providerLabel(call.provider);
-      breakdown.set(label, (breakdown.get(label) ?? 0) + 1);
-    }
-    patch.providerBreakdown = [...breakdown].map(([provider, count]) => ({
-      provider,
-      count,
-    }));
-    patch.providers = run.providerCalls.map((call) => ({
-      provider: providerLabel(call.provider),
-      endpoint: call.endpoint,
-      httpStatus: call.httpStatus,
-      statusMessage: call.errorCode ?? call.status,
-      durationMs: call.durationMs,
-      billing: "Paid",
-      metered: true,
-      cost: call.provider === "dataforseo" ? undefined : "Not available",
-      resultCount: call.resultCount ?? undefined,
-      requestedDepth: call.requestedDepth,
-      inspectedDepth: call.inspectedDepth,
-      pagesRequested: call.pagesRequested,
-      resultCompleteness: call.resultCompleteness,
-      dispatched: call.dispatched,
-      circuitBreakerEnabled: call.circuitBreakerEnabled,
-      attempt: call.attempt ?? undefined,
-      maxRetries: call.maxRetries ?? undefined,
-      retryable: call.retryable ?? undefined,
-      retryAfterMs: call.retryAfterMs ?? undefined,
-      skipReason:
-        call.skipReason ??
-        (call.status === "skipped" ? call.errorCode : undefined),
-      circuitReason: call.circuitReason,
-      circuitOpenedAt: call.circuitOpenedAt,
-      circuitExpiresAt: call.circuitExpiresAt,
-    }));
-    const attemptsByTarget = new Map<string, number>();
-    const retryDetails = dispatchedCalls.flatMap((call) => {
-      const target = `${call.trackingKeywordId ?? "unknown"}:${call.device ?? "unknown"}`;
-      const attempt = (attemptsByTarget.get(target) ?? 0) + 1;
-      attemptsByTarget.set(target, attempt);
-      return attempt > 1
-        ? [
-            {
-              attempt,
-              provider: providerLabel(call.provider),
-              httpStatus: call.httpStatus,
-              durationMs: call.durationMs,
-              error: call.errorCode ?? undefined,
-            },
-          ]
-        : [];
-    });
-    patch.retry = {
-      attempted: retryDetails.length > 0,
-      count: retryDetails.length,
-      details: retryDetails,
-    };
+    const providerPatch = extractProviderPatch(run.providerCalls);
+    Object.assign(patch, providerPatch);
   }
 
   if (isCancelledRun) {
