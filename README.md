@@ -181,7 +181,7 @@ OpenSEO employs a **cache-first, free-first** routing strategy to guarantee that
 └─────────────────┘
 ```
 
-- **Budget Guards**: Enforce hard limits with `DATAFORSEO_DAILY_BUDGET` and `DATAFORSEO_MONTHLY_BUDGET`.
+- **Budget Guards**: Enforce monthly limits with `DATAFORSEO_MONTHLY_BUDGET` (internal daily spending cap removed).
 - **Request Coalescing**: Automatically deduplicates concurrent identical outbound queries.
 - **SSRF Hardening**: Protects local crawler requests from probing private, internal, or loopback network ranges.
 - **Offline/Free Mode**: OpenSEO remains fully functional with `DATAFORSEO_ENABLED=false` for any workflow backed by free or internal data sources.
@@ -254,7 +254,6 @@ Key variables in `.env` / `.env.local`:
 | `OPENAI_API_KEY`                | _(optional)_        | API key for OpenAI models.                                           |
 | `GEMINI_API_KEY`                | _(optional)_        | API key for Google Gemini models.                                    |
 | `ANTHROPIC_API_KEY`             | _(optional)_        | API key for Anthropic Claude models.                                 |
-| `DATAFORSEO_DAILY_BUDGET`       | _(none)_            | Daily spending guard in USD.                                         |
 | `DATAFORSEO_MONTHLY_BUDGET`     | _(none)_            | Monthly spending guard in USD.                                       |
 | `GOOGLE_CLIENT_ID`              | _(optional)_        | Google OAuth Client ID for Search Console integration.               |
 | `GOOGLE_CLIENT_SECRET`          | _(optional)_        | Google OAuth Client Secret for Search Console.                       |

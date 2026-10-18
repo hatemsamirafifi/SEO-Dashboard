@@ -4,7 +4,10 @@ import type {
   GlobalTraceOperation,
   GlobalTraceStatus,
 } from "@/shared/globalTraceTypes";
-import { computeProviderBreakdown } from "./globalTraceFormat";
+import {
+  computeProviderBreakdown,
+  formatProviderBreakdown,
+} from "./globalTraceFormat";
 import { cancellationRegistry } from "./cancellationRegistry";
 import { dispatchRankCheckServerCancel } from "./rankCheckCancelDispatch";
 import {
@@ -182,7 +185,7 @@ class GlobalTraceStore {
       return operationId;
     } catch {
       // Diagnostic operations must never throw (and the fallback itself
-      // must not throw either ΓÇö safeTraceId never uses crypto.randomUUID
+      // must not throw either — safeTraceId never uses crypto.randomUUID
       // without a capability check).
       return input.operationId || safeTraceId();
     }
@@ -269,9 +272,7 @@ class GlobalTraceStore {
       }
 
       if (updated.providerBreakdown && !updated.provider) {
-        updated.provider = updated.providerBreakdown
-          .map((item) => `${item.provider} ├ù${item.count}`)
-          .join(" ┬╖ ");
+        updated.provider = formatProviderBreakdown(updated.providerBreakdown);
       }
 
       const newOps = [
@@ -319,9 +320,7 @@ class GlobalTraceStore {
       }
 
       if (fullOp.providerBreakdown && !fullOp.provider) {
-        fullOp.provider = fullOp.providerBreakdown
-          .map((item) => `${item.provider} ├ù${item.count}`)
-          .join(" ┬╖ ");
+        fullOp.provider = formatProviderBreakdown(fullOp.providerBreakdown);
       }
 
       let newOps = [fullOp, ...this.state.operations];
