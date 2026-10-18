@@ -155,11 +155,10 @@ function syncPeriodSpend(now = new Date()): void {
 async function loadBudgetConfig(): Promise<BudgetConfig> {
   if (cachedBudget) return cachedBudget;
 
-  const daily = await getOptionalEnvValue("DATAFORSEO_DAILY_BUDGET");
   const monthly = await getOptionalEnvValue("DATAFORSEO_MONTHLY_BUDGET");
 
   cachedBudget = {
-    dailyLimitUsd: parseBudgetLimit(daily),
+    dailyLimitUsd: null,
     monthlyLimitUsdUsd: parseBudgetLimit(monthly),
   };
   return cachedBudget;
@@ -174,15 +173,7 @@ function parseBudgetLimit(value: string | undefined): number | null {
 export async function assertDataforseoBudgetAvailable(): Promise<void> {
   const config = await loadBudgetConfig();
   syncPeriodSpend();
-  if (config.dailyLimitUsd !== null) {
-    if (periodSpend.dailyUsd >= config.dailyLimitUsd) {
-      throw new BudgetExceededError(
-        "daily",
-        config.dailyLimitUsd,
-        periodSpend.dailyUsd,
-      );
-    }
-  }
+  // Daily budget limit is intentionally disabled: DataForSEO has no internal daily spending cap.
   if (config.monthlyLimitUsdUsd !== null) {
     if (periodSpend.monthlyUsd >= config.monthlyLimitUsdUsd) {
       throw new BudgetExceededError(

@@ -30,7 +30,7 @@ describe("DataForSEO self-hosted cost guard", () => {
     vi.useRealTimers();
   });
 
-  it("records real task cost in the observable counters", () => {
+  it("records real task cost in the observable counters without daily blocking", () => {
     recordDataforseoCall(0.0125);
 
     expect(getCostCounters()).toMatchObject({
@@ -39,20 +39,33 @@ describe("DataForSEO self-hosted cost guard", () => {
     });
   });
 
-  it("blocks new requests when the daily budget is reached", async () => {
-    mocks.env.set("DATAFORSEO_DAILY_BUDGET", "0.05");
-    resetBudgetConfigCache();
-    recordDataforseoCall(0.05);
+  it("does NOT block requests when daily usage exceeds $1.00 (daily cap removed)", async () => {
+    // Record $1.50 of daily usage
+    recordDataforseoCall(1.5);
 
-    await expect(assertDataforseoBudgetAvailable()).rejects.toMatchObject({
-      name: BudgetExceededError.name,
-      period: "daily",
-      limit: 0.05,
-      spent: 0.05,
+    await expect(assertDataforseoBudgetAvailable()).resolves.toBeUndefined();
+    expect(getCostCounters()).toMatchObject({
+      dataforseoCalls: 1,
+      estimatedDataforseoCostUsd: 1.5,
     });
   });
 
-  it("blocks new requests when the monthly budget is reached", async () => {
+  it("ignores DATAFORSEO_DAILY_BUDGET even if set in env and does not block", async () => {
+    mocks.env.set("DATAFORSEO_DAILY_BUDGET", "0.05");
+    resetBudgetConfigCache();
+    recordDataforseoCall(2.5);
+
+    await expect(assertDataforseoBudgetAvailable()).resolves.toBeUndefined();
+  });
+
+  it("does not impose a hidden $1.00 default when no budget env is configured", async () => {
+    resetBudgetConfigCache();
+    recordDataforseoCall(5.0);
+
+    await expect(assertDataforseoBudgetAvailable()).resolves.toBeUndefined();
+  });
+
+  it("still blocks new requests when the monthly budget is reached", async () => {
     mocks.env.set("DATAFORSEO_MONTHLY_BUDGET", "1.5");
     resetBudgetConfigCache();
     recordDataforseoCall(1.5);
@@ -66,7 +79,6 @@ describe("DataForSEO self-hosted cost guard", () => {
   });
 
   it("counts zero-cost requests without consuming budget", async () => {
-    mocks.env.set("DATAFORSEO_DAILY_BUDGET", "0.01");
     resetBudgetConfigCache();
     recordDataforseoCall(0);
 
@@ -77,8 +89,7 @@ describe("DataForSEO self-hosted cost guard", () => {
     });
   });
 
-  it("resets daily spend at the next UTC day but preserves monthly spend", async () => {
-    mocks.env.set("DATAFORSEO_DAILY_BUDGET", "0.05");
+  it("preserves monthly spend across UTC day transitions", async () => {
     mocks.env.set("DATAFORSEO_MONTHLY_BUDGET", "0.05");
     resetBudgetConfigCache();
     recordDataforseoCall(0.05);
@@ -86,17 +97,8 @@ describe("DataForSEO self-hosted cost guard", () => {
 
     await expect(assertDataforseoBudgetAvailable()).rejects.toMatchObject({
       period: "monthly",
-    });
-  });
-
-  it("treats a configured zero limit as an immediate block", async () => {
-    mocks.env.set("DATAFORSEO_DAILY_BUDGET", "0");
-    resetBudgetConfigCache();
-
-    await expect(assertDataforseoBudgetAvailable()).rejects.toMatchObject({
-      period: "daily",
-      limit: 0,
-      spent: 0,
+      limit: 0.05,
+      spent: 0.05,
     });
   });
 });

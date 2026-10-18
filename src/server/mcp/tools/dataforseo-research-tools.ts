@@ -5,8 +5,7 @@ import {
   type KeywordMetricRow,
 } from "@/server/lib/dataforseo";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
-import { isDataforseoBudgetAvailable } from "@/server/lib/seo-data/cost-tracker";
-import { BudgetExceededError } from "@/server/lib/seo-data/errors";
+import { assertDataforseoBudgetAvailable } from "@/server/lib/seo-data/cost-tracker";
 import { buildProjectMeta } from "@/server/mcp/context";
 import { mcpResponse } from "@/server/mcp/formatters";
 import {
@@ -35,10 +34,7 @@ import {
  *  (e.g. local SERP, business listings, Q&A — DataForSEO-only endpoints with
  *  no free alternative). Throws BudgetExceededError if the budget is spent. */
 async function assertDataforseoBudget(): Promise<void> {
-  const available = await isDataforseoBudgetAvailable();
-  if (!available) {
-    throw new BudgetExceededError("daily", 0, 0);
-  }
+  await assertDataforseoBudgetAvailable();
 }
 
 const rankedResultTypeSchema = z.enum([

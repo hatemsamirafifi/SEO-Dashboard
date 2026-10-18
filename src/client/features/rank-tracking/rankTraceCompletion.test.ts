@@ -76,7 +76,7 @@ describe("providerTaskCount — runtime-derived DataForSEO task count", () => {
 });
 
 describe("classifyRunError — evidence-based failure classification", () => {
-  it("classifies credit/budget wording as CREDITS_UNAVAILABLE + BLOCKED", () => {
+  it("classifies credit/payment wording as CREDITS_UNAVAILABLE + BLOCKED", () => {
     for (const message of [
       "Insufficient credits for rank check",
       "DataForSEO budget exceeded (402)",
@@ -88,6 +88,44 @@ describe("classifyRunError — evidence-based failure classification", () => {
       expect(classified.budget).toBe("BLOCKED");
       expect(classified.blockedReason).toBe(message);
     }
+  });
+
+  it("distinguishes provider account paused", () => {
+    const classified = classifyRunError(
+      "DataForSEO task error (40201): We noticed some unusual activity in your DataForSEO account, so we've temporarily paused access",
+    );
+    expect(classified.errorClass).toBe("DATAFORSEO_ACCOUNT_PAUSED");
+    expect(classified.budget).toBe("PASS");
+  });
+
+  it("distinguishes provider authentication failure", () => {
+    const classified = classifyRunError(
+      "DataForSEO task error (40100): Invalid credentials",
+    );
+    expect(classified.errorClass).toBe("AUTH_FAILED");
+    expect(classified.budget).toBe("PASS");
+  });
+
+  it("distinguishes circuit breaker open", () => {
+    const classified = classifyRunError(
+      "Circuit breaker temporarily bypassed for provider",
+    );
+    expect(classified.errorClass).toBe("CIRCUIT_OPEN");
+    expect(classified.budget).toBe("PASS");
+  });
+
+  it("distinguishes explicit per-run budget refusal", () => {
+    const classified = classifyRunError(
+      "Per-run budget exceeded: cost limit 0.50 USD",
+    );
+    expect(classified.errorClass).toBe("BUDGET_EXCEEDED");
+    expect(classified.budget).toBe("BLOCKED");
+  });
+
+  it("does not classify removed daily budget as BUDGET_EXCEEDED", () => {
+    const classified = classifyRunError("DataForSEO daily budget reached");
+    expect(classified.errorClass).not.toBe("BUDGET_EXCEEDED");
+    expect(classified.budget).toBe("PASS");
   });
 
   it("keeps unknown failures generic with budget PASS", () => {
@@ -243,7 +281,11 @@ describe("buildRankCompletionPatch — snapshot-evidence completion", () => {
     });
 
     expect(patch.counters).toEqual(
-      expect.objectContaining({ checked: 3, total: 4, succeededWithValidSerp: 1 }),
+      expect.objectContaining({
+        checked: 3,
+        total: 4,
+        succeededWithValidSerp: 1,
+      }),
     );
   });
 

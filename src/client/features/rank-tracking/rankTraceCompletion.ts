@@ -66,26 +66,56 @@ export interface ClassifiedRunError {
   errorClass:
     | "CREDITS_UNAVAILABLE"
     | "OPERATION_FAILED"
-    | "DATAFORSEO_ACCOUNT_PAUSED";
+    | "DATAFORSEO_ACCOUNT_PAUSED"
+    | "AUTH_FAILED"
+    | "CIRCUIT_OPEN"
+    | "BUDGET_EXCEEDED";
   budget: "BLOCKED" | "PASS";
   blockedReason?: string;
 }
 
 /**
  * Classifies a rank-run failure message using only its text evidence.
- * Credit/budget wording → CREDITS_UNAVAILABLE + BLOCKED; everything else
- * stays a generic OPERATION_FAILED or specific DATAFORSEO_ACCOUNT_PAUSED with budget PASS.
+ * Distinguishes:
+ * - Provider insufficient funds (CREDITS_UNAVAILABLE)
+ * - Provider account paused (DATAFORSEO_ACCOUNT_PAUSED)
+ * - Provider authentication failure (AUTH_FAILED)
+ * - Explicit per-run budget refusal (BUDGET_EXCEEDED)
+ * - Circuit breaker open (CIRCUIT_OPEN)
+ * - Provider request failure (OPERATION_FAILED)
+ * Daily budget cap is removed; daily budget text does NOT classify as BUDGET_EXCEEDED.
  */
 export function classifyRunError(message: string): ClassifiedRunError {
   const isPaused = /40201|paused access|unusual activity/i.test(message);
   if (isPaused) {
     return { errorClass: "DATAFORSEO_ACCOUNT_PAUSED", budget: "PASS" };
   }
-  const isBudget =
-    /credit|budget|payment|\b402\b|40200|insufficient|upgrade|top up|topup/i.test(
+  const isAuth = /40100|401|auth|credential|invalid api key/i.test(message);
+  if (isAuth) {
+    return { errorClass: "AUTH_FAILED", budget: "PASS" };
+  }
+  const isCircuit = /circuit.*(?:open|bypassed)|temporarily bypassed/i.test(
+    message,
+  );
+  if (isCircuit) {
+    return { errorClass: "CIRCUIT_OPEN", budget: "PASS" };
+  }
+  const isPerRunBudget =
+    /per-run budget|cost limit exceeded|monthly budget exceeded|explicit budget/i.test(
       message,
     );
-  if (isBudget) {
+  if (isPerRunBudget) {
+    return {
+      errorClass: "BUDGET_EXCEEDED",
+      budget: "BLOCKED",
+      blockedReason: message,
+    };
+  }
+  const isCredits =
+    /credit|payment|\b402\b|40200|insufficient funds|upgrade|top up|topup/i.test(
+      message,
+    );
+  if (isCredits) {
     return {
       errorClass: "CREDITS_UNAVAILABLE",
       budget: "BLOCKED",
@@ -341,4 +371,3 @@ export function buildRankCompletionPatch(input: {
 
   return patch;
 }
-

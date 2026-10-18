@@ -62,7 +62,10 @@ function classifyDataforseoFailure(error: unknown): {
     return { code: "PROVIDER_DISABLED", deterministic: true };
   }
   if (error instanceof BudgetExceededError) {
-    return { code: "BUDGET_EXCEEDED", deterministic: true };
+    if (error.period === "monthly") {
+      return { code: "BUDGET_EXCEEDED", deterministic: true };
+    }
+    return { code: "OPERATION_FAILED", deterministic: true };
   }
   // Fallback for unstructured SDK/network errors: inspect the message.
   const message = error instanceof Error ? error.message : String(error);
@@ -72,7 +75,7 @@ function classifyDataforseoFailure(error: unknown): {
   if (/40100|401|auth|credential|invalid api key/i.test(message)) {
     return { code: "AUTH_FAILED", deterministic: true };
   }
-  if (/budget exceeded/i.test(message)) {
+  if (/(?:monthly|per-run)\s+budget exceeded/i.test(message)) {
     return { code: "BUDGET_EXCEEDED", deterministic: true };
   }
   if (/40200|402|credit|quota exhausted|insufficient funds/i.test(message)) {
