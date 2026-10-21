@@ -10,6 +10,7 @@ data, or sensitive paths.
 
 ## Open
 
+
 - [ ] `2026-09-16T19:23:07Z` — `codex` — `pnpm db:generate` delegates both schema generators through `npm run`, so npm emits repeated unsupported pnpm `.npmrc` option warnings before each Drizzle run. Invoke the two `drizzle-kit generate` commands directly through pnpm so migration output stays signal-rich.
 - [ ] `2026-08-29T03:00:00Z` — `opencode` — `tsc --noEmit` over the root project routinely exceeds 5–10 min wall time and once crash-exits with node fail-fast 0xC0000409; even a scoped `tsc -p` over `SamChatAgent.ts` + its transitive imports never finished, so touched-file type verification isn't practical locally. Add an incremental `tsBuildInfoFile` config / documented CI-only strategy (or split server/client projects) so changed-file type checks complete on this machine.
 - [ ] `2026-08-17T21:30:00Z` — `opencode` — On Docker Desktop (Windows) bind mounts, Vite inside the dev container misses file edits made on the host, so workerd keeps serving the pre-edit module after changing `src/` files — a changed fix silently doesn't take effect during MCP/E2E validation. A container restart (`docker restart`) is the reliable reload; the compose comment only mentions `CHOKIDAR_USEPOLLING=true` as an opt-in. Worth documenting the restart step in compose.dev.yaml or enabling polling for server-side SSR paths.
@@ -25,6 +26,8 @@ data, or sensitive paths.
 ## Resolved
 
 Move fixed entries here, mark them checked, and append the resolving date or commit.
+
+- [x] `2026-10-21T22:49:09Z` — `codex` — After a frozen pnpm install, the SAM streaming test could not resolve its direct `throttleit` import because the dependency was only transitive. Resolved 2026-10-22 by declaring the already locked `2.1.0` version as a dev dependency; the existing four regression tests pass.
 
 - [x] `2026-08-18T20:40:00Z` — `opencode` — compose.dev.yaml declared `OPENROUTER_API_KEY` under `environment:` as `${OPENROUTER_API_KEY:-}`, which overrides the `env_file` value with the host shell's unset var — SAM stayed disabled in dev with zero signal even though .env.docker had the key. Fixed by dropping the `environment:` mapping so the key flows from .env.docker via env_file; the comment now warns that `environment:` silently beats env_file for the same key.
 - [ ] `2026-09-02T22:25:00Z` — `opencode` — `npx vitest run` (full suite, parallel) deterministically fails 2 tests in `src/server/lib/dataforseo/client.test.ts` (`records real task cost...` / `records a charged task failure once...` — `recordDataforseoCall` called 2x instead of 1x) while the file passes in isolation; confirmed pre-existing on HEAD via stash. Looks like mock/module-state bleed across concurrently collected files sharing the module graph; worth isolating with a dedicated vitest project or `poolMatchGlobs` so full-suite runs aren't red-by-default.
