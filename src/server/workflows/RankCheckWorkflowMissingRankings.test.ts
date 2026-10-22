@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { MissingRankingBucket } from "@/shared/rank-tracking";
 import type { WorkflowStep } from "cloudflare:workers";
 
 // Missing-rankings mode inside the workflow: prepare re-resolves eligibility
@@ -104,7 +105,7 @@ const billingCustomer = {
 async function runWorkflow(params: {
   keywordIds?: string[];
   missingRankings?: boolean;
-  missingRankingStates?: any[];
+  missingRankingStates?: MissingRankingBucket[];
 }) {
   const { RankCheckWorkflow } = await import("./RankCheckWorkflow");
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine ctor args are unused by the workflow body
@@ -117,12 +118,11 @@ async function runWorkflow(params: {
     },
     sleep: () => Promise.resolve(),
     sleepUntil: () => Promise.resolve(),
-    waitForEvent:
-      ((): // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- placeholder value for a stub that is never awaited by the workflow under test
-      Promise<never> =>
-        Promise.resolve(
-          {} as never,
-        )) as unknown as WorkflowStep["waitForEvent"],
+    waitForEvent: ((): Promise<never> =>
+      Promise.resolve(
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- placeholder value for a stub that is never awaited by the workflow under test
+        {} as never,
+      )) as unknown as WorkflowStep["waitForEvent"],
   };
   const event = {
     payload: {

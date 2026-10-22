@@ -63,7 +63,8 @@ describe("createDataforseoBillingClassifier", () => {
       classify(40200, "Payment Required.", "/v3/backlinks/summary/live")?.code,
     ).toBe("BACKLINKS_BILLING_ISSUE");
     expect(
-      classify(40210, "Insufficient funds.", "/v3/backlinks/summary/live")?.code,
+      classify(40210, "Insufficient funds.", "/v3/backlinks/summary/live")
+        ?.code,
     ).toBe("BACKLINKS_BILLING_ISSUE");
   });
 

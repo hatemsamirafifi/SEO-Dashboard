@@ -65,8 +65,6 @@ async function main() {
   );
 }
 
-
-
 function printFunctionTable(
   heading: string,
   stats: AppendixStatisticsRatesDataInfo | undefined,

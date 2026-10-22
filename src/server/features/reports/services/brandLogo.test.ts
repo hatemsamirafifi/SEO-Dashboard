@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AppError } from "@/server/lib/errors";
-import {
-  brandLogoKey,
-  logoDimensions,
-  parseLogoDataUrl,
-} from "./brandLogo";
+import { brandLogoKey, logoDimensions, parseLogoDataUrl } from "./brandLogo";
 
 function toDataUrl(mime: string, bytes: Uint8Array): string {
   let binary = "";
@@ -43,9 +39,7 @@ describe("parseLogoDataUrl", () => {
     const png = parseLogoDataUrl(toDataUrl("image/png", pngBytes(100, 50)));
     expect(png.mime).toBe("image/png");
     expect(png.bytes.length).toBeGreaterThan(0);
-    const jpeg = parseLogoDataUrl(
-      toDataUrl("image/jpeg", jpegBytes(100, 50)),
-    );
+    const jpeg = parseLogoDataUrl(toDataUrl("image/jpeg", jpegBytes(100, 50)));
     expect(jpeg.mime).toBe("image/jpeg");
   });
 
@@ -66,9 +60,7 @@ describe("parseLogoDataUrl", () => {
       parseLogoDataUrl(toDataUrl("image/png", new Uint8Array(0))),
     ).toThrow(AppError);
     expect(() =>
-      parseLogoDataUrl(
-        toDataUrl("image/png", new Uint8Array(512 * 1024 + 1)),
-      ),
+      parseLogoDataUrl(toDataUrl("image/png", new Uint8Array(512 * 1024 + 1))),
     ).toThrow(AppError);
   });
 });

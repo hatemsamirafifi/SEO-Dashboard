@@ -175,14 +175,11 @@ const AttemptLine = memo(function AttemptLine({
   return (
     <div className="flex flex-col gap-0.5 border-l-2 border-base-300 pl-2 text-[11px] leading-relaxed text-base-content/60">
       <span>
-        {attempt.gate === "block" ? "⛔" : "✓"} model attempt #
-        {attempt.index} — gate:{" "}
-        {attempt.gate === "block" ? "BLOCK" : (attempt.gate ?? "—")}
+        {attempt.gate === "block" ? "⛔" : "✓"} model attempt #{attempt.index} —
+        gate: {attempt.gate === "block" ? "BLOCK" : (attempt.gate ?? "—")}
       </span>
       {attempt.gate === "block" ? (
-        <span className="pl-3">
-          handler=0 · provider=0
-        </span>
+        <span className="pl-3">handler=0 · provider=0</span>
       ) : (
         <>
           {attempt.handlerExecuted ? (
@@ -190,10 +187,7 @@ const AttemptLine = memo(function AttemptLine({
           ) : null}
           {attempt.providerCalls.map((call, i) => (
             <span key={i} className="pl-3">
-              {call.ok
-                ? "✓"
-                : "✕"}{" "}
-              {call.provider}
+              {call.ok ? "✓" : "✕"} {call.provider}
               {call.ok
                 ? call.durationMs !== null && call.durationMs !== undefined
                   ? ` → ${call.durationMs}ms`
@@ -204,8 +198,12 @@ const AttemptLine = memo(function AttemptLine({
             </span>
           ))}
           {attempt.providerCalls
-            .filter((call): call is ProviderCallView & { diagnostics: DataforseoCallDiagnostics } =>
-              Boolean(call.diagnostics),
+            .filter(
+              (
+                call,
+              ): call is ProviderCallView & {
+                diagnostics: DataforseoCallDiagnostics;
+              } => Boolean(call.diagnostics),
             )
             .map((call, i) => (
               <DataforseoDiagnosticsBlock
@@ -377,8 +375,8 @@ const ToolRow = memo(function ToolRow({
             <span>Blocked: {tool.blockedRetries}</span>
             {tool.seoCache ? (
               <span>
-                Data cache: {tool.seoCache.hits} hit / {tool.seoCache.misses} miss
-                / {tool.seoCache.writes} write
+                Data cache: {tool.seoCache.hits} hit / {tool.seoCache.misses}{" "}
+                miss / {tool.seoCache.writes} write
               </span>
             ) : null}
           </div>

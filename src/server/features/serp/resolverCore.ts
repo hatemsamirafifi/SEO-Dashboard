@@ -134,7 +134,10 @@ function annotateCalls(
     attempt: attribution.fromAttempt,
     ...(attribution.retryable === undefined
       ? {}
-      : { retryable: attribution.retryable, retryAfterMs: attribution.retryAfterMs ?? null }),
+      : {
+          retryable: attribution.retryable,
+          retryAfterMs: attribution.retryAfterMs ?? null,
+        }),
   }));
 }
 
@@ -198,11 +201,7 @@ export function createSerpResolverFromEntries(input: {
         // next provider. Providers are never interleaved.
         let lastProviderError: SerpProviderError | null = null;
         let retriesAttempted = 0;
-        for (
-          let attempt = 1;
-          attempt <= maxRetries + 1;
-          attempt++
-        ) {
+        for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
           // Cancellation is checked before every retry. Attempt 1 is already
           // covered by the loop-top check above.
           try {
@@ -241,8 +240,7 @@ export function createSerpResolverFromEntries(input: {
                     [],
                     "Provider request failed",
                   );
-            const classification =
-              classifyProviderFailure(providerError);
+            const classification = classifyProviderFailure(providerError);
             // An adapter may throw without emitting call records; synthesize
             // one so Provider Calls counts every dispatched attempt truthfully.
             const errorCalls = providerError.calls.length

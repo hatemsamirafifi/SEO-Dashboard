@@ -24,11 +24,27 @@ describe("ChatMessage memo comparator", () => {
   it("bails out for a static message while another message streams (only handler identities churn)", () => {
     // The parent re-creates undo/edit closures every render; a settled user
     // message must not re-render because of that.
-    const m = { id: "u1", role: "user", parts: [{ type: "text" as const, text: "q" }] };
+    const m = {
+      id: "u1",
+      role: "user",
+      parts: [{ type: "text" as const, text: "q" }],
+    };
     expect(
       equal(
-        { message: m, streaming: false, resolveToolLabel: labels, onUndo, onEdit },
-        { message: m, streaming: false, resolveToolLabel: labels, onUndo: () => {}, onEdit: (t: string) => t },
+        {
+          message: m,
+          streaming: false,
+          resolveToolLabel: labels,
+          onUndo,
+          onEdit,
+        },
+        {
+          message: m,
+          streaming: false,
+          resolveToolLabel: labels,
+          onUndo: () => {},
+          onEdit: (t: string) => t,
+        },
       ),
     ).toBe(true);
   });
@@ -87,7 +103,11 @@ describe("ChatMessage memo comparator", () => {
   });
 
   it("re-renders when the handler wiring appears or disappears for the same message", () => {
-    const m = { id: "u1", role: "user", parts: [{ type: "text" as const, text: "q" }] };
+    const m = {
+      id: "u1",
+      role: "user",
+      parts: [{ type: "text" as const, text: "q" }],
+    };
     // onUndo provided before, absent next (e.g. edit permissions changed).
     expect(
       equal(

@@ -16,12 +16,20 @@ const step = (toolCalls: unknown[]) => ({ toolCalls });
 
 describe("parsePositiveIntEnv", () => {
   it("returns the fallback for missing, invalid, and non-positive values", () => {
-    expect(parsePositiveIntEnv(null, DEFAULT_MAX_STEPS)).toBe(DEFAULT_MAX_STEPS);
+    expect(parsePositiveIntEnv(null, DEFAULT_MAX_STEPS)).toBe(
+      DEFAULT_MAX_STEPS,
+    );
     expect(parsePositiveIntEnv("", DEFAULT_MAX_STEPS)).toBe(DEFAULT_MAX_STEPS);
-    expect(parsePositiveIntEnv("abc", DEFAULT_MAX_STEPS)).toBe(DEFAULT_MAX_STEPS);
+    expect(parsePositiveIntEnv("abc", DEFAULT_MAX_STEPS)).toBe(
+      DEFAULT_MAX_STEPS,
+    );
     expect(parsePositiveIntEnv("0", DEFAULT_MAX_STEPS)).toBe(DEFAULT_MAX_STEPS);
-    expect(parsePositiveIntEnv("-5", DEFAULT_MAX_STEPS)).toBe(DEFAULT_MAX_STEPS);
-    expect(parsePositiveIntEnv("3.5", DEFAULT_MAX_STEPS)).toBe(DEFAULT_MAX_STEPS);
+    expect(parsePositiveIntEnv("-5", DEFAULT_MAX_STEPS)).toBe(
+      DEFAULT_MAX_STEPS,
+    );
+    expect(parsePositiveIntEnv("3.5", DEFAULT_MAX_STEPS)).toBe(
+      DEFAULT_MAX_STEPS,
+    );
   });
 
   it("parses valid positive integers", () => {

@@ -47,7 +47,8 @@ function NoResultsState({
           </p>
           {currentMode !== "auto" ? (
             <p className="text-xs text-base-content/60 pt-2">
-              Tip: If you are looking for Google's "People also search for" (تم البحث أيضاً عن), try{" "}
+              Tip: If you are looking for Google's "People also search for" (تم
+              البحث أيضاً عن), try{" "}
               <button
                 type="button"
                 className="font-medium text-primary hover:underline"

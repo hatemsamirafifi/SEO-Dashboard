@@ -149,7 +149,8 @@ export async function fetchStrikingDistanceInput(
         query,
         impressions: entry.impressions,
         clicks: entry.clicks,
-        position: entry.impressions > 0 ? entry.position / entry.impressions : 0,
+        position:
+          entry.impressions > 0 ? entry.position / entry.impressions : 0,
         days: entry.days,
         previousPosition:
           weight > 0 ? (previousByQuery.get(query) ?? 0) / weight : null,

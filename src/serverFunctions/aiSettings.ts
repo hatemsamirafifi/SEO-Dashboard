@@ -17,12 +17,8 @@ import {
   type ScopeName,
   type AiCredentialEnvironment,
 } from "@/server/features/ai/scopedSettings";
-import {
-  AiSettingsRepository,
-} from "@/server/features/ai/AiSettingsRepository";
-import {
-  decryptCredentialMap,
-} from "@/server/features/ai/credentialCrypto";
+import { AiSettingsRepository } from "@/server/features/ai/AiSettingsRepository";
+import { decryptCredentialMap } from "@/server/features/ai/credentialCrypto";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import { AppError } from "@/server/lib/errors";
 
@@ -116,9 +112,7 @@ async function resolveProviderEffective(input: {
       organizationCredentials[input.provider] ??
       (providerId ? (env.apiKeys[providerId] ?? null) : null),
     baseUrl:
-      (projectRow?.provider === input.provider
-        ? projectRow?.baseUrl
-        : null) ??
+      (projectRow?.provider === input.provider ? projectRow?.baseUrl : null) ??
       (orgRow?.provider === input.provider ? orgRow?.baseUrl : null) ??
       (providerId ? (env.baseUrls[providerId] ?? null) : null),
   };
@@ -175,25 +169,27 @@ export const saveScopeAiSettingsFn = createServerFn({ method: "POST" })
       patch: savePatchSchema,
     }),
   )
-  .handler(async ({ context, data }): Promise<{ ok: true; provider: string }> => {
-    if (data.scope === "project") {
-      if (!data.projectId) {
-        throw new Error("projectId is required for project scope");
+  .handler(
+    async ({ context, data }): Promise<{ ok: true; provider: string }> => {
+      if (data.scope === "project") {
+        if (!data.projectId) {
+          throw new Error("projectId is required for project scope");
+        }
+        // Project scope requires project authorization (ADR-0001 rule).
+        await assertProjectAccess(data.projectId, context.organizationId);
       }
-      // Project scope requires project authorization (ADR-0001 rule).
-      await assertProjectAccess(data.projectId, context.organizationId);
-    }
-    const result = await saveScopeAiSettings({
-      scope: data.scope,
-      organizationId: context.organizationId,
-      projectId: data.projectId ?? null,
-      patch: data.patch,
-    });
-    if (!result.ok) {
-      throw new Error(result.error);
-    }
-    return { ok: true, provider: result.provider };
-  });
+      const result = await saveScopeAiSettings({
+        scope: data.scope,
+        organizationId: context.organizationId,
+        projectId: data.projectId ?? null,
+        patch: data.patch,
+      });
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+      return { ok: true, provider: result.provider };
+    },
+  );
 
 export type { SaveScopePatch };
 

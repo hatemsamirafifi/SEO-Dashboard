@@ -188,7 +188,9 @@ export function AiModelSelect({
           <option key={model.id} value={model.id}>
             {model.name} — {formatPrice(model.promptPrice)} prompt /{" "}
             {formatPrice(model.completionPrice)} completion
-            {model.contextLength ? ` · ${model.contextLength.toLocaleString()} ctx` : ""}
+            {model.contextLength
+              ? ` · ${model.contextLength.toLocaleString()} ctx`
+              : ""}
           </option>
         ))}
       </select>
@@ -199,9 +201,7 @@ export function AiModelSelect({
             : "No tool-calling support listed — the agent may not be able to use its tools."}
         </p>
       )}
-      {refreshedAt && (
-        <p className="text-xs text-success">{refreshedAt}</p>
-      )}
+      {refreshedAt && <p className="text-xs text-success">{refreshedAt}</p>}
     </div>
   );
 }

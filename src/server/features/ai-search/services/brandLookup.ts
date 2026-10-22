@@ -143,19 +143,17 @@ async function fetchOrCoalesceBrandLookup(
   if (crossSettled.status === "rejected") throw crossSettled.reason;
   const crossOutcomes = crossSettled.value;
 
-  const platformBundles: PlatformOutcome[] = settled.map(
-    (settledResult, i) => {
-      const platform = PLATFORMS[i];
-      if (settledResult.status === "fulfilled") {
-        return { platform, status: "success", bundle: settledResult.value };
-      }
-      console.error(
-        `ai-search.brand-lookup.${platform}.error:`,
-        settledResult.reason,
-      );
-      return { platform, status: "error", bundle: null };
-    },
-  );
+  const platformBundles: PlatformOutcome[] = settled.map((settledResult, i) => {
+    const platform = PLATFORMS[i];
+    if (settledResult.status === "fulfilled") {
+      return { platform, status: "success", bundle: settledResult.value };
+    }
+    console.error(
+      `ai-search.brand-lookup.${platform}.error:`,
+      settledResult.reason,
+    );
+    return { platform, status: "error", bundle: null };
+  });
 
   const result = shapeResult({
     query: input.query,

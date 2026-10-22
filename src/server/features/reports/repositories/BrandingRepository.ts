@@ -1,12 +1,8 @@
 import { db } from "@/db";
-import {
-  organizationBranding,
-  projectClientProfiles,
-} from "@/db/schema";
+import { organizationBranding, projectClientProfiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
-export type OrganizationBrandingRow =
-  typeof organizationBranding.$inferSelect;
+export type OrganizationBrandingRow = typeof organizationBranding.$inferSelect;
 export type ClientProfileRow = typeof projectClientProfiles.$inferSelect;
 
 async function getOrganizationBranding(

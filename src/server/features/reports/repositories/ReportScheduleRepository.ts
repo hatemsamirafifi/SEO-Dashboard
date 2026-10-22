@@ -5,7 +5,6 @@ import { reportScheduleRuns, reportSchedules } from "@/db/schema";
 export type ReportScheduleRow = typeof reportSchedules.$inferSelect;
 type ReportScheduleInsert = typeof reportSchedules.$inferInsert;
 type ReportScheduleRunRow = typeof reportScheduleRuns.$inferSelect;
-type ReportScheduleRunInsert = typeof reportScheduleRuns.$inferInsert;
 
 async function insertSchedule(
   values: ReportScheduleInsert,

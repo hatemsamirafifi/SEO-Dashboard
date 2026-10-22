@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Ai from "ai";
-import {
-  AiProviderRegistry,
-  validateModelForProvider,
-} from "./providers";
+import { AiProviderRegistry, validateModelForProvider } from "./providers";
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn<typeof fetch>(),
@@ -11,9 +8,11 @@ const mocks = vi.hoisted(() => ({
   env: {} as Record<string, string | undefined>,
   hosted: false,
   cache: new Map<string, unknown>(),
-  create: vi.fn<(config: unknown) => {
-    chatModel: (modelId: string) => { modelId: string };
-  }>(),
+  create: vi.fn<
+    (config: unknown) => {
+      chatModel: (modelId: string) => { modelId: string };
+    }
+  >(),
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -120,7 +119,9 @@ describe("ollamaCloudProvider", () => {
     mocks.env.OLLAMA_API_KEY = "k";
     mocks.env.OLLAMA_CLOUD_BASE_URL = "https://gateway-a.example.com/v1/";
     mocks.fetch.mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ id: "model-a" }] }), { status: 200 }),
+      new Response(JSON.stringify({ data: [{ id: "model-a" }] }), {
+        status: 200,
+      }),
     );
     const a1 = await provider.listModels();
     expect(a1.map((m) => m.id)).toEqual(["model-a"]);
@@ -128,7 +129,9 @@ describe("ollamaCloudProvider", () => {
     // Different Base URL - different cache identity - fresh fetch.
     mocks.env.OLLAMA_CLOUD_BASE_URL = "https://gateway-b.example.com/v1";
     mocks.fetch.mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ id: "model-x" }] }), { status: 200 }),
+      new Response(JSON.stringify({ data: [{ id: "model-x" }] }), {
+        status: 200,
+      }),
     );
     const b1 = await provider.listModels();
     expect(b1.map((m) => m.id)).toEqual(["model-x"]);
@@ -160,17 +163,19 @@ describe("ollamaCloudProvider", () => {
     const [url, init] = mocks.fetch.mock.calls[0];
     // oxlint-disable-next-line typescript/no-base-to-string -- fetch mock calls carry string URLs in these tests
     expect(String(url)).toBe("https://unsaved.example.com/v1/models");
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- RequestInit shape is test-controlled
-    expect((init as { headers: Record<string, string> }).headers.Authorization).toBe(
-      "Bearer unsaved-key",
-    );
+    expect(
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- RequestInit shape is test-controlled
+      (init as { headers: Record<string, string> }).headers.Authorization,
+    ).toBe("Bearer unsaved-key");
   });
 
   it("refresh bypasses the cache and picks up new models (S16/S31)", async () => {
     mocks.env.OLLAMA_API_KEY = "k";
     // First (cached) load: only model-a.
     mocks.fetch.mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ id: "model-a" }] }), { status: 200 }),
+      new Response(JSON.stringify({ data: [{ id: "model-a" }] }), {
+        status: 200,
+      }),
     );
     expect((await provider.listModels()).map((m) => m.id)).toEqual(["model-a"]);
     // Provider gains a model; the CACHED read still returns the old catalog-
@@ -214,8 +219,7 @@ describe("openAiCompatibleProvider", () => {
   });
 
   it("rejects cloud metadata endpoints even when self-hosted", async () => {
-    mocks.env.OPENAI_COMPATIBLE_BASE_URL =
-      "http://169.254.169.254/latest/v1";
+    mocks.env.OPENAI_COMPATIBLE_BASE_URL = "http://169.254.169.254/latest/v1";
     const result = await provider.testConnection("m");
     expect(result).toMatchObject({ ok: false, error: "INVALID_BASE_URL" });
   });
@@ -262,10 +266,14 @@ describe("registry coverage for Phase Q providers", () => {
   });
 
   it("accepts gateway-style and ollama-style model ids", () => {
-    expect(validateModelForProvider("openai_compatible", "vendor/model-x@v2", [])).toBeNull();
-    expect(validateModelForProvider("ollama_cloud", "qwen3-coder:480b-cloud", [])).toBeNull();
     expect(
-      validateModelForProvider("ollama_cloud", "has space", []),
-    ).toMatch(/cannot be used/);
+      validateModelForProvider("openai_compatible", "vendor/model-x@v2", []),
+    ).toBeNull();
+    expect(
+      validateModelForProvider("ollama_cloud", "qwen3-coder:480b-cloud", []),
+    ).toBeNull();
+    expect(validateModelForProvider("ollama_cloud", "has space", [])).toMatch(
+      /cannot be used/,
+    );
   });
 });

@@ -18,10 +18,10 @@ vi.mock("@tanstack/react-router", () => ({
     to,
     ...props
   }: {
-    children?: unknown;
+    children?: React.ReactNode;
     to: string;
     [key: string]: unknown;
-  }) => createElement("a", { href: to, ...props }, children as string),
+  }) => createElement("a", { href: to, ...props }, children),
 }));
 
 describe("AnalyticsGeoTechSections", () => {

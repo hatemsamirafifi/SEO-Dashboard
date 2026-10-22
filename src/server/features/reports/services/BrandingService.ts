@@ -9,11 +9,7 @@ import {
   type ClientProfileRow,
   type OrganizationBrandingRow,
 } from "../repositories/BrandingRepository";
-import {
-  brandLogoKey,
-  logoDimensions,
-  parseLogoDataUrl,
-} from "./brandLogo";
+import { brandLogoKey, logoDimensions, parseLogoDataUrl } from "./brandLogo";
 
 const ACCENT_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
@@ -64,9 +60,17 @@ type R2Bucket = {
   delete(key: string): Promise<unknown>;
 };
 
+function isR2Bucket(value: unknown): value is R2Bucket {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("put" in value) || typeof value.put !== "function") return false;
+  return "delete" in value && typeof value.delete === "function";
+}
+
 function r2(): R2Bucket {
-  const bucket = (env as unknown as { R2?: R2Bucket }).R2;
-  if (!bucket) throw new AppError("INTERNAL_ERROR", "Object storage unavailable");
+  const bucket: unknown = env.R2;
+  if (!isR2Bucket(bucket)) {
+    throw new AppError("INTERNAL_ERROR", "Object storage unavailable");
+  }
   return bucket;
 }
 

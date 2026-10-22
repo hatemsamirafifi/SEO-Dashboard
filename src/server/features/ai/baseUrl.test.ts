@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
-import {
-  checkBaseUrl,
-  normalizeBaseUrl,
-} from "./baseUrl";
+import { checkBaseUrl, normalizeBaseUrl } from "./baseUrl";
 
 describe("normalizeBaseUrl", () => {
   it("strips trailing slashes without touching the path shape", () => {
     expect(normalizeBaseUrl("https://example.com")).toBe("https://example.com");
-    expect(normalizeBaseUrl("https://example.com/")).toBe("https://example.com");
+    expect(normalizeBaseUrl("https://example.com/")).toBe(
+      "https://example.com",
+    );
     expect(normalizeBaseUrl("https://example.com/v1")).toBe(
       "https://example.com/v1",
     );
@@ -25,16 +24,26 @@ describe("normalizeBaseUrl", () => {
 
 describe("checkBaseUrl", () => {
   it("accepts public HTTPS URLs", () => {
-    expect(checkBaseUrl("https://api.example.com/v1", { allowPrivateNetwork: false })).toEqual({
+    expect(
+      checkBaseUrl("https://api.example.com/v1", {
+        allowPrivateNetwork: false,
+      }),
+    ).toEqual({
       ok: true,
       url: "https://api.example.com/v1",
     });
   });
 
   it("rejects garbage and non-http schemes", () => {
-    expect(checkBaseUrl("not a url", { allowPrivateNetwork: true })).toMatchObject({ ok: false });
-    expect(checkBaseUrl("", { allowPrivateNetwork: true })).toMatchObject({ ok: false });
-    expect(checkBaseUrl("ftp://example.com", { allowPrivateNetwork: true })).toMatchObject({
+    expect(
+      checkBaseUrl("not a url", { allowPrivateNetwork: true }),
+    ).toMatchObject({ ok: false });
+    expect(checkBaseUrl("", { allowPrivateNetwork: true })).toMatchObject({
+      ok: false,
+    });
+    expect(
+      checkBaseUrl("ftp://example.com", { allowPrivateNetwork: true }),
+    ).toMatchObject({
       ok: false,
     });
   });
@@ -78,10 +87,14 @@ describe("checkBaseUrl", () => {
   });
 
   it("requires HTTPS on hosted deployments even for public hosts", () => {
-    expect(checkBaseUrl("http://api.example.com/v1", { allowPrivateNetwork: false })).toMatchObject({
+    expect(
+      checkBaseUrl("http://api.example.com/v1", { allowPrivateNetwork: false }),
+    ).toMatchObject({
       ok: false,
     });
-    expect(checkBaseUrl("http://api.example.com/v1", { allowPrivateNetwork: true })).toEqual({
+    expect(
+      checkBaseUrl("http://api.example.com/v1", { allowPrivateNetwork: true }),
+    ).toEqual({
       ok: true,
       url: "http://api.example.com/v1",
     });
@@ -89,7 +102,9 @@ describe("checkBaseUrl", () => {
 
   it("rejects embedded credentials", () => {
     expect(
-      checkBaseUrl("https://user:pass@api.example.com/v1", { allowPrivateNetwork: false }),
+      checkBaseUrl("https://user:pass@api.example.com/v1", {
+        allowPrivateNetwork: false,
+      }),
     ).toMatchObject({ ok: false });
   });
 
@@ -97,7 +112,9 @@ describe("checkBaseUrl", () => {
     // Node normalizes ::ffff:192.168.0.7 to hex form (::ffff:c0a8:7) — the
     // check must decode that back to a private IPv4.
     expect(
-      checkBaseUrl("http://[::ffff:192.168.0.7]/v1", { allowPrivateNetwork: false }),
+      checkBaseUrl("http://[::ffff:192.168.0.7]/v1", {
+        allowPrivateNetwork: false,
+      }),
     ).toMatchObject({ ok: false });
   });
 });

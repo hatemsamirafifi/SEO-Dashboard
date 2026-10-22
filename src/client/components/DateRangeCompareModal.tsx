@@ -2,7 +2,10 @@ import { useState, useId } from "react";
 import { Calendar, ChevronDown } from "lucide-react";
 import { Modal } from "@/client/components/Modal";
 import {
-  DATE_RANGE_PRESETS,
+  DateRangeCompareTab,
+  DateRangeFilterTab,
+} from "@/client/components/DateRangeCompareFields";
+import {
   PRESET_LABELS,
   type CompareMode,
   type DateRangePreset,
@@ -28,13 +31,6 @@ const DEFAULT_PRESETS: DateRangePreset[] = [
   "last_16_months",
   "custom",
 ];
-
-const COMPARE_LABELS: Record<CompareMode, string> = {
-  none: "No comparison",
-  previous_period: "Previous period",
-  previous_year: "Previous year (YoY)",
-  custom: "Custom period",
-};
 
 export function formatTriggerLabel(values: {
   range: DateRangePreset;
@@ -227,174 +223,26 @@ export function DateRangeCompareModal({
             </div>
           </div>
 
-          {/* Tab 1: Filter */}
           {activeTab === "filter" ? (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
-                  Date Range
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {presets.map((preset) => {
-                    const isChecked = draftRange === preset;
-                    return (
-                      <label
-                        key={preset}
-                        className={`flex items-center gap-2.5 rounded-lg border p-2.5 cursor-pointer text-sm transition-colors ${
-                          isChecked
-                            ? "border-primary bg-primary/5 font-medium"
-                            : "border-base-300 hover:bg-base-200"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="date-range-preset"
-                          className="radio radio-primary radio-sm"
-                          checked={isChecked}
-                          onChange={() => setDraftRange(preset)}
-                        />
-                        <span>{PRESET_LABELS[preset]}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {draftRange === "custom" ? (
-                <div className="rounded-lg border border-base-300 bg-base-200/50 p-3 space-y-3">
-                  <div className="text-xs font-semibold text-base-content/70">
-                    Custom Date Range
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label className="flex flex-col gap-1 text-xs">
-                      <span className="text-base-content/60">
-                        Start Date (From)
-                      </span>
-                      <input
-                        type="date"
-                        className="input input-bordered input-sm"
-                        value={draftStartDate}
-                        onChange={(e) => setDraftStartDate(e.target.value)}
-                        max={draftEndDate}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-xs">
-                      <span className="text-base-content/60">
-                        End Date (To)
-                      </span>
-                      <input
-                        type="date"
-                        className="input input-bordered input-sm"
-                        value={draftEndDate}
-                        onChange={(e) => setDraftEndDate(e.target.value)}
-                        min={draftStartDate}
-                      />
-                    </label>
-                  </div>
-                </div>
-              ) : null}
-            </div>
+            <DateRangeFilterTab
+              presets={presets}
+              draftRange={draftRange}
+              draftStartDate={draftStartDate}
+              draftEndDate={draftEndDate}
+              onRangeChange={setDraftRange}
+              onStartDateChange={setDraftStartDate}
+              onEndDateChange={setDraftEndDate}
+            />
           ) : (
-            /* Tab 2: Compare */
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-base-content/60">
-                  Comparison Mode
-                </span>
-                <div className="space-y-2">
-                  {(
-                    [
-                      { id: "none" as const, label: "No comparison (Off)" },
-                      {
-                        id: "previous_period" as const,
-                        label: "Compare to previous period",
-                        desc: "Compares to the period immediately preceding the selected range",
-                      },
-                      {
-                        id: "previous_year" as const,
-                        label: "Compare to previous year (YoY)",
-                        desc: "Compares to the exact same period one year ago",
-                      },
-                      {
-                        id: "custom" as const,
-                        label: "Custom comparison dates",
-                        desc: "Manually specify a custom comparison date window",
-                      },
-                    ] satisfies Array<{
-                      id: CompareMode;
-                      label: string;
-                      desc?: string;
-                    }>
-                  ).map((option) => {
-                    const isChecked = draftCompareMode === option.id;
-                    return (
-                      <label
-                        key={option.id}
-                        className={`flex flex-col gap-1 rounded-lg border p-3 cursor-pointer text-sm transition-colors ${
-                          isChecked
-                            ? "border-primary bg-primary/5"
-                            : "border-base-300 hover:bg-base-200"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <input
-                            type="radio"
-                            name="compare-mode"
-                            className="radio radio-primary radio-sm"
-                            checked={isChecked}
-                            onChange={() => setDraftCompareMode(option.id)}
-                          />
-                          <span className="font-medium">{option.label}</span>
-                        </div>
-                        {option.desc ? (
-                          <span className="text-xs text-base-content/60 pl-6">
-                            {option.desc}
-                          </span>
-                        ) : null}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {draftCompareMode === "custom" ? (
-                <div className="rounded-lg border border-base-300 bg-base-200/50 p-3 space-y-3">
-                  <div className="text-xs font-semibold text-base-content/70">
-                    Custom Comparison Period
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label className="flex flex-col gap-1 text-xs">
-                      <span className="text-base-content/60">
-                        Compare Start (From)
-                      </span>
-                      <input
-                        type="date"
-                        className="input input-bordered input-sm"
-                        value={draftCompareStartDate}
-                        onChange={(e) =>
-                          setDraftCompareStartDate(e.target.value)
-                        }
-                        max={draftCompareEndDate}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-xs">
-                      <span className="text-base-content/60">
-                        Compare End (To)
-                      </span>
-                      <input
-                        type="date"
-                        className="input input-bordered input-sm"
-                        value={draftCompareEndDate}
-                        onChange={(e) => setDraftCompareEndDate(e.target.value)}
-                        min={draftCompareStartDate}
-                      />
-                    </label>
-                  </div>
-                </div>
-              ) : null}
-            </div>
+            <DateRangeCompareTab
+              draftCompareMode={draftCompareMode}
+              draftCompareStartDate={draftCompareStartDate}
+              draftCompareEndDate={draftCompareEndDate}
+              onCompareModeChange={setDraftCompareMode}
+              onCompareStartDateChange={setDraftCompareStartDate}
+              onCompareEndDateChange={setDraftCompareEndDate}
+            />
           )}
-
           {/* Active Period Preview Footer info */}
           <div className="rounded-md bg-base-200 p-2.5 text-xs text-base-content/70 flex flex-col gap-1">
             <div>

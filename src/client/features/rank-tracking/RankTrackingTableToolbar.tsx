@@ -82,9 +82,7 @@ export function RankTrackingTableToolbar({
   const displayChecked = Math.max(rawChecked, maxCheckedRef.current);
   const total = latestRun?.keywordsTotal ?? 0;
   const pct =
-    total > 0
-      ? Math.min(100, Math.round((displayChecked / total) * 100))
-      : 0;
+    total > 0 ? Math.min(100, Math.round((displayChecked / total) * 100)) : 0;
 
   const [completedBanner, setCompletedBanner] = useState<{
     status: string;

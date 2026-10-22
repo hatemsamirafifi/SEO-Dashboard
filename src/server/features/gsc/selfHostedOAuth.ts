@@ -67,6 +67,10 @@ const googleIdTokenSchema = z.object({
   sub: z.string().min(1),
 });
 
+const oauthStateNonceSchema = z.object({
+  nonce: z.string().uuid(),
+});
+
 type GoogleTokenResponse = z.infer<typeof googleTokenResponseSchema>;
 
 function bytesToBase64Url(bytes: Uint8Array) {
@@ -149,19 +153,17 @@ async function createState(input: {
   );
   const state = `${payload}.${signature}`;
   if (input.provider.requireProjectState) {
-    const nonce = JSON.parse(
-      new TextDecoder().decode(base64UrlToBytes(payload)),
-    ).nonce;
-    await db
-      .insert(verification)
-      .values({
-        id: nonce,
-        identifier: "ga4-oauth-state",
-        value: state,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1_000),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+    const { nonce } = oauthStateNonceSchema.parse(
+      JSON.parse(new TextDecoder().decode(base64UrlToBytes(payload))),
+    );
+    await db.insert(verification).values({
+      id: nonce,
+      identifier: "ga4-oauth-state",
+      value: state,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1_000),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
   }
   return state;
 }
@@ -430,10 +432,7 @@ async function handleSelfHostedOAuthCallback(input: {
     return new Response("Search Console OAuth user mismatch", { status: 403 });
   }
   if (input.provider.requireProjectState) {
-    await consumeGa4State(
-      state,
-      projectIdFromCallbackPath(state.callbackPath),
-    );
+    await consumeGa4State(state, projectIdFromCallbackPath(state.callbackPath));
   }
 
   // state.callbackPath is a validated same-origin relative path

@@ -6,21 +6,21 @@ vi.mock("cloudflare:workers", () => ({ env: {} }));
 vi.mock("@/db", () => ({
   // D1-mode passthrough: the callback runs directly; the client handle only
   // matters in Postgres mode, which these tests never exercise.
-  withPgClient: <T,>(
-    fn: (p: Promise<never>) => Promise<T>,
-  ): Promise<T> => fn(new Promise<never>(() => {})),
+  withPgClient: <T>(fn: (p: Promise<never>) => Promise<T>): Promise<T> =>
+    fn(new Promise<never>(() => {})),
 }));
 
 // The audit tools are stubbed at the shared-definition boundary so this suite
 // exercises only the SAM adapter behavior around them: cache policy,
 // description overrides, and output tagging.
-const auditHandler = vi.fn<
-  (
-    name: string,
-    args: { projectId?: string },
-    extra: unknown,
-  ) => Promise<CallToolResult>
->();
+const auditHandler =
+  vi.fn<
+    (
+      name: string,
+      args: { projectId?: string },
+      extra: unknown,
+    ) => Promise<CallToolResult>
+  >();
 vi.mock("@/server/mcp/tools/site-audit-tools", () => {
   const def = (
     name: string,
@@ -44,13 +44,14 @@ vi.mock("@/server/mcp/tools/site-audit-tools", () => {
 
 // Spec 013 (US4 T021): the autopilot run tools are stubbed at the same
 // shared-definition boundary; this suite exercises only SAM adapter behavior.
-const autopilotHandler = vi.fn<
-  (
-    name: string,
-    args: { projectId?: string },
-    extra: unknown,
-  ) => Promise<CallToolResult>
->();
+const autopilotHandler =
+  vi.fn<
+    (
+      name: string,
+      args: { projectId?: string },
+      extra: unknown,
+    ) => Promise<CallToolResult>
+  >();
 vi.mock("@/server/mcp/tools/autopilot-run-tools", () => {
   const def = (
     name: string,
@@ -211,7 +212,9 @@ describe("samChatTools autopilot wiring", () => {
     await callTool(set.list_autopilot_runs);
     await callTool(set.list_autopilot_runs);
     expect(
-      autopilotHandler.mock.calls.filter(([name]) => name === "get_autopilot_run"),
+      autopilotHandler.mock.calls.filter(
+        ([name]) => name === "get_autopilot_run",
+      ),
     ).toHaveLength(2);
     expect(
       autopilotHandler.mock.calls.filter(

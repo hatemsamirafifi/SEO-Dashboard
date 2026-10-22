@@ -3,7 +3,10 @@ import { createSamTraceBus } from "@/server/features/sam/samTraceBus";
 import { createTraceFlushScheduler } from "@/server/features/sam/samTraceBroadcast";
 import { reduceTraceFrame } from "./samTraceReducer";
 import { parseTraceFrame } from "./samTraceFormat";
-import type { SamToolTraceEvent, SamTraceFrame } from "@/shared/samToolTraceTypes";
+import type {
+  SamToolTraceEvent,
+  SamTraceFrame,
+} from "@/shared/samToolTraceTypes";
 
 let seq = 0;
 function makeEvent(
@@ -41,7 +44,10 @@ describe("SAM Debug Trace — Live and Completed Turn State Lifecycle", () => {
     const frame = parseTraceFrame(rawFrame);
     expect(frame).not.toBeNull();
     expect(frame?.turnId).toBe(turnId);
-    expect(frame?.ai).toEqual({ provider: "Ollama Cloud", model: "kimi-k2.7-code" });
+    expect(frame?.ai).toEqual({
+      provider: "Ollama Cloud",
+      model: "kimi-k2.7-code",
+    });
     expect(frame?.events).toHaveLength(0);
 
     // Reduced view before any tool activity
@@ -62,9 +68,19 @@ describe("SAM Debug Trace — Live and Completed Turn State Lifecycle", () => {
     scheduler.flushNow();
 
     // Tools run mid-turn
-    bus.push({ event: "model_attempt", toolName: "get_search_console_performance" });
-    bus.push({ event: "gate_allowed", toolName: "get_search_console_performance" });
-    bus.push({ event: "handler_start", toolName: "get_search_console_performance", attempt: 1 });
+    bus.push({
+      event: "model_attempt",
+      toolName: "get_search_console_performance",
+    });
+    bus.push({
+      event: "gate_allowed",
+      toolName: "get_search_console_performance",
+    });
+    bus.push({
+      event: "handler_start",
+      toolName: "get_search_console_performance",
+      attempt: 1,
+    });
     bus.push({
       event: "provider_request",
       toolName: "get_search_console_performance",
@@ -109,15 +125,27 @@ describe("SAM Debug Trace — Live and Completed Turn State Lifecycle", () => {
     // Execute multiple tools: GSC and DataForSEO
     bus.push({ event: "model_attempt", toolName: "get_domain_overview" });
     bus.push({ event: "gate_allowed", toolName: "get_domain_overview" });
-    bus.push({ event: "handler_start", toolName: "get_domain_overview", attempt: 1 });
-    bus.push({ event: "provider_request", toolName: "get_domain_overview", provider: "dataforseo" });
+    bus.push({
+      event: "handler_start",
+      toolName: "get_domain_overview",
+      attempt: 1,
+    });
+    bus.push({
+      event: "provider_request",
+      toolName: "get_domain_overview",
+      provider: "dataforseo",
+    });
     bus.push({
       event: "provider_success",
       toolName: "get_domain_overview",
       provider: "dataforseo",
       durationMs: 540,
     });
-    bus.push({ event: "tool_completed", toolName: "get_domain_overview", durationMs: 542 });
+    bus.push({
+      event: "tool_completed",
+      toolName: "get_domain_overview",
+      durationMs: 542,
+    });
 
     // Turn completes: onChatResponse triggers flushNow
     scheduler.flushNow();
@@ -152,14 +180,23 @@ describe("SAM Debug Trace — Live and Completed Turn State Lifecycle", () => {
       events: [
         makeEvent("model_attempt", { toolName: "research_keywords" }),
         makeEvent("gate_allowed", { toolName: "research_keywords" }),
-        makeEvent("handler_start", { toolName: "research_keywords", attempt: 1 }),
-        makeEvent("provider_request", { toolName: "research_keywords", provider: "dataforseo" }),
+        makeEvent("handler_start", {
+          toolName: "research_keywords",
+          attempt: 1,
+        }),
+        makeEvent("provider_request", {
+          toolName: "research_keywords",
+          provider: "dataforseo",
+        }),
         makeEvent("provider_success", {
           toolName: "research_keywords",
           provider: "dataforseo",
           durationMs: 650,
         }),
-        makeEvent("tool_completed", { toolName: "research_keywords", durationMs: 655 }),
+        makeEvent("tool_completed", {
+          toolName: "research_keywords",
+          durationMs: 655,
+        }),
       ],
     };
 
@@ -182,8 +219,13 @@ describe("SAM Debug Trace — Live and Completed Turn State Lifecycle", () => {
       turnId: "turn_preserved",
       ai: { provider: "Ollama Cloud", model: "kimi-k2.7-code" },
       events: [
-        makeEvent("model_attempt", { toolName: "get_search_console_performance" }),
-        makeEvent("tool_completed", { toolName: "get_search_console_performance", durationMs: 300 }),
+        makeEvent("model_attempt", {
+          toolName: "get_search_console_performance",
+        }),
+        makeEvent("tool_completed", {
+          toolName: "get_search_console_performance",
+          durationMs: 300,
+        }),
       ],
     };
 
@@ -263,8 +305,14 @@ describe("SAM Debug Trace — Live and Completed Turn State Lifecycle", () => {
       events: [
         makeEvent("model_attempt", { toolName: "list_saved_keywords" }),
         makeEvent("gate_allowed", { toolName: "list_saved_keywords" }),
-        makeEvent("handler_start", { toolName: "list_saved_keywords", attempt: 1 }),
-        makeEvent("tool_completed", { toolName: "list_saved_keywords", durationMs: 120 }),
+        makeEvent("handler_start", {
+          toolName: "list_saved_keywords",
+          attempt: 1,
+        }),
+        makeEvent("tool_completed", {
+          toolName: "list_saved_keywords",
+          durationMs: 120,
+        }),
       ],
     };
 

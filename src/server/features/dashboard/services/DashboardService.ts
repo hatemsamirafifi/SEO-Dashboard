@@ -15,9 +15,7 @@ import { getDashboardInsights } from "@/server/features/intelligence/services/In
 import { listOpportunities } from "@/server/features/intelligence/services/OpportunityService";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import { getLatestResults } from "@/server/features/rank-tracking/services/rankTrackingResults";
-import {
-  normalizeBacklinksTarget,
-} from "@/server/lib/dataforseo";
+import { normalizeBacklinksTarget } from "@/server/lib/dataforseo";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
 import {
   mapStoredSectionState,
@@ -54,7 +52,12 @@ type DashboardRankSummary = {
 };
 
 export type DashboardAuditSummary = {
-  status: "running" | "completed" | "failed";
+  status:
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "completed_partial";
   pagesCrawled: number;
   startedAt: string;
   // Top issue types by severity then affected-page count, for the card's list.
@@ -379,8 +382,7 @@ function toSummaryFields(
   return {
     rank: item.rank ?? null,
     backlinks: item.backlinks ?? null,
-    referringDomains:
-      item.referringDomains ?? item.referring_domains ?? null,
+    referringDomains: item.referringDomains ?? item.referring_domains ?? null,
     brokenBacklinks: item.brokenBacklinks ?? item.broken_backlinks ?? null,
     newBacklinks: item.newBacklinks ?? item.new_backlinks ?? null,
     lostBacklinks: item.lostBacklinks ?? item.lost_backlinks ?? null,
@@ -429,13 +431,14 @@ async function ensureBacklinkSnapshot(input: {
   const normalized = normalizeBacklinksTarget(domain, { scope: "domain" });
 
   try {
-    const { data, provider } = await getSeoDataRouter().route<BacklinkSummaryItem>({
-      dataType: "backlinks",
-      domain: normalized.apiTarget,
-      billingCustomer: input.billingCustomer,
-      creditFeature: "backlinks",
-      constraints: { projectId, backlinkCall: "summary" },
-    });
+    const { data, provider } =
+      await getSeoDataRouter().route<BacklinkSummaryItem>({
+        dataType: "backlinks",
+        domain: normalized.apiTarget,
+        billingCustomer: input.billingCustomer,
+        creditFeature: "backlinks",
+        constraints: { projectId, backlinkCall: "summary" },
+      });
     if (provider === "dataforseo" || latest === null) {
       await BacklinkSnapshotRepository.insert({
         projectId,
@@ -582,10 +585,7 @@ type StoredDelta = {
   pctChange: number | null;
 };
 
-function gateDelta(
-  delta: StoredDelta,
-  previousCovered: boolean,
-): PeriodDelta {
+function gateDelta(delta: StoredDelta, previousCovered: boolean): PeriodDelta {
   if (!previousCovered) {
     return {
       current: delta.current,
@@ -642,7 +642,11 @@ async function getSeoPerformanceSection(
     syncRunning: activeSync !== null,
     syncFailed: latestSync?.status === "failed",
   });
-  if (state === "no_data" || state === "sync_failed" || state === "sync_running") {
+  if (
+    state === "no_data" ||
+    state === "sync_failed" ||
+    state === "sync_running"
+  ) {
     return {
       state,
       coverage: {
@@ -684,7 +688,10 @@ async function getSeoPerformanceSection(
             : null,
     },
     metrics: {
-      clicks: toPeriodDelta(currentTotals.clicks, previousTotals?.clicks ?? null),
+      clicks: toPeriodDelta(
+        currentTotals.clicks,
+        previousTotals?.clicks ?? null,
+      ),
       impressions: toPeriodDelta(
         currentTotals.impressions,
         previousTotals?.impressions ?? null,
@@ -881,10 +888,9 @@ async function getTrafficEngagementSection(
     coverage: {
       source: "ga4",
       freshness: overview.coverage.coveredThrough,
-      completeness: overview.coverage.status === "complete" ? "full" : "partial",
-      detail: previousCovered
-        ? null
-        : "Previous period is not synced",
+      completeness:
+        overview.coverage.status === "complete" ? "full" : "partial",
+      detail: previousCovered ? null : "Previous period is not synced",
     },
     metrics: {
       sessions: gateDelta(overview.totals.sessions, previousCovered),
@@ -1152,7 +1158,8 @@ async function getTechnicalHealthSection(
   // mapper inputs — outcomes match the pre-A2 branches exactly.
   const completed = audit.status === "completed";
   const stale =
-    completed && Date.now() - Date.parse(audit.startedAt) > AUDIT_STALE_AFTER_MS;
+    completed &&
+    Date.now() - Date.parse(audit.startedAt) > AUDIT_STALE_AFTER_MS;
   const state = mapStoredSectionState({
     connected: true,
     hasCurrent: completed,

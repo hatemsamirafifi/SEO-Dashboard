@@ -221,13 +221,11 @@ describe("OpportunityRepository", () => {
     it("composes dimensions with AND across and OR within", async () => {
       await seedMatrix();
       const byIds = async (
-        filters: Parameters<
-          typeof OpportunityRepository.listByProject
-        >[1],
+        filters: Parameters<typeof OpportunityRepository.listByProject>[1],
       ) =>
-        (
-          await OpportunityRepository.listByProject("project-1", filters)
-        ).map((row) => row.id);
+        (await OpportunityRepository.listByProject("project-1", filters)).map(
+          (row) => row.id,
+        );
       // Single dimensions.
       expect(await byIds({ page: "https://example.com/guide" })).toEqual([
         "occ-decay",
@@ -238,39 +236,35 @@ describe("OpportunityRepository", () => {
       );
       expect(await byIds({ priority: "Critical" })).toEqual(["occ-ctr"]);
       // AND across dimensions.
-      expect(
-        await byIds({ type: "decay", status: "in_progress" }),
-      ).toEqual(["occ-decay"]);
+      expect(await byIds({ type: "decay", status: "in_progress" })).toEqual([
+        "occ-decay",
+      ]);
       expect(await byIds({ source: "ga4", status: "open" })).toEqual([
         "occ-ga4",
       ]);
       // OR within dimensions.
-      expect(
-        await byIds({ statuses: ["open", "in_progress"] }),
-      ).toHaveLength(3);
+      expect(await byIds({ statuses: ["open", "in_progress"] })).toHaveLength(
+        3,
+      );
       expect(await byIds({ types: ["ctr", "decay"] })).toHaveLength(2);
-      expect(
-        await byIds({ priorities: ["Critical", "High"] }),
-      ).toHaveLength(2);
+      expect(await byIds({ priorities: ["Critical", "High"] })).toHaveLength(2);
       // Empty arrays mean "all".
       expect(
         await byIds({ statuses: [], types: [], priorities: [] }),
       ).toHaveLength(3);
       // No-match combinations return empty, never error.
-      expect(await byIds({ page: "https://example.com/missing" })).toEqual(
-        [],
-      );
-      expect(
-        await byIds({ source: "ga4", priority: "Critical" }),
-      ).toEqual([]);
+      expect(await byIds({ page: "https://example.com/missing" })).toEqual([]);
+      expect(await byIds({ source: "ga4", priority: "Critical" })).toEqual([]);
     });
 
     it("matches source elements exactly, never substrings", async () => {
       await seedMatrix();
       // "gs" is a substring of "gsc" but not an element: zero rows.
-      expect(await OpportunityRepository.listByProject("project-1", {
-        source: "gs",
-      })).toHaveLength(0);
+      expect(
+        await OpportunityRepository.listByProject("project-1", {
+          source: "gs",
+        }),
+      ).toHaveLength(0);
       expect(
         await OpportunityRepository.listByProject("project-1", {
           source: "backlinks",

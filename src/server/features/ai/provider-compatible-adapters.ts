@@ -44,7 +44,7 @@ async function refreshCompatibleBaseUrl(
   target: WarmableAdapter,
 ): Promise<string | null> {
   const raw = config.envBaseUrl
-    ? (await getOptionalEnvValue(config.envBaseUrl)) ?? config.defaultBaseUrl
+    ? ((await getOptionalEnvValue(config.envBaseUrl)) ?? config.defaultBaseUrl)
     : config.defaultBaseUrl;
   const normalized = normalizeBaseUrl(raw);
   // An unusable URL clears any previously-good cache: a deployment whose
@@ -90,10 +90,7 @@ async function fetchOpenAiCompatibleModels(
   }));
 }
 
-function mapProviderId(
-  models: AiModel[],
-  providerId: AiProviderId,
-): AiModel[] {
+function mapProviderId(models: AiModel[], providerId: AiProviderId): AiModel[] {
   return models.map((model) => ({ ...model, provider: providerId }));
 }
 
@@ -114,19 +111,25 @@ function createOpenAiCompatibleAdapter(
    * Merge the EFFECTIVE config (stored/unsaved edits) over the deployment
    * env: explicit Base URL wins, explicit key wins, else env-resolved.
    */
-  const resolveEndpoint = async (
-    opts?: { baseUrl?: string; apiKey?: string },
-  ): Promise<{ base: string | null; apiKey: string | null }> => {
+  const resolveEndpoint = async (opts?: {
+    baseUrl?: string;
+    apiKey?: string;
+  }): Promise<{ base: string | null; apiKey: string | null }> => {
     if (opts?.baseUrl) {
       const normalized = normalizeBaseUrl(opts.baseUrl);
       const check = await checkBaseUrlForDeployment(normalized);
-      return { base: check.ok ? check.url : null, apiKey: opts.apiKey ?? (await getOptionalEnvValue(config.envApiKey)) ?? null };
+      return {
+        base: check.ok ? check.url : null,
+        apiKey:
+          opts.apiKey ?? (await getOptionalEnvValue(config.envApiKey)) ?? null,
+      };
     }
     const base =
       (await refreshCompatibleBaseUrl(config, state)) ?? currentBase();
     return {
       base,
-      apiKey: opts?.apiKey ?? (await getOptionalEnvValue(config.envApiKey)) ?? null,
+      apiKey:
+        opts?.apiKey ?? (await getOptionalEnvValue(config.envApiKey)) ?? null,
     };
   };
 
@@ -198,9 +201,7 @@ function createOpenAiCompatibleAdapter(
       return runConnectionTest(this, apiKey ?? "", modelId);
     },
     buildModel(apiKey, modelId, opts) {
-      const explicit = opts?.baseUrl
-        ? normalizeBaseUrl(opts.baseUrl)
-        : null;
+      const explicit = opts?.baseUrl ? normalizeBaseUrl(opts.baseUrl) : null;
       const base = explicit ?? currentBase();
       if (!base) {
         throw new Error(

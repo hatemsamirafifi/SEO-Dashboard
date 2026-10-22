@@ -106,7 +106,9 @@ beforeEach(async () => {
   // vi.clearAllMocks clears every mock in this file, including the static
   // llmResponseMock default — the next line restores it before each test.
   vi.clearAllMocks();
-  createClientMock.mockReturnValue({ aiSearch: { llmResponse: llmResponseMock } });
+  createClientMock.mockReturnValue({
+    aiSearch: { llmResponse: llmResponseMock },
+  });
   llmResponseMock.mockResolvedValue(ANSWER_WITH_NO_CITATIONS);
   cacheMock.getCached.mockResolvedValue(null);
   budgetMock.assertDataforseoBudgetAvailable.mockResolvedValue(undefined);
@@ -210,9 +212,10 @@ describe("explorePrompt cost containment", () => {
     await flushMicrotasks();
 
     expect(llmResponseMock).toHaveBeenCalledTimes(2);
-    const slugs = llmResponseMock.mock.calls.map((call) =>
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- test asserts the mocked call args shape
-      (call[0] as { modelSlug: string }).modelSlug,
+    const slugs = llmResponseMock.mock.calls.map(
+      (call) =>
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- test asserts the mocked call args shape
+        (call[0] as { modelSlug: string }).modelSlug,
     );
     expect(slugs.toSorted()).toEqual(["chat_gpt", "claude"]);
   });
@@ -257,9 +260,9 @@ describe("explorePrompt cost containment", () => {
       new BudgetExceededError("daily", 1, 1),
     );
 
-    await expect(
-      explorePrompt(promptInput(), billingCustomer),
-    ).rejects.toThrow("daily budget exceeded");
+    await expect(explorePrompt(promptInput(), billingCustomer)).rejects.toThrow(
+      "daily budget exceeded",
+    );
     expect(llmResponseMock).not.toHaveBeenCalled();
     expect(cacheMock.setCached).not.toHaveBeenCalled();
   });
@@ -269,7 +272,10 @@ describe("explorePrompt cost containment", () => {
       promptInput({ highlightBrand: "joe's" }),
       billingCustomer,
     );
-    await explorePrompt(promptInput({ highlightBrand: "rubirosa" }), billingCustomer);
+    await explorePrompt(
+      promptInput({ highlightBrand: "rubirosa" }),
+      billingCustomer,
+    );
 
     const [prefixA, paramsA] = cacheMock.buildCacheKey.mock.calls[0];
     const [prefixB, paramsB] = cacheMock.buildCacheKey.mock.calls[1];

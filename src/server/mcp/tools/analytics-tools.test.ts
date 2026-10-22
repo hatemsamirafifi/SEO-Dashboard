@@ -198,7 +198,8 @@ describe("analytics MCP tools", () => {
         },
       ],
     });
-    const { getAnalyticsAcquisitionTool } = await import("./analytics-reads-tools");
+    const { getAnalyticsAcquisitionTool } =
+      await import("./analytics-reads-tools");
 
     const result = await getAnalyticsAcquisitionTool.handler(
       { projectId: "project_1" },
@@ -215,7 +216,8 @@ describe("analytics MCP tools", () => {
 
   it("get_analytics_acquisition guides to settings when unconnected", async () => {
     mocks.getAcquisition.mockResolvedValue({ connected: false });
-    const { getAnalyticsAcquisitionTool } = await import("./analytics-reads-tools");
+    const { getAnalyticsAcquisitionTool } =
+      await import("./analytics-reads-tools");
 
     const result = await getAnalyticsAcquisitionTool.handler(
       { projectId: "project_1" },
@@ -265,7 +267,8 @@ describe("analytics MCP tools", () => {
         },
       ],
     });
-    const { getAnalyticsConversionsTool } = await import("./analytics-reads-tools");
+    const { getAnalyticsConversionsTool } =
+      await import("./analytics-reads-tools");
 
     const result = await getAnalyticsConversionsTool.handler(
       { projectId: "project_1", goalId: "goal-1" },
@@ -284,7 +287,8 @@ describe("analytics MCP tools", () => {
 
   it("get_analytics_conversions surfaces invalid-goal failures without fabrication", async () => {
     mocks.getConversions.mockRejectedValue(new Error("NOT_FOUND"));
-    const { getAnalyticsConversionsTool } = await import("./analytics-reads-tools");
+    const { getAnalyticsConversionsTool } =
+      await import("./analytics-reads-tools");
 
     await expect(
       getAnalyticsConversionsTool.handler(

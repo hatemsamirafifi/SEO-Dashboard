@@ -222,7 +222,6 @@ async function meterDataforseoCall<T>(
     throw error;
   }
 
-
   await trackDataforseoCost({
     customer,
     customerId: billingCustomer.id,

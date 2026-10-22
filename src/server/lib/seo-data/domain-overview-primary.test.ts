@@ -7,10 +7,7 @@ import {
   ProviderUnavailableError,
   ProviderUnsupportedError,
 } from "./errors";
-import {
-  resetCostCounters,
-  resetBudgetConfigCache,
-} from "./cost-tracker";
+import { resetCostCounters, resetBudgetConfigCache } from "./cost-tracker";
 import { resetProviderConfigCache } from "./config";
 import { clearSingleFlight } from "./single-flight";
 import {
@@ -26,9 +23,9 @@ import type { SEODataProvider, SEODataRequest } from "./types";
 
 const mocks = vi.hoisted(() => ({
   getCached: vi.fn<(key: string) => Promise<unknown>>(async () => null),
-  setCached: vi.fn<
-    (key: string, data: unknown, ttl: number) => Promise<void>
-  >(async () => {}),
+  setCached: vi.fn<(key: string, data: unknown, ttl: number) => Promise<void>>(
+    async () => {},
+  ),
   db: { select: vi.fn(), insert: vi.fn() },
 }));
 
@@ -130,11 +127,13 @@ describe("get_domain_overview — DataForSEO primary policy", () => {
       }),
     );
     internalGet.mockRejectedValue(
-      new ProviderUnsupportedError("internal", "domain_overview", "no snapshot"),
+      new ProviderUnsupportedError(
+        "internal",
+        "domain_overview",
+        "no snapshot",
+      ),
     );
-    await expect(router.route(overviewRequest())).rejects.toThrow(
-      "credits",
-    );
+    await expect(router.route(overviewRequest())).rejects.toThrow("credits");
     expect(dfsGet).toHaveBeenCalledTimes(1);
   });
 
@@ -224,7 +223,9 @@ describe("get_domain_overview — DataForSEO primary policy", () => {
     internalGet.mockRejectedValue(
       new ProviderUnsupportedError("internal", "domain_overview", "no data"),
     );
-    await expect(router.route(overviewRequest())).rejects.toThrow("fetch failed");
+    await expect(router.route(overviewRequest())).rejects.toThrow(
+      "fetch failed",
+    );
     // The only cache write attempt happened for NO provider (all failed):
     expect(mocks.setCached).not.toHaveBeenCalled();
   });

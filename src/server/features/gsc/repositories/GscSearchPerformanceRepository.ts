@@ -432,14 +432,23 @@ async function getTotals(
   };
 }
 
-async function getStrikingDistance(
-  projectId: string,
-  startDate: string,
-  endDate: string,
-  limit: number = 100,
-  prevStartDate?: string,
-  prevEndDate?: string,
-): Promise<SearchPerformanceStrikingRow[]> {
+export interface GetStrikingDistanceParams {
+  projectId: string;
+  startDate: string;
+  endDate: string;
+  limit?: number;
+  prevStartDate?: string;
+  prevEndDate?: string;
+}
+
+async function getStrikingDistance({
+  projectId,
+  startDate,
+  endDate,
+  limit = 100,
+  prevStartDate,
+  prevEndDate,
+}: GetStrikingDistanceParams): Promise<SearchPerformanceStrikingRow[]> {
   const rows = await db
     .select({
       query: sql<string>`${gscSearchPerformance.query}`,

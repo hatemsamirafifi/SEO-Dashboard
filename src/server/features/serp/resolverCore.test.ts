@@ -1119,9 +1119,15 @@ describe("SERP provider resolver", () => {
         search: vi.fn(async (searchInput: SerpSearchInput) => {
           calls++;
           if (calls === 1) {
-            throw new SerpProviderError("serper", "RATE_LIMITED", [], "rate limited", {
-              retryAfterMs: 20,
-            });
+            throw new SerpProviderError(
+              "serper",
+              "RATE_LIMITED",
+              [],
+              "rate limited",
+              {
+                retryAfterMs: 20,
+              },
+            );
           }
           return successProvider("serper", 9).search(searchInput);
         }),

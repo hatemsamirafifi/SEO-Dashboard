@@ -132,8 +132,11 @@ function fullSnapshotFixture() {
 }
 
 /** Sparse fixture: exactly five of the ten families present. */
-function sparseSnapshotFixture() {
-  const fixture = fullSnapshotFixture();
+function sparseSnapshotFixture(): unknown {
+  // The sparse shape is an *input* fixture: absent families stay absent and
+  // some values are deliberately outside the schema, so it is built loosely
+  // and handed to the parser as unknown.
+  const fixture: Record<string, unknown> = { ...fullSnapshotFixture() };
   fixture.organicResults = [organicItem(1)];
   fixture.features = {
     peopleAlsoAsk: {
@@ -173,7 +176,7 @@ function sparseSnapshotFixture() {
         },
       ],
     },
-  } as never;
+  };
   return fixture;
 }
 

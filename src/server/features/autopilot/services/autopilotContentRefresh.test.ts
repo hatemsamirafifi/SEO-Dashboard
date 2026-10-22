@@ -165,9 +165,7 @@ describe("content_refresh registration", () => {
       "correlate",
       "synthesize",
     ]);
-    expect(
-      def?.steps.some((step) => step.kind === "side_effect"),
-    ).toBe(false);
+    expect(def?.steps.some((step) => step.kind === "side_effect")).toBe(false);
   });
 
   it("keeps the content_refresh prompt observational", () => {
@@ -181,10 +179,7 @@ describe("content_refresh registration", () => {
 // Spec 013 (US1 T007): end-to-end drive over stored engine state.
 describe("content_refresh drive", () => {
   it("ranks refresh candidates by priority, impact, then confidence", async () => {
-    const make = (
-      id: string,
-      overrides: Partial<OpportunityRow> = {},
-    ) =>
+    const make = (id: string, overrides: Partial<OpportunityRow> = {}) =>
       makeOpportunity({
         logicalKey: `content_decay:/page-${id}`,
         type: "content_decay",
@@ -282,9 +277,7 @@ describe("content_refresh drive", () => {
       "observational",
     );
     expect(synthesis?.toolCalls).toBe(1);
-    const recommendations = recommendationsOf(
-      synthesis?.evidenceJson ?? null,
-    );
+    const recommendations = recommendationsOf(synthesis?.evidenceJson ?? null);
     expect(recommendations.length).toBeGreaterThan(0);
     for (const rec of recommendations) {
       expect(
@@ -295,7 +288,7 @@ describe("content_refresh drive", () => {
           `${stringField(rec, "reasoningSummary")} ${stringField(rec, "suggestedAction")}`,
         ),
       ).toBe(false);
-      expect(String(rec["dataSource"] ?? "")).toContain("opportunity:");
+      expect(stringField(rec, "dataSource")).toContain("opportunity:");
       const confidence = confidenceOf(rec);
       expect(typeof confidence["value"]).toBe("number");
     }

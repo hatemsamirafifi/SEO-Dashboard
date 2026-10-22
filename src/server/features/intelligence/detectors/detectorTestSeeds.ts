@@ -389,12 +389,14 @@ export async function seedBacklinksFresh() {
  * via `firstHalf`/`secondHalf` to shape drops. Full-URL-free event grain:
  * joins never apply here (research R5).
  */
-export async function seedGa4Goal(input: {
-  id?: string;
-  name?: string;
-  eventName?: string;
-  matchKeyEventOnly?: boolean;
-} = {}) {
+export async function seedGa4Goal(
+  input: {
+    id?: string;
+    name?: string;
+    eventName?: string;
+    matchKeyEventOnly?: boolean;
+  } = {},
+) {
   const goal = {
     id: input.id ?? "goal-1",
     projectId: "project-1",
@@ -408,12 +410,14 @@ export async function seedGa4Goal(input: {
 }
 
 /** 56 event days (2025-11-20 + 56) for one event with SUCCESS coverage. */
-export async function seedGa4Events(input: {
-  eventName?: string;
-  firstHalf?: number;
-  secondHalf?: number;
-  isKeyEvent?: boolean;
-} = {}) {
+export async function seedGa4Events(
+  input: {
+    eventName?: string;
+    firstHalf?: number;
+    secondHalf?: number;
+    isKeyEvent?: boolean;
+  } = {},
+) {
   await seedGa4Connection();
   const eventName = input.eventName ?? "signup_completed";
   const rows = [];

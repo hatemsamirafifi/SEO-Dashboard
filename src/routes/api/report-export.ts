@@ -19,9 +19,7 @@ export const Route = createFileRoute("/api/report-export")({
         }
         let context: { organizationId: string; userId: string };
         try {
-          const resolved = await resolveUserContextFromHeaders(
-            request.headers,
-          );
+          const resolved = await resolveUserContextFromHeaders(request.headers);
           context = {
             organizationId: resolved.organizationId,
             userId: resolved.userId,

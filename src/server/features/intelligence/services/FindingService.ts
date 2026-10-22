@@ -1,5 +1,3 @@
-import { waitUntil } from "cloudflare:workers";
-import { captureServerEvent } from "@/server/lib/posthog";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
 import type { Finding } from "@/shared/intelligence";
 import {
@@ -22,6 +20,15 @@ import {
   hashSourceState,
   type DetectionSourceState,
 } from "./SourceTokens";
+import {
+  captureIntelligenceEvent,
+  changedSources,
+  shortHash,
+  versionsEqual,
+  type DetectionAttemptMeta,
+} from "./findingScanHelpers";
+
+export type { DetectionAttemptMeta } from "./findingScanHelpers";
 
 /**
  * Stage-1 detection service (final-plan §6). Owns the source-consistency
@@ -50,72 +57,6 @@ export type ScanOutcome =
 export type ManualScanOutcome =
   | ScanOutcome
   | { ok: false; rateLimited: true; retryAfterMs: number };
-
-function shortHash(hash: string): string {
-  return hash.slice(0, 8);
-}
-
-function captureIntelligenceEvent(input: {
-  event: string;
-  projectId: string;
-  organizationId: string;
-  actorUserId?: string;
-  properties?: Record<string, unknown>;
-}): void {
-  waitUntil(
-    captureServerEvent({
-      distinctId: input.actorUserId ?? input.organizationId,
-      event: input.event,
-      organizationId: input.organizationId,
-      properties: { project_id: input.projectId, ...input.properties },
-    }),
-  );
-}
-
-function versionsEqual(
-  first: DetectionSourceState,
-  second: DetectionSourceState,
-): boolean {
-  const keys = ["gsc", "ga4", "rank", "audit", "backlinks"] as const;
-  if (first.thresholdVersion !== second.thresholdVersion) return false;
-  if (first.sourceSet.join(",") !== second.sourceSet.join(",")) return false;
-  // Order-invariant without sorting: same key set, same per-key values.
-  const firstKeys = Object.keys(first.detectorVersions);
-  if (firstKeys.length !== Object.keys(second.detectorVersions).length) {
-    return false;
-  }
-  if (
-    !firstKeys.every(
-      (key) => first.detectorVersions[key] === second.detectorVersions[key],
-    )
-  ) {
-    return false;
-  }
-  return keys.every((key) => first.versions[key] === second.versions[key]);
-}
-
-function changedSources(
-  before: DetectionSourceState,
-  after: DetectionSourceState,
-): string[] {
-  const changed: string[] = [];
-  const keys = ["gsc", "ga4", "rank", "audit", "backlinks"] as const;
-  for (const key of keys) {
-    if (before.versions[key] !== after.versions[key]) changed.push(key);
-  }
-  if (before.sourceSet.join(",") !== after.sourceSet.join(",")) {
-    changed.push("sourceSet");
-  }
-  return changed;
-}
-
-export type DetectionAttemptMeta = {
-  attempt: number;
-  beforeHash8: string;
-  afterHash8: string | null;
-  changedSources: string[];
-  activeReasons: string[];
-};
 
 async function executeDetection(input: {
   projectId: string;
@@ -290,8 +231,7 @@ async function executeDetection(input: {
   try {
     const composed = await InsightComposer.composeRun({ runId: parked.id });
     const terminal = await ScanLedgerRepository.getRun(parked.id);
-    if (!terminal)
-      throw new Error(`Intelligence run not found: ${parked.id}`);
+    if (!terminal) throw new Error(`Intelligence run not found: ${parked.id}`);
     console.log(
       `[intelligence:scan] composed project ${input.projectId} ` +
         `run=${input.run.id} insights=${composed.insightKeys.length} ` +

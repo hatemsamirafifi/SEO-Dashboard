@@ -163,8 +163,8 @@ describe("AnalyticsService.getOverview", () => {
     expect(result.totals.engagementRate).toEqual({
       current: 0.6,
       previous: 0.5,
-      change: expect.closeTo(0.1),
-      pctChange: expect.closeTo(20),
+      change: expect.closeTo(0.1) as unknown,
+      pctChange: expect.closeTo(20) as unknown,
     });
     expect(result.totals.avgEngagementTimePerSession).toEqual({
       current: 3,
@@ -647,7 +647,8 @@ describe("AnalyticsService.getAnalyticsGeo", () => {
   });
 });
 
-describe("AnalyticsService country filter wiring", () => {  it("scopes overview totals to the stored geo grain when country is set", async () => {
+describe("AnalyticsService country filter wiring", () => {
+  it("scopes overview totals to the stored geo grain when country is set", async () => {
     mocks.getGeoGroups.mockResolvedValue(geoGroups());
     mocks.getGrainCoverage.mockResolvedValue({
       coveredDates: Array.from({ length: 7 }, (_, i) => `2025-01-0${i + 1}`),
@@ -758,7 +759,8 @@ describe("AnalyticsService.getAnalyticsTechnology", () => {
   });
 });
 
-describe("AnalyticsService device filter wiring", () => {  it("scopes overview totals to the stored technology grain when device is set", async () => {
+describe("AnalyticsService device filter wiring", () => {
+  it("scopes overview totals to the stored technology grain when device is set", async () => {
     mocks.getTechnologyGroups.mockResolvedValue(technologyGroups());
     mocks.getGrainCoverage.mockResolvedValue({
       coveredDates: Array.from({ length: 7 }, (_, i) => `2025-01-0${i + 1}`),

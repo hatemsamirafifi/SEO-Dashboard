@@ -94,7 +94,6 @@ function parseInts(values: unknown, expected: number): number[] | null {
   return out;
 }
 
-
 export function truncationFor(
   response: Ga4ReportResult,
   limit: number,
@@ -651,9 +650,16 @@ type BoundedGrainOutcome = {
 
 function rollUpBoundedGrain(
   parsed: BoundedGrainParse,
-  input: { topN: number; countsKnown: boolean; samplingState: "SAMPLED" | "NOT_SAMPLED" | null },
+  input: {
+    topN: number;
+    countsKnown: boolean;
+    samplingState: "SAMPLED" | "NOT_SAMPLED" | null;
+  },
 ): BoundedGrainOutcome[] {
-  const byDate = new Map<string, Array<{ key: string; metrics: Ga4TailMetrics }>>();
+  const byDate = new Map<
+    string,
+    Array<{ key: string; metrics: Ga4TailMetrics }>
+  >();
   for (const row of parsed.rows) {
     let list = byDate.get(row.date);
     if (!list) {

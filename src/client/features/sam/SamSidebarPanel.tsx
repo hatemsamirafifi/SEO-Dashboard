@@ -40,9 +40,8 @@ function BetaNotice() {
         </button>
       </div>
       <p className="mt-1.5 text-xs text-base-content/70">
-        SAM is OpenSEO's built-in AI SEO agent. Working outside the app?
-        Connect external coding agents like Claude Code or OpenCode through
-        MCP.
+        SAM is OpenSEO's built-in AI SEO agent. Working outside the app? Connect
+        external coding agents like Claude Code or OpenCode through MCP.
       </p>
       <Link to="/ai" className="link link-primary mt-1.5 inline-block text-xs">
         Set up the MCP →

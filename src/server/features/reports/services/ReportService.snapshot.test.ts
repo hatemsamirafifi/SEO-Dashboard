@@ -1,12 +1,11 @@
 import type { Client } from "@libsql/client";
-import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const database = vi.hoisted(() => ({
   client: undefined as Client | undefined,
-  db: undefined as LibSQLDatabase<any> | undefined,
+  db: undefined as unknown,
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {}, waitUntil: vi.fn() }));
@@ -42,11 +41,7 @@ vi.mock("@/server/lib/posthog", () => ({
 }));
 
 import { db } from "@/db";
-import {
-  ga4DailyEvents,
-  ga4SyncCoverage,
-  gscConnections,
-} from "@/db/schema";
+import { ga4DailyEvents, ga4SyncCoverage, gscConnections } from "@/db/schema";
 import { InsightRepository } from "@/server/features/intelligence/repositories/InsightRepository";
 import { OpportunityRepository } from "@/server/features/intelligence/repositories/OpportunityRepository";
 import {
@@ -64,7 +59,13 @@ import { ReportService } from "./ReportService";
 
 function sourceState(): DetectionSourceState {
   return {
-    versions: { gsc: null, ga4: null, rank: null, audit: null, backlinks: null },
+    versions: {
+      gsc: null,
+      ga4: null,
+      rank: null,
+      audit: null,
+      backlinks: null,
+    },
     sourceSet: [],
     detectorVersions: {},
     thresholdVersion: 2,
@@ -76,6 +77,24 @@ function sourceState(): DetectionSourceState {
       backlinks: { isMutating: false, activeRunIds: [] },
     },
   };
+}
+
+function isMigrationJournal(value: unknown): value is {
+  entries: Array<{ tag: string }>;
+} {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("entries" in value)) return false;
+  const entries: unknown = value.entries;
+  return (
+    Array.isArray(entries) &&
+    entries.every(
+      (entry: unknown) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        "tag" in entry &&
+        typeof entry.tag === "string",
+    )
+  );
 }
 
 function migrationStatements(file: string): string[] {
@@ -97,10 +116,10 @@ beforeAll(async () => {
   const journal: unknown = JSON.parse(
     readFileSync(resolve(process.cwd(), "drizzle/meta/_journal.json"), "utf8"),
   );
-  if (typeof journal !== "object" || journal === null || !("entries" in journal)) {
+  if (!isMigrationJournal(journal)) {
     throw new Error("Migration journal has an unexpected shape");
   }
-  for (const entry of (journal as { entries: Array<{ tag: string }> }).entries) {
+  for (const entry of journal.entries) {
     for (const statement of migrationStatements(`drizzle/${entry.tag}.sql`)) {
       await database.client.execute(statement);
     }
@@ -297,9 +316,10 @@ describe("metric aggregates", () => {
       type: "overview",
       period: PERIOD,
     });
-    const payload = (
-      await ReportService.getReport({ id: row.id, projectId: "project-1" })
-    )!.payload;
+    const payload = (await ReportService.getReport({
+      id: row.id,
+      projectId: "project-1",
+    }))!.payload;
     expect(payload.searchVisibility.status.reason).toBe("not_connected");
     expect(payload.searchVisibility.totals).toBeNull();
     expect(payload.traffic.status.reason).toBe("not_connected");
@@ -327,9 +347,10 @@ describe("intelligence copies", () => {
       type: "overview",
       period: PERIOD,
     });
-    const payload = (
-      await ReportService.getReport({ id: row.id, projectId: "project-1" })
-    )!.payload;
+    const payload = (await ReportService.getReport({
+      id: row.id,
+      projectId: "project-1",
+    }))!.payload;
     expect(payload.insights.map((insight) => insight.insightKey)).toEqual([
       "dashboard:ranking_drop",
       "dashboard:low_ctr_query",
@@ -359,14 +380,16 @@ describe("intelligence copies", () => {
       type: "overview",
       period: PERIOD,
     });
-    const before = (
-      await ReportService.getReport({ id: row.id, projectId: "project-1" })
-    )!.payload;
+    const before = (await ReportService.getReport({
+      id: row.id,
+      projectId: "project-1",
+    }))!.payload;
     await seedInsight("backlink_change", "medium");
     await seedOpportunity("late", "open", "High");
-    const after = (
-      await ReportService.getReport({ id: row.id, projectId: "project-1" })
-    )!.payload;
+    const after = (await ReportService.getReport({
+      id: row.id,
+      projectId: "project-1",
+    }))!.payload;
     expect(after).toEqual(before);
   });
 
@@ -386,7 +409,7 @@ describe("intelligence copies", () => {
           report_id: row.id,
           report_type: "overview",
           consistency_status: "consistent",
-        }),
+        }) as unknown,
       }),
     );
   });

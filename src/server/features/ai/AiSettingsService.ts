@@ -101,9 +101,7 @@ export function resolveAiSettings(
     env.aiAgentProvider,
   );
   const envModel =
-    env.aiAgentModel ??
-    env.providerModelDefaults[envProvider] ??
-    null;
+    env.aiAgentModel ?? env.providerModelDefaults[envProvider] ?? null;
   return safePair(envProvider, envModel);
 }
 
@@ -207,10 +205,9 @@ export function resolveEffectiveAiConfig(input: {
 }): EffectiveAiConfig {
   const { project, organization, env } = input;
 
-  const providerChoice =
-    (project?.provider
-      ? { source: "project" as AiConfigSource, provider: project.provider }
-      : null) ??
+  const providerChoice = (project?.provider
+    ? { source: "project" as AiConfigSource, provider: project.provider }
+    : null) ??
     (organization?.provider
       ? {
           source: "organization" as AiConfigSource,
@@ -218,9 +215,7 @@ export function resolveEffectiveAiConfig(input: {
         }
       : null) ?? {
       source: "environment" as AiConfigSource,
-      provider: AiProviderRegistry.getEnvDefaultProviderId(
-        env.aiAgentProvider,
-      ),
+      provider: AiProviderRegistry.getEnvDefaultProviderId(env.aiAgentProvider),
     };
   const provider: AiProviderId = isSupportedProvider(providerChoice.provider)
     ? providerChoice.provider
@@ -248,27 +243,28 @@ export function resolveEffectiveAiConfig(input: {
   ]);
   const envBaseUrl = env.baseUrls[provider] ?? null;
 
-  const credentialFromScopes = (
-    [
-      {
-        source: "project" as AiConfigSource,
-        map: input.projectCredentials,
-      },
-      {
-        source: "organization" as AiConfigSource,
-        map: input.organizationCredentials,
-      },
-    ] as const
-  ).find((scope) => scope.map?.[provider] !== undefined) ?? null;
+  const credentialFromScopes =
+    (
+      [
+        {
+          source: "project" as AiConfigSource,
+          map: input.projectCredentials,
+        },
+        {
+          source: "organization" as AiConfigSource,
+          map: input.organizationCredentials,
+        },
+      ] as const
+    ).find((scope) => scope.map?.[provider] !== undefined) ?? null;
   const envCredential = env.apiKeys[provider] ?? null;
-  const scopedCredential =
-    (credentialFromScopes?.map ?? {})[provider] ?? null;
+  const scopedCredential = (credentialFromScopes?.map ?? {})[provider] ?? null;
 
   return {
     provider,
     model: safePair(provider, model).model,
     baseUrl: baseUrlFromScopes?.value ?? envBaseUrl,
-    baseUrlSource: baseUrlFromScopes?.source ?? (envBaseUrl ? "environment" : "none"),
+    baseUrlSource:
+      baseUrlFromScopes?.source ?? (envBaseUrl ? "environment" : "none"),
     credential: scopedCredential ?? envCredential ?? null,
     credentialSource:
       credentialFromScopes?.source ?? (envCredential ? "environment" : "none"),
@@ -370,7 +366,10 @@ export async function updateOrganizationAiSettings(
   input: AiAgentSettingsInput,
 ): Promise<void> {
   assertValidModelPair(input.provider, input.model);
-  await AiSettingsRepository.upsertOrganizationAiSettings(organizationId, input);
+  await AiSettingsRepository.upsertOrganizationAiSettings(
+    organizationId,
+    input,
+  );
 }
 
 export async function updateProjectAiSettings(

@@ -63,11 +63,7 @@ import { ArtifactStore } from "../repositories/ArtifactStore";
 import { InsightRepository } from "../repositories/InsightRepository";
 import { OpportunityRepository } from "../repositories/OpportunityRepository";
 import { ScanLedgerRepository } from "../repositories/ScanLedgerRepository";
-import {
-  InsightComposer,
-  composeRun,
-  isMaterialChange,
-} from "./InsightComposer";
+import { InsightComposer, composeRun } from "./InsightComposer";
 
 function finding(
   detectorKey: string,
@@ -102,7 +98,10 @@ function finding(
 async function parkRun(
   runId: string,
   findings: Finding[],
-  outcomes: Array<{ detectorKey: string; status: "completed" | "skipped" | "failed" }>,
+  outcomes: Array<{
+    detectorKey: string;
+    status: "completed" | "skipped" | "failed";
+  }>,
 ): Promise<void> {
   const pointers = await ArtifactStore.writeArtifact({
     projectId: "project-1",
@@ -141,7 +140,10 @@ async function parkRun(
 
 async function newParkedRun(
   findings: Finding[],
-  outcomes: Array<{ detectorKey: string; status: "completed" | "skipped" | "failed" }>,
+  outcomes: Array<{
+    detectorKey: string;
+    status: "completed" | "skipped" | "failed";
+  }>,
 ): Promise<string> {
   const run = await ScanLedgerRepository.createRun({
     projectId: "project-1",
@@ -397,66 +399,6 @@ describe("composeRun", () => {
     await expect(composeRun({ runId: pending.id })).rejects.toThrow(
       "not ready to compose",
     );
-  });
-});
-
-describe("isMaterialChange", () => {
-  const prev = {
-    severity: "high",
-    recommendation: "Review SERPs.",
-    entityRefsJson: JSON.stringify(["a", "b", "c", "d", "e"]),
-    findingKeysJson: JSON.stringify(["k1"]),
-    opportunityIdsJson: JSON.stringify(["o1"]),
-    metricsJson: JSON.stringify({ a: 1000, b: 500 }),
-  };
-  const next = {
-    severity: "high",
-    recommendation: "Review SERPs.",
-    entityRefs: ["a", "b", "c", "d", "e"],
-    findingKeys: ["k1"],
-    opportunityIds: ["o1"],
-    metrics: { a: 1000, b: 500 },
-  };
-
-  it("ignores identical content (period rollover never material)", () => {
-    expect(isMaterialChange(prev, next).material).toBe(false);
-  });
-
-  it("fires on severity, entity, recommendation, and linkage changes", () => {
-    expect(
-      isMaterialChange(prev, { ...next, severity: "critical" }).reasons,
-    ).toContain("severity");
-    expect(
-      isMaterialChange(prev, { ...next, entityRefs: ["x", "y"] }).reasons,
-    ).toContain("entities");
-    expect(
-      isMaterialChange(prev, { ...next, recommendation: "Do other." }).reasons,
-    ).toContain("recommendation-class");
-    expect(
-      isMaterialChange(prev, { ...next, findingKeys: ["k1", "k2"] }).reasons,
-    ).toContain("linkage");
-  });
-
-  it("fires on metric drift ≥25% with absolute floor 50", () => {
-    // 30% drift, +300 absolute → material.
-    expect(
-      isMaterialChange(prev, {
-        ...next,
-        metrics: { a: 1300, b: 500 },
-      }).material,
-    ).toBe(true);
-    // 30% drift but +15 absolute → below the floor, not material.
-    expect(
-      isMaterialChange(
-        { ...prev, metricsJson: JSON.stringify({ a: 50 }) },
-        { ...next, metrics: { a: 65 } },
-      ).material,
-    ).toBe(false);
-    // 10% drift → not material.
-    expect(
-      isMaterialChange(prev, { ...next, metrics: { a: 1100, b: 500 } })
-        .material,
-    ).toBe(false);
   });
 });
 

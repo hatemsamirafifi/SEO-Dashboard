@@ -27,10 +27,7 @@ export function parseLogoDataUrl(input: string): {
     throw new AppError("VALIDATION_ERROR", "Logo must be a base64 data URL");
   }
   if (!isAllowedMime(match[1])) {
-    throw new AppError(
-      "VALIDATION_ERROR",
-      "Logo must be a PNG or JPEG image",
-    );
+    throw new AppError("VALIDATION_ERROR", "Logo must be a PNG or JPEG image");
   }
   let bytes: Uint8Array;
   try {
@@ -47,10 +44,10 @@ export function parseLogoDataUrl(input: string): {
 
 function readU32BE(bytes: Uint8Array, offset: number): number {
   return (
-    (bytes[offset]! * 2 ** 24 +
-      bytes[offset + 1]! * 2 ** 16 +
-      bytes[offset + 2]! * 2 ** 8 +
-      bytes[offset + 3]!) >>>
+    (bytes[offset] * 2 ** 24 +
+      bytes[offset + 1] * 2 ** 16 +
+      bytes[offset + 2] * 2 ** 8 +
+      bytes[offset + 3]) >>>
     0
   );
 }
@@ -98,14 +95,14 @@ function jpegDimensions(bytes: Uint8Array): {
     if (bytes[offset] !== 0xff) {
       throw new AppError("VALIDATION_ERROR", "Logo is not a valid JPEG file");
     }
-    const marker = bytes[offset + 1]!;
+    const marker = bytes[offset + 1];
     if (marker === 0xd9) break; // EOI
     if (marker === 0xda) break; // SOS: compressed data follows, no SOF found
     if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
       offset += 2; // Standalone markers carry no length.
       continue;
     }
-    const length = bytes[offset + 2]! * 256 + bytes[offset + 3]!;
+    const length = bytes[offset + 2] * 256 + bytes[offset + 3];
     if (length < 2 || offset + 2 + length > bytes.length) {
       throw new AppError("VALIDATION_ERROR", "Logo is not a valid JPEG file");
     }
@@ -114,8 +111,8 @@ function jpegDimensions(bytes: Uint8Array): {
         throw new AppError("VALIDATION_ERROR", "Logo is not a valid JPEG file");
       }
       return {
-        width: bytes[offset + 7]! * 256 + bytes[offset + 8]!,
-        height: bytes[offset + 5]! * 256 + bytes[offset + 6]!,
+        width: bytes[offset + 7] * 256 + bytes[offset + 8],
+        height: bytes[offset + 5] * 256 + bytes[offset + 6],
       };
     }
     offset += 2 + length;
@@ -124,10 +121,10 @@ function jpegDimensions(bytes: Uint8Array): {
 }
 
 /** Native dimension parse; throws VALIDATION_ERROR on any mismatch. */
-export function logoDimensions(input: {
-  mime: LogoMime;
-  bytes: Uint8Array;
-}): { width: number; height: number } {
+export function logoDimensions(input: { mime: LogoMime; bytes: Uint8Array }): {
+  width: number;
+  height: number;
+} {
   const dimensions =
     input.mime === "image/png"
       ? pngDimensions(input.bytes)

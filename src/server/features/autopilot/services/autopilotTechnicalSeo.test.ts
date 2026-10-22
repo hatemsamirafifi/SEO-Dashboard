@@ -116,10 +116,7 @@ function recordField(
   return out;
 }
 
-function stringListOf(
-  stepEvidenceJson: string | null,
-  key: string,
-): string[] {
+function stringListOf(stepEvidenceJson: string | null, key: string): string[] {
   const record = parseJsonObject(stepEvidenceJson ?? "null");
   const raw: unknown = record[key];
   if (!Array.isArray(raw)) return [];
@@ -146,7 +143,12 @@ type AuditRow = {
   projectId: string;
   startedByUserId: string;
   startUrl: string;
-  status: "running" | "completed" | "failed";
+  status:
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "completed_partial";
   workflowInstanceId: string | null;
   config: string;
   pagesCrawled: number;
@@ -157,6 +159,14 @@ type AuditRow = {
   currentPhase: string | null;
   startedAt: string;
   completedAt: string | null;
+  urlsDiscovered: number;
+  urlsFetched: number;
+  urlsAnalyzed: number;
+  urlsBlocked: number;
+  urlsFailed: number;
+  urlsSkipped: number;
+  urlsRenderingRequired: number;
+  urlsExtractionComplete: number;
 };
 
 function makeAudit(overrides: Partial<AuditRow> = {}): AuditRow {
@@ -177,15 +187,21 @@ function makeAudit(overrides: Partial<AuditRow> = {}): AuditRow {
     currentPhase: "done",
     startedAt: now,
     completedAt: now,
+    urlsDiscovered: 42,
+    urlsFetched: 42,
+    urlsAnalyzed: 42,
+    urlsBlocked: 0,
+    urlsFailed: 0,
+    urlsSkipped: 0,
+    urlsRenderingRequired: 0,
+    urlsExtractionComplete: 42,
     ...overrides,
   };
 }
 
 async function driveTechnicalSeo(): Promise<{
   status: string;
-  steps: Awaited<
-    ReturnType<typeof AutopilotRepository.listStepsByAttempt>
-  >;
+  steps: Awaited<ReturnType<typeof AutopilotRepository.listStepsByAttempt>>;
 }> {
   const runId = await seedRun();
   const workflow = getAutopilotWorkflow("technical_seo");
@@ -254,9 +270,7 @@ describe("technical_seo registration", () => {
       "correlate",
       "synthesize",
     ]);
-    expect(
-      def?.steps.some((step) => step.kind === "side_effect"),
-    ).toBe(false);
+    expect(def?.steps.some((step) => step.kind === "side_effect")).toBe(false);
   });
 
   it("keeps the technical_seo prompt observational", () => {
@@ -271,10 +285,9 @@ describe("technical_seo registration", () => {
 describe("technical_seo coverage states", () => {
   it("reports never_run coverage when no audit exists", async () => {
     mockEngineEmpty();
-    vi.spyOn(
-      AuditRepository,
-      "getLatestAuditForProject",
-    ).mockImplementation(async () => undefined);
+    vi.spyOn(AuditRepository, "getLatestAuditForProject").mockImplementation(
+      async () => undefined,
+    );
     const issueCounts = vi.spyOn(
       auditSummaryQueries,
       "getIssueTypePageCountsForAudit",
@@ -290,24 +303,19 @@ describe("technical_seo coverage states", () => {
     expect(evidenceTypeOf(synthesis?.evidenceJson ?? null)).toBe(
       "observational",
     );
-    const recommendations = recommendationsOf(
-      synthesis?.evidenceJson ?? null,
-    );
+    const recommendations = recommendationsOf(synthesis?.evidenceJson ?? null);
     expect(recommendations).toHaveLength(1);
-    expect(
-      stringField(recommendations[0] ?? {}, "suggestedAction"),
-    ).toContain("audit");
+    expect(stringField(recommendations[0] ?? {}, "suggestedAction")).toContain(
+      "audit",
+    );
   });
 
   it("reports stale_or_failed coverage for running and failed audits", async () => {
     mockEngineEmpty();
-    const latestAudit = vi.spyOn(
-      AuditRepository,
-      "getLatestAuditForProject",
-    );
+    const latestAudit = vi.spyOn(AuditRepository, "getLatestAuditForProject");
     for (const auditStatus of ["running", "failed"] as const) {
-      latestAudit.mockImplementation(
-        async () => makeAudit({ status: auditStatus, pagesCrawled: 5 }),
+      latestAudit.mockImplementation(async () =>
+        makeAudit({ status: auditStatus, pagesCrawled: 5 }),
       );
       const { status, steps } = await driveTechnicalSeo();
       expect(status).toBe("completed");
@@ -328,10 +336,7 @@ describe("technical_seo coverage states", () => {
 
   it("reports empty_crawl coverage for a completed audit with zero pages", async () => {
     mockEngineEmpty();
-    vi.spyOn(
-      AuditRepository,
-      "getLatestAuditForProject",
-    ).mockImplementation(
+    vi.spyOn(AuditRepository, "getLatestAuditForProject").mockImplementation(
       async () => makeAudit({ status: "completed", pagesCrawled: 0 }),
     );
     const { status, steps } = await driveTechnicalSeo();
@@ -341,9 +346,7 @@ describe("technical_seo coverage states", () => {
       { state: "empty_crawl" },
     );
     const synthesis = steps.find((step) => step.seq === 2);
-    expect(
-      recommendationsOf(synthesis?.evidenceJson ?? null),
-    ).toHaveLength(1);
+    expect(recommendationsOf(synthesis?.evidenceJson ?? null)).toHaveLength(1);
   });
 });
 
@@ -351,10 +354,9 @@ describe("technical_seo coverage states", () => {
 describe("technical_seo ready evidence", () => {
   it("ranks ready audit issues by severity then page count, facts apart", async () => {
     mockEngineEmpty();
-    vi.spyOn(
-      AuditRepository,
-      "getLatestAuditForProject",
-    ).mockImplementation(async () => makeAudit({ pagesCrawled: 42 }));
+    vi.spyOn(AuditRepository, "getLatestAuditForProject").mockImplementation(
+      async () => makeAudit({ pagesCrawled: 42 }),
+    );
     vi.spyOn(
       auditSummaryQueries,
       "getIssueTypePageCountsForAudit",
@@ -367,7 +369,10 @@ describe("technical_seo ready evidence", () => {
     const { status, steps } = await driveTechnicalSeo();
     expect(status).toBe("completed");
     const correlate = steps.find((step) => step.seq === 1);
-    const ranked = recordListOf(correlate?.evidenceJson ?? null, "rankedIssues");
+    const ranked = recordListOf(
+      correlate?.evidenceJson ?? null,
+      "rankedIssues",
+    );
     expect(ranked.map((row) => stringField(row, "type"))).toEqual([
       "broken-links",
       "noindex-important",
@@ -382,9 +387,7 @@ describe("technical_seo ready evidence", () => {
     expect(
       Object.keys(recordField(synthesis?.evidenceJson ?? null, "facts")),
     ).toContain("rankedIssues");
-    const recommendations = recommendationsOf(
-      synthesis?.evidenceJson ?? null,
-    );
+    const recommendations = recommendationsOf(synthesis?.evidenceJson ?? null);
     expect(recommendations.length).toBeGreaterThan(0);
     for (const rec of recommendations) {
       expect(
@@ -442,10 +445,9 @@ describe("technical_seo ready evidence", () => {
     vi.spyOn(InsightRepository, "listUnresolvedByProject").mockImplementation(
       async () => [] as InsightRow[],
     );
-    vi.spyOn(
-      AuditRepository,
-      "getLatestAuditForProject",
-    ).mockImplementation(async () => makeAudit({ pagesCrawled: 10 }));
+    vi.spyOn(AuditRepository, "getLatestAuditForProject").mockImplementation(
+      async () => makeAudit({ pagesCrawled: 10 }),
+    );
     vi.spyOn(
       auditSummaryQueries,
       "getIssueTypePageCountsForAudit",

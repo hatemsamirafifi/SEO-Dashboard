@@ -27,7 +27,9 @@ import { safeSamErrorMessage } from "@/client/features/sam/samErrorFallbacks";
 // ("Running site audit…") with the outcome/progress as a detail suffix,
 // instead of exposing raw tool names for every step of the wait.
 function samToolLabel(partType: string): ToolLabel | null {
-  const normalized = partType.startsWith("tool-") ? partType : `tool-${partType}`;
+  const normalized = partType.startsWith("tool-")
+    ? partType
+    : `tool-${partType}`;
   if (normalized === "tool-run_site_audit") {
     return { running: "Starting site audit", done: "Site audit started" };
   }

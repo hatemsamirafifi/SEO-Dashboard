@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Repo from "./AiSettingsRepository";
-import {
-  getScopeAiSettingsView,
-  saveScopeAiSettings,
-} from "./scopedSettings";
+import { getScopeAiSettingsView, saveScopeAiSettings } from "./scopedSettings";
 import { decryptCredentialMap } from "./credentialCrypto";
 import type { AiAgentSettingsRow } from "./AiSettingsRepository";
 
@@ -35,7 +32,11 @@ vi.mock("./AiSettingsRepository", async (importOriginal) => {
         rows.project[projectId] ?? null,
       upsertOrganizationAiSettingsRow: async (
         organizationId: string,
-        input: { provider: string; model: string | null; baseUrl: string | null },
+        input: {
+          provider: string;
+          model: string | null;
+          baseUrl: string | null;
+        },
         ciphertext: string | null,
       ) => {
         rows.org[organizationId] = {
@@ -47,7 +48,11 @@ vi.mock("./AiSettingsRepository", async (importOriginal) => {
       },
       upsertProjectAiSettingsRow: async (
         projectId: string,
-        input: { provider: string; model: string | null; baseUrl: string | null },
+        input: {
+          provider: string;
+          model: string | null;
+          baseUrl: string | null;
+        },
         ciphertext: string | null,
       ) => {
         rows.project[projectId] = {
@@ -144,7 +149,10 @@ describe("saveScopeAiSettings â€” encrypted credential persistence (S5/S7)"
     const bad = await saveScopeAiSettings({
       scope: "organization",
       organizationId: ORG,
-      patch: { provider: "openai_compatible", baseUrl: "http://127.0.0.1:11434/v1" },
+      patch: {
+        provider: "openai_compatible",
+        baseUrl: "http://127.0.0.1:11434/v1",
+      },
     });
     expect(bad).toMatchObject({ ok: false });
 
@@ -187,7 +195,9 @@ describe("getScopeAiSettingsView â€” masking + isolation (S9/S13/S30)", () 
     });
     const raw = JSON.stringify(view);
     expect(raw).not.toContain("sk-or-v1-supersecret");
-    expect(view.override?.credentials.openrouter).toMatchObject({ stored: true });
+    expect(view.override?.credentials.openrouter).toMatchObject({
+      stored: true,
+    });
     expect(view.override?.credentials.openrouter.masked).toMatch(/••••/);
     expect(view.effective.credentialConfigured).toBe(true);
     expect(view.effective.credentialMasked).toMatch(/••••/);

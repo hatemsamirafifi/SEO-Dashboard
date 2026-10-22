@@ -147,9 +147,13 @@ export function AuditHealthCard({
       stamp={`Site audit · ${
         audit.status === "completed"
           ? `crawled ${audit.pagesCrawled} pages · ${formatDay(audit.startedAt)}`
-          : audit.status === "running"
-            ? "crawl in progress"
-            : "last crawl failed"
+          : audit.status === "completed_partial"
+            ? `partial crawl · ${audit.pagesCrawled} pages · ${formatDay(audit.startedAt)}`
+            : audit.status === "running"
+              ? "crawl in progress"
+              : audit.status === "cancelled"
+                ? "crawl stopped early"
+                : "last crawl failed"
       }`}
       action={
         <Link

@@ -10,10 +10,10 @@ import { resetSamTraceBus } from "./samTraceBus";
 
 /** Duck-typed AI_InvalidToolInputError with empty toolName for the dedup test. */
 function makeEmptyToolNameError(): Error {
-  return Object.assign(
-    new Error("Invalid input for tool x: bad field"),
-    { name: "AI_InvalidToolInputError", toolName: "" },
-  );
+  return Object.assign(new Error("Invalid input for tool x: bad field"), {
+    name: "AI_InvalidToolInputError",
+    toolName: "",
+  });
 }
 
 // Phase U1/U8: the DO-level stream seam.
@@ -110,7 +110,11 @@ describe("samStreamErrorGuard — the SamChatAgent._transformInferenceResult com
 
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const errorChunk = out.find(
-      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: unknown }).type === "error",
+      (c) =>
+        typeof c === "object" &&
+        c !== null &&
+        "type" in c &&
+        (c as { type: unknown }).type === "error",
     ) as { errorText?: string } | undefined;
     expect(errorChunk?.errorText).toBe(CURATED_402);
     // This is the text that would land in cf:chat:last-terminal and the
@@ -284,9 +288,7 @@ describe("createStreamErrorNormalizer — SDK double-fire dedup", () => {
     const textSecond = normalizer(secondError);
     // Both calls return the curated text (the stream needs it).
     expect(textFirst).toContain("Invalid tool arguments for get_serp_results");
-    expect(textSecond).toContain(
-      "Invalid tool arguments for get_serp_results",
-    );
+    expect(textSecond).toContain("Invalid tool arguments for get_serp_results");
     // But the observer callback fires exactly ONCE.
     expect(onToolInputError).toHaveBeenCalledTimes(1);
     expect(onToolInputError).toHaveBeenCalledWith({

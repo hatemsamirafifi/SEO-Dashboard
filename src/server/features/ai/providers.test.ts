@@ -161,16 +161,26 @@ describe("openAiProvider", () => {
   it("parses the models catalog when configured", async () => {
     vi.spyOn(provider, "getApiKey").mockResolvedValue("sk-test");
     mocks.fetch.mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ id: "gpt-5" }, { id: "whisper-1" }] }), {
-        status: 200,
-      }),
+      new Response(
+        JSON.stringify({ data: [{ id: "gpt-5" }, { id: "whisper-1" }] }),
+        {
+          status: 200,
+        },
+      ),
     );
     const models = await provider.listModels();
     expect(models).toMatchObject([
-      { id: "gpt-5", provider: "openai", supportsTools: true, promptPrice: null },
+      {
+        id: "gpt-5",
+        provider: "openai",
+        supportsTools: true,
+        promptPrice: null,
+      },
       { id: "whisper-1", provider: "openai", supportsTools: false },
     ]);
-    expect(mocks.fetch.mock.calls[0][0]).toBe("https://api.openai.com/v1/models");
+    expect(mocks.fetch.mock.calls[0][0]).toBe(
+      "https://api.openai.com/v1/models",
+    );
   });
 
   it("reports ok when the model answers", async () => {
@@ -243,7 +253,11 @@ describe("geminiProvider", () => {
 
   it("reports a missing key without calling the API", async () => {
     const result = await provider.testConnection("gemini-2.5-flash");
-    expect(result).toMatchObject({ ok: false, error: "AUTH_ERROR", provider: "gemini" });
+    expect(result).toMatchObject({
+      ok: false,
+      error: "AUTH_ERROR",
+      provider: "gemini",
+    });
     expect(mocks.generateText).not.toHaveBeenCalled();
   });
 });
@@ -272,7 +286,10 @@ describe("anthropicProvider", () => {
         provider: "anthropic",
         supportsTools: true,
       }),
-      expect.objectContaining({ id: "claude-3-5-haiku", name: "claude-3-5-haiku" }),
+      expect.objectContaining({
+        id: "claude-3-5-haiku",
+        name: "claude-3-5-haiku",
+      }),
     ]);
     const [requestUrl, init] = mocks.fetch.mock.calls[0];
     expect(requestUrl).toBe("https://api.anthropic.com/v1/models");
@@ -328,9 +345,7 @@ describe("AiProviderRegistry", () => {
 
   it("probes on a reliable default model (free pools are rate-limit saturated)", () => {
     const openrouter = AiProviderRegistry.get("openrouter");
-    expect(openrouter.connectionTestModelId).toBe(
-      openrouter.defaultModelId,
-    );
+    expect(openrouter.connectionTestModelId).toBe(openrouter.defaultModelId);
     for (const provider of AiProviderRegistry.list()) {
       expect(provider.connectionTestModelId).toBeTruthy();
     }

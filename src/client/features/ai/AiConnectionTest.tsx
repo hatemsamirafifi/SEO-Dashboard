@@ -26,8 +26,7 @@ export function AiConnectionTest({
   const [policyBlocked, setPolicyBlocked] = useState(false);
 
   const testMutation = useMutation({
-    mutationFn: () =>
-      testAiConnection({ data: { provider, model } }),
+    mutationFn: () => testAiConnection({ data: { provider, model } }),
     onMutate: () => {
       setStatus("testing");
       setMessage(null);
@@ -130,8 +129,7 @@ export function EffectiveModelReadout({
   }, [effectiveProvider, effectiveModel]);
   return (
     <p className="text-xs text-base-content/50">
-      In effect:{" "}
-      <span className="font-mono">{text}</span>
+      In effect: <span className="font-mono">{text}</span>
     </p>
   );
 }

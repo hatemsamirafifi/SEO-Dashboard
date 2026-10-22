@@ -32,10 +32,7 @@ const RATE_LIMIT_CODES = new Set([
   "COST_LIMIT_EXCEEDED",
   "TOO_MANY_SIMULTANEOUS_QUERIES",
 ]);
-const UPSTREAM_CODES = new Set([
-  "TRANSIENT_UPSTREAM",
-  "UPSTREAM_UNAVAILABLE",
-]);
+const UPSTREAM_CODES = new Set(["TRANSIENT_UPSTREAM", "UPSTREAM_UNAVAILABLE"]);
 
 function isPausedAccount(
   rawCode: string | null,

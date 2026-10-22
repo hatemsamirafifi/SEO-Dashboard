@@ -84,10 +84,16 @@ async function getAccessToken(): Promise<string> {
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new AuthenticationError("google_ads", "Invalid Google Ads credentials");
+      throw new AuthenticationError(
+        "google_ads",
+        "Invalid Google Ads credentials",
+      );
     }
     if (response.status === 429) {
-      throw new RateLimitError("google_ads", "Google Ads token endpoint rate limited");
+      throw new RateLimitError(
+        "google_ads",
+        "Google Ads token endpoint rate limited",
+      );
     }
     throw new ProviderUnavailableError(
       "google_ads",
@@ -102,10 +108,7 @@ async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-async function googleAdsRequest<T>(
-  path: string,
-  body: unknown,
-): Promise<T> {
+async function googleAdsRequest<T>(path: string, body: unknown): Promise<T> {
   const config = await loadConfig();
   if (!config) {
     throw new ProviderUnavailableError(
@@ -151,9 +154,7 @@ async function googleAdsRequest<T>(
  * Generate keyword ideas from a seed keyword using Google Ads
  * KeywordPlanningService.GenerateKeywordIdeas.
  */
-async function generateKeywordIdeas(
-  request: SEODataRequest,
-): Promise<unknown> {
+async function generateKeywordIdeas(request: SEODataRequest): Promise<unknown> {
   const config = await loadConfig();
   if (!config) throw new ProviderUnavailableError("google_ads");
 
@@ -170,8 +171,7 @@ async function generateKeywordIdeas(
     geoTargetConstants: request.locationCode
       ? [`geoTargetConstants/${request.locationCode}`]
       : [],
-    language:
-      request.languageCode ?? "languageConstants/1000", // 1000 = English
+    language: request.languageCode ?? "languageConstants/1000", // 1000 = English
     includeAdultKeywords: false,
   });
 }
@@ -180,13 +180,12 @@ async function generateKeywordIdeas(
  * Get historical search volume for a list of keywords using Google Ads
  * KeywordPlanningService.GenerateHistoricalMetrics.
  */
-async function getHistoricalMetrics(
-  request: SEODataRequest,
-): Promise<unknown> {
+async function getHistoricalMetrics(request: SEODataRequest): Promise<unknown> {
   const config = await loadConfig();
   if (!config) throw new ProviderUnavailableError("google_ads");
 
-  const keywords = request.keywords ?? (request.keyword ? [request.keyword] : []);
+  const keywords =
+    request.keywords ?? (request.keyword ? [request.keyword] : []);
   if (keywords.length === 0) {
     throw new ProviderUnsupportedError(
       "google_ads",
@@ -236,8 +235,7 @@ async function getHistoricalMetrics(
         keyword: result.keyword ?? result.text,
         searchVolume: toNumber(metrics?.avgMonthlySearches),
         cpc: lowBidMicros == null ? null : lowBidMicros / 1_000_000,
-        competition:
-          competitionIndex == null ? null : competitionIndex / 100,
+        competition: competitionIndex == null ? null : competitionIndex / 100,
         competitionLevel: metrics?.competition ?? null,
         keywordDifficulty: null,
         intent: null,
@@ -322,10 +320,7 @@ export function createGoogleAdsProvider(): SEODataProvider {
         case "keyword_metrics":
           return getHistoricalMetrics(request);
         default:
-          throw new ProviderUnsupportedError(
-            "google_ads",
-            request.dataType,
-          );
+          throw new ProviderUnsupportedError("google_ads", request.dataType);
       }
     },
   };

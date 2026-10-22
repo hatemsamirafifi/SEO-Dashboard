@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import { toast } from "sonner";
 import { FileDown, Loader2, Play, SearchX, Sheet, Trash2 } from "lucide-react";
 import { Modal } from "@/client/components/Modal";
@@ -24,11 +25,18 @@ import { useRankTrackingColumns } from "./RankTrackingColumns";
 
 const COLUMN_SIZING_KEY = "rank-tracking-column-sizing";
 
+// Saved column widths are user-writable, so they are validated on read.
+const columnSizingSchema = z.record(z.string(), z.number());
+
 function loadSavedColumnSizing(): ColumnSizingState {
   if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(COLUMN_SIZING_KEY);
-    return raw ? (JSON.parse(raw) as ColumnSizingState) : {};
+    if (!raw) return {};
+    // Local storage is user-writable, so the saved sizing is validated
+    // instead of trusted.
+    const parsed = columnSizingSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : {};
   } catch {
     return {};
   }

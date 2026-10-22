@@ -112,7 +112,8 @@ const GROUP_RECOMMENDATIONS: Record<string, string> = {
 
 function groupTitle(detectorKey: string, count: number): string {
   if (count === 1) {
-    if (detectorKey === "ranking_drop") return "1 important keyword lost rankings";
+    if (detectorKey === "ranking_drop")
+      return "1 important keyword lost rankings";
     if (detectorKey === "low_ctr_query") return "1 visible query has low CTR";
     if (detectorKey === "cannibalization") {
       return "1 query shows potential cannibalization";
@@ -204,7 +205,9 @@ async function buildGroup(
       if (window.to > periods.to) periods.to = window.to;
     }
   }
-  const sources = [...new Set(family.flatMap((finding) => finding.evidence.sources))].toSorted();
+  const sources = [
+    ...new Set(family.flatMap((finding) => finding.evidence.sources)),
+  ].toSorted();
   return {
     composerKey: COMPOSER_KEY,
     groupKey,

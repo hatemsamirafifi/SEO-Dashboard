@@ -55,7 +55,13 @@ import { ShareService } from "./ShareService";
 
 function sourceState(): DetectionSourceState {
   return {
-    versions: { gsc: null, ga4: null, rank: null, audit: null, backlinks: null },
+    versions: {
+      gsc: null,
+      ga4: null,
+      rank: null,
+      audit: null,
+      backlinks: null,
+    },
     sourceSet: [],
     detectorVersions: {},
     thresholdVersion: 2,
@@ -336,9 +342,7 @@ describe("getPublicReportByToken", () => {
       projectId: "project-1",
       organizationId: "org-1",
     });
-    expect(
-      await ShareService.getPublicReportByToken(created.token),
-    ).toBeNull();
+    expect(await ShareService.getPublicReportByToken(created.token)).toBeNull();
     const expiring = await ShareService.createReportShare({
       reportId,
       projectId: "project-1",
@@ -400,7 +404,9 @@ describe("getPublicReportByToken", () => {
       projectId: "project-1",
       organizationId: "org-1",
     });
-    const activeResolution = await ShareService.resolvePublicShare(active.token);
+    const activeResolution = await ShareService.resolvePublicShare(
+      active.token,
+    );
     expect(activeResolution.state).toBe("active");
     if (activeResolution.state !== "active") return;
     expect(activeResolution.view.report.id).toBe(reportId);

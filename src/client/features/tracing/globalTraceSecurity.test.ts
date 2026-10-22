@@ -25,7 +25,9 @@ describe("Global Trace Security & Sanitization", () => {
 
   it("scrubs password and login fields in JSON or headers", () => {
     const raw1 = JSON.stringify({ password: "mySuperSecretPassword123" });
-    expect(scrubGlobalTraceText(raw1)).not.toContain("mySuperSecretPassword123");
+    expect(scrubGlobalTraceText(raw1)).not.toContain(
+      "mySuperSecretPassword123",
+    );
 
     const raw2 = 'login: "admin_secret_user"';
     expect(scrubGlobalTraceText(raw2)).not.toContain("admin_secret_user");
@@ -35,7 +37,8 @@ describe("Global Trace Security & Sanitization", () => {
   });
 
   it("leaves non-sensitive operational data intact", () => {
-    const safeText = "DataForSEO v3/serp/google/organic/live status=20000 location=2840";
+    const safeText =
+      "DataForSEO v3/serp/google/organic/live status=20000 location=2840";
     const scrubbed = scrubGlobalTraceText(safeText);
     expect(scrubbed).toBe(safeText);
   });

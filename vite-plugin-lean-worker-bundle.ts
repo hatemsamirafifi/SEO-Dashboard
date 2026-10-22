@@ -61,6 +61,26 @@ const EAGER_DENYLIST: Array<{ pattern: RegExp; expected: string }> = [
       "lazy-loaded behind the page-analyzer dynamic import " +
       "(site-audit-workflow-helpers.ts)",
   },
+  {
+    // The MCP SDK builds its protocol schemas at module scope; it must only
+    // load behind the dynamic imports in src/server.ts (transport,
+    // oauth-provider) and SamChatAgent's per-turn tool builder.
+    pattern: /node_modules\/@modelcontextprotocol\/sdk\//,
+    expected:
+      "lazy-loaded behind the dynamic MCP entry points in src/server.ts " +
+      "and SamChatAgent.beforeTurn",
+  },
+  {
+    // Every tool's zod input/output schemas are constructed at module scope;
+    // the server/transport/oauth-provider/tool graph must stay out of the
+    // eager startup closure (400ms Workers CPU budget). public-origin.ts and
+    // context.ts stay eager-legal: serverFunctions use them directly.
+    pattern:
+      /src\/server\/mcp\/(server|transport|oauth-provider|oauth-registration)\.ts$|src\/server\/mcp\/tools\//,
+    expected:
+      "MCP server/transport/tools load lazily via src/server.ts dynamic " +
+      "imports and SamChatAgent's per-turn tool builder",
+  },
 ];
 
 /**

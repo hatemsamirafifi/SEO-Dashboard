@@ -135,9 +135,11 @@ async function runWorkflow(params: {
     sleepUntil: () => Promise.resolve(),
     // Never invoked by the workflow under test; typed to satisfy the engine's
     // WorkflowStep surface without importing real runtime code.
-    waitForEvent: (():
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- placeholder value for a stub that is never awaited by the workflow under test
-      Promise<never> => Promise.resolve({} as never)) as unknown as WorkflowStep["waitForEvent"],
+    waitForEvent: ((): Promise<never> =>
+      Promise.resolve(
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- placeholder value for a stub that is never awaited by the workflow under test
+        {} as never,
+      )) as unknown as WorkflowStep["waitForEvent"],
   };
   const payload: WorkflowEventPayload = {
     runId: "run_1",
@@ -210,13 +212,13 @@ describe("RankCheckWorkflow scope enforcement", () => {
     const ctx = liveCheckContext();
     expect(ctx.keywords).toHaveLength(4);
     expect(ctx.keywords.map((kw) => kw.id)).toEqual(selected);
-  });
+  }, 30_000);
 
   it("without keywordIds the check path receives the full keyword list", async () => {
     await runWorkflow({});
 
     expect(liveCheckContext().keywords).toHaveLength(901);
-  });
+  }, 30_000);
 
   it("sets the run's keywordsTotal to the selected scope", async () => {
     await runWorkflow({

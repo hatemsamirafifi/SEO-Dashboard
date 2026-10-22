@@ -55,6 +55,10 @@ export function isCompetitorGapInput(
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 export function extractCompetitorPosition(
   item: unknown,
   keyword: string,
@@ -63,12 +67,8 @@ export function extractCompetitorPosition(
 
   // 1. Check keywords_positions dictionary for this specific keyword (DataForSEO standard contract)
   // Contract: keywords_positions is an object where values can be an array of positions e.g. [1, 3] or scalar.
-  if (
-    "keywords_positions" in item &&
-    typeof item.keywords_positions === "object" &&
-    item.keywords_positions !== null
-  ) {
-    const kp = item.keywords_positions as Record<string, unknown>;
+  if ("keywords_positions" in item && isRecord(item.keywords_positions)) {
+    const kp = item.keywords_positions;
     const targetCanonical = canonicalKeyword(keyword);
     for (const [kwKey, posVal] of Object.entries(kp)) {
       if (canonicalKeyword(kwKey) !== targetCanonical) continue;

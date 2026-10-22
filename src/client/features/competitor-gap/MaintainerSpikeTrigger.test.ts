@@ -293,17 +293,23 @@ describe("executeSpikeWithGuards Safety Engine Tests", () => {
 
   it("R1 verdict does NOT block an authorized R2 evaluation", async () => {
     // When checking for R2, getVerdict receives evaluationId: 'competitor-gap-g5-r2' and returns null
-    const mockGetVerdict = vi.fn().mockImplementation(({ data }) => {
-      if (data.evaluationId === "competitor-gap-g5-r2") {
-        return Promise.resolve(null);
-      }
-      // R1 historical row is blocked
-      return Promise.resolve({
-        verdict: "COMPETITOR_GAP_BLOCKED",
-        gateState: "BLOCKED",
-        verdictId: "cgv_4c878e65_2026-10-14T20:09:49.856Z",
+    const mockGetVerdict = vi
+      .fn<
+        (input: {
+          data: { projectId: string; evaluationId?: string };
+        }) => Promise<VerdictStatusDisplayData | null>
+      >()
+      .mockImplementation(({ data }) => {
+        if (data.evaluationId === "competitor-gap-g5-r2") {
+          return Promise.resolve(null);
+        }
+        // R1 historical row is blocked
+        return Promise.resolve({
+          verdict: "COMPETITOR_GAP_BLOCKED",
+          gateState: "BLOCKED",
+          verdictId: "cgv_4c878e65_2026-10-14T20:09:49.856Z",
+        });
       });
-    });
 
     const mockRunSpike = vi.fn().mockResolvedValue({
       ok: true,

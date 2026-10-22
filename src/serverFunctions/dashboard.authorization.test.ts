@@ -28,15 +28,12 @@ vi.mock("@/server/features/projects/repositories/ProjectRepository", () => ({
   },
 }));
 
-vi.mock(
-  "@/server/features/intelligence/services/InsightService",
-  () => ({
-    InsightService: {
-      getDashboardInsights: mocks.getDashboardInsights,
-      dismissInsight: mocks.dismissInsight,
-    },
-  }),
-);
+vi.mock("@/server/features/intelligence/services/InsightService", () => ({
+  InsightService: {
+    getDashboardInsights: mocks.getDashboardInsights,
+    dismissInsight: mocks.dismissInsight,
+  },
+}));
 
 vi.mock("@/server/features/ga4/repositories/Ga4ConnectionRepository", () => ({
   Ga4ConnectionRepository: { getByProjectId: vi.fn() },
@@ -105,17 +102,24 @@ describe("dashboard insights server-function project authorization", () => {
   });
 
   it.each([
-    ["getDashboardInsights", getDashboardInsights, { projectId: "other-project" }],
+    [
+      "getDashboardInsights",
+      getDashboardInsights,
+      { projectId: "other-project" },
+    ],
     [
       "dismissInsight",
       dismissInsight,
       { projectId: "other-project", insightKey: "dashboard:ranking_drop" },
     ],
-  ])("rejects wrong-organization access before %s runs", async (_name, fn, data) => {
-    const result = await executeServerFunction(fn, data);
+  ])(
+    "rejects wrong-organization access before %s runs",
+    async (_name, fn, data) => {
+      const result = await executeServerFunction(fn, data);
 
-    expect(result).toMatchObject({ error: new Error("NOT_FOUND") });
-    expect(mocks.getDashboardInsights).not.toHaveBeenCalled();
-    expect(mocks.dismissInsight).not.toHaveBeenCalled();
-  });
+      expect(result).toMatchObject({ error: new Error("NOT_FOUND") });
+      expect(mocks.getDashboardInsights).not.toHaveBeenCalled();
+      expect(mocks.dismissInsight).not.toHaveBeenCalled();
+    },
+  );
 });

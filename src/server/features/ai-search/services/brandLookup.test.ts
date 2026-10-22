@@ -287,10 +287,12 @@ function citedMention(
   };
 }
 
-function brandLookupInput(overrides: {
-  query?: string;
-  competitors?: string[];
-} = {}) {
+function brandLookupInput(
+  overrides: {
+    query?: string;
+    competitors?: string[];
+  } = {},
+) {
   return {
     projectId: "project_123",
     query: overrides.query ?? "acme.com",
@@ -330,9 +332,9 @@ describe("getBrandLookup cost containment", () => {
 
     // One fan-out: one client, one set of paid calls, one cache write.
     expect(createClientMock).toHaveBeenCalledTimes(1);
-    expect(dataforseoClientMock.aiSearch.aggregatedMetrics).toHaveBeenCalledTimes(
-      2,
-    );
+    expect(
+      dataforseoClientMock.aiSearch.aggregatedMetrics,
+    ).toHaveBeenCalledTimes(2);
     expect(cacheMock.setCached).toHaveBeenCalledTimes(1);
     for (const result of [a, b, c]) {
       expect(result.hasData).toBe(true);
@@ -365,7 +367,10 @@ describe("getBrandLookup cost containment", () => {
         brandLookupInput({ query: "acme.com", competitors: ["globex.com"] }),
         billingCustomer,
       ),
-      getBrandLookup(brandLookupInput({ query: "globex.com" }), billingCustomer),
+      getBrandLookup(
+        brandLookupInput({ query: "globex.com" }),
+        billingCustomer,
+      ),
     ]);
 
     expect(createClientMock).toHaveBeenCalledTimes(3);
@@ -377,9 +382,9 @@ describe("getBrandLookup cost containment", () => {
     await getBrandLookup(brandLookupInput(), billingCustomer);
 
     expect(budgetMock.assertDataforseoBudgetAvailable).toHaveBeenCalledTimes(1);
-    expect(dataforseoClientMock.aiSearch.aggregatedMetrics).toHaveBeenCalledTimes(
-      2,
-    );
+    expect(
+      dataforseoClientMock.aiSearch.aggregatedMetrics,
+    ).toHaveBeenCalledTimes(2);
   });
 
   it("fails before any DataForSEO call when the budget is exhausted", async () => {

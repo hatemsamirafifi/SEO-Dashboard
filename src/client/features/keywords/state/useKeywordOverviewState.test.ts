@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { KeywordResearchRow } from "@/types/keywords";
 import { computeKeywordOverviewState } from "./useKeywordOverviewState";
 
-function makeRow(keyword: string, searchVolume: number = 100): KeywordResearchRow {
+function makeRow(
+  keyword: string,
+  searchVolume: number = 100,
+): KeywordResearchRow {
   return {
     keyword,
     searchVolume,

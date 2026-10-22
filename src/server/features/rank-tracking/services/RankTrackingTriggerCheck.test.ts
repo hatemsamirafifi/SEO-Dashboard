@@ -21,16 +21,13 @@ interface RunStartCall {
 
 const mocks = vi.hoisted(() => ({
   getConfigById: vi.fn(),
-  getKeywordsForConfig: vi.fn<
-    (configId: string) => Promise<KeywordRow[]>
-  >(),
+  getKeywordsForConfig: vi.fn<(configId: string) => Promise<KeywordRow[]>>(),
   route: vi.fn(),
 }));
 
 const guardMocks = vi.hoisted(() => ({
-  beginRankCheckRun: vi.fn<
-    (input: RunStartCall) => Promise<{ ok: true; runId: string }>
-  >(),
+  beginRankCheckRun:
+    vi.fn<(input: RunStartCall) => Promise<{ ok: true; runId: string }>>(),
 }));
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
@@ -193,18 +190,18 @@ describe("RankTrackingService.triggerCheck scope", { timeout: 20000 }, () => {
   it("rejects a selection where no id belongs to this config", async () => {
     mocks.getKeywordsForConfig.mockResolvedValue(makeKeywords(4));
 
-    await expect(triggerSelected(["foreign_a", "foreign_b"])).rejects.toMatchObject(
-      { code: "VALIDATION_ERROR" },
-    );
+    await expect(
+      triggerSelected(["foreign_a", "foreign_b"]),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     expect(guardMocks.beginRankCheckRun).not.toHaveBeenCalled();
   });
 
   it("throws when the config belongs to a different project", async () => {
     mocks.getConfigById.mockResolvedValue(null);
 
-    await expect(
-      RankTrackingServiceOtherProjectCall(),
-    ).rejects.toMatchObject({ code: "INTERNAL_ERROR" });
+    await expect(RankTrackingServiceOtherProjectCall()).rejects.toMatchObject({
+      code: "INTERNAL_ERROR",
+    });
     expect(guardMocks.beginRankCheckRun).not.toHaveBeenCalled();
   });
 

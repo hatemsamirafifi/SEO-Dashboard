@@ -18,13 +18,9 @@ import {
 import { requireProjectContext } from "@/serverFunctions/middleware";
 import {
   searchPerformanceInputSchema,
-  searchPerformanceSyncInputSchema,
-  searchPerformanceSyncStatusInputSchema,
-  searchPerformanceTableExportInputSchema,
   searchPerformanceTableInputSchema,
 } from "@/types/schemas/search-performance";
 import { GscSearchPerformanceRepository } from "@/server/features/gsc/repositories/GscSearchPerformanceRepository";
-import { GscSyncService } from "@/server/features/gsc/services/GscSyncService";
 
 // query x page fan-out needs more rows to find the 5..20 band.
 const STRIKING_DISTANCE_FETCH_LIMIT = 1000;
@@ -32,9 +28,6 @@ const STRIKING_DISTANCE_FETCH_LIMIT = 1000;
 const DAILY_ROW_LIMIT = 1000;
 const COUNTRY_ROW_LIMIT = 25;
 // Export pulls the whole dimension in one shot, capped at GSC's per-call max
-// (GSC_MAX_ROW_LIMIT). Large stores get everything up to this ceiling.
-const EXPORT_ROW_LIMIT = 1000;
-
 /** Build GSC filter groups shared by every call. Device applies everywhere;
  *  country applies everywhere except the country breakdown itself (so the
  *  dropdown keeps every option visible while one country is selected). */
@@ -180,14 +173,14 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
                 ctr: 0,
                 position: 0,
               }),
-          GscSearchPerformanceRepository.getStrikingDistance(
+          GscSearchPerformanceRepository.getStrikingDistance({
             projectId,
             startDate,
             endDate,
-            100,
-            hasPrevious && prev ? prev.startDate : undefined,
-            hasPrevious && prev ? prev.endDate : undefined,
-          ),
+            limit: 100,
+            prevStartDate: hasPrevious && prev ? prev.startDate : undefined,
+            prevEndDate: hasPrevious && prev ? prev.endDate : undefined,
+          }),
           GscSearchPerformanceRepository.getCountries(
             projectId,
             startDate,
@@ -409,94 +402,9 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
 
 /**
  * Full queries/pages dataset for CSV/Sheets export (capped at EXPORT_ROW_LIMIT).
- */
-export const exportSearchPerformanceTable = createServerFn({ method: "POST" })
-  .middleware(requireProjectContext)
-  .validator(searchPerformanceTableExportInputSchema)
-  .handler(async ({ data, context }) => {
-    const { startDate, endDate } = resolveDateRange({
-      dateRange: data.dateRange,
-    });
-    const projectId = context.projectId;
-
-    const hasCoverage = await GscSearchPerformanceRepository.hasCoverage(
-      projectId,
-      startDate,
-      endDate,
-    );
-
-    if (hasCoverage && !data.device && !data.country) {
-      const result = await GscSearchPerformanceRepository.getTableRows({
-        projectId,
-        dimension: data.dimension,
-        startDate,
-        endDate,
-        page: 1,
-        pageSize: EXPORT_ROW_LIMIT,
-      });
-
-      return {
-        dimension: data.dimension,
-        rows: result.rows,
-      };
-    }
-
-    const { filters } = buildGscFilters(data);
-
-    const result = await GscService.getPerformance({
-      projectId: context.projectId,
-      startDate,
-      endDate,
-      dimensions: [data.dimension],
-      filters,
-      rowLimit: EXPORT_ROW_LIMIT,
-    });
-
-    return {
-      dimension: data.dimension,
-      rows: toDimensionRows(result.rows),
-    };
-  });
 
 /**
  * Trigger an on-demand sync for a project and date window.
  */
-export const triggerSearchPerformanceSync = createServerFn({ method: "POST" })
-  .middleware(requireProjectContext)
-  .validator(searchPerformanceSyncInputSchema)
-  .handler(async ({ data, context }) => {
-    let startDate = data.startDate;
-    let endDate = data.endDate;
 
-    if (data.dateRange) {
-      const resolved = resolveDateRange({ dateRange: data.dateRange });
-      startDate = resolved.startDate;
-      endDate = resolved.endDate;
-    }
-
-    return GscSyncService.runSync({
-      projectId: context.projectId,
-      syncType: data.syncType,
-      startDate,
-      endDate,
-    });
-  });
-
-/**
- * Get current sync status and latest completed sync metadata for a project.
- */
-export const getSearchPerformanceSyncStatus = createServerFn({ method: "POST" })
-  .middleware(requireProjectContext)
-  .validator(searchPerformanceSyncStatusInputSchema)
-  .handler(async ({ data }) => {
-    const [latest, active] = await Promise.all([
-      GscSearchPerformanceRepository.getLatestSyncRun(data.projectId),
-      GscSearchPerformanceRepository.getActiveSyncRun(data.projectId),
-    ]);
-
-    return {
-      latestSync: latest,
-      activeSync: active,
-      isRunning: active !== null,
-    };
-  });
+export { exportSearchPerformanceTable } from "./searchPerformanceExport";

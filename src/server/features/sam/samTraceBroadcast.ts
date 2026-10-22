@@ -9,7 +9,10 @@
 
 import type { Connection, WSMessage } from "agents";
 import type { SamTraceFrame } from "@/shared/samToolTraceTypes";
-import { getSamTraceBus, type SamTraceBus } from "@/server/features/sam/samTraceBus";
+import {
+  getSamTraceBus,
+  type SamTraceBus,
+} from "@/server/features/sam/samTraceBus";
 
 /** The DO broadcasts to its WebSocket connections via this shape. */
 export type TraceBroadcaster = {

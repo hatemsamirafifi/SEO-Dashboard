@@ -697,7 +697,7 @@ function monthTotals<T>(
     | undefined,
 ): T | null {
   if (!envelope || typeof envelope !== "object") return null;
-  if (envelope.status?.available !== true) return null;
+  if (!envelope.status?.available) return null;
   return envelope.totals ?? null;
 }
 
@@ -724,14 +724,12 @@ export function buildChangedRows(input: {
   const svPrior = monthTotals(input.searchVisibility.prior);
   const trafficMonth = monthTotals(input.traffic.month.traffic);
   const trafficPrior = monthTotals(input.traffic.prior.traffic);
-  const conversionsMonth =
-    input.traffic.month.conversions.status?.available === true
-      ? input.traffic.month.conversions
-      : null;
-  const conversionsPrior =
-    input.traffic.prior.conversions.status?.available === true
-      ? input.traffic.prior.conversions
-      : null;
+  const conversionsMonth = input.traffic.month.conversions.status?.available
+    ? input.traffic.month.conversions
+    : null;
+  const conversionsPrior = input.traffic.prior.conversions.status?.available
+    ? input.traffic.prior.conversions
+    : null;
 
   const specs: DeltaSpec[] = [
     {
@@ -973,9 +971,13 @@ function isUnresolvedRow(value: unknown): value is UnresolvedRow {
   );
 }
 
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
 function recordList(record: Record<string, unknown>, key: string): unknown[] {
   const raw: unknown = record[key];
-  return Array.isArray(raw) ? [...raw] : [];
+  return isUnknownArray(raw) ? [...raw] : [];
 }
 
 export function monthlyCorrelateOf(evidence: unknown): {

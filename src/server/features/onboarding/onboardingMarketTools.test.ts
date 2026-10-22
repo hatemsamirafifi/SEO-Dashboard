@@ -33,7 +33,12 @@ const serpItems = [
     title: "Acme",
     url: "https://acme.com",
   },
-  { type: "organic", rank_group: 2, domain: "rival.com", url: "https://rival.com" },
+  {
+    type: "organic",
+    rank_group: 2,
+    domain: "rival.com",
+    url: "https://rival.com",
+  },
   { type: "paid", rank_group: 1, domain: "advertiser.com" },
 ];
 
@@ -68,76 +73,72 @@ describe("marketTools.get_serp_results", () => {
     mocks.route.mockReset();
   });
 
-  it(
-    "routes each keyword through the seo data router and maps organic results",
-    async () => {
-      mocks.route.mockResolvedValue({ data: serpItems });
-      const tools = buildTools();
+  it("routes each keyword through the seo data router and maps organic results", async () => {
+    mocks.route.mockResolvedValue({ data: serpItems });
+    const tools = buildTools();
 
-      const result = await tools.get_serp_results.execute({
-        keywords: ["seo tool", "rank tracker"],
-      });
+    const result = await tools.get_serp_results.execute({
+      keywords: ["seo tool", "rank tracker"],
+    });
 
-      expect(mocks.route).toHaveBeenCalledTimes(2);
-      expect(mocks.route).toHaveBeenNthCalledWith(1, {
-        dataType: "serp",
-        keyword: "seo tool",
-        locationCode: 2840,
-        languageCode: "en",
-        billingCustomer,
-        creditFeature: "onboarding",
-      });
-      expect(mocks.route).toHaveBeenNthCalledWith(2, {
-        dataType: "serp",
-        keyword: "rank tracker",
-        locationCode: 2840,
-        languageCode: "en",
-        billingCustomer,
-        creditFeature: "onboarding",
-      });
-      expect(result).toEqual({
-        results: [
-          {
-            keyword: "seo tool",
-            ok: true,
-            results: [
-              {
-                rank: 1,
-                domain: "acme.com",
-                title: "Acme",
-                url: "https://acme.com",
-              },
-              {
-                rank: 2,
-                domain: "rival.com",
-                title: null,
-                url: "https://rival.com",
-              },
-            ],
-          },
-          {
-            keyword: "rank tracker",
-            ok: true,
-            results: [
-              {
-                rank: 1,
-                domain: "acme.com",
-                title: "Acme",
-                url: "https://acme.com",
-              },
-              {
-                rank: 2,
-                domain: "rival.com",
-                title: null,
-                url: "https://rival.com",
-              },
-            ],
-          },
-        ],
-      });
-    },
-    30000,
-  );
+    expect(mocks.route).toHaveBeenCalledTimes(2);
+    expect(mocks.route).toHaveBeenNthCalledWith(1, {
+      dataType: "serp",
+      keyword: "seo tool",
+      locationCode: 2840,
+      languageCode: "en",
+      billingCustomer,
+      creditFeature: "onboarding",
+    });
+    expect(mocks.route).toHaveBeenNthCalledWith(2, {
+      dataType: "serp",
+      keyword: "rank tracker",
+      locationCode: 2840,
+      languageCode: "en",
+      billingCustomer,
+      creditFeature: "onboarding",
+    });
+    expect(result).toEqual({
+      results: [
+        {
+          keyword: "seo tool",
+          ok: true,
+          results: [
+            {
+              rank: 1,
+              domain: "acme.com",
+              title: "Acme",
+              url: "https://acme.com",
+            },
+            {
+              rank: 2,
+              domain: "rival.com",
+              title: null,
+              url: "https://rival.com",
+            },
+          ],
+        },
+        {
+          keyword: "rank tracker",
+          ok: true,
+          results: [
+            {
+              rank: 1,
+              domain: "acme.com",
+              title: "Acme",
+              url: "https://acme.com",
+            },
+            {
+              rank: 2,
+              domain: "rival.com",
+              title: null,
+              url: "https://rival.com",
+            },
+          ],
+        },
+      ],
+    });
+  }, 30000);
 
   it("keeps per-keyword failures isolated instead of failing the whole batch", async () => {
     mocks.route

@@ -15,11 +15,13 @@ vi.mock("@/server/lib/runtime-env", () => ({
     key === "OPENROUTER_API_KEY" ? "sk-or-v1-env-value" : undefined,
 }));
 
-const multiProviderEnv = (overrides: Partial<{
-  aiAgentProvider: string | null;
-  aiAgentModel: string | null;
-  providerModelDefaults: Record<string, string | null>;
-}> = {}) => ({
+const multiProviderEnv = (
+  overrides: Partial<{
+    aiAgentProvider: string | null;
+    aiAgentModel: string | null;
+    providerModelDefaults: Record<string, string | null>;
+  }> = {},
+) => ({
   aiAgentProvider: null,
   aiAgentModel: null,
   providerModelDefaults: {},
@@ -81,7 +83,9 @@ describe("resolveAiModel", () => {
   });
 
   it("returns a null model when nothing is configured (built-in default wins)", () => {
-    expect(resolveAiModel({ project: null, organization: null }, emptyEnv)).toEqual({
+    expect(
+      resolveAiModel({ project: null, organization: null }, emptyEnv),
+    ).toEqual({
       provider: "openrouter",
       model: null,
     });
@@ -89,7 +93,6 @@ describe("resolveAiModel", () => {
 });
 
 describe("resolveAiSettings (multi-provider)", () => {
-
   it("keeps the project row's provider and model across providers", () => {
     const result = resolveAiSettings(
       {
@@ -118,7 +121,10 @@ describe("resolveAiSettings (multi-provider)", () => {
   it("uses AI_AGENT_PROVIDER with AI_AGENT_MODEL when no settings row exists", () => {
     const result = resolveAiSettings(
       { project: null, organization: null },
-      multiProviderEnv({ aiAgentProvider: "gemini", aiAgentModel: "gemini-2.5-flash" }),
+      multiProviderEnv({
+        aiAgentProvider: "gemini",
+        aiAgentModel: "gemini-2.5-flash",
+      }),
     );
     expect(result).toEqual({ provider: "gemini", model: "gemini-2.5-flash" });
   });
@@ -131,7 +137,10 @@ describe("resolveAiSettings (multi-provider)", () => {
         providerModelDefaults: { anthropic: "claude-haiku-4-5" },
       }),
     );
-    expect(result).toEqual({ provider: "anthropic", model: "claude-haiku-4-5" });
+    expect(result).toEqual({
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+    });
   });
 
   it("ignores an unsupported AI_AGENT_PROVIDER value", () => {
@@ -170,12 +179,21 @@ describe("resolveAiSettings (multi-provider)", () => {
 
   it("accepts an openrouter-style id only on openrouter", () => {
     const ok = resolveAiSettings(
-      { project: { provider: "openrouter", model: "google/gemini-2.5-pro" }, organization: null },
+      {
+        project: { provider: "openrouter", model: "google/gemini-2.5-pro" },
+        organization: null,
+      },
       multiProviderEnv(),
     );
-    expect(ok).toEqual({ provider: "openrouter", model: "google/gemini-2.5-pro" });
+    expect(ok).toEqual({
+      provider: "openrouter",
+      model: "google/gemini-2.5-pro",
+    });
     const normalized = resolveAiSettings(
-      { project: { provider: "gemini", model: "google/gemini-2.5-pro" }, organization: null },
+      {
+        project: { provider: "gemini", model: "google/gemini-2.5-pro" },
+        organization: null,
+      },
       multiProviderEnv(),
     );
     expect(normalized).toEqual({ provider: "gemini", model: null });
@@ -202,10 +220,16 @@ describe("assertValidModelPair", () => {
   });
 
   it("accepts valid pairs and null models", () => {
-    expect(() => assertValidModelPair("openrouter", "openai/gpt-5")).not.toThrow();
+    expect(() =>
+      assertValidModelPair("openrouter", "openai/gpt-5"),
+    ).not.toThrow();
     expect(() => assertValidModelPair("openai", "gpt-5")).not.toThrow();
-    expect(() => assertValidModelPair("gemini", "gemini-2.5-flash")).not.toThrow();
-    expect(() => assertValidModelPair("anthropic", "claude-sonnet-4-5")).not.toThrow();
+    expect(() =>
+      assertValidModelPair("gemini", "gemini-2.5-flash"),
+    ).not.toThrow();
+    expect(() =>
+      assertValidModelPair("anthropic", "claude-sonnet-4-5"),
+    ).not.toThrow();
     expect(() => assertValidModelPair("openai", null)).not.toThrow();
   });
 });
@@ -231,7 +255,9 @@ describe("getProviderStatuses", () => {
   });
 
   it("never returns a plaintext key", async () => {
-    const statuses = await getProviderStatuses({ openai: "sk-very-secret-1234" });
+    const statuses = await getProviderStatuses({
+      openai: "sk-very-secret-1234",
+    });
     expect(JSON.stringify(statuses)).not.toContain("very-secret");
   });
 });

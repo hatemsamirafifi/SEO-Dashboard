@@ -35,10 +35,7 @@ vi.mock("@/db/runBatch", () => ({
   },
 }));
 
-import {
-  InsightRepository,
-  type InsightInsert,
-} from "./InsightRepository";
+import { InsightRepository, type InsightInsert } from "./InsightRepository";
 
 function insightRow(overrides: Partial<InsightInsert> = {}): InsightInsert {
   return {
@@ -111,10 +108,8 @@ describe("InsightRepository", () => {
     );
 
     expect(
-      (await InsightRepository.findByKey(
-        "project-1",
-        "dashboard:ranking_drop",
-      ))?.id,
+      (await InsightRepository.findByKey("project-1", "dashboard:ranking_drop"))
+        ?.id,
     ).toBe("ins-1");
     expect(
       await InsightRepository.findByKey("project-1", "dashboard:nope"),

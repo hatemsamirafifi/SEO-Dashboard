@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Selection-scope contract for "Check missing" on a table selection: the
@@ -20,26 +21,43 @@ function triggerPayload(selectedIds: string[]): {
   return { missingRankings: true, keywordIds: selectedIds };
 }
 
+/** Shape of the trigger-rank-check success payload the hook reports. */
+type TriggerSuccessResult = {
+  ok: boolean;
+  runId: string;
+  scope: string;
+  selectedCount: number;
+  validatedCount: number;
+  candidatesCount: number;
+  missingEligibleBeforeFilter: number;
+  selectedStates: string[];
+  breakdown: Record<string, number>;
+};
+
+type MutationOptions = {
+  onSuccess?: (data: TriggerSuccessResult, vars: unknown) => void;
+};
+
 const traceMocks = vi.hoisted(() => ({
   startOperation: vi.fn(() => "op_test_1"),
   updateOperation: vi.fn(),
   completeOperation: vi.fn(),
   recordOperation: vi.fn(),
   mutate: vi.fn(),
-  triggerSuccessResult: null as any,
+  triggerSuccessResult: null as TriggerSuccessResult | null,
 }));
 
 vi.mock("react", async () => {
-  const actual = await vi.importActual<typeof import("react")>("react");
+  const actual = await vi.importActual<typeof React>("react");
   return {
     ...actual,
-    useRef: (initial: any) => ({ current: initial }),
+    useRef: (initial: unknown) => ({ current: initial }),
   };
 });
 
 vi.mock("@tanstack/react-query", () => ({
-  useMutation: (opts: any) => ({
-    mutate: (vars: any) => {
+  useMutation: (opts: MutationOptions) => ({
+    mutate: (vars: unknown) => {
       traceMocks.mutate(vars);
       if (traceMocks.triggerSuccessResult) {
         opts?.onSuccess?.(traceMocks.triggerSuccessResult, vars);
@@ -178,7 +196,7 @@ describe("useRankCheckTrigger missingRankingStates & trace integration", () => {
         operation: "rank_tracking.check_missing_rankings",
         metadata: expect.objectContaining({
           missingRankingStates: ["lost"],
-        }),
+        }) as unknown,
       }),
     );
 
@@ -197,7 +215,7 @@ describe("useRankCheckTrigger missingRankingStates & trace integration", () => {
           candidatesCount: 878,
           missingEligibleBeforeFilter: 677,
           selectedStateEligible: 15,
-        }),
+        }) as unknown,
       }),
     );
   });

@@ -11,41 +11,55 @@ export class AppError extends Error {
   }
 }
 
+type ErrorLike = {
+  name: string;
+  message?: unknown;
+  provider?: unknown;
+};
+
+function isErrorLike(value: unknown): value is ErrorLike {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    typeof value.name === "string"
+  );
+}
+
 export function asAppError(error: unknown): AppError | null {
   if (error instanceof AppError) return error;
   if (error instanceof Error && isErrorCode(error.message)) {
     return new AppError(error.message, error.message);
   }
-  if (error && typeof error === "object") {
-    const err = error as Record<string, unknown>;
-    if (err.name === "BudgetExceededError") {
+  if (isErrorLike(error)) {
+    if (error.name === "BudgetExceededError") {
       return new AppError(
         "PAYMENT_REQUIRED",
-        typeof err.message === "string" ? err.message : undefined,
+        typeof error.message === "string" ? error.message : undefined,
       );
     }
-    if (err.name === "AuthenticationError") {
-      if (err.provider === "dataforseo") {
+    if (error.name === "AuthenticationError") {
+      if (error.provider === "dataforseo") {
         return new AppError(
           "DATAFORSEO_AUTH_FAILED",
-          typeof err.message === "string" ? err.message : undefined,
+          typeof error.message === "string" ? error.message : undefined,
         );
       }
       return new AppError(
         "UNAUTHENTICATED",
-        typeof err.message === "string" ? err.message : undefined,
+        typeof error.message === "string" ? error.message : undefined,
       );
     }
-    if (err.name === "RateLimitError") {
+    if (error.name === "RateLimitError") {
       return new AppError(
         "RATE_LIMITED",
-        typeof err.message === "string" ? err.message : undefined,
+        typeof error.message === "string" ? error.message : undefined,
       );
     }
-    if (err.name === "ProviderUnavailableError") {
+    if (error.name === "ProviderUnavailableError") {
       return new AppError(
         "UPSTREAM_UNAVAILABLE",
-        typeof err.message === "string" ? err.message : undefined,
+        typeof error.message === "string" ? error.message : undefined,
       );
     }
   }

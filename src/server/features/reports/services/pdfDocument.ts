@@ -45,7 +45,10 @@ export function asciiPrintable(input: string): string {
 }
 
 function escapeLiteral(input: string): string {
-  return asciiPrintable(input).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  return asciiPrintable(input)
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
 }
 
 type PlacedLine = {
@@ -55,14 +58,8 @@ type PlacedLine = {
   gapAfter: number;
 };
 
-function wrappedLines(
-  text: string,
-  size: number,
-  maxChars: number,
-): string[] {
-  const words = asciiPrintable(text)
-    .split(/\s+/)
-    .filter(Boolean);
+function wrappedLines(text: string, size: number, maxChars: number): string[] {
+  const words = asciiPrintable(text).split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = "";
   for (const word of words) {
@@ -89,11 +86,11 @@ export type PdfRenderResult = { bytes: string; pageCount: number };
 export function renderPdfDocument(model: PrintModel): PdfRenderResult {
   const placed: PlacedLine[][] = [[]];
   const push = (line: PlacedLine) => {
-    let page = placed[placed.length - 1]!;
+    let page = placed[placed.length - 1];
     const needed = line.text === "" ? 1 : wrapped(line.text, line.size).length;
     if (!fitsOn(page, line.size, needed)) {
       placed.push([]);
-      page = placed[placed.length - 1]!;
+      page = placed[placed.length - 1];
     }
     page.push(line);
   };
@@ -109,7 +106,12 @@ export function renderPdfDocument(model: PrintModel): PdfRenderResult {
   for (const section of model.sections) {
     push({ size: 14, bold: true, text: section.title, gapAfter: 4 });
     if (section.unavailableNote) {
-      push({ size: 11, bold: false, text: section.unavailableNote, gapAfter: 8 });
+      push({
+        size: 11,
+        bold: false,
+        text: section.unavailableNote,
+        gapAfter: 8,
+      });
       continue;
     }
     for (const row of section.metricRows) {
