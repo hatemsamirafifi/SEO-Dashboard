@@ -1,11 +1,5 @@
 import { sql } from "drizzle-orm";
-import {
-  index,
-  integer,
-  pgTable,
-  primaryKey,
-  text,
-} from "drizzle-orm/pg-core";
+import { index, integer, pgTable, primaryKey, text } from "drizzle-orm/pg-core";
 import { organization } from "./better-auth-schema";
 import { projects } from "./app.schema";
 

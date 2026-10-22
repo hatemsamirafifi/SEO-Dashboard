@@ -19,12 +19,45 @@ function statementsOf(migrationFile: string): string[] {
     .filter(Boolean);
 }
 
+/** Column/index names come back as unknown values; only strings are names. */
+function rowName(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function isMigrationJournal(value: unknown): value is {
+  entries: Array<{ tag: string }>;
+} {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("entries" in value)) return false;
+  const entries: unknown = value.entries;
+  return (
+    Array.isArray(entries) &&
+    entries.every(
+      (entry: unknown) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        "tag" in entry &&
+        typeof entry.tag === "string",
+    )
+  );
+}
+
+function journalTags(journalFile: string): string[] {
+  const parsed: unknown = JSON.parse(
+    readFileSync(resolve(process.cwd(), journalFile), "utf8"),
+  );
+  if (!isMigrationJournal(parsed)) {
+    throw new Error(`${journalFile} has an unexpected shape`);
+  }
+  return parsed.entries.map((entry) => entry.tag);
+}
+
 async function tables(): Promise<string[]> {
   if (!client) throw new Error("Test database was not initialized");
   const result = await client.execute(
     "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
   );
-  return result.rows.map((row) => String(row.name));
+  return result.rows.map((row) => rowName(row.name));
 }
 
 describe("GA4 storage migration smoke", () => {
@@ -55,33 +88,17 @@ describe("GA4 storage migration smoke", () => {
       "PRAGMA table_info(gsc_search_performance_syncs)",
     );
     expect(
-      columns.rows.some((row) => String(row.name) === "successful_units"),
+      columns.rows.some((row) => rowName(row.name) === "successful_units"),
     ).toBe(true);
   });
 
   it("registers the migration in both dialect journals", async () => {
-    const sqliteJournal = JSON.parse(
-      readFileSync(
-        resolve(process.cwd(), "drizzle/meta/_journal.json"),
-        "utf8",
-      ),
-    ) as { entries: Array<{ tag: string }> };
-    const pgJournal = JSON.parse(
-      readFileSync(
-        resolve(process.cwd(), "drizzle-pg/meta/_journal.json"),
-        "utf8",
-      ),
-    ) as { entries: Array<{ tag: string }> };
+    const sqliteTags = journalTags("drizzle/meta/_journal.json");
+    const pgTags = journalTags("drizzle-pg/meta/_journal.json");
     expect(
-      sqliteJournal.entries.some((entry) =>
-        entry.tag.includes("0052_quick_quentin_quire"),
-      ),
+      sqliteTags.some((tag) => tag.includes("0052_quick_quentin_quire")),
     ).toBe(true);
-    expect(
-      pgJournal.entries.some((entry) =>
-        entry.tag.includes("0030_equal_satana"),
-      ),
-    ).toBe(true);
+    expect(pgTags.some((tag) => tag.includes("0030_equal_satana"))).toBe(true);
   });
 
   it("applies the geo/technology grain migration to a fresh SQLite database", async () => {
@@ -98,7 +115,7 @@ describe("GA4 storage migration smoke", () => {
     const indexes = await client.execute(
       "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name",
     );
-    const names = indexes.rows.map((row) => String(row.name));
+    const names = indexes.rows.map((row) => rowName(row.name));
     for (const index of [
       "ga4_geo_upsert_idx",
       "ga4_geo_project_date_idx",
@@ -110,47 +127,26 @@ describe("GA4 storage migration smoke", () => {
       expect(names).toContain(index);
     }
     const geoColumns = await client.execute("PRAGMA table_info(ga4_daily_geo)");
-    const geoNames = geoColumns.rows.map((row) => String(row.name));
-    for (const column of [
-      "country",
-      "sessions",
-      "new_users",
-      "is_other_row",
-    ]) {
+    const geoNames = geoColumns.rows.map((row) => rowName(row.name));
+    for (const column of ["country", "sessions", "new_users", "is_other_row"]) {
       expect(geoNames).toContain(column);
     }
   });
 
   it("registers the geo/technology migration in both dialect journals", async () => {
-    const sqliteJournal = JSON.parse(
-      readFileSync(
-        resolve(process.cwd(), "drizzle/meta/_journal.json"),
-        "utf8",
-      ),
-    ) as { entries: Array<{ tag: string }> };
-    const pgJournal = JSON.parse(
-      readFileSync(
-        resolve(process.cwd(), "drizzle-pg/meta/_journal.json"),
-        "utf8",
-      ),
-    ) as { entries: Array<{ tag: string }> };
+    const sqliteTags = journalTags("drizzle/meta/_journal.json");
+    const pgTags = journalTags("drizzle-pg/meta/_journal.json");
     expect(
-      sqliteJournal.entries.some((entry) =>
-        entry.tag.includes("0060_harsh_scarlet_spider"),
-      ),
+      sqliteTags.some((tag) => tag.includes("0060_harsh_scarlet_spider")),
     ).toBe(true);
-    expect(
-      pgJournal.entries.some((entry) =>
-        entry.tag.includes("0038_wakeful_sunspot"),
-      ),
-    ).toBe(true);
+    expect(pgTags.some((tag) => tag.includes("0038_wakeful_sunspot"))).toBe(
+      true,
+    );
   });
 
   it("applies the project-goals migration to a fresh SQLite database", async () => {
     if (!client) throw new Error("Test database was not initialized");
-    for (const statement of statementsOf(
-      "drizzle/0061_worthless_dagger.sql",
-    )) {
+    for (const statement of statementsOf("drizzle/0061_worthless_dagger.sql")) {
       await client.execute(statement);
     }
     const created = await tables();
@@ -158,7 +154,7 @@ describe("GA4 storage migration smoke", () => {
     const indexes = await client.execute(
       "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name",
     );
-    const names = indexes.rows.map((row) => String(row.name));
+    const names = indexes.rows.map((row) => rowName(row.name));
     for (const index of [
       "ga4_goals_project_name_active_uidx",
       "ga4_goals_project_idx",
@@ -168,7 +164,7 @@ describe("GA4 storage migration smoke", () => {
     const columns = await client.execute(
       "PRAGMA table_info(ga4_project_goals)",
     );
-    const columnNames = columns.rows.map((row) => String(row.name));
+    const columnNames = columns.rows.map((row) => rowName(row.name));
     for (const column of [
       "event_name",
       "match_key_event_only",
@@ -179,27 +175,13 @@ describe("GA4 storage migration smoke", () => {
   });
 
   it("registers the project-goals migration in both dialect journals", async () => {
-    const sqliteJournal = JSON.parse(
-      readFileSync(
-        resolve(process.cwd(), "drizzle/meta/_journal.json"),
-        "utf8",
-      ),
-    ) as { entries: Array<{ tag: string }> };
-    const pgJournal = JSON.parse(
-      readFileSync(
-        resolve(process.cwd(), "drizzle-pg/meta/_journal.json"),
-        "utf8",
-      ),
-    ) as { entries: Array<{ tag: string }> };
+    const sqliteTags = journalTags("drizzle/meta/_journal.json");
+    const pgTags = journalTags("drizzle-pg/meta/_journal.json");
     expect(
-      sqliteJournal.entries.some((entry) =>
-        entry.tag.includes("0061_worthless_dagger"),
-      ),
+      sqliteTags.some((tag) => tag.includes("0061_worthless_dagger")),
     ).toBe(true);
-    expect(
-      pgJournal.entries.some((entry) =>
-        entry.tag.includes("0039_slim_master_chief"),
-      ),
-    ).toBe(true);
+    expect(pgTags.some((tag) => tag.includes("0039_slim_master_chief"))).toBe(
+      true,
+    );
   });
 });

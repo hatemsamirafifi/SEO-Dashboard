@@ -6,6 +6,12 @@ import {
   index,
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
+import {
+  AUDIT_STATUSES,
+  EXTRACTION_STATES,
+  PAGE_FAILURE_REASONS,
+  PAGE_FETCH_CLASSES,
+} from "@/shared/audit-fetch-class";
 import { projects } from "./app.schema";
 
 // ============================================================================
@@ -23,7 +29,7 @@ export const audits = sqliteTable(
     startedByUserId: text("started_by_user_id").notNull(),
     startUrl: text("start_url").notNull(),
     status: text("status", {
-      enum: ["running", "completed", "failed"],
+      enum: AUDIT_STATUSES,
     })
       .notNull()
       .default("running"),
@@ -33,6 +39,22 @@ export const audits = sqliteTable(
     // Progress & summary
     pagesCrawled: integer("pages_crawled").notNull().default(0),
     pagesTotal: integer("pages_total").notNull().default(0),
+    // URL counters, written once at finalize; partition of urls_fetched:
+    // analyzed + blocked + failed + skipped + rendering_required. Blocked /
+    // failed / skipped already imply completed_partial; a capped or
+    // cancelled crawl reports the remainder via urls_discovered - urls_fetched.
+    urlsDiscovered: integer("urls_discovered").notNull().default(0),
+    urlsFetched: integer("urls_fetched").notNull().default(0),
+    urlsAnalyzed: integer("urls_analyzed").notNull().default(0),
+    urlsBlocked: integer("urls_blocked").notNull().default(0),
+    urlsFailed: integer("urls_failed").notNull().default(0),
+    urlsSkipped: integer("urls_skipped").notNull().default(0),
+    urlsRenderingRequired: integer("urls_rendering_required")
+      .notNull()
+      .default(0),
+    urlsExtractionComplete: integer("urls_extraction_complete")
+      .notNull()
+      .default(0),
     lighthouseTotal: integer("lighthouse_total").notNull().default(0),
     lighthouseCompleted: integer("lighthouse_completed").notNull().default(0),
     lighthouseFailed: integer("lighthouse_failed").notNull().default(0),
@@ -106,10 +128,32 @@ export const auditPages = sqliteTable(
       .default(false),
     // SHA-256 of the visible body text, for duplicate-content grouping
     contentHash: text("content_hash"),
-    // How the fetch resolved: ok | blocked (WAF/bot challenge) | error
-    fetchClass: text("fetch_class", { enum: ["ok", "blocked", "error"] })
+    // How the fetch resolved: ok | blocked (WAF/bot challenge) |
+    // rate_limited (429 after honored retries) | error (fetch failed)
+    fetchClass: text("fetch_class", { enum: PAGE_FETCH_CLASSES })
       .notNull()
       .default("ok"),
+    // How completely the page was extracted (see audit-fetch-class.ts);
+    // gates which findings the engine may emit
+    extractionState: text("extraction_state", { enum: EXTRACTION_STATES })
+      .notNull()
+      .default("NOT_EXTRACTED"),
+    // Transport-level failure diagnostics (network_error | fetch_timeout)
+    failureReason: text("failure_reason", { enum: PAGE_FAILURE_REASONS }),
+    // Bytes of the body actually read (bounds the crawl window's budget)
+    htmlBytes: integer("html_bytes").notNull().default(0),
+    // Parsed JSON-LD structured-data payload, capped (Salla/product pages)
+    structuredDataJson: text("structured_data_json"),
+    // Salla adapter extraction: tier-labeled product/category/blog evidence,
+    // capped JSON; null when the page did not classify
+    sallaExtractionJson: text("salla_extraction_json"),
+    // e-commerce platform (evidence-scored detection; null below threshold)
+    platform: text("platform"),
+    platformConfidence: real("platform_confidence"),
+    // Evidence-scored page type (product|category|blog|other); null when
+    // unclassifiable (no evidence or URL-pattern-only evidence)
+    pageType: text("page_type"),
+    pageTypeConfidence: real("page_type_confidence"),
     // Performance
     responseTimeMs: integer("response_time_ms"),
   },

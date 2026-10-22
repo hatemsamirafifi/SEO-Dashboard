@@ -37,9 +37,7 @@ export const dashboardInsights = sqliteTable(
     periodsTo: text("periods_to"),
     sourcesJson: text("sources_json").notNull().default("[]"),
     findingKeysJson: text("finding_keys_json").notNull().default("[]"),
-    opportunityIdsJson: text("opportunity_ids_json")
-      .notNull()
-      .default("[]"),
+    opportunityIdsJson: text("opportunity_ids_json").notNull().default("[]"),
     // Rounded per-entity volumes enabling exact metric-drift comparison.
     metricsJson: text("metrics_json"),
     // Semantic counter (bumps on material change only) + integrity hash.

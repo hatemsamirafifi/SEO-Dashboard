@@ -34,9 +34,7 @@ export const dashboardInsights = pgTable(
     periodsTo: text("periods_to"),
     sourcesJson: text("sources_json").notNull().default("[]"),
     findingKeysJson: text("finding_keys_json").notNull().default("[]"),
-    opportunityIdsJson: text("opportunity_ids_json")
-      .notNull()
-      .default("[]"),
+    opportunityIdsJson: text("opportunity_ids_json").notNull().default("[]"),
     metricsJson: text("metrics_json"),
     contentVersion: integer("content_version").notNull().default(1),
     contentHash: text("content_hash").notNull(),
