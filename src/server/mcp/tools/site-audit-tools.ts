@@ -8,6 +8,8 @@ import {
   getIssueDescriptor,
   ISSUE_SEVERITY_ORDER,
 } from "@/shared/audit-issues";
+import { enumerateDeficits } from "@/server/lib/audit/finalize";
+import { PAGE_FETCH_CLASSES } from "@/shared/audit-fetch-class";
 import { mcpResponse } from "@/server/mcp/formatters";
 import { buildProjectMeta } from "@/server/mcp/context";
 import {
@@ -177,8 +179,25 @@ export const getAuditStatusTool = {
       status.lighthouseTotal > 0
         ? `, lighthouse ${status.lighthouseCompleted + status.lighthouseFailed}/${status.lighthouseTotal}`
         : "";
+    let verdict = "";
+    if (status.status === "completed") {
+      verdict = " Call get_audit_issues for the issue report.";
+    } else if (status.status === "completed_partial") {
+      verdict = ` Coverage deficit: ${enumerateDeficits({
+        counters: status.urls,
+        frontierRemaining: Math.max(
+          0,
+          status.urls.urlsDiscovered - status.urls.urlsFetched,
+        ),
+      })
+        .map((deficit) => `${deficit.count} ${deficit.key.replace(/_/g, " ")}`)
+        .join(", ")}. Call get_audit_issues for the partial issue report.`;
+    } else if (status.status === "cancelled") {
+      verdict =
+        " Cancelled early; the pages crawled so far are readable via get_audit_pages, but the issue report reflects partial coverage.";
+    }
     return mcpResponse({
-      text: `Audit ${status.id} (${status.startUrl}): ${status.status} — phase ${status.currentPhase}, ${status.pagesCrawled}/${status.pagesTotal} pages${lighthouseNote}.${status.status === "completed" ? " Call get_audit_issues for the issue report." : ""}`,
+      text: `Audit ${status.id} (${status.startUrl}): ${status.status} — phase ${status.currentPhase}, ${status.pagesCrawled}/${status.pagesTotal} pages${lighthouseNote}.${verdict}`,
       meta: buildProjectMeta(
         context,
         args.projectId,
@@ -316,10 +335,10 @@ const pagesInputSchema = {
   projectId: projectIdSchema,
   auditId: auditIdSchema,
   fetchClass: z
-    .enum(["ok", "blocked", "error"])
+    .enum(PAGE_FETCH_CLASSES)
     .optional()
     .describe(
-      'Filter by fetch outcome ("blocked" = the site\'s bot protection challenged the crawler).',
+      'Filter by fetch outcome ("blocked" = bot challenge; "rate_limited" = 429; "error" = failed fetch).',
     ),
   statusCode: z
     .number()

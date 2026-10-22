@@ -67,18 +67,38 @@ type RawAuditStatus = {
 };
 
 /**
- * Map the audit row's canonical DB states ("running" | "completed" | "failed")
- * onto the normalized async-state vocabulary. There is no distinct persisted
- * "cancelled" state: a cancelled/deleted audit either disappears (surfaces as
- * NOT_FOUND → mapped to `cancelled` at the call site) or its terminated
- * workflow self-heals to "failed".
+ * Map the audit row's canonical DB states onto the normalized async-state
+ * vocabulary: "running" | "completed" | "failed" | "cancelled" |
+ * "completed_partial". completed_partial still finalized (results readable)
+ * but honestly reports its coverage deficit; a cancelled audit keeps its
+ * partial page rows but its data is not presented as a complete report.
  */
 export function normalizeAuditStatus(raw: RawAuditStatus): AsyncToolState {
   const progress =
-    raw.pagesTotal > 0 ? { current: raw.pagesCrawled, total: raw.pagesTotal } : undefined;
+    raw.pagesTotal > 0
+      ? { current: raw.pagesCrawled, total: raw.pagesTotal }
+      : undefined;
   switch (raw.status) {
     case "completed":
-      return { state: "completed", progress, resultReady: true };
+    case "completed_partial":
+      return {
+        state: "completed",
+        progress,
+        resultReady: true,
+        ...(raw.status === "completed_partial"
+          ? {
+              error:
+                "The audit finished with a coverage deficit (partial crawl).",
+            }
+          : undefined),
+      };
+    case "cancelled":
+      return {
+        state: "cancelled",
+        progress,
+        resultReady: false,
+        error: "The site audit was cancelled; partial results are preserved.",
+      };
     case "failed":
       return {
         state: "failed",
@@ -187,7 +207,9 @@ export function buildPollSiteAuditTool(input: PollSiteAuditInput) {
       auditId: z
         .string()
         .optional()
-        .describe("Audit to wait for. Omit for the project's most recent audit."),
+        .describe(
+          "Audit to wait for. Omit for the project's most recent audit.",
+        ),
     }),
     execute: async ({ auditId }) => {
       const startedAt = Date.now();
@@ -238,7 +260,10 @@ async function pollUntilTerminal(
     // instant failures fast), clamped so we never sleep past the deadline.
     if (attempts > 0) {
       const remaining = config.timeoutMs - (Date.now() - startedAt);
-      const delay = Math.min(backoffDelayMs(attempts, config.initialMs, config.maxMs), remaining);
+      const delay = Math.min(
+        backoffDelayMs(attempts, config.initialMs, config.maxMs),
+        remaining,
+      );
       if (delay > 0) await sleep(delay);
     }
     attempts++;

@@ -141,6 +141,24 @@ describe("normalizeAuditStatus", () => {
     );
     expect(noTotal.progress).toBeUndefined();
   });
+
+  it("maps completed_partial to a completed result with its coverage caveat", () => {
+    const normalized = normalizeAuditStatus(
+      statusRow({ status: "completed_partial", pagesCrawled: 30 }),
+    );
+    expect(normalized.state).toBe("completed");
+    expect(normalized.resultReady).toBe(true);
+    expect(normalized.error).toContain("coverage deficit");
+  });
+
+  it("maps cancelled to a terminal state without a ready result", () => {
+    const normalized = normalizeAuditStatus(
+      statusRow({ status: "cancelled", pagesCrawled: 12 }),
+    );
+    expect(normalized.state).toBe("cancelled");
+    expect(normalized.resultReady).toBe(false);
+    expect(normalized.progress).toEqual({ current: 12, total: 50 });
+  });
 });
 
 describe("createPollCoordinator", () => {
