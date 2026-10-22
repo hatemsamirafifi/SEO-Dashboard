@@ -11,11 +11,13 @@ import { db } from "@/db";
 import { auditLinks, auditPages } from "@/db/schema";
 import { normalizeUrl } from "@/server/lib/audit/url-utils";
 import {
+  asPageTypeName,
+  findCanonicalIssues,
   findDuplicates,
   findRedirectChainsAndLoops,
   type SlimPage,
 } from "@/server/lib/audit/issues/multipage-checks";
-import type { DetectedIssue } from "@/server/lib/audit/issues/page-reporters";
+import type { DetectedIssue } from "@/server/lib/audit/types";
 
 const BROKEN_LINK_ISSUE_CAP = 2_000;
 
@@ -25,7 +27,7 @@ export async function runMultipageChecks(input: {
   /** Orphan detection only makes sense when the crawl wasn't truncated. */
   crawlCompleted: boolean;
 }): Promise<DetectedIssue[]> {
-  const pages: SlimPage[] = await db
+  const rows = await db
     .select({
       id: auditPages.id,
       url: auditPages.url,
@@ -39,13 +41,21 @@ export async function runMultipageChecks(input: {
       isIndexable: auditPages.isIndexable,
       canonicalUrl: auditPages.canonicalUrl,
       headerCanonicalUrl: auditPages.headerCanonicalUrl,
+      extractionState: auditPages.extractionState,
+      pageType: auditPages.pageType,
     })
     .from(auditPages)
     .where(eq(auditPages.auditId, input.auditId));
 
+  const pages: SlimPage[] = rows.map((row) => ({
+    ...row,
+    pageType: asPageTypeName(row.pageType),
+  }));
+
   const issues: DetectedIssue[] = [
     ...findDuplicates(pages),
     ...findRedirectChainsAndLoops(pages),
+    ...findCanonicalIssues(pages),
     ...(await findBrokenInternalLinks(input.auditId)),
   ];
 

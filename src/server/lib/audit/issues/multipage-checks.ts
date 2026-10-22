@@ -3,15 +3,30 @@
  * redirect chain/loop detection. The D1-backed checks (broken links,
  * orphans) live in multipage.ts.
  */
-import type { DetectedIssue } from "@/server/lib/audit/issues/page-reporters";
+import type {
+  ExtractionState,
+  PageFetchClass,
+} from "@/shared/audit-fetch-class";
+import type { DetectedIssue } from "@/server/lib/audit/types";
+import {
+  PAGE_TYPE_NAMES,
+  type PageTypeName,
+} from "@/server/lib/audit/salla/page-type-evidence";
 
 const DUPLICATE_GROUP_SAMPLE = 3;
+
+/** Narrow a raw page_type column value (drizzle text) to its enum. */
+export function asPageTypeName(value: string | null): PageTypeName | null {
+  if (value == null) return null;
+  return PAGE_TYPE_NAMES.find((name) => name === value) ?? null;
+}
 
 export interface SlimPage {
   id: string;
   url: string;
   statusCode: number | null;
-  fetchClass: "ok" | "blocked" | "error";
+  fetchClass: PageFetchClass;
+  extractionState: ExtractionState;
   title: string | null;
   metaDescription: string | null;
   contentHash: string | null;
@@ -20,6 +35,7 @@ export interface SlimPage {
   isIndexable: boolean;
   canonicalUrl: string | null;
   headerCanonicalUrl: string | null;
+  pageType: PageTypeName | null;
 }
 
 function isOkHtmlPage(page: SlimPage): boolean {
@@ -34,10 +50,14 @@ function isOkHtmlPage(page: SlimPage): boolean {
 /**
  * Pages the owner already de-duplicated (noindex, or canonicalized to
  * another URL) don't belong in duplicate groups — flagging them tells the
- * user to fix something they already fixed.
+ * user to fix something they already fixed. Pages whose content extraction
+ * is uncertain (app shells with a placeholder "Loading…" title) are also
+ * excluded: grouping those is a confirmed verdict about content the audit
+ * never reliably read.
  */
 function isDuplicateCandidate(page: SlimPage): boolean {
   if (!isOkHtmlPage(page) || !page.isIndexable) return false;
+  if (page.extractionState === "RENDERING_REQUIRED") return false;
   const effectiveCanonical = page.canonicalUrl ?? page.headerCanonicalUrl;
   return !effectiveCanonical || effectiveCanonical === page.url;
 }
@@ -91,8 +111,15 @@ export function findDuplicates(pages: SlimPage[]): DetectedIssue[] {
     groupBy((page) => page.metaDescription || null),
     "duplicate-meta-description",
   );
+  // A truncated (STATIC_PARTIAL) body hashes by construction: its visible
+  // prefix, not the full page. Only complete extractions may carry a
+  // confirmed duplicate-content verdict.
   emitGroups(
-    groupBy((page) => (page.wordCount > 0 ? page.contentHash : null)),
+    groupBy((page) =>
+      page.extractionState === "STATIC_COMPLETE" && page.wordCount > 0
+        ? page.contentHash
+        : null,
+    ),
     "duplicate-content",
   );
   return issues;
@@ -173,6 +200,62 @@ export function findRedirectChainsAndLoops(pages: SlimPage[]): DetectedIssue[] {
       pageId: page.id,
       pageUrl: url,
       details: { hops: [...cycle, url] },
+    });
+  }
+
+  return issues;
+}
+
+/**
+ * Catalog-page canonical sanity (Salla adapter scope): on a complete
+ * product/category extraction, a canonical that points into a redirect loop
+ * can never resolve. Only loop membership triggers — a canonical pointing at
+ * an ordinary redirect chain is covered by the target's own chain issue plus
+ * the page's canonicalized-page entry.
+ */
+export function findCanonicalIssues(pages: SlimPage[]): DetectedIssue[] {
+  const redirects = new Map<string, string>();
+  for (const page of pages) {
+    const isRedirect =
+      page.statusCode !== null &&
+      page.statusCode >= 300 &&
+      page.statusCode < 400 &&
+      page.redirectUrl;
+    if (isRedirect) redirects.set(page.url, page.redirectUrl!);
+  }
+
+  // A URL is a loop member when its redirect walk returns to itself.
+  const loopUrls = new Set<string>();
+  for (const url of redirects.keys()) {
+    if (loopUrls.has(url)) continue;
+    const walked: string[] = [];
+    const seen = new Set<string>([url]);
+    let current: string | null = url;
+    while (current) {
+      walked.push(current);
+      current = redirects.get(current) ?? null;
+      if (current && seen.has(current)) break;
+      seen.add(current!);
+    }
+    if (current) {
+      for (const member of walked.slice(walked.indexOf(current))) {
+        loopUrls.add(member);
+      }
+    }
+  }
+
+  const issues: DetectedIssue[] = [];
+  for (const page of pages) {
+    if (!isOkHtmlPage(page)) continue;
+    if (page.extractionState !== "STATIC_COMPLETE") continue;
+    if (page.pageType !== "product" && page.pageType !== "category") continue;
+    const effectiveCanonical = page.canonicalUrl ?? page.headerCanonicalUrl;
+    if (!effectiveCanonical || !loopUrls.has(effectiveCanonical)) continue;
+    issues.push({
+      issueType: "canonical-redirect-loop",
+      pageId: page.id,
+      pageUrl: page.url,
+      details: { canonicalUrl: effectiveCanonical },
     });
   }
 

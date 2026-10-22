@@ -8,21 +8,12 @@
  * Cross-page checks (duplicates, broken links, orphans, redirect chains)
  * live in multipage.ts and run over D1 after the crawl.
  */
+import type {
+  CrawledPageResult,
+  DetectedIssue,
+} from "@/server/lib/audit/types";
 import type { AuditIssueType } from "@/shared/audit-issues";
-import type { CrawledPageResult } from "@/server/lib/audit/types";
-
-export interface DetectedIssue {
-  issueType: AuditIssueType;
-  pageId: string | null;
-  pageUrl: string;
-  details?: Record<string, unknown>;
-  /**
-   * Distinguishes multiple issues of the same type on the same page
-   * (e.g. one broken-internal-link issue per target). Part of the
-   * deterministic row id, so step retries don't duplicate issues.
-   */
-  dedupeKey?: string;
-}
+import { validateProductSchema } from "@/server/lib/audit/salla/schema-validation";
 
 const TITLE_MAX_CHARS = 60;
 const TITLE_MIN_CHARS = 10;
@@ -50,7 +41,15 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
     report("blocked-page", { statusCode: page.statusCode });
     return issues;
   }
+  if (page.fetchClass === "rate_limited") {
+    report("rate-limited-page", {
+      statusCode: page.statusCode,
+      retryAfter: page.retryAfter,
+    });
+    return issues;
+  }
   if (page.fetchClass === "error") {
+    report("crawl-error", { failureReason: page.failureReason });
     return issues;
   }
 
@@ -67,6 +66,21 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
     return issues;
   }
 
+  // The audit must never turn an unknown-content page into confirmed SEO
+  // verdicts. On redirect/non-HTML/parse-failed rows there is nothing to
+  // judge; on STATIC_PARTIAL and RENDERING_REQUIRED rows only checks whose
+  // evidence the static pass reliably carries survive the gate below.
+  if (
+    page.extractionState === "ACCESS_BLOCKED" ||
+    page.extractionState === "EXTRACTION_FAILED" ||
+    page.extractionState === "NOT_EXTRACTED"
+  ) {
+    return issues;
+  }
+  const extractionUncertain =
+    page.extractionState === "STATIC_PARTIAL" ||
+    page.extractionState === "RENDERING_REQUIRED";
+
   if (page.responseTimeMs > SLOW_RESPONSE_MS) {
     report("slow-response", { responseTimeMs: page.responseTimeMs });
   }
@@ -77,7 +91,7 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
     return issues;
   }
 
-  // Titles
+  // Titles (derived from <head>, which static extraction reads in full)
   if (!page.title) {
     report("missing-title");
   } else if (page.title.length > TITLE_MAX_CHARS) {
@@ -86,7 +100,7 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
     report("title-too-short", { length: page.title.length });
   }
 
-  // Meta description
+  // Meta description (derived from <head> as above)
   if (!page.metaDescription) {
     report("missing-meta-description");
   } else if (page.metaDescription.length > META_DESCRIPTION_MAX_CHARS) {
@@ -99,11 +113,18 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
     });
   }
 
-  // Headings
+  // Headings; a "missing" heading is not a confirmed verdict when extraction
+  // is uncertain, but a found heading always is.
+  if (page.h1Count > 1) {
+    report("multiple-h1", { h1Count: page.h1Count });
+  }
+  if (extractionUncertain) {
+    // Uncertain extraction keeps only verdicts that do not depend on
+    // potentially missing content.
+    return issues;
+  }
   if (page.h1Count === 0) {
     report("missing-h1");
-  } else if (page.h1Count > 1) {
-    report("multiple-h1", { h1Count: page.h1Count });
   }
   if (hasHeadingLevelSkip(page.headingOrder)) {
     report("heading-order-skip");
@@ -128,7 +149,16 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
   }
   const effectiveCanonical = page.canonicalUrl ?? page.headerCanonicalUrl;
   if (effectiveCanonical && effectiveCanonical !== page.url) {
-    report("canonicalized-page", { canonicalUrl: effectiveCanonical });
+    const crossDomainCanonical = reportCrossDomainCanonical(
+      effectiveCanonical,
+      page.url,
+      page.pageType,
+    );
+    if (crossDomainCanonical) {
+      report("canonical-cross-domain", crossDomainCanonical);
+    } else {
+      report("canonicalized-page", { canonicalUrl: effectiveCanonical });
+    }
   }
 
   // Content quality
@@ -150,5 +180,34 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
     report("deep-page", { crawlDepth: page.crawlDepth });
   }
 
+  // Salla adapter: validated product markup on completed extractions (the
+  // early returns above already exclude every other state).
+  if (page.pageType === "product") {
+    issues.push(...validateProductSchema(page));
+  }
+
   return issues;
+}
+
+/**
+ * Salla adapter canonical check: on completed product/category extractions a
+ * canonical pointing at another origin is its own verdict — costlier than the
+ * generic canonicalized-page, so it replaces that report for catalog pages.
+ */
+function reportCrossDomainCanonical(
+  canonicalUrl: string,
+  pageUrl: string,
+  pageType: CrawledPageResult["pageType"],
+): Record<string, unknown> | null {
+  if (pageType !== "product" && pageType !== "category") return null;
+  let pageOrigin: string | null = null;
+  let canonicalOrigin: string | null = null;
+  try {
+    pageOrigin = new URL(pageUrl).origin;
+    canonicalOrigin = new URL(canonicalUrl).origin;
+  } catch {
+    return null;
+  }
+  if (canonicalOrigin === pageOrigin) return null;
+  return { canonicalUrl, pageOrigin, canonicalOrigin };
 }

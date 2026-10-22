@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canonicalUrlKey,
+  crawlDedupKey,
   detectUrlTemplate,
   getOrigin,
   isSameOrigin,
@@ -72,6 +73,46 @@ describe("isSameOrigin", () => {
   it("rejects mismatched hosts", () => {
     expect(isSameOrigin("https://example.org", "https://example.com")).toBe(
       false,
+    );
+  });
+});
+
+describe("crawlDedupKey", () => {
+  it("collapses tracking-param variants of the same page", () => {
+    const plain = crawlDedupKey("https://example.com/products");
+    expect(plain).toBe(
+      crawlDedupKey(
+        "https://EXAMPLE.com/products?utm_source=newsletter&fbclid=abc",
+      ),
+    );
+    expect(plain).toBe(
+      crawlDedupKey("https://example.com/products#gclid=deadbeef"),
+    );
+  });
+
+  it("keeps meaningful query params as page identity", () => {
+    expect(crawlDedupKey("https://example.com/blog?page=2")).not.toBe(
+      crawlDedupKey("https://example.com/blog?page=3"),
+    );
+    expect(crawlDedupKey("https://example.com/shop?filter=a")).not.toBe(
+      crawlDedupKey("https://example.com/shop?filter=b"),
+    );
+  });
+
+  it("drops the fragment without treating it as param identity", () => {
+    expect(crawlDedupKey("https://example.com/page#section")).toBe(
+      crawlDedupKey("https://example.com/page"),
+    );
+  });
+
+  it("returns null for unsupported protocols", () => {
+    expect(crawlDedupKey("mailto:test@example.com")).toBeNull();
+    expect(crawlDedupKey("tel:+1234567890")).toBeNull();
+  });
+
+  it("lowercases the host", () => {
+    expect(crawlDedupKey("https://EXAMPLE.com/path")).toBe(
+      crawlDedupKey("https://example.com/path"),
     );
   });
 });
