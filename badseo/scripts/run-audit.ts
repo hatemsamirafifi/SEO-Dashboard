@@ -21,14 +21,17 @@ import {
   normalizeUrl,
   isSameOrigin,
 } from "../../src/server/lib/audit/url-utils";
-import { runPageReporters } from "../../src/server/lib/audit/issues/page-reporters";
 import {
+  findCanonicalIssues,
   findDuplicates,
   findRedirectChainsAndLoops,
   type SlimPage,
 } from "../../src/server/lib/audit/issues/multipage-checks";
-import type { DetectedIssue } from "../../src/server/lib/audit/issues/page-reporters";
-import type { CrawledPageResult } from "../../src/server/lib/audit/types";
+import { runPageReporters } from "../../src/server/lib/audit/issues/page-reporters";
+import type {
+  CrawledPageResult,
+  DetectedIssue,
+} from "../../src/server/lib/audit/types";
 import { AUDIT_ISSUE_TYPES } from "../../src/shared/audit-issues";
 import { allFixtures, fixturePaths } from "../src/fixtures/registry";
 import { TRAILING_SLASH_CANONICAL } from "../src/fixtures/redirects";
@@ -46,21 +49,61 @@ interface CrawlLink {
 
 async function warmup(): Promise<void> {
   // Prime the dev server so healthy pages don't read as slow on a cold start.
-  const paths = new Set<string>(["/", "/privacy"]);
+  // The paginated category variant shares the fixture's pathname, so warm it
+  // explicitly (it is reached via an in-page link, not the route table).
+  const paths = new Set<string>([
+    "/",
+    "/privacy",
+    "/salla/category/electronics?page=2",
+  ]);
   for (const f of allFixtures) for (const p of fixturePaths(f)) paths.add(p);
-  await Promise.all(
-    [...paths].map((p) =>
-      fetch(`${BASE}${p}`, {
-        redirect: "manual",
-        signal: AbortSignal.timeout(8000),
-      }).catch(() => {}),
-    ),
-  );
+  // Low concurrency and multiple rounds: the first hit compiles dev
+  // transforms, and a fully concurrent burst over-runs per-request timeouts
+  // while the transform queue is still catching up.
+  const list = [...paths];
+  for (let round = 0; round < 3; round++) {
+    for (let i = 0; i < list.length; i += 4) {
+      await Promise.all(
+        list.slice(i, i + 4).map((p) =>
+          fetch(`${BASE}${p}`, {
+            redirect: "manual",
+            signal: AbortSignal.timeout(15_000),
+          }).catch(() => {}),
+        ),
+      );
+    }
+  }
+
+  // Load the engine's page analyzer once before crawling: its dynamic
+  // import (cheerio et al) is a several-second module-graph compile in a
+  // cold process, and 10 concurrent first-batch fetches would otherwise
+  // record that stall inside their own responseTimeMs.
+  await crawlPage(`${BASE}/`).catch(() => {});
 }
 
 interface CrawlEntry {
   url: string;
   depth: number | null;
+}
+
+/**
+ * Engine sitemap discovery cannot run against private origins: the SSRF
+ * policy blocks "localhost" by name, so discoverUrls never sees the local
+ * sitemap. The harness is already allowed to hit localhost (its frontier
+ * reimplementation exists for this exact reason), so it reads /sitemap.xml
+ * directly as a fallback and the fixture gate still exercises the real route.
+ */
+async function fallbackSitemapUrls(origin: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${origin}/sitemap.xml`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return [];
+    const text = await res.text();
+    return [...text.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)].map((m) => m[1]);
+  } catch {
+    return [];
+  }
 }
 
 /** BFS crawl frontier: link-discovered URLs first, sitemap-only URLs last. */
@@ -73,9 +116,13 @@ async function crawl(origin: string): Promise<{
     origin,
     MAX_PAGES,
   );
+  const fallback =
+    sitemapUrls.length === 0 ? await fallbackSitemapUrls(origin) : [];
   const robots = parseRobotsTxt(origin, robotsText);
   const sitemapSet = new Set(
-    sitemapUrls.map((u) => normalizeUrl(u)).filter((u): u is string => !!u),
+    [...sitemapUrls, ...fallback]
+      .map((u) => normalizeUrl(u))
+      .filter((u): u is string => !!u),
   );
 
   const visited = new Set<string>();
@@ -122,13 +169,15 @@ async function crawl(origin: string): Promise<{
       batch.push(entry);
     }
 
-    const crawled = await Promise.all(
-      batch.map((e) => crawlPage(e.url, e.depth, sitemapSet.has(e.url))),
-    );
+    const crawled = await Promise.all(batch.map((e) => crawlPage(e.url)));
 
     for (let i = 0; i < crawled.length; i++) {
       const page = crawled[i];
       const depth = batch[i].depth;
+      // crawlPage is fetch-only; depth and sitemap membership are attached
+      // by the frontier, exactly like the production crawl pool does.
+      page.crawlDepth = depth;
+      page.inSitemap = sitemapSet.has(page.url);
       pages.push(page);
 
       for (const link of page.links) {
@@ -211,6 +260,7 @@ function toSlim(page: CrawledPageResult): SlimPage {
     url: page.url,
     statusCode: page.statusCode,
     fetchClass: page.fetchClass,
+    extractionState: page.extractionState,
     title: page.title || null,
     metaDescription: page.metaDescription || null,
     contentHash: page.contentHash,
@@ -219,6 +269,7 @@ function toSlim(page: CrawledPageResult): SlimPage {
     isIndexable: page.isIndexable,
     canonicalUrl: page.canonicalUrl,
     headerCanonicalUrl: page.headerCanonicalUrl,
+    pageType: page.pageType,
   };
 }
 
@@ -236,6 +287,13 @@ const INFO_ISSUES = new Set<IssueId>(
     (id) => AUDIT_ISSUE_TYPES[id].severity === "info",
   ),
 );
+
+function categoryPaginatedName(): string {
+  const fixture = allFixtures.find(
+    (f) => f.path === "/salla/category/electronics",
+  );
+  return `${fixture?.name ?? "Salla category"} — page 2`;
+}
 
 async function main() {
   console.log(c.bold(`\n🧪 badseo.dev audit harness → ${BASE}\n`));
@@ -259,6 +317,7 @@ async function main() {
   const slim = pages.map(toSlim);
   detected.push(...findDuplicates(slim));
   detected.push(...findRedirectChainsAndLoops(slim));
+  detected.push(...findCanonicalIssues(slim));
   detected.push(...findBrokenInternalLinks(pages, links));
   if (completed) detected.push(...findOrphanPages(pages, links, startUrl));
 
@@ -381,6 +440,16 @@ async function main() {
           ),
     });
   }
+
+  // Salla pagination: the category's ?page=2 variant shares the fixture's
+  // pathname (query strings are not route keys), so assert its canonical
+  // verdict explicitly instead of relying on a fixture row.
+  check(
+    categoryPaginatedName(),
+    "/salla/category/electronics?page=2",
+    ["canonicalized-page"],
+    false,
+  );
 
   // ---- report ----
   const pad = Math.max(...rows.map((r) => r.name.length));

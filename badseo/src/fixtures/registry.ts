@@ -7,6 +7,7 @@ import { redirectFixtures } from "./redirects";
 import { performanceFixtures } from "./performance";
 import { structureFixtures } from "./structure";
 import { kitchenSinkFixtures } from "./kitchen-sink";
+import { sallaFixtures } from "./salla";
 
 /** Every fixture on the site, in catalog order. */
 export const allFixtures: Fixture[] = [
@@ -18,6 +19,7 @@ export const allFixtures: Fixture[] = [
   ...performanceFixtures,
   ...structureFixtures,
   ...kitchenSinkFixtures,
+  ...sallaFixtures,
 ];
 
 /** All URL paths a fixture answers on (canonical + any duplicates). */
