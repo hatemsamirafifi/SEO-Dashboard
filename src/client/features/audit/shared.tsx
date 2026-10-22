@@ -1,4 +1,10 @@
-import { AlertCircle, CheckCircle, Loader2 } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle,
+  Loader2,
+  OctagonX,
+  TriangleAlert,
+} from "lucide-react";
 
 export const SUPPORT_URL = "https://everyapp.dev/support";
 
@@ -18,8 +24,19 @@ export function extractHostname(url: string): string {
   }
 }
 
+// SQLite's current_timestamp default stores UTC without a timezone marker
+// ("2026-10-19 12:34:56"); without appending Z, browsers parse it as local
+// time and shift self-hosted audit timestamps by the viewer's UTC offset.
+// Postgres rows carry a tz marker and pass through untouched.
+function parseTimestamp(dateStr: string): string {
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) {
+    return `${dateStr}Z`;
+  }
+  return dateStr;
+}
+
 export function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-US", {
+  return new Date(parseTimestamp(dateStr)).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -27,7 +44,7 @@ export function formatDate(dateStr: string): string {
 }
 
 export function formatStartedAt(dateStr: string): string {
-  return new Date(dateStr).toLocaleString("en-US", {
+  return new Date(parseTimestamp(dateStr)).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -48,6 +65,22 @@ export function StatusBadge({ status }: { status: string }) {
     return (
       <span className="badge badge-outline badge-sm gap-1 text-success/80 border-success/30 bg-success/5">
         <CheckCircle className="size-3" /> Done
+      </span>
+    );
+  }
+
+  if (status === "cancelled") {
+    return (
+      <span className="badge badge-warning badge-sm gap-1">
+        <OctagonX className="size-3" /> Cancelled
+      </span>
+    );
+  }
+
+  if (status === "completed_partial") {
+    return (
+      <span className="badge badge-warning badge-sm gap-1">
+        <TriangleAlert className="size-3" /> Partial
       </span>
     );
   }

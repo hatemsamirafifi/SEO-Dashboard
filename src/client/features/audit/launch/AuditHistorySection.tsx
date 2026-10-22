@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { MoreHorizontal, ScanSearch, Trash2 } from "lucide-react";
+import { MoreHorizontal, OctagonX, ScanSearch, Trash2 } from "lucide-react";
 import type { getAuditHistory } from "@/serverFunctions/audit";
 import { formatDate, StatusBadge } from "@/client/features/audit/shared";
 
@@ -8,11 +8,13 @@ export function AuditHistorySection({
   history,
   isLoading,
   onDelete,
+  onCancel,
 }: {
   projectId: string;
   history: Awaited<ReturnType<typeof getAuditHistory>>;
   isLoading: boolean;
   onDelete: (auditId: string) => void;
+  onCancel: (auditId: string) => void;
 }) {
   if (history.length === 0 && !isLoading) {
     return (
@@ -64,6 +66,8 @@ export function AuditHistorySection({
                       projectId={projectId}
                       auditId={audit.id}
                       onDelete={onDelete}
+                      onCancel={onCancel}
+                      canCancel={audit.status === "running"}
                     />
                   </td>
                 </tr>
@@ -80,10 +84,14 @@ function HistoryActions({
   projectId,
   auditId,
   onDelete,
+  onCancel,
+  canCancel,
 }: {
   projectId: string;
   auditId: string;
   onDelete: (auditId: string) => void;
+  onCancel: (auditId: string) => void;
+  canCancel: boolean;
 }) {
   return (
     <div className="flex items-center justify-end gap-2 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
@@ -108,6 +116,19 @@ function HistoryActions({
           tabIndex={0}
           className="dropdown-content z-10 menu p-2 shadow-lg bg-base-100 border border-base-300 rounded-box w-40"
         >
+          {canCancel ? (
+            <li>
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCancel(auditId);
+                }}
+              >
+                <OctagonX className="size-3.5" />
+                Stop audit
+              </button>
+            </li>
+          ) : null}
           <li>
             <button
               className="text-error"

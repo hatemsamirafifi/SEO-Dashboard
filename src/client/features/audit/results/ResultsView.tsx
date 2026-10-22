@@ -39,9 +39,31 @@ export function ResultsView({
     () => pages.filter((page) => page.fetchClass === "blocked").length,
     [pages],
   );
+  const rateLimitedCount = useMemo(
+    () => pages.filter((page) => page.fetchClass === "rate_limited").length,
+    [pages],
+  );
 
   return (
     <>
+      {rateLimitedCount > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 text-sm">
+          <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+          <p>
+            <span className="font-medium">
+              {rateLimitedCount} {rateLimitedCount === 1 ? "page" : "pages"}{" "}
+              answered 429 (rate limited).
+            </span>{" "}
+            <span className="text-base-content/70">
+              The audit retried with pauses, but the site's rate limits kept
+              those pages out of reach. Search engines get the same treatment
+              when they crawl too fast — consider heavy crawlers a rate-limit
+              exemption in your CDN settings, then re-run the audit.
+            </span>
+          </p>
+        </div>
+      )}
+
       {blockedCount > 0 && (
         <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 text-sm">
           <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" />
