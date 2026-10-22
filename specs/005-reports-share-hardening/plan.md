@@ -39,7 +39,7 @@ separate trust boundary (P40); credentials never logged/traced (P38); project sc
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 - P31 (immutable snapshots): PASS — FR-007, hardening wraps only.
 - P32/G7 (hash-only tokens): PASS — FR-001 incl. never-on-schedules rule + storage inspection test.

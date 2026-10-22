@@ -11,13 +11,13 @@ All five follow the `report-autopilot-tools.ts` definition shape:
 `mcpResponse` output (text + structuredContent + meta with deep link `/p/<projectId>/sam`),
 input validated by Zod, output wrapped by `looseObjectOutputSchema` + `optionalMetaOutputSchema`.
 
-| # | Tool name | Delegation (AutopilotService) | Input schema | Output | Annotations |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `start_autopilot_run` | `startAutopilotRun({ projectId, organizationId, userId, userEmail, workflowType, trigger: "sam_chat" })` | `{ workflowType: z.enum(AUTOPILOT_WORKFLOW_TYPES) }` (`projectId` stripped/injected by the adapter) | `{ runId, workflowType }` + text "Run `<id>` (`<type>`) started." | `readOnlyHint: false` |
-| 2 | `get_autopilot_run` | `getAutopilotRun` | `{ runId }` | `{ run, attempts, steps }` + step table text (mirrors the existing `get_autopilot_run` MCP tool's shape: id/kind/name/status columns) | `readOnlyHint: true` |
-| 3 | `list_autopilot_runs` | `listAutopilotRuns` | `{}` | `{ runs }` + bounded table (id, workflowType, status) | `readOnlyHint: true` |
-| 4 | `cancel_autopilot_run` | `cancelAutopilotRun` | `{ runId }` | `{ status }` + text | `readOnlyHint: false` |
-| 5 | `resume_autopilot_run` | `resumeAutopilotRun` | `{ runId }` | `{ runId, resumed }` + text | `readOnlyHint: false` |
+| #   | Tool name              | Delegation (AutopilotService)                                                                            | Input schema                                                                                        | Output                                                                                                                                | Annotations           |
+| --- | ---------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| 1   | `start_autopilot_run`  | `startAutopilotRun({ projectId, organizationId, userId, userEmail, workflowType, trigger: "sam_chat" })` | `{ workflowType: z.enum(AUTOPILOT_WORKFLOW_TYPES) }` (`projectId` stripped/injected by the adapter) | `{ runId, workflowType }` + text "Run `<id>` (`<type>`) started."                                                                     | `readOnlyHint: false` |
+| 2   | `get_autopilot_run`    | `getAutopilotRun`                                                                                        | `{ runId }`                                                                                         | `{ run, attempts, steps }` + step table text (mirrors the existing `get_autopilot_run` MCP tool's shape: id/kind/name/status columns) | `readOnlyHint: true`  |
+| 3   | `list_autopilot_runs`  | `listAutopilotRuns`                                                                                      | `{}`                                                                                                | `{ runs }` + bounded table (id, workflowType, status)                                                                                 | `readOnlyHint: true`  |
+| 4   | `cancel_autopilot_run` | `cancelAutopilotRun`                                                                                     | `{ runId }`                                                                                         | `{ status }` + text                                                                                                                   | `readOnlyHint: false` |
+| 5   | `resume_autopilot_run` | `resumeAutopilotRun`                                                                                     | `{ runId }`                                                                                         | `{ runId, resumed }` + text                                                                                                           | `readOnlyHint: false` |
 
 Rules:
 
@@ -87,13 +87,13 @@ labels/descriptions for the new types come from the shared records.
 
 ## 6. Acceptance mapping
 
-| Spec FR | Contract clause |
-| --- | --- |
-| FR-010 (same services, adapter patterns) | §1.1, §2.1 |
-| FR-011 (allowlist, fail closed) | §1.2, §2.1 |
-| FR-012 (existing budgets) | §2.4 |
-| FR-013 (durable reads, ledger authoritative) | §1.2, §2.2, §5 |
-| FR-014 (project scoping) | §2.1, §5 |
-| FR-015 (no paid reads, chat provenance) | §1.1, §2.5 |
-| SC-003 (E2E lifecycle) | §1, §2 |
-| SC-004 (allowlist rejections) | §1.2 |
+| Spec FR                                      | Contract clause |
+| -------------------------------------------- | --------------- |
+| FR-010 (same services, adapter patterns)     | §1.1, §2.1      |
+| FR-011 (allowlist, fail closed)              | §1.2, §2.1      |
+| FR-012 (existing budgets)                    | §2.4            |
+| FR-013 (durable reads, ledger authoritative) | §1.2, §2.2, §5  |
+| FR-014 (project scoping)                     | §2.1, §5        |
+| FR-015 (no paid reads, chat provenance)      | §1.1, §2.5      |
+| SC-003 (E2E lifecycle)                       | §1, §2          |
+| SC-004 (allowlist rejections)                | §1.2            |

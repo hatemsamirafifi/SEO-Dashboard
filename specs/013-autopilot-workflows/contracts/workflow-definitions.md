@@ -27,11 +27,11 @@ Rules:
 
 ## 2. Workflow shapes (all three follow the existing three-step pattern)
 
-| Workflow | Type | Steps | Collects (stored only) |
-| --- | --- | --- | --- |
-| Content refresh (E1a) | `content_refresh` | collect → correlate → synthesize | engine state (opportunities + insights) via existing `collectEngineState` |
-| Technical SEO (E1b) | `technical_seo` | collect → correlate → synthesize | latest audit + issues (`AuditRepository.getLatestAuditForProject` / `getIssuesForAudit`) + engine state |
-| Monthly review (E1c) | `monthly_review` | collect → correlate → synthesize | two-window reports collectors (`reportSections.ts`) + latest-state overview parts + engine state |
+| Workflow              | Type              | Steps                            | Collects (stored only)                                                                                  |
+| --------------------- | ----------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Content refresh (E1a) | `content_refresh` | collect → correlate → synthesize | engine state (opportunities + insights) via existing `collectEngineState`                               |
+| Technical SEO (E1b)   | `technical_seo`   | collect → correlate → synthesize | latest audit + issues (`AuditRepository.getLatestAuditForProject` / `getIssuesForAudit`) + engine state |
+| Monthly review (E1c)  | `monthly_review`  | collect → correlate → synthesize | two-window reports collectors (`reportSections.ts`) + latest-state overview parts + engine state        |
 
 Common step rules (inherited contracts — re-asserted by tests):
 
@@ -119,10 +119,10 @@ versions; `collectedAt` in frozen evidence keeps staleness visible (P46).
 
 ## 7. Acceptance mapping
 
-| Spec FR | Contract clause |
-| --- | --- |
-| FR-001–003 | §2 common rules, §3.1, §4 |
-| FR-004–006 | §3.2 (coverage semantics, facts/recommendations, no side-effect steps) |
-| FR-007–009 | §3.3 (windows, envelopes, frozen evidence), §5 |
-| FR-016 (extends existing runtime) | §1, §6 |
-| SC-001/SC-002/SC-005/SC-006/SC-008 | §4, §3.2, §3.3 |
+| Spec FR                            | Contract clause                                                        |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| FR-001–003                         | §2 common rules, §3.1, §4                                              |
+| FR-004–006                         | §3.2 (coverage semantics, facts/recommendations, no side-effect steps) |
+| FR-007–009                         | §3.3 (windows, envelopes, frozen evidence), §5                         |
+| FR-016 (extends existing runtime)  | §1, §6                                                                 |
+| SC-001/SC-002/SC-005/SC-006/SC-008 | §4, §3.2, §3.3                                                         |

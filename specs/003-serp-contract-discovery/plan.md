@@ -38,7 +38,7 @@ snapshot-time vs fetch-time distinct (P19); absent features stay absent (P8); no
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 - P2/G4 (no second resolver; contract before enrichment): PASS — this package SHIPS the G4 gate.
 - P14 (one normalized SERP model): PASS — FR-002/FR-004.

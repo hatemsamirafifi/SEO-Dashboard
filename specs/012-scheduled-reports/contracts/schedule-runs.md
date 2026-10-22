@@ -57,14 +57,14 @@ runScheduledReportRuns():
 
 ### Sender (`scheduledReportEmail.ts` — Loops auth paths in `loops.ts` stay frozen)
 
-| Concern | Contract |
-| --- | --- |
-| Idempotency | `Idempotency-Key: sha256(scheduleId \| scheduledFor \| recipient)` header on every send (research R3) — provider-side dedup covers retries/re-execution for the recipient |
-| Classification | `429`, `5xx`, network → **transient** (bounded: 2 retries/recipient/run); `400`, `404`, `401/403`, 409-mismatch → **permanent** (no retry); both recorded as `failureClass` |
+| Concern        | Contract                                                                                                                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Idempotency    | `Idempotency-Key: sha256(scheduleId \| scheduledFor \| recipient)` header on every send (research R3) — provider-side dedup covers retries/re-execution for the recipient                                      |
+| Classification | `429`, `5xx`, network → **transient** (bounded: 2 retries/recipient/run); `400`, `404`, `401/403`, 409-mismatch → **permanent** (no retry); both recorded as `failureClass`                                    |
 | Missing config | absent `LOOPS_API_KEY` / `LOOPS_TRANSACTIONAL_SCHEDULED_REPORT_ID` → **fail closed before any request**; run state `failed`, `failureClass: missing_configuration` (never a silent skip; 009-observed honesty) |
-| Log hygiene | logs carry status, classification, key-hash — **never recipient addresses** (009 finding: current paths log them; the new path fixes this day one; `recipient_outcomes` in the row stores hashes only) |
-| Payload | link-based MVP (share reference) — **no attachments** (009: provider per-account enablement pending; deferred) |
-| States | per [data-model.md](../data-model.md) §2: `delivered` (all sent), `partially_delivered` (some sent), `failed` (none sent + class), `skipped` (reason: `paused_before_send`, `no_recipients_after_validation`) |
+| Log hygiene    | logs carry status, classification, key-hash — **never recipient addresses** (009 finding: current paths log them; the new path fixes this day one; `recipient_outcomes` in the row stores hashes only)         |
+| Payload        | link-based MVP (share reference) — **no attachments** (009: provider per-account enablement pending; deferred)                                                                                                 |
+| States         | per [data-model.md](../data-model.md) §2: `delivered` (all sent), `partially_delivered` (some sent), `failed` (none sent + class), `skipped` (reason: `paused_before_send`, `no_recipients_after_validation`)  |
 
 ### Trace / telemetry
 

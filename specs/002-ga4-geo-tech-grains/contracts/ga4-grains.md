@@ -7,7 +7,7 @@ Server-function read contract for analytics device/country filtering. Stored gra
 ## Grain read functions
 
 - `getAnalyticsGeo({ projectId, propertyId, from, to })` → rows `{ country, sessions, engagedSessions,
-  userEngagementDuration, screenPageViews, eventCount, newUsers, isOtherRow }` + `coverage[]` per date +
+userEngagementDuration, screenPageViews, eventCount, newUsers, isOtherRow }` + `coverage[]` per date +
   `truncation` flags where applicable.
 - `getAnalyticsTechnology({ projectId, propertyId, from, to, dimension: device|browser|os })` → same
   shape keyed by the requested dimension (full composite stored; single-dimension reads aggregate only

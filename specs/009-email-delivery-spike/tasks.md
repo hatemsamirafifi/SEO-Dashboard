@@ -13,7 +13,7 @@
 **Purpose**: Declare the time-box and baseline before verification begins
 
 - [x] T001 Declare the time-box: record start date + deadline at the top of the working evidence notes (these become the `timeBox` fields of `verdict.md` per `contracts/delivery-verdict.md`); verify baseline green with `pnpm types:check` (no production code changes expected at any point)
-- [X] T002 [P] Inventory the current path (evidence baseline, no code changes): document `src/server/email/loops.ts` (transactional send `:38-76`, required env `:14-23`, signup skip-with-warning `:88-98`) and `src/server/email/loops-client.ts` (contacts `:22-54`) exactly as research.md Decision 1 records them, noting the gaps the spike must close (no transient/permanent classification, no retry, no duplicate-send protection today)
+- [x] T002 [P] Inventory the current path (evidence baseline, no code changes): document `src/server/email/loops.ts` (transactional send `:38-76`, required env `:14-23`, signup skip-with-warning `:88-98`) and `src/server/email/loops-client.ts` (contacts `:22-54`) exactly as research.md Decision 1 records them, noting the gaps the spike must close (no transient/permanent classification, no retry, no duplicate-send protection today)
 
 ---
 
@@ -68,9 +68,9 @@
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [X] T012 Run `pnpm types:check && pnpm oxlint` (harness included) and fix any violations in evidence tooling
-- [X] T013 Run quickstart.md validation scenarios end-to-end (checklist execution, failure/duplicate observation, verdict recorded, zero production changes — review everything the spike merged: evidence tooling + docs only)
-- [X] T014 Update spec status wiring: confirm spec 012's Draft gate reads the verdict (`EMAIL_DELIVERY_READY` unblocks planning; `BLOCKED` keeps it Draft with the recorded reason discoverable)
+- [x] T012 Run `pnpm types:check && pnpm oxlint` (harness included) and fix any violations in evidence tooling
+- [x] T013 Run quickstart.md validation scenarios end-to-end (checklist execution, failure/duplicate observation, verdict recorded, zero production changes — review everything the spike merged: evidence tooling + docs only)
+- [x] T014 Update spec status wiring: confirm spec 012's Draft gate reads the verdict (`EMAIL_DELIVERY_READY` unblocks planning; `BLOCKED` keeps it Draft with the recorded reason discoverable)
 
 ---
 

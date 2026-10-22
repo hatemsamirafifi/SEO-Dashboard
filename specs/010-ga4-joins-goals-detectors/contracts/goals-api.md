@@ -10,7 +10,7 @@ binding decision.
 ### `createGa4Goal`
 
 - **Input**: `{ projectId, name: string(1..100 trimmed), eventName: string(1..100 trimmed),
-  matchKeyEventOnly: boolean = false }`
+matchKeyEventOnly: boolean = false }`
 - **Behavior**: enforces active-goal cap (default 20 → `VALIDATION_ERROR` naming the cap); name unique
   among active goals (`VALIDATION_ERROR`); persists; emits `ga4_goal_change` trace.
 - **Output**: `{ goal }` — `Ga4GoalRow` (id, projectId, organizationId, name, eventName,
@@ -47,7 +47,7 @@ The existing analytics schemas (`analyticsOverviewSchema`, `analyticsAcquisition
 
 - **Semantics**: when `goalId` is present, conversion/conversion-adjacent figures are scoped to that
   goal's event binding (R1: `event_name = goal.eventName` + `matchKeyEventOnly` flag) computed from
-  stored `ga4_daily_events` sums over SUCCESS_*-covered dates. Other metrics are unaffected.
+  stored `ga4_daily_events` sums over SUCCESS\_\*-covered dates. Other metrics are unaffected.
 - **Invalid `goalId`** (unknown, other-project, or archived): `NOT_FOUND`-class error — never a silent
   empty result (failure ≠ empty, P9).
 - **Zero-row success**: a goal whose event has no rows in the window renders **no-data** (`AnalyticsCoverage`

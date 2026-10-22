@@ -12,7 +12,7 @@
 
 **Purpose**: Baseline verification before extending the dashboard read model
 
-- [X] T001 Verify baseline green: run `pnpm test DashboardService` and `pnpm types:check` on main before changes
+- [x] T001 Verify baseline green: run `pnpm test DashboardService` and `pnpm types:check` on main before changes
 
 ---
 
@@ -22,9 +22,9 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T002 Implement shared date-boundary resolver (current + immediately-preceding equal-length day-aligned windows) in `src/server/features/gsc/searchPerformanceReport.ts`
-- [X] T003 [P] Add `SectionPayload`, `PeriodDelta` (with `previous == null ⟹ change/changePct == null` invariant), and `CoverageNote` types in `src/shared/intelligence.ts`
-- [X] T004 [P] Add coverage-to-`SectionState` mapper (11-state vocabulary, failure never zero) in `src/shared/intelligence.ts`
+- [x] T002 Implement shared date-boundary resolver (current + immediately-preceding equal-length day-aligned windows) in `src/server/features/gsc/searchPerformanceReport.ts`
+- [x] T003 [P] Add `SectionPayload`, `PeriodDelta` (with `previous == null ⟹ change/changePct == null` invariant), and `CoverageNote` types in `src/shared/intelligence.ts`
+- [x] T004 [P] Add coverage-to-`SectionState` mapper (11-state vocabulary, failure never zero) in `src/shared/intelligence.ts`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -40,15 +40,15 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [X] T005 [P] [US1] Overview contract test (8 sections, delta invariant, unavailable-on-failure) in `src/server/features/dashboard/services/DashboardService.test.ts`
-- [X] T006 [P] [US1] Null-delta test (missing prior coverage → null delta, never 0%/±100%) in `src/server/features/dashboard/services/DashboardService.test.ts`
+- [x] T005 [P] [US1] Overview contract test (8 sections, delta invariant, unavailable-on-failure) in `src/server/features/dashboard/services/DashboardService.test.ts`
+- [x] T006 [P] [US1] Null-delta test (missing prior coverage → null delta, never 0%/±100%) in `src/server/features/dashboard/services/DashboardService.test.ts`
 
 ### Implementation for User Story 1
 
-- [X] T007 [P] [US1] Aggregate SEO Performance section (clicks, impressions, CTR, avg position + deltas) in `src/server/features/dashboard/services/DashboardService.ts`
-- [X] T008 [P] [US1] Aggregate Search Visibility section (Top 3/10/100, improved/declined, unavailable counts) in `src/server/features/dashboard/services/DashboardService.ts`
-- [X] T009 [P] [US1] Aggregate Traffic & Engagement section (sessions, organic, engaged, rate + coverage) in `src/server/features/dashboard/services/DashboardService.ts`
-- [X] T010 [US1] Wire extended `getDashboardOverview` in `src/serverFunctions/dashboard.ts` (project-scoped, stored reads only)
+- [x] T007 [P] [US1] Aggregate SEO Performance section (clicks, impressions, CTR, avg position + deltas) in `src/server/features/dashboard/services/DashboardService.ts`
+- [x] T008 [P] [US1] Aggregate Search Visibility section (Top 3/10/100, improved/declined, unavailable counts) in `src/server/features/dashboard/services/DashboardService.ts`
+- [x] T009 [P] [US1] Aggregate Traffic & Engagement section (sessions, organic, engaged, rate + coverage) in `src/server/features/dashboard/services/DashboardService.ts`
+- [x] T010 [US1] Wire extended `getDashboardOverview` in `src/serverFunctions/dashboard.ts` (project-scoped, stored reads only)
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -62,14 +62,14 @@
 
 ### Tests for User Story 2
 
-- [X] T011 [P] [US2] Section tests (Conversions not-configured, stale/no-audit, empty backlinks) in `src/server/features/dashboard/services/DashboardService.test.ts`
+- [x] T011 [P] [US2] Section tests (Conversions not-configured, stale/no-audit, empty backlinks) in `src/server/features/dashboard/services/DashboardService.test.ts`
 
 ### Implementation for User Story 2
 
-- [X] T012 [P] [US2] Aggregate Conversions section (key events, transactions, not-configured state) in `src/server/features/dashboard/services/DashboardService.ts`
-- [X] T013 [P] [US2] Aggregate Opportunities section (Critical/High/Medium counts + deep link) in `src/server/features/dashboard/services/DashboardService.ts`
-- [X] T014 [P] [US2] Aggregate Technical Health section (audit health, important-page issues, stale states) in `src/server/features/dashboard/services/DashboardService.ts`
-- [X] T015 [US2] Aggregate Backlinks section (totals, referring domains, new/lost) in `src/server/features/dashboard/services/DashboardService.ts`
+- [x] T012 [P] [US2] Aggregate Conversions section (key events, transactions, not-configured state) in `src/server/features/dashboard/services/DashboardService.ts`
+- [x] T013 [P] [US2] Aggregate Opportunities section (Critical/High/Medium counts + deep link) in `src/server/features/dashboard/services/DashboardService.ts`
+- [x] T014 [P] [US2] Aggregate Technical Health section (audit health, important-page issues, stale states) in `src/server/features/dashboard/services/DashboardService.ts`
+- [x] T015 [US2] Aggregate Backlinks section (totals, referring domains, new/lost) in `src/server/features/dashboard/services/DashboardService.ts`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -83,11 +83,11 @@
 
 ### Tests for User Story 3
 
-- [X] T016 [P] [US3] Recent-changes feed test (fact/recommendation split, badges) in `src/server/features/dashboard/services/DashboardService.test.ts`
+- [x] T016 [P] [US3] Recent-changes feed test (fact/recommendation split, badges) in `src/server/features/dashboard/services/DashboardService.test.ts`
 
 ### Implementation for User Story 3
 
-- [X] T017 [US3] Aggregate Recent Changes section from stored insights in `src/server/features/dashboard/services/DashboardService.ts`
+- [x] T017 [US3] Aggregate Recent Changes section from stored insights in `src/server/features/dashboard/services/DashboardService.ts`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -97,8 +97,8 @@
 
 **Purpose**: Gates and contract freeze for A1 consumers
 
-- [X] T018 Run `pnpm types:check`, `pnpm oxlint`, and full dashboard test suite
-- [X] T019 [P] Run quickstart.md validation scenarios 1–4 and freeze response shape vs `contracts/overview-api.md`
+- [x] T018 Run `pnpm types:check`, `pnpm oxlint`, and full dashboard test suite
+- [x] T019 [P] Run quickstart.md validation scenarios 1–4 and freeze response shape vs `contracts/overview-api.md`
 
 ---
 

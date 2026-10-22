@@ -8,13 +8,13 @@ schemas). The existing durable triples absorb the feature as data:
 
 ### autopilot_runs (`src/db/autopilot.schema.ts` + `src/db/pg/autopilot.schema.ts`)
 
-| Field | Existing semantics | New values from this feature |
-| --- | --- | --- |
-| `workflowType` (text) | registered workflow identity | + `content_refresh`, `technical_seo`, `monthly_review` |
-| `trigger` (text) | who started it (`manual` default) | + `sam_chat` (≤ 40 chars; written by the start tool, ≤ 40 fits existing column) |
-| `status` | `pending \| running \| completed \| failed \| cancelled` | unchanged |
-| `errorClass` (text, nullable) | failure classification | unchanged (executor's classes) |
-| other fields | run identity, scoping, timestamps, `currentAttemptId`, `evidenceHash` | unchanged |
+| Field                         | Existing semantics                                                    | New values from this feature                                                    |
+| ----------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `workflowType` (text)         | registered workflow identity                                          | + `content_refresh`, `technical_seo`, `monthly_review`                          |
+| `trigger` (text)              | who started it (`manual` default)                                     | + `sam_chat` (≤ 40 chars; written by the start tool, ≤ 40 fits existing column) |
+| `status`                      | `pending \| running \| completed \| failed \| cancelled`              | unchanged                                                                       |
+| `errorClass` (text, nullable) | failure classification                                                | unchanged (executor's classes)                                                  |
+| other fields                  | run identity, scoping, timestamps, `currentAttemptId`, `evidenceHash` | unchanged                                                                       |
 
 Validation rules: `workflowType` must be a member of `AUTOPILOT_WORKFLOW_TYPES`
 (`src/shared/autopilot.ts`) at every trust boundary (server-function Zod schema, SAM tool
@@ -186,12 +186,12 @@ No new relationships: evidence payloads reference stored rows by id/logicalKey o
 
 ## 4. Validation rules summary (trust boundaries)
 
-| Boundary | Rule |
-| --- | --- |
-| Server fn / SAM tool input | `workflowType` ∈ `AUTOPILOT_WORKFLOW_TYPES` (Zod enum); `runId` non-empty; `trigger` ≤ 40 |
-| Service registry | unknown workflowType → `VALIDATION_ERROR`, no run row (existing behavior) |
-| Step evidence | must JSON-serialize (executor requirement); serializer enforces observational safety + qualitative-only impacts |
-| Collect output | collector envelopes verbatim — `null` stays `null`, unavailable stays unavailable (G9) |
+| Boundary                   | Rule                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Server fn / SAM tool input | `workflowType` ∈ `AUTOPILOT_WORKFLOW_TYPES` (Zod enum); `runId` non-empty; `trigger` ≤ 40                       |
+| Service registry           | unknown workflowType → `VALIDATION_ERROR`, no run row (existing behavior)                                       |
+| Step evidence              | must JSON-serialize (executor requirement); serializer enforces observational safety + qualitative-only impacts |
+| Collect output             | collector envelopes verbatim — `null` stays `null`, unavailable stays unavailable (G9)                          |
 
 ## 5. Parity statement
 

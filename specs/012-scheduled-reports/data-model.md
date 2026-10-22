@@ -5,26 +5,27 @@ Phase 1 design artifact. Two new tables (additive, D1+PG parity per P3–P5); al
 
 ## 1. `report_schedules` (new — D1 `src/db/reports.schema.ts`, PG mirror)
 
-| Column | Type | Constraints / notes |
-| --- | --- | --- |
-| `id` | text PK | uuid at insert |
-| `project_id` | text FK → projects | `onDelete: cascade` (deleted project removes schedules) |
-| `organization_id` | text not null | tenancy |
-| `report_type` | text not null | one of `REPORT_TYPES` (frozen vocabulary from `shared/reports.ts`) |
-| `cadence` | text not null | `weekly` \| `monthly` (MVP set; enum locked by Zod + shared const) |
-| `recipients` | text not null | JSON string array of emails; **deduplicated and lowercased at write time**; Zod-validated array with a bounded count (MVP: ≤ 10) |
-| `share_id` | text nullable | reference to `report_shares.id` — **never a raw token** (P32/G7); present ⇒ email links to the shared view |
-| `active` | integer boolean not null | default true |
-| `paused_at` | text nullable | set on pause; cleared on resume (the "user action" marker) |
-| `next_due_at` | text not null | UTC ISO datetime; the cron due-query key (`active AND next_due_at <= now`) |
-| `last_run_at` | text nullable | display + honesty (FR-005); not a scheduling input |
-| `created_by_user_id` | text nullable | audit |
-| `created_at` / `updated_at` | text not null | `(current_timestamp)` defaults, house convention |
+| Column                      | Type                     | Constraints / notes                                                                                                              |
+| --------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                        | text PK                  | uuid at insert                                                                                                                   |
+| `project_id`                | text FK → projects       | `onDelete: cascade` (deleted project removes schedules)                                                                          |
+| `organization_id`           | text not null            | tenancy                                                                                                                          |
+| `report_type`               | text not null            | one of `REPORT_TYPES` (frozen vocabulary from `shared/reports.ts`)                                                               |
+| `cadence`                   | text not null            | `weekly` \| `monthly` (MVP set; enum locked by Zod + shared const)                                                               |
+| `recipients`                | text not null            | JSON string array of emails; **deduplicated and lowercased at write time**; Zod-validated array with a bounded count (MVP: ≤ 10) |
+| `share_id`                  | text nullable            | reference to `report_shares.id` — **never a raw token** (P32/G7); present ⇒ email links to the shared view                       |
+| `active`                    | integer boolean not null | default true                                                                                                                     |
+| `paused_at`                 | text nullable            | set on pause; cleared on resume (the "user action" marker)                                                                       |
+| `next_due_at`               | text not null            | UTC ISO datetime; the cron due-query key (`active AND next_due_at <= now`)                                                       |
+| `last_run_at`               | text nullable            | display + honesty (FR-005); not a scheduling input                                                                               |
+| `created_by_user_id`        | text nullable            | audit                                                                                                                            |
+| `created_at` / `updated_at` | text not null            | `(current_timestamp)` defaults, house convention                                                                                 |
 
 Indexes: `report_schedules_project_idx (project_id)`; `report_schedules_due_idx (active,
 next_due_at)` — the cron pass's only query shape.
 
 Validation rules (enforced at the Zod trust boundary + service):
+
 - `cadence ∈ {weekly, monthly}`; `recipients` non-empty, each a valid email, deduped, ≤ 10;
   `share_id`, when present, must resolve to a share of a report in the same project.
 - `report_type` must be one of the frozen `REPORT_TYPES`.
@@ -32,19 +33,19 @@ Validation rules (enforced at the Zod trust boundary + service):
 
 ## 2. `report_schedule_runs` (new — the P33 ledger)
 
-| Column | Type | Constraints / notes |
-| --- | --- | --- |
-| `id` | text PK | uuid at insert |
-| `schedule_id` | text FK → report_schedules | `onDelete: cascade` |
-| `scheduled_for` | text not null | period key: `YYYY-MM-DD` (Monday) or `YYYY-MM-01` — see research R2 |
-| `report_id` | text nullable FK → reports | set after generation; null while claimed/failed-generation |
-| `state` | text not null | `claimed` \| `generating` \| `delivering` \| `delivered` \| `partially_delivered` \| `failed` \| `skipped` |
-| `failure_class` | text nullable | `generation` \| `transient_send` \| `permanent_send` \| `missing_configuration` \| null |
-| `skip_reason` | text nullable | e.g. `paused_before_send`, `no_recipients_after_validation` |
-| `recipient_outcomes` | text nullable | JSON array: `{ recipientHash, outcome: sent\|transient_failed\|permanent_failed }` — hashed addresses (log-hygiene extends to at-rest payloads) |
-| `claimed_at` | text not null | insert timestamp; staleness window anchor |
-| `completed_at` | text nullable | terminal-state timestamp |
-| `created_at` / `updated_at` | text not null | house convention |
+| Column                      | Type                       | Constraints / notes                                                                                                                             |
+| --------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                        | text PK                    | uuid at insert                                                                                                                                  |
+| `schedule_id`               | text FK → report_schedules | `onDelete: cascade`                                                                                                                             |
+| `scheduled_for`             | text not null              | period key: `YYYY-MM-DD` (Monday) or `YYYY-MM-01` — see research R2                                                                             |
+| `report_id`                 | text nullable FK → reports | set after generation; null while claimed/failed-generation                                                                                      |
+| `state`                     | text not null              | `claimed` \| `generating` \| `delivering` \| `delivered` \| `partially_delivered` \| `failed` \| `skipped`                                      |
+| `failure_class`             | text nullable              | `generation` \| `transient_send` \| `permanent_send` \| `missing_configuration` \| null                                                         |
+| `skip_reason`               | text nullable              | e.g. `paused_before_send`, `no_recipients_after_validation`                                                                                     |
+| `recipient_outcomes`        | text nullable              | JSON array: `{ recipientHash, outcome: sent\|transient_failed\|permanent_failed }` — hashed addresses (log-hygiene extends to at-rest payloads) |
+| `claimed_at`                | text not null              | insert timestamp; staleness window anchor                                                                                                       |
+| `completed_at`              | text nullable              | terminal-state timestamp                                                                                                                        |
+| `created_at` / `updated_at` | text not null              | house convention                                                                                                                                |
 
 **Hard constraint**: `UNIQUE(schedule_id, scheduled_for)` via `uniqueIndex` on both dialects —
 the exactly-once enforcement point (research R1). Index:

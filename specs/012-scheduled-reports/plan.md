@@ -57,6 +57,7 @@ Playwright
 
 **Storage**: two new tables in `src/db/reports.schema.ts` + `src/db/pg/reports.schema.ts`
 (additive, D1+PG parity, project-scoped FKs — P3–P5):
+
 - `report_schedules`: `id`, `projectId` (FK cascade), `organizationId`, `reportType`, `cadence`
   (`weekly`|`monthly`), `recipients` (JSON array, deduped), `active`, `pausedAt`, `shareId`
   (nullable ref), `nextDueAt`, `lastRunAt`, `createdByUserId`, timestamps; indexes on
@@ -93,6 +94,7 @@ P43–P45 (TDD, `pnpm types:check` + `pnpm oxlint` + parity gates).
 15-minute cron gives ≥4 due-checks per hour (ample for weekly/monthly granularity).
 
 **Open technical decisions** (resolved in [research.md](./research.md)):
+
 - R1: ledger claim semantics — how exactly-once is enforced across concurrent cron invocations
   on both D1 and PG (transactional claim vs unique-catch).
 - R2: cadence/`scheduledFor` derivation and late-run semantics (month boundaries, paused spans,
@@ -104,7 +106,7 @@ P43–P45 (TDD, `pnpm types:check` + `pnpm oxlint` + parity gates).
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 **Post-Phase-1 re-check (2026-10-03): PASS.** Design artifacts ([data-model.md](./data-model.md),
 [contracts/](./contracts/)) re-verified row-by-row after design: the ledger enforces
@@ -118,21 +120,21 @@ nothing else); delivery is gated on 009 with an explicit verdict-check task (G6)
 credential semantics + log hygiene match the 009-verified degradation pattern. No violations; no
 complexity-tracking entries required.
 
-| Gate / Principle | Requirement for this feature | Status |
-| --- | --- | --- |
-| P1/P2 (layers, no competing architecture) | Server fn → new `ReportScheduleService`/`ScheduleRunService` → new repository; generation reuses `ReportService.generateReport`; no second report generator or scheduler | PASS by design |
-| P3–P5 (DB law) | `report_schedules` + `report_schedule_runs` additive on D1+PG, project-scoped FKs, parity + migration tests in same change | PASS — data-model.md |
-| P31 (immutable snapshots) | Scheduled reports are ordinary `reports` rows via the existing generator (frozen payload/provenance/branding) | PASS — inherited |
-| P32/G7 (hash-only shares) | Schedules reference `shareId` (and hash) — raw token exists only at creation, never in schedule/run data | PASS — contract |
-| P33 (idempotent schedules) | Durable ledger + `UNIQUE(scheduleId, scheduledFor)` + claim-before-do; re-entry/retry never double-generates or double-sends | PASS — ledger contract + tests named |
-| P37 (Cloudflare-native execution) | One new pass in the existing `scheduled()` handler; no new queues/crons/third-party schedulers | PASS |
-| P21 (zero-row ≠ failure) | Data-less projects generate honest-empty reports and deliver them; skipped/paused are distinct from failed | PASS — run states |
-| P38–P40 (security) | `requireProjectContext` on every management fn + auth tests; cron system-scoped like existing passes; public share route untouched | PASS |
-| P41–P42 (trace/ledgers) | Schedule/run ops write trace entries consistent with existing taxonomy; the run ledger — not the trace — is authoritative | PASS |
-| P43–P45 (tests/gates) | TDD; repository/scheduler/sender/service/UI/E2E categories; `pnpm types:check` + `pnpm oxlint` + parity gates | PASS — quickstart.md |
-| G6 (delivery verification) | Delivery slice gated on 009 = `EMAIL_DELIVERY_READY`; verdict-check task precedes any delivery code | PASS — structural gate |
-| G10 (no render-time paid work) | Generation reads stored data only (existing generator's contract); UI reads stored schedules/runs | PASS |
-| P50 (scope discipline) | MVP weekly/monthly only; no attachments (009: provider enablement pending); no per-timezone scheduling; auth-email paths untouched | PASS |
+| Gate / Principle                          | Requirement for this feature                                                                                                                                             | Status                               |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| P1/P2 (layers, no competing architecture) | Server fn → new `ReportScheduleService`/`ScheduleRunService` → new repository; generation reuses `ReportService.generateReport`; no second report generator or scheduler | PASS by design                       |
+| P3–P5 (DB law)                            | `report_schedules` + `report_schedule_runs` additive on D1+PG, project-scoped FKs, parity + migration tests in same change                                               | PASS — data-model.md                 |
+| P31 (immutable snapshots)                 | Scheduled reports are ordinary `reports` rows via the existing generator (frozen payload/provenance/branding)                                                            | PASS — inherited                     |
+| P32/G7 (hash-only shares)                 | Schedules reference `shareId` (and hash) — raw token exists only at creation, never in schedule/run data                                                                 | PASS — contract                      |
+| P33 (idempotent schedules)                | Durable ledger + `UNIQUE(scheduleId, scheduledFor)` + claim-before-do; re-entry/retry never double-generates or double-sends                                             | PASS — ledger contract + tests named |
+| P37 (Cloudflare-native execution)         | One new pass in the existing `scheduled()` handler; no new queues/crons/third-party schedulers                                                                           | PASS                                 |
+| P21 (zero-row ≠ failure)                  | Data-less projects generate honest-empty reports and deliver them; skipped/paused are distinct from failed                                                               | PASS — run states                    |
+| P38–P40 (security)                        | `requireProjectContext` on every management fn + auth tests; cron system-scoped like existing passes; public share route untouched                                       | PASS                                 |
+| P41–P42 (trace/ledgers)                   | Schedule/run ops write trace entries consistent with existing taxonomy; the run ledger — not the trace — is authoritative                                                | PASS                                 |
+| P43–P45 (tests/gates)                     | TDD; repository/scheduler/sender/service/UI/E2E categories; `pnpm types:check` + `pnpm oxlint` + parity gates                                                            | PASS — quickstart.md                 |
+| G6 (delivery verification)                | Delivery slice gated on 009 = `EMAIL_DELIVERY_READY`; verdict-check task precedes any delivery code                                                                      | PASS — structural gate               |
+| G10 (no render-time paid work)            | Generation reads stored data only (existing generator's contract); UI reads stored schedules/runs                                                                        | PASS                                 |
+| P50 (scope discipline)                    | MVP weekly/monthly only; no attachments (009: provider enablement pending); no per-timezone scheduling; auth-email paths untouched                                       | PASS                                 |
 
 **Violations**: none. No complexity-tracking entries required.
 

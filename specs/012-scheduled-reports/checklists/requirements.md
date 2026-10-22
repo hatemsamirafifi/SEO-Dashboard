@@ -40,6 +40,6 @@
   BLOCKED — is not a clarification: it is a recorded hard gate, handled structurally (Status:
   Draft-gated, FR-017 gate-check task, US3 explicitly gated, US1/US2 proceed email-free).
 - Technology mentions audit: "Cloudflare cron" and "15-minute entry point" appear once in Input/
-  Assumptions as *existing-infrastructure* references (the constitution itself names the
+  Assumptions as _existing-infrastructure_ references (the constitution itself names the
   platform law, P37); requirements themselves stay mechanism-agnostic ("existing scheduled
   execution infrastructure").

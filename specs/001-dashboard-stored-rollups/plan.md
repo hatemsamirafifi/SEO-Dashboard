@@ -38,7 +38,7 @@ opportunities, insights, audit issues, backlink snapshots)
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 - P1 (layering): PASS — Server Function → DashboardService → repositories; no logic in components.
 - P8/P9 (failure≠zero, zero/missing/failed distinct): PASS — FR-004 + unavailable/null deltas per clarification.

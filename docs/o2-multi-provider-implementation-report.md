@@ -25,23 +25,23 @@ fallback), credentials never stored in the DB.
 
 ## 2. Scope delivered
 
-| O2 item | Status |
-|---|---|
-| Provider contract + registry (`providers.ts`) | Done |
-| 4 provider adapters (`provider-adapters.ts`) | Done |
-| Shared probe/cache/error helpers (`provider-shared.ts`) | Done |
-| Settings resolution + invalid-pair rejection (`AiSettingsService.ts`) | Done (pre-existing from O2 start, extended) |
-| Server functions (`serverFunctions/aiSettings.ts`) | Done |
-| Settings UI — global (`AiSettingsSection.tsx`) | Done |
-| Settings UI — project override (`ProjectAiSettingsSection.tsx`) | Done |
-| Model picker + catalog filter (`AiModelSelect.tsx`, `modelFilter.ts`) | Done |
-| Connection test UI (`AiConnectionTest.tsx`) | Done |
-| SAM integration (`SamChatAgent.ts`) | Done (provider-agnostic) |
-| Env files, compose, alchemy plumbing | Done |
-| Docs (`in-app-ai-agent.md`, `local-docker-development.md`, `in-app-ai-agent-audit.md`) | Done |
-| Tests (providers, settings, filter, SAM suites) | Done — 103 AI-scope tests green |
-| Live E2E (connection test + real SAM turn) | Done on OpenRouter |
-| Full validation (test/lint/typecheck/build + docker) | Done |
+| O2 item                                                                                | Status                                      |
+| -------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Provider contract + registry (`providers.ts`)                                          | Done                                        |
+| 4 provider adapters (`provider-adapters.ts`)                                           | Done                                        |
+| Shared probe/cache/error helpers (`provider-shared.ts`)                                | Done                                        |
+| Settings resolution + invalid-pair rejection (`AiSettingsService.ts`)                  | Done (pre-existing from O2 start, extended) |
+| Server functions (`serverFunctions/aiSettings.ts`)                                     | Done                                        |
+| Settings UI — global (`AiSettingsSection.tsx`)                                         | Done                                        |
+| Settings UI — project override (`ProjectAiSettingsSection.tsx`)                        | Done                                        |
+| Model picker + catalog filter (`AiModelSelect.tsx`, `modelFilter.ts`)                  | Done                                        |
+| Connection test UI (`AiConnectionTest.tsx`)                                            | Done                                        |
+| SAM integration (`SamChatAgent.ts`)                                                    | Done (provider-agnostic)                    |
+| Env files, compose, alchemy plumbing                                                   | Done                                        |
+| Docs (`in-app-ai-agent.md`, `local-docker-development.md`, `in-app-ai-agent-audit.md`) | Done                                        |
+| Tests (providers, settings, filter, SAM suites)                                        | Done — 103 AI-scope tests green             |
+| Live E2E (connection test + real SAM turn)                                             | Done on OpenRouter                          |
+| Full validation (test/lint/typecheck/build + docker)                                   | Done                                        |
 
 ## 3. Dependency resolution (the O2 blocker)
 
@@ -208,15 +208,15 @@ headless):
 
 ## 15. Validation stack
 
-| Check | Result |
-|---|---|
-| `pnpm vitest run` (full suite) | 1009/1011 — the 2 failures are pre-existing flakiness in `dataforseo/client.test.ts` under parallel load (pass 21/21 in isolation; failed identically before any O2 file was touched) |
-| `pnpm exec oxlint . --type-aware` | 0 warnings, 0 errors (after fixing all 10 findings introduced by the O2 files) |
-| `pnpm exec tsc --noEmit` | clean |
-| `pnpm build` | ✓ (see §16) |
-| `docker compose -f compose.dev.yaml up` | ✓ health green: auth/dataforseo/gsc/ai/database all ok |
-| `/api/health` | `{"status":"ok", ...,"ai":{"status":"ok","detail":"OPENROUTER_API_KEY set"}}` |
-| `/mcp` initialize | ✓ server info returned |
+| Check                                   | Result                                                                                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm vitest run` (full suite)          | 1009/1011 — the 2 failures are pre-existing flakiness in `dataforseo/client.test.ts` under parallel load (pass 21/21 in isolation; failed identically before any O2 file was touched) |
+| `pnpm exec oxlint . --type-aware`       | 0 warnings, 0 errors (after fixing all 10 findings introduced by the O2 files)                                                                                                        |
+| `pnpm exec tsc --noEmit`                | clean                                                                                                                                                                                 |
+| `pnpm build`                            | ✓ (see §16)                                                                                                                                                                           |
+| `docker compose -f compose.dev.yaml up` | ✓ health green: auth/dataforseo/gsc/ai/database all ok                                                                                                                                |
+| `/api/health`                           | `{"status":"ok", ...,"ai":{"status":"ok","detail":"OPENROUTER_API_KEY set"}}`                                                                                                         |
+| `/mcp` initialize                       | ✓ server info returned                                                                                                                                                                |
 
 ## 16. Build guard change (lean-worker-bundle)
 
@@ -272,7 +272,7 @@ Docs: `in-app-ai-agent.md`, `local-docker-development.md`, `in-app-ai-agent-audi
    key for each should be smoke-tested via the connection-test button.
 4. The connection-test free model (`z-ai/glm-5.2:free`) is a catalog pick;
    if OpenRouter delists it, tests fall back to reporting
-   `model_unavailable` for the *probe* while the key may still be fine —
+   `model_unavailable` for the _probe_ while the key may still be fine —
    acceptable degradation, revisit if it bites.
 
 ## 20. Verdict

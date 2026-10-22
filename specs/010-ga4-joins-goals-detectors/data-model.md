@@ -9,23 +9,25 @@ All schema changes are additive, D1+PG mirrored, and parity-tested in the same c
 
 One row per user-defined conversion goal, scoped to a project.
 
-| Column | Type | Constraints / notes |
-| --- | --- | --- |
-| `id` | text PK | generated id (existing id conventions) |
-| `project_id` | text NOT NULL | FK → `projects.id` ON DELETE CASCADE |
-| `organization_id` | text NOT NULL | FK → `organization.id` ON DELETE CASCADE (mirrors `ga4_connections`) |
-| `name` | text NOT NULL | display name; unique per project among **active** goals (partial unique index, mirrors `opportunities_active_key_uidx` pattern) |
-| `event_name` | text NOT NULL | binds to `ga4_daily_events.event_name` values |
-| `match_key_event_only` | boolean NOT NULL default false | when true, goal counts only rows with `isKeyEvent = true` |
-| `archived_at` | text NULL | NULL = active; non-NULL = archived (timestamp) |
-| `created_at` / `updated_at` | text NOT NULL | defaults `current_timestamp` (existing `ga4Timestamps` block) |
+| Column                      | Type                           | Constraints / notes                                                                                                             |
+| --------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                        | text PK                        | generated id (existing id conventions)                                                                                          |
+| `project_id`                | text NOT NULL                  | FK → `projects.id` ON DELETE CASCADE                                                                                            |
+| `organization_id`           | text NOT NULL                  | FK → `organization.id` ON DELETE CASCADE (mirrors `ga4_connections`)                                                            |
+| `name`                      | text NOT NULL                  | display name; unique per project among **active** goals (partial unique index, mirrors `opportunities_active_key_uidx` pattern) |
+| `event_name`                | text NOT NULL                  | binds to `ga4_daily_events.event_name` values                                                                                   |
+| `match_key_event_only`      | boolean NOT NULL default false | when true, goal counts only rows with `isKeyEvent = true`                                                                       |
+| `archived_at`               | text NULL                      | NULL = active; non-NULL = archived (timestamp)                                                                                  |
+| `created_at` / `updated_at` | text NOT NULL                  | defaults `current_timestamp` (existing `ga4Timestamps` block)                                                                   |
 
 **Indexes**:
+
 - `uniqueIndex ga4_goals_project_name_active_uidx ON (project_id, name) WHERE archived_at IS NULL`
   (partial — archived names are reusable, active names unique)
 - `index ga4_goals_project_idx ON (project_id)`
 
 **Validation rules (Zod, trust boundary `src/types/schemas/ga4.ts`)**:
+
 - `name`: trimmed, 1–100 chars; `event_name`: trimmed, 1–100 chars (matches GA4 event-name length norms);
 - create/update/archive schemas `.strict()`; every operation carries `projectId` + project-context
   middleware (P39);
@@ -75,17 +77,17 @@ for a page keep `null` metrics + `present.* = false` — the existing pattern
 
 ### Detector findings (existing `FindingDraft` model, two new detectorKeys)
 
-| Property | `conversion_drop` (C2b) | `engagement_drop` (C2c) |
-| --- | --- | --- |
-| `detectorKey` | `conversion_drop` | `engagement_drop` |
-| version | 1 | 1 |
-| entityKey | canonical page URL | canonical page URL |
-| requiredSources | `["ga4"]` | `["ga4"]` |
-| optionalCorroborators | `["rank", "gsc"]` | `["rank", "gsc"]` |
-| coverage | ga4 events grain + landing grain, ≥0.8 | ga4 landing grain, ≥0.8 |
-| thresholds | R3 table (minWindowDays 28, minCoverageRatio 0.8, minEventsPerWindow 10, declineRatio 0.3) | R3 table (28, 0.8, minSessionsPerWindow 100, declineRatio 0.25, rankHoldRequired) |
-| evidence sourceRefs | `ga4Keys[]` (deterministic fact ids), `goalId`+`goalName` in metrics | `ga4Keys[]` |
-| materializer template | `OPPORTUNITY_TEMPLATES.conversion_drop` (type `ga4_conversion`) — activates `conversionSignal` impact factor | `OPPORTUNITY_TEMPLATES.engagement_drop` (type `ga4_engagement`) |
+| Property              | `conversion_drop` (C2b)                                                                                      | `engagement_drop` (C2c)                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `detectorKey`         | `conversion_drop`                                                                                            | `engagement_drop`                                                                 |
+| version               | 1                                                                                                            | 1                                                                                 |
+| entityKey             | canonical page URL                                                                                           | canonical page URL                                                                |
+| requiredSources       | `["ga4"]`                                                                                                    | `["ga4"]`                                                                         |
+| optionalCorroborators | `["rank", "gsc"]`                                                                                            | `["rank", "gsc"]`                                                                 |
+| coverage              | ga4 events grain + landing grain, ≥0.8                                                                       | ga4 landing grain, ≥0.8                                                           |
+| thresholds            | R3 table (minWindowDays 28, minCoverageRatio 0.8, minEventsPerWindow 10, declineRatio 0.3)                   | R3 table (28, 0.8, minSessionsPerWindow 100, declineRatio 0.25, rankHoldRequired) |
+| evidence sourceRefs   | `ga4Keys[]` (deterministic fact ids), `goalId`+`goalName` in metrics                                         | `ga4Keys[]`                                                                       |
+| materializer template | `OPPORTUNITY_TEMPLATES.conversion_drop` (type `ga4_conversion`) — activates `conversionSignal` impact factor | `OPPORTUNITY_TEMPLATES.engagement_drop` (type `ga4_engagement`)                   |
 
 Threshold registry: `DEFAULT_DETECTOR_THRESHOLDS` gains both entries; `THRESHOLD_VERSION` 2 → 3
 (no production artifacts to migrate — precedent in file header).

@@ -37,7 +37,7 @@ band constants shared, helper documented as superset (clarified)
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 - P25/G3 (one engine, frozen opportunity model): PASS — registry plug-in, materializer untouched.
 - P26 (impact/confidence separate, renormalized): PASS — existing scoring reused.

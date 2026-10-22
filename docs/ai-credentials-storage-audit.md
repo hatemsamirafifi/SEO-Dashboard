@@ -8,13 +8,13 @@ code changes.
 Both dialects (D1 SQLite `src/db/sam.schema.ts` + drizzle/0039; Postgres
 `src/db/pg/sam.schema.ts` + drizzle-pg/0016):
 
-| column | type | notes |
-|---|---|---|
-| `provider` | text, default `'openrouter'` | provider id |
-| `model` | text, default `''` | empty = inherit |
-| `organization_id` | text FK → organization.id | set ⇒ org-scope row |
-| `project_id` | text FK → projects.id | set ⇒ project-scope row |
-| `updated_at` | text timestamp | |
+| column            | type                         | notes                   |
+| ----------------- | ---------------------------- | ----------------------- |
+| `provider`        | text, default `'openrouter'` | provider id             |
+| `model`           | text, default `''`           | empty = inherit         |
+| `organization_id` | text FK → organization.id    | set ⇒ org-scope row     |
+| `project_id`      | text FK → projects.id        | set ⇒ project-scope row |
+| `updated_at`      | text timestamp               |                         |
 
 Partial unique indexes enforce **exactly one row per scope**
 (`ai_agent_settings_org_idx` / `ai_agent_settings_project_idx`).

@@ -14,7 +14,7 @@ Phase 0 research for `/specs/011-serp-features-ui/`. Resolves the four open deci
 - **Rationale**:
   - The normalized model is **already frozen by spec 003** in
     `src/server/features/serp/types.ts` (`SerpFeatureSet`, `.strict()`, ten families, observed-only
-    keys). P14/G4 forbid a second normalization — so this package owns *one derivation over* the
+    keys). P14/G4 forbid a second normalization — so this package owns _one derivation over_ the
     frozen model, not a new ingestion mapping.
   - "No fabrication" (FR-002) is trivially guaranteed if the derivation **iterates the keys
     actually present** on the object instead of iterating a fixed family list and probing —
@@ -25,7 +25,7 @@ Phase 0 research for `/specs/011-serp-features-ui/`. Resolves the four open deci
 - **Alternatives considered**:
   - Normalize feature display inside each existing UI surface (`SerpAnalysisCard.tsx`,
     `RankTrackingTableParts.tsx`) — rejected: two divergent renderings of the same frozen
-    contract, exactly the drift A2/P14 prohibit. (Notably, `RankTrackingTableParts.tsx` *today*
+    contract, exactly the drift A2/P14 prohibit. (Notably, `RankTrackingTableParts.tsx` _today_
     uses a different feature vocabulary — `featured_snippet`, `knowledge_panel`, `top_stories`,
     `ai_overview` — than the frozen contract's `featured_result`/`knowledge_graph`/`news`; this
     package consolidates that split vocabulary onto the frozen keys.)
@@ -36,7 +36,7 @@ Phase 0 research for `/specs/011-serp-features-ui/`. Resolves the four open deci
 
 - **Decision**: keep the existing 11-state enumeration **`DASHBOARD_SECTION_STATES`**
   (`loading | ready | empty | not_connected | no_data | partial | stale | api_failed |
-  permission_failed | sync_running | sync_failed`) and the existing `mapStoredSectionState` in
+permission_failed | sync_running | sync_failed`) and the existing `mapStoredSectionState` in
   `src/shared/intelligence.ts` as the single mapping home; **extend its input contract** to
   `MapStoredSectionStateInput` gaining `stale?: boolean`, `permissionDenied?: boolean`, and
   `loading?: boolean`, make precedence an exported, documented decision table
@@ -71,7 +71,7 @@ Phase 0 research for `/specs/011-serp-features-ui/`. Resolves the four open deci
   when `placement` is absent it renders after the top organic block without occupying a numbered
   position. PAA **never** inserts into, displaces, or renumbers `organicResults` positions.
 - **Rationale**:
-  - Spec-003 contract already says PAA items carry *optional* `placement` metadata and that
+  - Spec-003 contract already says PAA items carry _optional_ `placement` metadata and that
     rendering policy belongs to this package; the snapshot's `organicResults` ordering is
     "position-ordered for display; never a merge identity." Keeping PAA out of the positional
     list preserves rank truthfulness (P46) and 007's enrichment position mapping.
@@ -88,7 +88,7 @@ Phase 0 research for `/specs/011-serp-features-ui/`. Resolves the four open deci
 
 - **Decision**: one new responsive component family in `src/client/features/serp/`
   (`SerpResultCards`) used **in place of** the dense table below the established mobile breakpoint
- , with both views consuming the same derived `SerpFeatureBlock[]` + result rows. Breakpoint:
+  , with both views consuming the same derived `SerpFeatureBlock[]` + result rows. Breakpoint:
   Tailwind `md` (768px); card view below, dense table at/above. Metrics live in a per-card
   disclosure (`<details>`/expansion), matching the repository's existing pattern.
 - **Rationale**:
@@ -108,11 +108,11 @@ Phase 0 research for `/specs/011-serp-features-ui/`. Resolves the four open deci
 
 ## Consolidated resolution table
 
-| Unknown | Resolution | Contract/test anchor |
-| --- | --- | --- |
-| R1 feature derivation home | `server/features/serp/featurePresentation.ts` pure fn → shared client blocks | contracts/serp-feature-presentation.md; `featurePresentation.test.ts` |
-| R2 unified 11-state mapping | Extend `mapStoredSectionState` input + exported decision matrix; all `DashboardService` sections route through it | contracts/dashboard-sections.md; state-matrix tests |
-| R3 PAA placement | Feature block beside list / own card; placement-honored; never displaces organic positions | contracts/serp-feature-presentation.md § placement |
-| R4 mobile card view | Responsive `SerpResultCards` below `md`; same data as dense view; metrics in expansion | contracts/serp-mobile-card-view.md; `serp-features-mobile.spec.ts` |
+| Unknown                     | Resolution                                                                                                        | Contract/test anchor                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| R1 feature derivation home  | `server/features/serp/featurePresentation.ts` pure fn → shared client blocks                                      | contracts/serp-feature-presentation.md; `featurePresentation.test.ts` |
+| R2 unified 11-state mapping | Extend `mapStoredSectionState` input + exported decision matrix; all `DashboardService` sections route through it | contracts/dashboard-sections.md; state-matrix tests                   |
+| R3 PAA placement            | Feature block beside list / own card; placement-honored; never displaces organic positions                        | contracts/serp-feature-presentation.md § placement                    |
+| R4 mobile card view         | Responsive `SerpResultCards` below `md`; same data as dense view; metrics in expansion                            | contracts/serp-mobile-card-view.md; `serp-features-mobile.spec.ts`    |
 
 All NEEDS-CLARIFICATION-class unknowns from plan.md Technical Context are resolved; none remain.

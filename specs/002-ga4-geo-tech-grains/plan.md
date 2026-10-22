@@ -40,7 +40,7 @@ never missing/zero (clarified)
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 - P3/P4/P5 (parity, repo-only access, additive migrations): PASS — dual-dialect migration + parity tests.
 - P12 (bounded paid paths): PASS — bounded cardinality, quota halt, bulk/batch writes.

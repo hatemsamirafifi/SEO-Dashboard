@@ -14,29 +14,29 @@
 - [x] Focused on user value and business needs
 - [x] Written for non-technical stakeholders (user stories in plain language; FRs readable)
 - [x] All mandatory sections completed (User Scenarios, Requirements, Success Criteria, plus
-  Key Entities, Edge Cases, Assumptions)
+      Key Entities, Edge Cases, Assumptions)
 
 ## Requirement Completeness
 
 - [x] No [NEEDS CLARIFICATION] markers remain (all open points resolved via documented
-  assumptions: wave gating, deterministic-first semantics, MCP deferral, scheduling scope)
+      assumptions: wave gating, deterministic-first semantics, MCP deferral, scheduling scope)
 - [x] Requirements are testable and unambiguous (each FR names an enforcement surface:
-  firewall, allowlist, budgets, authorization, output-ban)
+      firewall, allowlist, budgets, authorization, output-ban)
 - [x] Success criteria are measurable (SC-001–SC-008 all carry 100%/zero-count fixtures)
 - [x] Success criteria are technology-agnostic (no implementation details)
 - [x] All acceptance scenarios are defined (4 stories × 4–6 Given/When/Then each)
 - [x] Edge cases are identified (9: source-change invalidation, empty state, budget
-  exhaustion, duplicate starts, cancel race, stale evidence, unregistered type, resume
-  after invalidation, provider outage)
+      exhaustion, duplicate starts, cancel race, stale evidence, unregistered type, resume
+      after invalidation, provider outage)
 - [x] Scope is clearly bounded (E1d competitor-gap, MCP run-starter, cadenced scheduling
-  explicitly out of scope; extends-only mandate per P2/P35)
+      explicitly out of scope; extends-only mandate per P2/P35)
 - [x] Dependencies and assumptions identified (wave dependencies FR-019; 10 documented
-  assumptions incl. E0 base, stored-evidence-only steps, manual-start MVP)
+      assumptions incl. E0 base, stored-evidence-only steps, manual-start MVP)
 
 ## Feature Readiness
 
 - [x] All functional requirements have clear acceptance criteria (FR↔scenario mapping:
-  FR-001–003↔US1, FR-004–006↔US2, FR-007–009↔US3, FR-010–015↔US4, FR-016–019 cross-cutting)
+      FR-001–003↔US1, FR-004–006↔US2, FR-007–009↔US3, FR-010–015↔US4, FR-016–019 cross-cutting)
 - [x] User scenarios cover primary flows (start each workflow; chat start/poll/cancel/resume)
 - [x] Feature meets measurable outcomes defined in Success Criteria
 - [x] No implementation details leak into specification

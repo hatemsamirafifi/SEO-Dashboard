@@ -51,7 +51,7 @@ is JSON-serializable and version-pinned (SC-002).
 ## V3 — Pin/firewall integration (SC-002)
 
 1. `pnpm exec vitest run src/server/features/autopilot/services/stepExecutor.test.ts
-   src/server/features/autopilot/services/AutopilotServiceDrive.test.ts`
+src/server/features/autopilot/services/AutopilotServiceDrive.test.ts`
    — existing executor suites green with the new definitions registered (drive completes,
    budgets enforce, invalidation retries).
 2. Cross-attempt synthesis rejection: existing `synthesisFirewall` behavior re-verified with a
@@ -106,14 +106,14 @@ record in 100% of runs (SC-003).
 
 ## Validation summary
 
-| Scenario | Proves | Ver |
-| --- | --- | --- |
-| Schema rejects non-allowlisted types; registry fail-closed | FR-011, SC-004 | V1 |
-| Coverage state machine; no invented "no issues" | FR-004/005, SC-006 | V2 |
-| Two-window honesty; zero-delta never fabricated; provisional tags | FR-007/008 | V2 |
-| Causal/uplift bans over all new outputs | FR-002, SC-001 | V2 |
-| Executor/firewall/pin invariants hold for new defs | FR-003/016, SC-002 | V3 |
-| Five tools: scoping, allowlist, fresh-read, provenance, no public route | FR-010–015 | V4 |
-| Evidence renderers + six-type picker | FR (UI slices), V5 expectations | V5 |
-| Full lifecycle through durable record | SC-003 | V6 |
-| Gates + no regression on E0/parity | P43–P45 | V7 |
+| Scenario                                                                | Proves                          | Ver |
+| ----------------------------------------------------------------------- | ------------------------------- | --- |
+| Schema rejects non-allowlisted types; registry fail-closed              | FR-011, SC-004                  | V1  |
+| Coverage state machine; no invented "no issues"                         | FR-004/005, SC-006              | V2  |
+| Two-window honesty; zero-delta never fabricated; provisional tags       | FR-007/008                      | V2  |
+| Causal/uplift bans over all new outputs                                 | FR-002, SC-001                  | V2  |
+| Executor/firewall/pin invariants hold for new defs                      | FR-003/016, SC-002              | V3  |
+| Five tools: scoping, allowlist, fresh-read, provenance, no public route | FR-010–015                      | V4  |
+| Evidence renderers + six-type picker                                    | FR (UI slices), V5 expectations | V5  |
+| Full lifecycle through durable record                                   | SC-003                          | V6  |
+| Gates + no regression on E0/parity                                      | P43–P45                         | V7  |

@@ -32,7 +32,7 @@ pnpm dev                       # local dev server (or pnpm dev:agents)
    the 21st active goal is rejected with the cap error.
 3. Filter an analytics conversions view by `goalId` over seeded event rows.
 4. Expected: conversion figures equal the seeded `ga4_daily_events` sums for that event over
-   SUCCESS_*-covered dates; a goal whose event has zero rows renders **no-data**, never zero; an
+   SUCCESS\_\*-covered dates; a goal whose event has zero rows renders **no-data**, never zero; an
    unknown/archived `goalId` errors, never silently empties.
 5. Archive the goal; expected: list (active-only) no longer includes it, `includeArchived: true` does,
    update on the archived goal is rejected.

@@ -12,12 +12,12 @@ Defined in `src/server/features/serp/types.ts`. Relevant shape:
 - `SerpSnapshot.features: SerpFeatureSet` — `.strict()` object; **only observed families present
   as keys**; absent families are `undefined`.
 - Ten families (fixed by P14): `featuredResult`, `peopleAlsoAsk { items: { question, url?,
-  placement? }[] }`, `relatedSearches { items: string[] }`, `localPack { items: { title, url?,
-  domain?, address?, rating?, reviewCount? }[] }`, `images { items: { url, title?, domain? }[] }`,
+placement? }[] }`, `relatedSearches { items: string[] }`, `localPack { items: { title, url?,
+domain?, address?, rating?, reviewCount? }[] }`, `images { items: { url, title?, domain? }[] }`,
   `videos { items: { url, title?, domain? }[] }`, `shopping { items: { title, url?, domain?,
-  price? }[] }`, `news { items: { title, url?, domain?, sourceName?, publishedAt? }[] }`,
+price? }[] }`, `news { items: { title, url?, domain?, sourceName?, publishedAt? }[] }`,
   `knowledgeGraph { title, url?, domain?, description? }`, `sitelinks { items: { url, domain?,
-  title? }[] }`.
+title? }[] }`.
 - Unknown families cannot exist past ingestion validation — therefore the presentation layer can
   never see an unmapped family at runtime; the FR-005 "drop safely" guarantee is enforced
   upstream by `.strict()` and stays tested there (`serpSnapshot.test.ts`), with a defensive
@@ -39,13 +39,13 @@ metrics: T | null }`. Metrics come from stored rollups/findings only (P29). Unch
 
 Derived by `featurePresentation.ts`. One block per **observed** family. Not persisted.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `family` | one of the ten frozen family keys | provenance of the block |
-| `label` | string | single shared display label (fixes today's split vocabulary in `RankTrackingTableParts.tsx` vs the frozen keys) |
-| `order` | number | deterministic render order; placement-honored for PAA (R3), family default otherwise |
-| `items` | readonly array of the family's item shape | passed through from the snapshot, never re-shaped (no fabricated fields) |
-| `placement` | number \| null | recorded placement where the contract carries it (PAA); `null` = fallback position (R3) |
+| Field       | Type                                      | Notes                                                                                                           |
+| ----------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `family`    | one of the ten frozen family keys         | provenance of the block                                                                                         |
+| `label`     | string                                    | single shared display label (fixes today's split vocabulary in `RankTrackingTableParts.tsx` vs the frozen keys) |
+| `order`     | number                                    | deterministic render order; placement-honored for PAA (R3), family default otherwise                            |
+| `items`     | readonly array of the family's item shape | passed through from the snapshot, never re-shaped (no fabricated fields)                                        |
+| `placement` | number \| null                            | recorded placement where the contract carries it (PAA); `null` = fallback position (R3)                         |
 
 Validation rules:
 
@@ -73,18 +73,18 @@ sync_running, sync_failed`.
 
 `MapStoredSectionStateInput` = existing `mapStoredSectionState` input plus:
 
-| Field | Type | Default | Feeds state |
-| --- | --- | --- | --- |
-| `connected` | boolean | — | `not_connected` |
-| `loading` | boolean | `false` | `loading` |
-| `permissionDenied` | boolean | `false` | `permission_failed` |
-| `syncRunning` | boolean | — | `sync_running` |
-| `syncFailed` | boolean | — | `sync_failed` |
-| `readFailed` | boolean | `false` | `api_failed` (deterministic path; `safeSection` remains the exception backstop) |
-| `hasCurrent` | boolean | — | data availability |
-| `hasPrevious` | boolean | — | `partial` vs `ready` |
-| `hasItems` | boolean \| null | `null` | list sections only: `empty` vs data-ready |
-| `stale` | boolean | `false` | `stale` |
+| Field              | Type            | Default | Feeds state                                                                     |
+| ------------------ | --------------- | ------- | ------------------------------------------------------------------------------- |
+| `connected`        | boolean         | —       | `not_connected`                                                                 |
+| `loading`          | boolean         | `false` | `loading`                                                                       |
+| `permissionDenied` | boolean         | `false` | `permission_failed`                                                             |
+| `syncRunning`      | boolean         | —       | `sync_running`                                                                  |
+| `syncFailed`       | boolean         | —       | `sync_failed`                                                                   |
+| `readFailed`       | boolean         | `false` | `api_failed` (deterministic path; `safeSection` remains the exception backstop) |
+| `hasCurrent`       | boolean         | —       | data availability                                                               |
+| `hasPrevious`      | boolean         | —       | `partial` vs `ready`                                                            |
+| `hasItems`         | boolean \| null | `null`  | list sections only: `empty` vs data-ready                                       |
+| `stale`            | boolean         | `false` | `stale`                                                                         |
 
 ### Deterministic precedence (fixed, documented, test-covered)
 
@@ -110,15 +110,15 @@ maps to the same `api_failed` state — two producers, one state vocabulary.
 
 ### Section × input obligations
 
-| Section | connectivity | data checks | failure inputs | list item check |
-| --- | --- | --- | --- | --- |
-| seoPerformance | GSC connected | window coverage current/previous | syncRunning/syncFailed from GSC sync status | n/a |
-| searchVisibility | rank tracking configured | latest stored rank snapshot | — | `empty` when zero tracked keywords |
-| trafficEngagement, conversions | GA4 connected | window coverage | syncRunning/syncFailed from GA4 sync status | n/a |
-| opportunities | always connected (internal) | open-opportunity query ok | readFailed via `safeSection` | `empty` when zero open |
-| technicalHealth | audit configured | latest audit snapshot; `stale` beyond 30d | readFailed | n/a |
-| backlinks | provider configured *and* snapshot exists for domain | snapshot presence; `stale` | readFailed | n/a |
-| recentChanges | always connected (internal) | insights read ok | readFailed | `empty` when zero items |
+| Section                        | connectivity                                         | data checks                               | failure inputs                              | list item check                    |
+| ------------------------------ | ---------------------------------------------------- | ----------------------------------------- | ------------------------------------------- | ---------------------------------- |
+| seoPerformance                 | GSC connected                                        | window coverage current/previous          | syncRunning/syncFailed from GSC sync status | n/a                                |
+| searchVisibility               | rank tracking configured                             | latest stored rank snapshot               | —                                           | `empty` when zero tracked keywords |
+| trafficEngagement, conversions | GA4 connected                                        | window coverage                           | syncRunning/syncFailed from GA4 sync status | n/a                                |
+| opportunities                  | always connected (internal)                          | open-opportunity query ok                 | readFailed via `safeSection`                | `empty` when zero open             |
+| technicalHealth                | audit configured                                     | latest audit snapshot; `stale` beyond 30d | readFailed                                  | n/a                                |
+| backlinks                      | provider configured _and_ snapshot exists for domain | snapshot presence; `stale`                | readFailed                                  | n/a                                |
+| recentChanges                  | always connected (internal)                          | insights read ok                          | readFailed                                  | `empty` when zero items            |
 
 ## 4. Mobile card view model
 

@@ -37,18 +37,18 @@ toSerpFeatureBlocks(features: SerpFeatureSet): SerpFeatureBlock[]
 
 Frozen family → label → legacy chip key(s) retired (`RankTrackingTableParts.tsx`):
 
-| Frozen family | Label | Retired legacy keys |
-| --- | --- | --- |
-| `featuredResult` | Featured snippet | `featured_snippet` |
-| `peopleAlsoAsk` | People Also Ask | `people_also_ask` |
-| `relatedSearches` | Related searches | — (new) |
-| `localPack` | Local pack | `local_pack` |
-| `images` | Images | `images` |
-| `videos` | Videos | `video` |
-| `shopping` | Shopping | `shopping` |
-| `news` | News | `top_stories` |
-| `knowledgeGraph` | Knowledge panel | `knowledge_panel` |
-| `sitelinks` | Sitelinks | — (new) |
+| Frozen family     | Label            | Retired legacy keys |
+| ----------------- | ---------------- | ------------------- |
+| `featuredResult`  | Featured snippet | `featured_snippet`  |
+| `peopleAlsoAsk`   | People Also Ask  | `people_also_ask`   |
+| `relatedSearches` | Related searches | — (new)             |
+| `localPack`       | Local pack       | `local_pack`        |
+| `images`          | Images           | `images`            |
+| `videos`          | Videos           | `video`             |
+| `shopping`        | Shopping         | `shopping`          |
+| `news`            | News             | `top_stories`       |
+| `knowledgeGraph`  | Knowledge panel  | `knowledge_panel`   |
+| `sitelinks`       | Sitelinks        | — (new)             |
 
 `ai_overview` is **not** in the frozen ten-family contract — it is not rendered by this package
 (and any AI-overview work belongs to a future spec that extends the 003 contract properly).

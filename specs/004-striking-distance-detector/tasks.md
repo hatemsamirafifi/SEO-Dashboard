@@ -12,7 +12,7 @@
 
 **Purpose**: Baseline before detector work
 
-- [X] T001 Verify baseline green: `pnpm test intelligence detectors registry` and `pnpm types:check` on main
+- [x] T001 Verify baseline green: `pnpm test intelligence detectors registry` and `pnpm types:check` on main
 
 ---
 
@@ -22,8 +22,8 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T002 Add shared band constants (`STRIKING_DISTANCE_MIN_POSITION = 11`, `STRIKING_DISTANCE_MAX_POSITION = 20`) in `src/shared/intelligence.ts`
-- [X] T003 Add superset comment to the existing 5–20 near-miss helper in `src/server/features/gsc/searchPerformanceReport.ts` (comment only, no behavior change)
+- [x] T002 Add shared band constants (`STRIKING_DISTANCE_MIN_POSITION = 11`, `STRIKING_DISTANCE_MAX_POSITION = 20`) in `src/shared/intelligence.ts`
+- [x] T003 Add superset comment to the existing 5–20 near-miss helper in `src/server/features/gsc/searchPerformanceReport.ts` (comment only, no behavior change)
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -39,12 +39,12 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [X] T004 [P] [US1] Positive/edge fixtures (band edges, floor boundary, multi-URL query) in `src/server/features/intelligence/detectors/strikingDistance.test.ts`
+- [x] T004 [P] [US1] Positive/edge fixtures (band edges, floor boundary, multi-URL query) in `src/server/features/intelligence/detectors/strikingDistance.test.ts`
 
 ### Implementation for User Story 1
 
-- [X] T005 [US1] Implement `strikingDistance` detector (pure `detect`, injected thresholds echoed in evidence, observational only) in `src/server/features/intelligence/detectors/strikingDistance.ts`
-- [X] T006 [US1] Register detector in explicit list in `src/server/features/intelligence/detectors/registry.ts` (extends `registry.test.ts` uniqueness)
+- [x] T005 [US1] Implement `strikingDistance` detector (pure `detect`, injected thresholds echoed in evidence, observational only) in `src/server/features/intelligence/detectors/strikingDistance.ts`
+- [x] T006 [US1] Register detector in explicit list in `src/server/features/intelligence/detectors/registry.ts` (extends `registry.test.ts` uniqueness)
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -58,11 +58,11 @@
 
 ### Tests for User Story 2
 
-- [X] T007 [P] [US2] Failure-mode fixtures (below floor, partial coverage, failed/missing rank) with skip-reason assertions in `src/server/features/intelligence/detectors/strikingDistance.test.ts`
+- [x] T007 [P] [US2] Failure-mode fixtures (below floor, partial coverage, failed/missing rank) with skip-reason assertions in `src/server/features/intelligence/detectors/strikingDistance.test.ts`
 
 ### Implementation for User Story 2
 
-- [X] T008 [US2] Wire coverage gating + skip reasons (`below_impression_floor | incomplete_coverage | rank_unavailable | source_failed`) through `src/server/features/intelligence/services/FindingService.ts` paths used by the detector
+- [x] T008 [US2] Wire coverage gating + skip reasons (`below_impression_floor | incomplete_coverage | rank_unavailable | source_failed`) through `src/server/features/intelligence/services/FindingService.ts` paths used by the detector
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -76,11 +76,11 @@
 
 ### Tests for User Story 3
 
-- [X] T009 [P] [US3] Lifecycle tests (in-place update, no-reopen, recurrence link, supersede) in `src/server/features/intelligence/services/materializeFinding.test.ts` (or detector-adjacent suite per repo layout)
+- [x] T009 [P] [US3] Lifecycle tests (in-place update, no-reopen, recurrence link, supersede) in `src/server/features/intelligence/services/materializeFinding.test.ts` (or detector-adjacent suite per repo layout)
 
 ### Implementation for User Story 3
 
-- [X] T010 [US3] Verify materializer integration with zero model changes (existing templates, scoring, events) — gap-fix only if a detector-specific template is missing in `src/server/features/intelligence/services/opportunityTemplates.ts`
+- [x] T010 [US3] Verify materializer integration with zero model changes (existing templates, scoring, events) — gap-fix only if a detector-specific template is missing in `src/server/features/intelligence/services/opportunityTemplates.ts`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -90,8 +90,8 @@
 
 **Purpose**: Engine-wide guards
 
-- [X] T011 Run `pnpm types:check`, `pnpm oxlint`, intelligence + boundaries + materializer suites
-- [X] T012 [P] Run quickstart.md validation scenarios 1–4
+- [x] T011 Run `pnpm types:check`, `pnpm oxlint`, intelligence + boundaries + materializer suites
+- [x] T012 [P] Run quickstart.md validation scenarios 1–4
 
 ---
 

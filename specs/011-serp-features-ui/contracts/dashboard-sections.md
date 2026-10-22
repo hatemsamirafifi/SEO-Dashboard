@@ -4,16 +4,16 @@
 
 Eight sections, all backed by `DashboardService.getIntelligenceOverview` stored reads:
 
-| Section | Source | Metrics contract |
-| --- | --- | --- |
-| SEO performance | GSC stored rollups | clicks, impressions, CTR, avg position (PeriodDelta) |
-| Search visibility | Rank stored snapshots | top3/top10/top100 deltas, improved, declined, tracked count |
-| Traffic & engagement | GA4 stored rollups | sessions, organic sessions, engaged sessions, engagement rate |
-| Conversions | GA4 stored rollups (+011: project goals from spec 010 where defined) | key events (name + delta), transactions |
-| Opportunities | stored opportunities (010 filters apply) | critical/high/medium counts, open total |
-| Technical health | latest stored audit | audit summary + `lastAuditAt` |
-| Backlinks | stored backlink snapshot | backlink/RD counts + new/lost deltas + capturedAt |
-| Recent changes | stored insights | latest items (fact/recommendation separated), dismissed count |
+| Section              | Source                                                               | Metrics contract                                              |
+| -------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------- |
+| SEO performance      | GSC stored rollups                                                   | clicks, impressions, CTR, avg position (PeriodDelta)          |
+| Search visibility    | Rank stored snapshots                                                | top3/top10/top100 deltas, improved, declined, tracked count   |
+| Traffic & engagement | GA4 stored rollups                                                   | sessions, organic sessions, engaged sessions, engagement rate |
+| Conversions          | GA4 stored rollups (+011: project goals from spec 010 where defined) | key events (name + delta), transactions                       |
+| Opportunities        | stored opportunities (010 filters apply)                             | critical/high/medium counts, open total                       |
+| Technical health     | latest stored audit                                                  | audit summary + `lastAuditAt`                                 |
+| Backlinks            | stored backlink snapshot                                             | backlink/RD counts + new/lost deltas + capturedAt             |
+| Recent changes       | stored insights                                                      | latest items (fact/recommendation separated), dismissed count |
 
 **A1 guarantees (this package enforces + tests, mostly already true):**
 
