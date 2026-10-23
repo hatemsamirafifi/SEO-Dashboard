@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getCrawlProgress: vi.fn(),
   deleteAudit: vi.fn(),
   getPageSchema: vi.fn(),
+  getInternalLinkingReport: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -38,6 +39,12 @@ vi.mock("@/server/features/audit/services/SchemaService", () => ({
   SchemaService: { getPageSchema: mocks.getPageSchema },
 }));
 
+vi.mock("@/server/features/audit/services/InternalLinkingService", () => ({
+  InternalLinkingService: {
+    getReport: mocks.getInternalLinkingReport,
+  },
+}));
+
 vi.mock("@/server/features/audit/services/AuditService", () => ({
   AuditService: {
     startAudit: mocks.startAudit,
@@ -59,6 +66,7 @@ import {
   getAuditResults,
   getAuditStatus,
   getCrawlProgress,
+  getInternalLinkingReport,
   startAudit,
 } from "./audit";
 import { globalServerFunctionMiddleware } from "./middleware";
@@ -126,6 +134,7 @@ describe("audit server-function project authorization", () => {
     mocks.getCrawlProgress.mockReset();
     mocks.deleteAudit.mockReset();
     mocks.getPageSchema.mockReset();
+    mocks.getInternalLinkingReport.mockReset();
   });
 
   it.each([
@@ -146,6 +155,11 @@ describe("audit server-function project authorization", () => {
       "getAuditPageSchema",
       getAuditPageSchema,
       { projectId: "other-project", auditId: "a1", pageId: "p1" },
+    ],
+    [
+      "getInternalLinkingReport",
+      getInternalLinkingReport,
+      { projectId: "other-project", auditId: "a1" },
     ],
     [
       "getCrawlProgress",
@@ -175,6 +189,7 @@ describe("audit server-function project authorization", () => {
       expect(mocks.getCrawlProgress).not.toHaveBeenCalled();
       expect(mocks.deleteAudit).not.toHaveBeenCalled();
       expect(mocks.getPageSchema).not.toHaveBeenCalled();
+      expect(mocks.getInternalLinkingReport).not.toHaveBeenCalled();
     },
   );
 

@@ -37,6 +37,7 @@ export function makePage(
     ogDescription: null,
     ogImage: null,
     h1Count: 1,
+    h1Text: null,
     h2Count: 0,
     h3Count: 0,
     h4Count: 0,

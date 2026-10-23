@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { waitUntil } from "cloudflare:workers";
 import { AuditService } from "@/server/features/audit/services/AuditService";
+import { InternalLinkingService } from "@/server/features/audit/services/InternalLinkingService";
 import { SchemaService } from "@/server/features/audit/services/SchemaService";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { requireProjectContext } from "@/serverFunctions/middleware";
@@ -21,6 +22,10 @@ function shouldUseAuditE2eFixtures() {
 
 async function getAuditE2eFixtures() {
   return import("../../e2e/fixtures/audit-schema-fixtures");
+}
+
+async function getLinkingE2eFixtures() {
+  return import("../../e2e/fixtures/audit-linking-fixtures");
 }
 
 export const startAudit = createServerFn({ method: "POST" })
@@ -80,6 +85,21 @@ export const getAuditResults = createServerFn({ method: "POST" })
       if (results) return results;
     }
     return AuditService.getResults(data.auditId, context.projectId);
+  });
+
+export const getInternalLinkingReport = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(getAuditResultsSchema)
+  .handler(async ({ data, context }) => {
+    if (shouldUseAuditE2eFixtures()) {
+      const fixtures = await getLinkingE2eFixtures();
+      const report = fixtures.getInternalLinkingFixture(data.auditId);
+      if (report) return report;
+    }
+    return InternalLinkingService.getReport({
+      auditId: data.auditId,
+      projectId: context.projectId,
+    });
   });
 
 export const getAuditHistory = createServerFn({ method: "POST" })

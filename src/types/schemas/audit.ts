@@ -59,7 +59,7 @@ export const getAuditPageSchemaSchema = z.object({
 
 // ─── URL search params schema for /p/$projectId/audit ────────────────────────
 
-const auditTabs = ["issues", "pages", "performance"] as const;
+const auditTabs = ["issues", "pages", "performance", "linking"] as const;
 
 export const auditSearchSchema = z.object({
   auditId: z.string().optional().catch(undefined),

@@ -247,6 +247,7 @@ function makeSlimPage(overrides: Partial<SlimPage>): SlimPage {
     fetchClass: "ok",
     extractionState: "STATIC_COMPLETE",
     title: null,
+    h1Text: null,
     metaDescription: null,
     contentHash: null,
     redirectUrl: null,
@@ -255,6 +256,8 @@ function makeSlimPage(overrides: Partial<SlimPage>): SlimPage {
     canonicalUrl: null,
     headerCanonicalUrl: null,
     pageType: null,
+    crawlDepth: null,
+    inSitemap: false,
     ...overrides,
   };
 }

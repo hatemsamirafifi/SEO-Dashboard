@@ -12,12 +12,13 @@ import {
   resolveIssueSeverity,
 } from "@/client/features/audit/results/IssuesView";
 import { PagesTable } from "@/client/features/audit/results/PagesTable";
+import { InternalLinkingView } from "@/client/features/audit/results/InternalLinkingView";
 import {
   ExportDropdown,
   PerformanceTable,
 } from "@/client/features/audit/results/ResultsTables";
 
-type ResultsTab = "issues" | "pages" | "performance";
+type ResultsTab = "issues" | "pages" | "performance" | "linking";
 
 export function ResultsView({
   projectId,
@@ -32,8 +33,16 @@ export function ResultsView({
 }) {
   const { audit, pages, lighthouse, issues } = data;
   const hasPerformanceTab = lighthouse.length > 0;
-  const activeTab =
-    tab === "performance" && !hasPerformanceTab ? "issues" : tab;
+  const activeTab: ResultsTab =
+    tab === "performance" && !hasPerformanceTab
+      ? "issues"
+      : tab === "linking"
+        ? "linking"
+        : tab === "pages"
+          ? "pages"
+          : tab === "performance"
+            ? "performance"
+            : "issues";
   const stats = useResultStats(pages, lighthouse);
   const blockedCount = useMemo(
     () => pages.filter((page) => page.fetchClass === "blocked").length,
@@ -99,6 +108,7 @@ export function ResultsView({
             hasPerformanceTab={hasPerformanceTab}
             activeTab={activeTab}
             onTabChange={onTabChange}
+            showExport={activeTab !== "linking"}
             onExport={(format) => {
               if (activeTab === "performance") {
                 exportPerformance(lighthouse, pages, format);
@@ -129,6 +139,9 @@ export function ResultsView({
               lighthouse={lighthouse}
               pages={pages}
             />
+          )}
+          {activeTab === "linking" && (
+            <InternalLinkingView projectId={projectId} auditId={audit.id} />
           )}
         </div>
       </div>
@@ -187,14 +200,16 @@ function ResultsHeader({
   hasPerformanceTab,
   activeTab,
   onTabChange,
+  showExport,
   onExport,
 }: {
   issueCount: number;
   pageCount: number;
   lighthouseCount: number;
   hasPerformanceTab: boolean;
-  activeTab: string;
+  activeTab: ResultsTab;
   onTabChange: (tab: ResultsTab) => void;
+  showExport: boolean;
   onExport: (format: "csv" | "json" | "sheets") => void;
 }) {
   const tabs: Array<{ tab: ResultsTab; label: string }> = [
@@ -208,6 +223,7 @@ function ResultsHeader({
           },
         ]
       : []),
+    { tab: "linking", label: "Internal linking" },
   ];
 
   return (
@@ -231,7 +247,7 @@ function ResultsHeader({
         })}
       </div>
 
-      <ExportDropdown onExport={onExport} />
+      {showExport && <ExportDropdown onExport={onExport} />}
     </div>
   );
 }
