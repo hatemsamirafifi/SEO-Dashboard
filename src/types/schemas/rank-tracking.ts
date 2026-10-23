@@ -182,6 +182,12 @@ export const refreshMetricsSchema = z.object({
 const deviceEnum = z.enum(["desktop", "mobile"]);
 const sinceDaysField = z.number().int().positive().max(730).default(365);
 
+export const getSerpClustersSchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid(),
+  device: deviceEnum,
+});
+
 export const getKeywordHistorySchema = z.object({
   projectId: z.string().uuid(),
   configId: z.string().uuid(),

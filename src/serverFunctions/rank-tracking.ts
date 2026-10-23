@@ -24,7 +24,9 @@ import {
   getConfigTrendSchema,
   getPositionMatrixSchema,
   missingRankingsSummarySchema,
+  getSerpClustersSchema,
 } from "@/types/schemas/rank-tracking";
+import { SerpClusteringService } from "@/server/features/serp/clustering/SerpClusteringService";
 
 export interface RankKeywordHistoryPoint {
   id?: number;
@@ -384,4 +386,19 @@ export const getRankPositionMatrix = createServerFn({ method: "POST" })
       data.device,
       data.runLimit,
     );
+  });
+/**
+ * SERP clusters observed for one rank-tracking config and device (spec 019).
+ * Project-scoped: the config must belong to the caller's project.
+ */
+export const getSerpClusters = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(getSerpClustersSchema)
+  .handler(async ({ data, context }) => {
+    await requireConfig(data.configId, context.projectId);
+    return SerpClusteringService.getClusters({
+      projectId: context.projectId,
+      configId: data.configId,
+      device: data.device,
+    });
   });
