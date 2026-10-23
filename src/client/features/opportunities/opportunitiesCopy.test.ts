@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   applyClientFilters,
+  classificationBadgeClass,
+  classificationFromMetrics,
+  classificationLabel,
   EVENT_META,
   eventLabel,
   factorLabel,
   formatDateTime,
   formatMissInfo,
   humanizeKey,
+  metricRowsForEvidence,
   parseEvidenceJson,
   parseEventReason,
   priorityBadgeClass,
@@ -292,5 +296,39 @@ describe("spec 010 filter metadata", () => {
     expect(toPriorityParam("critical")).toBeUndefined();
     expect(toPriorityParam("bogus")).toBeUndefined();
     expect(toPriorityParam("")).toBeUndefined();
+  });
+});
+
+describe("spec 018 cannibalization classification labels", () => {
+  it("labels every tier and degrades unknown values", () => {
+    expect(classificationLabel("POSSIBLE_CANNIBALIZATION")).toBe(
+      "Possible cannibalization",
+    );
+    expect(classificationLabel("INTENT_DISTINCT")).toBe("Distinct intent");
+    expect(classificationLabel("NORMAL_URL_DIVERSITY")).toBe(
+      "Normal URL diversity",
+    );
+    expect(classificationLabel("NEEDS_REVIEW")).toBe("Needs review");
+    expect(classificationLabel("INSUFFICIENT_DATA")).toBe("Insufficient data");
+    expect(classificationLabel("FUTURE_TIER")).toBe("FUTURE_TIER");
+  });
+
+  it("gives unknown tiers a neutral badge", () => {
+    expect(classificationBadgeClass("NEEDS_REVIEW")).toBe("badge-warning");
+    expect(classificationBadgeClass("FUTURE_TIER")).toBe("badge-ghost");
+  });
+
+  it("reads the tier from the evidence metrics and keeps it out of the rows", () => {
+    const metrics = {
+      queryImpressions: 1500,
+      classification: "NEEDS_REVIEW",
+      topShare: 0.5,
+    };
+    expect(classificationFromMetrics(metrics)).toBe("NEEDS_REVIEW");
+    expect(metricRowsForEvidence(metrics)).toEqual([
+      ["queryImpressions", 1500],
+      ["topShare", 0.5],
+    ]);
+    expect(classificationFromMetrics({ queryImpressions: 10 })).toBeNull();
   });
 });

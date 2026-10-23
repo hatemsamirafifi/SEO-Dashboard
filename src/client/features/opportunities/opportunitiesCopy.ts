@@ -143,6 +143,53 @@ export function typeLabel(type: string): string {
   return isTypeValue(type) ? TYPE_META[type].label : type;
 }
 
+/**
+ * Spec 018: the cannibalization verdict stored with the finding. Unknown
+ * values render neutrally (the raw value), never crash.
+ */
+const CLASSIFICATION_META: Record<
+  string,
+  { label: string; badgeClass: string }
+> = {
+  POSSIBLE_CANNIBALIZATION: {
+    label: "Possible cannibalization",
+    badgeClass: "badge-warning",
+  },
+  INTENT_DISTINCT: { label: "Distinct intent", badgeClass: "badge-info" },
+  NORMAL_URL_DIVERSITY: {
+    label: "Normal URL diversity",
+    badgeClass: "badge-ghost",
+  },
+  NEEDS_REVIEW: { label: "Needs review", badgeClass: "badge-warning" },
+  INSUFFICIENT_DATA: {
+    label: "Insufficient data",
+    badgeClass: "badge-ghost",
+  },
+};
+
+export function classificationLabel(value: string): string {
+  return CLASSIFICATION_META[value]?.label ?? value;
+}
+
+export function classificationBadgeClass(value: string): string {
+  return CLASSIFICATION_META[value]?.badgeClass ?? "badge-ghost";
+}
+
+/** The stored tier, or null when the evidence carries none. */
+export function classificationFromMetrics(
+  metrics: Record<string, string | number | boolean>,
+): string | null {
+  const value = metrics.classification;
+  return typeof value === "string" ? value : null;
+}
+
+/** Metric rows for the evidence table, without the tier (it is a badge). */
+export function metricRowsForEvidence(
+  metrics: Record<string, string | number | boolean>,
+): Array<[string, string | number | boolean]> {
+  return Object.entries(metrics).filter(([key]) => key !== "classification");
+}
+
 export const FACTOR_META: Record<string, { label: string }> = {
   trafficPotential: { label: "Traffic potential" },
   proximity: { label: "Proximity" },

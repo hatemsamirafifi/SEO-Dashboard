@@ -1,9 +1,13 @@
 import { useState } from "react";
 import {
+  classificationBadgeClass,
+  classificationFromMetrics,
+  classificationLabel,
   eventLabel,
   factorLabel,
   formatDateTime,
   humanizeKey,
+  metricRowsForEvidence,
   parseEvidenceJson,
   parseEventReason,
   validateDismissalReason,
@@ -118,9 +122,22 @@ export function EvidenceSection({ row }: { row: DetailRow }) {
       </section>
     );
   }
+  const classification = classificationFromMetrics(evidence.metrics);
+  const metricRows = metricRowsForEvidence(evidence.metrics);
   return (
     <section aria-label="Evidence" className="space-y-3">
       <h2 className="font-semibold">Evidence</h2>
+      {classification ? (
+        <p className="flex items-center gap-2 text-sm">
+          <span className="text-base-content/60">Classification</span>
+          <span
+            className={`badge ${classificationBadgeClass(classification)}`}
+            data-testid="opportunity-classification"
+          >
+            {classificationLabel(classification)}
+          </span>
+        </p>
+      ) : null}
       <div className="overflow-hidden rounded-xl border border-base-300">
         <table className="table table-sm">
           <thead>
@@ -130,7 +147,7 @@ export function EvidenceSection({ row }: { row: DetailRow }) {
             </tr>
           </thead>
           <tbody>
-            {Object.entries(evidence.metrics).map(([key, value]) => (
+            {metricRows.map(([key, value]) => (
               <tr key={key}>
                 <td>{humanizeKey(key)}</td>
                 <td className="text-right font-medium">
