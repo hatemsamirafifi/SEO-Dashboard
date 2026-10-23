@@ -92,6 +92,7 @@ export const auditPages = sqliteTable(
     ogImage: text("og_image"),
     // Headings
     h1Count: integer("h1_count").notNull().default(0),
+    h1Text: text("h1_text"),
     h2Count: integer("h2_count").notNull().default(0),
     h3Count: integer("h3_count").notNull().default(0),
     h4Count: integer("h4_count").notNull().default(0),

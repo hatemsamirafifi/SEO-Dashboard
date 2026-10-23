@@ -178,6 +178,8 @@ export interface CrawledPageResult {
   ogDescription: string | null;
   ogImage: string | null;
   h1Count: number;
+  /** First observed non-empty H1 text, capped; null when absent/not HTML. */
+  h1Text: string | null;
   h2Count: number;
   h3Count: number;
   h4Count: number;

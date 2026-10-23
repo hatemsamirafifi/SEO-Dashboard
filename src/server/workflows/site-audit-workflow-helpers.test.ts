@@ -169,6 +169,7 @@ describe("crawlPageWithThrottle", () => {
       ogDescription: "Example description",
       ogImage: "/social.png",
       h1Count: 1,
+      h1Text: "Hello",
       h2Count: 1,
       h3Count: 0,
       headingOrder: [1, 2],

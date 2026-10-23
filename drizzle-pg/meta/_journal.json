@@ -323,14 +323,25 @@
       "version": "7",
       "when": 1792363499683,
       "tag": "0045_silent_falcon",
-      "statements": [""],
-      "breakpoints": [false]
+      "statements": [
+        ""
+      ],
+      "breakpoints": [
+        false
+      ]
     },
     {
       "idx": 46,
       "version": "7",
       "when": 1792444349411,
       "tag": "0046_audit_url_counters",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792782903525,
+      "tag": "0047_audit_page_h1_text",
       "breakpoints": true
     }
   ]

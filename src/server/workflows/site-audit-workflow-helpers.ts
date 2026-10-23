@@ -14,6 +14,12 @@ import { normalizeUrl } from "@/server/lib/audit/url-utils";
 const CRAWL_USER_AGENT = "OpenSEO-Audit/1.0";
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 15_000;
+const MAX_H1_TEXT_CHARS = 500;
+
+function firstH1Text(h1s: string[]): string | null {
+  const first = h1s.find((h1) => h1.trim().length > 0);
+  return first ? first.trim().slice(0, MAX_H1_TEXT_CHARS) : null;
+}
 
 /**
  * How a page fetch resolved, and how completely it was extracted.
@@ -185,6 +191,7 @@ export async function crawlPage(url: string): Promise<CrawledPageResult> {
       ogDescription: analysis.ogDescription,
       ogImage: analysis.ogImage,
       h1Count: analysis.h1s.filter((h) => h.length > 0).length,
+      h1Text: firstH1Text(analysis.h1s),
       h2Count: analysis.headingOrder.filter((h) => h === 2).length,
       h3Count: analysis.headingOrder.filter((h) => h === 3).length,
       h4Count: analysis.headingOrder.filter((h) => h === 4).length,
@@ -383,6 +390,7 @@ function partialPageResult(input: PartialPageResultInput): CrawledPageResult {
     ogDescription: null,
     ogImage: null,
     h1Count: 0,
+    h1Text: null,
     h2Count: 0,
     h3Count: 0,
     h4Count: 0,
