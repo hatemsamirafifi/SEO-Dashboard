@@ -280,6 +280,30 @@ export const AUDIT_ISSUE_TYPES = {
     howToFix:
       "Generate the proposed JSON-LD for this page in the schema editor, review it against the visible content, and add it to the page template. Then re-run the audit to confirm the gap closes.",
   },
+  "underlinked-page": {
+    severity: "info",
+    title: "Page has very few internal links",
+    explanation:
+      "This indexable page is in the sitemap and sits at least two clicks from the homepage, but at most one other crawled page links to it. It is a candidate for stronger internal linking, not a confirmed defect: the crawl only sees links rendered in the HTML it could read.",
+    howToFix:
+      'Add contextual links from relevant hub, category, or related pages. Use descriptive anchor text that matches the target page\'s topic rather than generic phrases like "click here".',
+  },
+  "link-to-noindex-page": {
+    severity: "warning",
+    title: "Internal link points to a non-indexable page",
+    explanation:
+      "This page links to an internal URL that is crawled but cannot rank: it is either noindex or canonicalized to another URL. Internal links to such targets spend crawl budget and pass no ranking value to the destination.",
+    howToFix:
+      "Link directly to the indexable canonical URL instead. If the target should rank on its own, remove the noindex directive or set its canonical to itself.",
+  },
+  "anchor-text-diversity": {
+    severity: "info",
+    title: "Inbound anchor text lacks diversity",
+    explanation:
+      "At least three followed internal links point to this page, but they use only one distinct non-empty anchor text (or no anchor text at all). Repetitive anchors give search engines a narrow description of the page and can look manipulative.",
+    howToFix:
+      "Vary the anchor text naturally across linking pages: use the page topic, product or category name, and descriptive phrases. Avoid repeating the exact same keyword for every link.",
+  },
   "deep-page": {
     severity: "info",
     title: "Page is deep in the site structure",

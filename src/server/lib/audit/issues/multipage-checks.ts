@@ -28,6 +28,7 @@ export interface SlimPage {
   fetchClass: PageFetchClass;
   extractionState: ExtractionState;
   title: string | null;
+  h1Text: string | null;
   metaDescription: string | null;
   contentHash: string | null;
   redirectUrl: string | null;
@@ -36,6 +37,8 @@ export interface SlimPage {
   canonicalUrl: string | null;
   headerCanonicalUrl: string | null;
   pageType: PageTypeName | null;
+  crawlDepth: number | null;
+  inSitemap: boolean;
 }
 
 function isOkHtmlPage(page: SlimPage): boolean {

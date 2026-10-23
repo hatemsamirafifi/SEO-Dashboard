@@ -401,6 +401,33 @@ describe("technical_seo ready evidence", () => {
     }
   });
 
+  it("includes internal linking issue types in the ready ranking", async () => {
+    mockEngineEmpty();
+    vi.spyOn(AuditRepository, "getLatestAuditForProject").mockImplementation(
+      async () => makeAudit({ pagesCrawled: 42 }),
+    );
+    vi.spyOn(
+      auditSummaryQueries,
+      "getIssueTypePageCountsForAudit",
+    ).mockImplementation(async () => [
+      { issueType: "underlinked-page", severity: "info", pages: 12 },
+      { issueType: "link-to-noindex-page", severity: "warning", pages: 5 },
+      { issueType: "anchor-text-diversity", severity: "info", pages: 8 },
+    ]);
+    const { status, steps } = await driveTechnicalSeo();
+    expect(status).toBe("completed");
+    const correlate = steps.find((step) => step.seq === 1);
+    const ranked = recordListOf(
+      correlate?.evidenceJson ?? null,
+      "rankedIssues",
+    );
+    expect(ranked.map((row) => stringField(row, "type"))).toEqual([
+      "link-to-noindex-page",
+      "underlinked-page",
+      "anchor-text-diversity",
+    ]);
+  });
+
   it("ranks technical opportunities and echoes coverage into correlate", async () => {
     vi.spyOn(OpportunityRepository, "listActiveByProject").mockImplementation(
       async () => [

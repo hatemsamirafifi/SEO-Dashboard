@@ -9,6 +9,18 @@ import { and, eq, gte, lt, ne, notExists, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { db } from "@/db";
 import { auditLinks, auditPages } from "@/db/schema";
+import {
+  getBrokenLinkEdges,
+  getInboundStats,
+  getNonIndexableTargetEdges,
+} from "@/server/features/audit/repositories/linkingQueries";
+import {
+  findAnchorDiversityIssues,
+  findBrokenLinkIssues,
+  findNonIndexableTargetIssues,
+  findUnderlinkedCandidates,
+  type InboundStatsMap,
+} from "@/server/lib/audit/linking/analyze";
 import { normalizeUrl } from "@/server/lib/audit/url-utils";
 import {
   asPageTypeName,
@@ -18,8 +30,6 @@ import {
   type SlimPage,
 } from "@/server/lib/audit/issues/multipage-checks";
 import type { DetectedIssue } from "@/server/lib/audit/types";
-
-const BROKEN_LINK_ISSUE_CAP = 2_000;
 
 export async function runMultipageChecks(input: {
   auditId: string;
@@ -34,6 +44,7 @@ export async function runMultipageChecks(input: {
       statusCode: auditPages.statusCode,
       fetchClass: auditPages.fetchClass,
       title: auditPages.title,
+      h1Text: auditPages.h1Text,
       metaDescription: auditPages.metaDescription,
       contentHash: auditPages.contentHash,
       redirectUrl: auditPages.redirectUrl,
@@ -43,6 +54,8 @@ export async function runMultipageChecks(input: {
       headerCanonicalUrl: auditPages.headerCanonicalUrl,
       extractionState: auditPages.extractionState,
       pageType: auditPages.pageType,
+      crawlDepth: auditPages.crawlDepth,
+      inSitemap: auditPages.inSitemap,
     })
     .from(auditPages)
     .where(eq(auditPages.auditId, input.auditId));
@@ -52,61 +65,40 @@ export async function runMultipageChecks(input: {
     pageType: asPageTypeName(row.pageType),
   }));
 
+  const normalizedStart = normalizeUrl(input.startUrl) ?? input.startUrl;
+  const [stats, brokenEdges, nonIndexableEdges] = await Promise.all([
+    getInboundStats(input.auditId),
+    getBrokenLinkEdges(input.auditId),
+    getNonIndexableTargetEdges(input.auditId),
+  ]);
+  const statsMap: InboundStatsMap = new Map(
+    stats.map((stat) => [stat.targetUrl, stat]),
+  );
+
   const issues: DetectedIssue[] = [
     ...findDuplicates(pages),
     ...findRedirectChainsAndLoops(pages),
     ...findCanonicalIssues(pages),
-    ...(await findBrokenInternalLinks(input.auditId)),
+    ...findBrokenLinkIssues(brokenEdges),
+    ...findUnderlinkedCandidates({
+      pages,
+      stats: statsMap,
+      startUrl: normalizedStart,
+      crawlCompleted: input.crawlCompleted,
+    }),
+    ...findAnchorDiversityIssues({
+      pages,
+      stats: statsMap,
+      crawlCompleted: input.crawlCompleted,
+    }),
+    ...findNonIndexableTargetIssues(nonIndexableEdges),
   ];
 
   if (input.crawlCompleted) {
-    // Page rows store normalized URLs; normalize the start URL the same way
-    // so the orphan exclusion matches.
-    const normalizedStart = normalizeUrl(input.startUrl) ?? input.startUrl;
     issues.push(...(await findOrphanPages(input.auditId, normalizedStart)));
   }
 
   return issues;
-}
-
-async function findBrokenInternalLinks(
-  auditId: string,
-): Promise<DetectedIssue[]> {
-  // Only flag targets we actually crawled and saw fail — never inferred from
-  // absence. Blocked targets (WAF challenges) are excluded: a 403 from bot
-  // protection is not evidence of a broken link.
-  const rows = await db
-    .select({
-      sourcePageId: auditLinks.sourcePageId,
-      sourceUrl: auditLinks.sourceUrl,
-      targetUrl: auditLinks.targetUrl,
-      targetStatus: auditPages.statusCode,
-    })
-    .from(auditLinks)
-    .innerJoin(
-      auditPages,
-      and(
-        eq(auditPages.auditId, auditLinks.auditId),
-        eq(auditPages.url, auditLinks.targetUrl),
-      ),
-    )
-    .where(
-      and(
-        eq(auditLinks.auditId, auditId),
-        eq(auditLinks.isInternal, true),
-        gte(auditPages.statusCode, 400),
-        eq(auditPages.fetchClass, "ok"),
-      ),
-    )
-    .limit(BROKEN_LINK_ISSUE_CAP);
-
-  return rows.map((row) => ({
-    issueType: "broken-internal-link" as const,
-    pageId: row.sourcePageId,
-    pageUrl: row.sourceUrl,
-    dedupeKey: row.targetUrl,
-    details: { targetUrl: row.targetUrl, targetStatus: row.targetStatus },
-  }));
 }
 
 async function findOrphanPages(
