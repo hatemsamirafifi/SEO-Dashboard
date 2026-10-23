@@ -583,13 +583,16 @@ describe("full-scan integration over seeded sources", () => {
       expect(finding.confidenceScore).toBeGreaterThanOrEqual(40);
     }
     const outcomes = await ScanLedgerRepository.getDetectorOutcomes(run.id);
-    expect(outcomes).toHaveLength(13);
+    expect(outcomes).toHaveLength(14);
     const completed = outcomes.filter((o) => o.status === "completed");
     const skipped = outcomes.filter((o) => o.status === "skipped");
-    expect(completed).toHaveLength(12);
+    expect(completed).toHaveLength(13);
     expect(skipped).toHaveLength(1);
-    expect(skipped[0]?.detectorKey).toBe("competitor_gap");
-    expect(skipped[0]?.skipReason).toBe("G5_NO_READY_VERDICT");
+    expect(
+      skipped.find((o) => o.detectorKey === "competitor_gap")?.skipReason,
+    ).toBe("G5_NO_READY_VERDICT");
+    // Spec 019: the cluster detector ran and completed but emitted nothing -
+    // the fixture stores no organic snapshots, so no cluster exists.
     // The lost-backlinks detector ran and completed but correctly emitted
     // nothing: the fixture's single lost referring domain is below the floor.
     expect(byDetector.lost_backlinks).toBeUndefined();
@@ -600,6 +603,9 @@ describe("full-scan integration over seeded sources", () => {
     expect(byDetector.engagement_drop).toBeUndefined();
     // Spec 014: competitor_gap skipped safely behind G5 gate
     expect(byDetector.competitor_gap).toBeUndefined();
+    // Spec 019: the cluster detector emitted nothing without stored organic
+    // snapshots.
+    expect(byDetector.serp_cluster_new_page).toBeUndefined();
   });
 });
 

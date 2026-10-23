@@ -68,6 +68,7 @@ describe("detector registry", () => {
       "low_ctr_query",
       "organic_traffic_change",
       "ranking_drop",
+      "serp_cluster_new_page",
       "striking_distance",
       "technical_on_important_page",
     ]);

@@ -129,6 +129,8 @@ const DETECTOR_FILES = [
   "src/server/features/intelligence/detectors/engagementDrop.ts",
   // Spec 014: competitor gap detector
   "src/server/features/intelligence/detectors/competitorGap.ts",
+  // Spec 019: SERP cluster detector (reads the stored organic snapshots).
+  "src/server/features/intelligence/detectors/serpClusterNewPage.ts",
 ];
 
 const SOURCE_REPOSITORY_IMPORTS = [
@@ -138,6 +140,9 @@ const SOURCE_REPOSITORY_IMPORTS = [
   /features\/audit\//,
   /features\/backlink/,
   /ga4Syncs|gscSearchPerformanceSyncs|rankCheckRuns|rankSnapshots|rankTrackingConfigs|backlinkSnapshots/,
+  // Spec 019: the organic snapshot table is read through the SERP clustering
+  // service, never straight from a Stage-1 file.
+  /serp_organic_snapshots|serpOrganicSnapshots/,
 ];
 
 // Spec 012 (D2b, plan §2.4) removed "report_schedules" from this list: the

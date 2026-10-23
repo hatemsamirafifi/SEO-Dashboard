@@ -26,6 +26,7 @@ export const OPPORTUNITY_TYPES = [
   "ga4_conversion",
   "ga4_engagement",
   "competitor_gap",
+  "serp_cluster",
 ] as const;
 export type OpportunityType = (typeof OPPORTUNITY_TYPES)[number];
 
@@ -61,6 +62,7 @@ export const TYPE_META: Record<OpportunityType, { label: string }> = {
   ga4_conversion: { label: "Conversion drop" },
   ga4_engagement: { label: "Engagement drop" },
   competitor_gap: { label: "Competitor gap" },
+  serp_cluster: { label: "SERP cluster" },
 };
 
 /** Evidence source vocabulary (DetectionSource union): the fixed option set

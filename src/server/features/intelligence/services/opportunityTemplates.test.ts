@@ -69,6 +69,7 @@ const TEMPLATE_DETECTOR_KEYS = [
   "conversion_drop",
   "engagement_drop",
   "competitor_gap",
+  "serp_cluster_new_page",
 ];
 
 describe("impact normalizers", () => {
@@ -492,6 +493,22 @@ describe("opportunity templates", () => {
             minSessionsPerWindow: 100,
             declineRatio: 0.25,
           },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: {},
+        },
+      }),
+      serp_cluster_new_page: finding("serp_cluster_new_page", {
+        entity: {
+          configId: "cfg-1",
+          clusterId: "cluster-1",
+          newPageUrls: "https://other.com/page",
+        },
+        evidence: {
+          metrics: { keywordCount: 4, pageCount: 2, newPageCount: 1 },
+          sources: ["rank"],
+          thresholdsApplied: {},
           correlations: [],
           evidenceType: "observational",
           partialData: [],
