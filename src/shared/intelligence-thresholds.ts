@@ -10,7 +10,9 @@
 // Bumped 2 → 3 in spec 010: conversion_drop (C2b) and engagement_drop (C2c)
 // GA4-backed detectors.
 // Bumped 3 → 4 in spec 014: competitor_gap detector.
-export const THRESHOLD_VERSION = 4;
+// Bumped 4 → 5 in spec 018: cannibalization classification tiers
+// (dominant share, intent overlap, evidence row cap).
+export const THRESHOLD_VERSION = 5;
 
 import {
   STRIKING_DISTANCE_MAX_POSITION,
@@ -53,11 +55,20 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     dropPositions: 5,
     topNTier: 20,
   },
+  // Spec 018: classification tiers for the cannibalization detector.
+  // dominantShare: one URL carries at least this share of the query's observed
+  // impressions (normal URL diversity, not a conflict). intentOverlapMax: the
+  // two URLs' observed query sets overlap at most this much (distinct intents).
+  // maxEvidenceRows: evidence id cap - it never influences classification, and
+  // row counts never decide coverage.
   cannibalization: {
     minWindowDays: 28,
     minCoverageRatio: 0.8,
     minUrls: 2,
     minImpressions: 50,
+    dominantShare: 0.8,
+    intentOverlapMax: 0.2,
+    maxEvidenceRows: 200,
   },
   technical_on_important_page: {
     minWindowDays: 28,

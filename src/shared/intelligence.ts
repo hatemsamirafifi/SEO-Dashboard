@@ -479,6 +479,27 @@ export const findingSchema = z
 
 export type Finding = z.infer<typeof findingSchema>;
 
+/**
+ * Cannibalization verdicts (spec 018). The detector classifies every candidate
+ * into exactly one tier; the tier is a label for what was observed, never a
+ * statement about intent that was not observed.
+ */
+const CANNIBALIZATION_CLASSIFICATIONS = [
+  "POSSIBLE_CANNIBALIZATION",
+  "INTENT_DISTINCT",
+  "NORMAL_URL_DIVERSITY",
+  "NEEDS_REVIEW",
+  "INSUFFICIENT_DATA",
+] as const;
+
+export const cannibalizationClassificationSchema = z.enum(
+  CANNIBALIZATION_CLASSIFICATIONS,
+);
+
+export type CannibalizationClassification = z.infer<
+  typeof cannibalizationClassificationSchema
+>;
+
 export const insightSeveritySchema = z.enum([
   "critical",
   "high",

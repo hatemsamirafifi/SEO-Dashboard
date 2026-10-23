@@ -113,6 +113,10 @@ const DETECTOR_FILES = [
   "src/server/features/intelligence/detectors/contentDecay.ts",
   "src/server/features/intelligence/detectors/rankingDrop.ts",
   "src/server/features/intelligence/detectors/cannibalization.ts",
+  // Spec 018: cannibalization input layer (window coverage + query sets) and
+  // the pure classification module.
+  "src/server/features/intelligence/detectors/cannibalizationInput.ts",
+  "src/server/features/intelligence/detectors/cannibalizationClassification.ts",
   "src/server/features/intelligence/detectors/technicalOnImportantPage.ts",
   "src/server/features/intelligence/detectors/backlinkChange.ts",
   "src/server/features/intelligence/detectors/lostBacklinks.ts",
