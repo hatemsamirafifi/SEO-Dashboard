@@ -90,5 +90,8 @@ export function scrubTraceText(value: string): string {
   return value
     .replace(/\b(?:Bearer|Basic)\s+[\w./+=-]+/gi, "[redacted]")
     .replace(/\bsk-[\w-]+/g, "[redacted]")
-    .replace(/["'`](?:authorization|api[-_]?key|token|secret)["'`]\s*[:=]\s*[^,}\s]+/gi, "[redacted]");
+    .replace(
+      /["'`](?:authorization|api[-_]?key|token|secret)["'`]\s*[:=]\s*[^,}\s]+/gi,
+      "[redacted]",
+    );
 }

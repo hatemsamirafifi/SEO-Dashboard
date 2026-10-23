@@ -2,11 +2,7 @@ import { generateText, type LanguageModel } from "ai";
 import { z } from "zod";
 import { CACHE_TTL, getCached, setCached } from "@/server/lib/r2-cache";
 import { normalizeProviderError } from "@/server/features/ai/providerErrors";
-import type {
-  AiConnectionResult,
-  AiModel,
-  AiProvider,
-} from "./providers";
+import type { AiConnectionResult, AiModel, AiProvider } from "./providers";
 
 // Shared pieces of the AI provider adapters (see provider-adapters.ts): model
 // catalog caching, connection-test probes, and error classification. Nothing
@@ -175,9 +171,4 @@ async function runConnectionTest(
   }
 }
 
-export {
-  cachedModels,
-  missingKeyResult,
-  parsePriceUsd,
-  runConnectionTest,
-};
+export { cachedModels, missingKeyResult, parsePriceUsd, runConnectionTest };

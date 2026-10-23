@@ -145,7 +145,13 @@ describe("AnalyticsJoinService", () => {
   it("keeps engagement and goal measures null when absent (spec 010)", () => {
     const rows = joinUrlEvidence({
       gsc: [{ url: "https://example.com/a", clicks: 1, impressions: 1 }],
-      ga4: [{ landingPage: "https://example.com/a", currentSessions: 5, previousSessions: 6 }],
+      ga4: [
+        {
+          landingPage: "https://example.com/a",
+          currentSessions: 5,
+          previousSessions: 6,
+        },
+      ],
     });
     expect(rows).toHaveLength(1);
     // No engagement/goal witnesses passed: null — never fabricated zeros.

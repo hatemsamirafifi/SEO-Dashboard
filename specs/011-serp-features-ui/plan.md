@@ -24,14 +24,14 @@ Key grounding facts discovered during planning (they shrink this package conside
 
 - Spec 003 already froze the complete normalized `SerpFeatureSet` Zod model in
   `src/server/features/serp/types.ts` with **all ten P14 families**, per-family item shapes, and a
-  hard rule that *only observed families appear as keys* (absent = `undefined`, never null-coerced).
+  hard rule that _only observed families appear as keys_ (absent = `undefined`, never null-coerced).
   So "normalization" in this package is **not** a new provider mapping — it is one shared
   presentation derivation over that frozen contract, consumed by every SERP-reading surface.
 - 001 already delivered the eight dashboard intelligence sections reading stored rollups through
   `DashboardService.getIntelligenceOverview` with per-section `state`, `coverage`, and
   failure-never-zeroed rules (P29/P30 already enforced by `safeSection` → `api_failed`).
 - The 11-state model already exists as `DASHBOARD_SECTION_STATES` + `mapStoredSectionState`
-  (`src/shared/intelligence.ts` lines 585–669); A2's job is to make it *the* mapping — route every
+  (`src/shared/intelligence.ts` lines 585–669); A2's job is to make it _the_ mapping — route every
   section's state derivation through one deterministic function contract and lock the full
   state matrix under test, closing the current gaps (several sections hand-derive `ready`/`stale`/
   `partial`/`empty` outside the shared mapper; `loading`/`permission_failed` have no deterministic
@@ -80,6 +80,7 @@ contract); correlational/observational language only (P46).
 results plus up to 10 feature families; 8 dashboard sections × 11 states = state-matrix surface.
 
 **Open technical decisions** (resolved in [research.md](./research.md)):
+
 - R1: Where the SERP feature presentation derivation lives so every consumer shares exactly one.
 - R2: How the existing per-section state derivations unify into the deterministic A2 mapping
   without breaking the current stored-rollup reads (incl. which inputs each section must compute).
@@ -90,7 +91,7 @@ results plus up to 10 feature families; 8 dashboard sections × 11 states = stat
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 **Post-Phase-1 re-check (2026-10-02): PASS.** Design artifacts ([data-model.md](./data-model.md),
 [contracts/](./contracts/), [quickstart.md](./quickstart.md)) were re-verified against each row
@@ -106,21 +107,21 @@ a responsive layout with enrichment-status degradation preserved (P13/007 contra
 no new tables, no new providers, no render-time paid calls (P6/P13/G10 confirmed). No
 violations; no complexity-tracking entries required.
 
-| Gate / Principle | Requirement for this feature | Status |
-| --- | --- | --- |
-| P1/P2 (layers, no competing architecture) | Feature presentation: one pure derivation module under the SERP feature + shared UI parts; dashboard: extend existing `DashboardService` sections + `src/shared/intelligence.ts` mapping — no parallel stores, normalizers, or state models | PASS by design |
-| P3–P5 (DB law) | No new tables; no migration. Reads over existing stored snapshots/rollups only (verified vs `src/db/`) | PASS — assumptions verified |
-| P6–P10 (provider law) | Normalization consumed from spec-003 frozen contract; unknown provider families dropped at `.strict()` validation; provider failure renders explicit state, never zero features | PASS — contract inherited |
-| P13/G10 (no render-time paid work) | SERP view + dashboard read stored artifacts only; the enrichment view uses the 007 stored status | PASS |
-| P14 (one normalized SERP model) | All rendering derives from `SerpFeatureSet`/`serpSnapshotSchema`; no raw provider JSON reaches any SERP-reading surface | PASS — import-ban test extended |
-| P29–P30 (dashboard law) | Sections read stored rollups/findings (001); every section resolves exactly one of the 11 states via the single deterministic mapper; failure ≠ zero/empty | PASS — contracts/dashboard-sections.md + state-matrix tests |
-| P8/P9 (failure ≠ fact; zero/missing/failed distinct) | Absent feature families never render; `api_failed`/`sync_failed`/`permission_failed` render explicit states with retry — never empty cards or zero counts | PASS |
-| P24 (URL identity) | SERP feature ownership references the stored snapshot's own result identity; no re-canonicalization in this package (006 helper untouched) | PASS |
-| P38–P40 (security) | Project-context middleware on every server function; no credentials in any surface; public sharing untouched | PASS |
-| P41–P42 (trace/ledgers) | Trace taxonomy unchanged; unknown-family drops already logged at ingestion validation (spec 003), presentation layer logs nothing new | PASS |
-| P43–P45 (tests/gates) | TDD; unit/state-matrix/UI/E2E per category; `pnpm types:check` + `pnpm oxlint` + parity gates unchanged | PASS — quickstart.md |
-| P46–P47 (truthfulness) | Feature wording observational/correlational; enrichment `unavailable`/`failed` rendered explicitly; no causal verbs | PASS |
-| P50 (scope discipline) | No new providers/tables/state machines; dashboard desktop layout unchanged; mobile adds a view, doesn't redesign | PASS |
+| Gate / Principle                                     | Requirement for this feature                                                                                                                                                                                                                | Status                                                      |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| P1/P2 (layers, no competing architecture)            | Feature presentation: one pure derivation module under the SERP feature + shared UI parts; dashboard: extend existing `DashboardService` sections + `src/shared/intelligence.ts` mapping — no parallel stores, normalizers, or state models | PASS by design                                              |
+| P3–P5 (DB law)                                       | No new tables; no migration. Reads over existing stored snapshots/rollups only (verified vs `src/db/`)                                                                                                                                      | PASS — assumptions verified                                 |
+| P6–P10 (provider law)                                | Normalization consumed from spec-003 frozen contract; unknown provider families dropped at `.strict()` validation; provider failure renders explicit state, never zero features                                                             | PASS — contract inherited                                   |
+| P13/G10 (no render-time paid work)                   | SERP view + dashboard read stored artifacts only; the enrichment view uses the 007 stored status                                                                                                                                            | PASS                                                        |
+| P14 (one normalized SERP model)                      | All rendering derives from `SerpFeatureSet`/`serpSnapshotSchema`; no raw provider JSON reaches any SERP-reading surface                                                                                                                     | PASS — import-ban test extended                             |
+| P29–P30 (dashboard law)                              | Sections read stored rollups/findings (001); every section resolves exactly one of the 11 states via the single deterministic mapper; failure ≠ zero/empty                                                                                  | PASS — contracts/dashboard-sections.md + state-matrix tests |
+| P8/P9 (failure ≠ fact; zero/missing/failed distinct) | Absent feature families never render; `api_failed`/`sync_failed`/`permission_failed` render explicit states with retry — never empty cards or zero counts                                                                                   | PASS                                                        |
+| P24 (URL identity)                                   | SERP feature ownership references the stored snapshot's own result identity; no re-canonicalization in this package (006 helper untouched)                                                                                                  | PASS                                                        |
+| P38–P40 (security)                                   | Project-context middleware on every server function; no credentials in any surface; public sharing untouched                                                                                                                                | PASS                                                        |
+| P41–P42 (trace/ledgers)                              | Trace taxonomy unchanged; unknown-family drops already logged at ingestion validation (spec 003), presentation layer logs nothing new                                                                                                       | PASS                                                        |
+| P43–P45 (tests/gates)                                | TDD; unit/state-matrix/UI/E2E per category; `pnpm types:check` + `pnpm oxlint` + parity gates unchanged                                                                                                                                     | PASS — quickstart.md                                        |
+| P46–P47 (truthfulness)                               | Feature wording observational/correlational; enrichment `unavailable`/`failed` rendered explicitly; no causal verbs                                                                                                                         | PASS                                                        |
+| P50 (scope discipline)                               | No new providers/tables/state machines; dashboard desktop layout unchanged; mobile adds a view, doesn't redesign                                                                                                                            | PASS                                                        |
 
 **Violations**: none. No complexity-tracking entries required.
 

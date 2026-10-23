@@ -74,16 +74,15 @@ export function addDaysUtc(dateStr: string, days: number): string {
 export function mergeDateIntervals(intervals: DateInterval[]): DateInterval[] {
   if (!Array.isArray(intervals)) return [];
 
-  const valid = intervals.filter(
-    (inv): inv is DateInterval =>
-      Boolean(
-        inv &&
-          typeof inv.startDate === "string" &&
-          typeof inv.endDate === "string" &&
-          DATE_REGEX.test(inv.startDate) &&
-          DATE_REGEX.test(inv.endDate) &&
-          inv.startDate <= inv.endDate,
-      ),
+  const valid = intervals.filter((inv): inv is DateInterval =>
+    Boolean(
+      inv &&
+      typeof inv.startDate === "string" &&
+      typeof inv.endDate === "string" &&
+      DATE_REGEX.test(inv.startDate) &&
+      DATE_REGEX.test(inv.endDate) &&
+      inv.startDate <= inv.endDate,
+    ),
   );
   if (valid.length === 0) return [];
 

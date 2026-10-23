@@ -58,8 +58,7 @@ vi.mock("@/server/features/audit/repositories/AuditRepository", () => ({
   },
 }));
 vi.mock("@/server/features/audit/repositories/auditSummaryQueries", () => ({
-  getIssueTypePageCountsForAudit:
-    overviewMocks.getIssueTypePageCountsForAudit,
+  getIssueTypePageCountsForAudit: overviewMocks.getIssueTypePageCountsForAudit,
 }));
 vi.mock("@/server/features/gsc/repositories/GscConnectionRepository", () => ({
   GscConnectionRepository: { getByProjectId: overviewMocks.getGscConnection },
@@ -137,8 +136,6 @@ describe("DashboardService.ensureBacklinkSnapshot", () => {
   });
 
   it("returns null without any call when the project has no domain", async () => {
-    
-
     await expect(
       DashboardService.ensureBacklinkSnapshot({
         projectId: "project_1",
@@ -153,7 +150,6 @@ describe("DashboardService.ensureBacklinkSnapshot", () => {
 
   it("serves a fresh snapshot without touching the router", async () => {
     mocks.getLatestForProject.mockResolvedValue(snapshotRow());
-    
 
     const result = await DashboardService.ensureBacklinkSnapshot({
       projectId: "project_1",
@@ -178,7 +174,9 @@ describe("DashboardService.ensureBacklinkSnapshot", () => {
 
   it("routes stale snapshots through the backlinks router and write-throughs a paid fetch", async () => {
     mocks.getLatestForProject.mockResolvedValue(
-      snapshotRow({ capturedAt: new Date(Date.now() - 25 * HOUR_MS).toISOString() }),
+      snapshotRow({
+        capturedAt: new Date(Date.now() - 25 * HOUR_MS).toISOString(),
+      }),
     );
     mocks.route.mockResolvedValue({
       data: {
@@ -198,7 +196,6 @@ describe("DashboardService.ensureBacklinkSnapshot", () => {
       mocks.getLatestForProject.mockResolvedValue(snapshotRow(values));
       return Promise.resolve(snapshotRow(values));
     });
-    
 
     const result = await DashboardService.ensureBacklinkSnapshot({
       projectId: "project_1",
@@ -258,7 +255,6 @@ describe("DashboardService.ensureBacklinkSnapshot", () => {
       mocks.getLatestForProject.mockResolvedValue(snapshotRow(values));
       return Promise.resolve(snapshotRow(values));
     });
-    
 
     const result = await DashboardService.ensureBacklinkSnapshot({
       projectId: "project_1",
@@ -282,7 +278,9 @@ describe("DashboardService.ensureBacklinkSnapshot", () => {
 
   it("does not re-insert cached data over an existing row (no fake freshness)", async () => {
     mocks.getLatestForProject.mockResolvedValue(
-      snapshotRow({ capturedAt: new Date(Date.now() - 25 * HOUR_MS).toISOString() }),
+      snapshotRow({
+        capturedAt: new Date(Date.now() - 25 * HOUR_MS).toISOString(),
+      }),
     );
     mocks.route.mockResolvedValue({
       data: {
@@ -297,7 +295,6 @@ describe("DashboardService.ensureBacklinkSnapshot", () => {
       provider: "internal",
       fromCache: true,
     });
-    
 
     const result = await DashboardService.ensureBacklinkSnapshot({
       projectId: "project_1",
@@ -311,10 +308,11 @@ describe("DashboardService.ensureBacklinkSnapshot", () => {
 
   it("returns the stale snapshot when the refresh fails and a row exists", async () => {
     mocks.getLatestForProject.mockResolvedValue(
-      snapshotRow({ capturedAt: new Date(Date.now() - 25 * HOUR_MS).toISOString() }),
+      snapshotRow({
+        capturedAt: new Date(Date.now() - 25 * HOUR_MS).toISOString(),
+      }),
     );
     mocks.route.mockRejectedValue(new Error("upstream down"));
-    
 
     const result = await DashboardService.ensureBacklinkSnapshot({
       projectId: "project_1",
@@ -329,7 +327,6 @@ describe("DashboardService.ensureBacklinkSnapshot", () => {
   it("rethrows when the refresh fails and no snapshot exists", async () => {
     mocks.getLatestForProject.mockResolvedValue(null);
     mocks.route.mockRejectedValue(new Error("budget exceeded"));
-
 
     await expect(
       DashboardService.ensureBacklinkSnapshot({
@@ -354,7 +351,12 @@ function metricDelta(current: number, previous: number) {
     current,
     previous,
     change: current - previous,
-    pctChange: previous === 0 ? (current === 0 ? 0 : null) : ((current - previous) / previous) * 100,
+    pctChange:
+      previous === 0
+        ? current === 0
+          ? 0
+          : null
+        : ((current - previous) / previous) * 100,
   };
 }
 
@@ -493,7 +495,8 @@ describe("DashboardService.getOverview intelligence sections", () => {
   });
 
   it("returns all eight sections with deltas and never touches the paid router", async () => {
-    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
 
     const sections = overview.sections;
     expect(Object.keys(sections).toSorted()).toEqual(
@@ -540,7 +543,8 @@ describe("DashboardService.getOverview intelligence sections", () => {
       coveredThrough: null,
     });
 
-    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
 
     expect(overview.sections.seoPerformance.state).toBe("partial");
     expect(overview.sections.seoPerformance.metrics?.clicks).toEqual({
@@ -562,7 +566,8 @@ describe("DashboardService.getOverview intelligence sections", () => {
     overviewMocks.gscLatestSync.mockResolvedValue({ status: "failed" });
     overviewMocks.gscActiveSync.mockResolvedValue(null);
 
-    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
 
     expect(overview.sections.seoPerformance.state).toBe("sync_failed");
     expect(overview.sections.seoPerformance.metrics).toBeNull();
@@ -599,7 +604,8 @@ describe("DashboardService.getOverview intelligence sections", () => {
     });
     mocks.getLatestForProject.mockResolvedValue(null);
 
-    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
 
     expect(overview.sections.trafficEngagement.state).toBe("not_connected");
     expect(overview.sections.trafficEngagement.metrics).toBeNull();
@@ -616,7 +622,8 @@ describe("DashboardService.getOverview intelligence sections", () => {
   });
 
   it("separates insight facts from recommendations with source badges", async () => {
-    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
 
     expect(overview.sections.recentChanges.state).toBe("ready");
     expect(overview.sections.recentChanges.metrics).toMatchObject({
@@ -634,7 +641,8 @@ describe("DashboardService.getOverview intelligence sections", () => {
   it("marks an unexpected section failure as api_failed instead of zeros", async () => {
     overviewMocks.listOpportunities.mockRejectedValue(new Error("db down"));
 
-    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
 
     expect(overview.sections.opportunities.state).toBe("api_failed");
     expect(overview.sections.opportunities.metrics).toBeNull();
@@ -644,7 +652,8 @@ describe("DashboardService.getOverview intelligence sections", () => {
   it("maps a missing GA4 connection to not_connected GA4 sections", async () => {
     overviewMocks.getGa4Connection.mockResolvedValue(null);
 
-    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
 
     expect(overview.sections.trafficEngagement.state).toBe("not_connected");
     expect(overview.sections.trafficEngagement.metrics).toBeNull();
@@ -672,7 +681,8 @@ describe("DashboardService.getOverview intelligence sections", () => {
       },
     });
 
-    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
 
     expect(overview.sections.seoPerformance.state).toBe("not_connected");
     expect(overview.sections.trafficEngagement.state).toBe("not_connected");
@@ -694,7 +704,8 @@ describe("DashboardService.getOverview intelligence sections", () => {
     }
   });
 
-  it("keeps the legacy overview shape for existing cards and report snapshots", async () => {    const overview = await DashboardService.getOverview({
+  it("keeps the legacy overview shape for existing cards and report snapshots", async () => {
+    const overview = await DashboardService.getOverview({
       projectId: "project_1",
       domain: "acme.com",
     });
@@ -716,7 +727,8 @@ describe("DashboardService unified section states (spec 011)", () => {
   });
 
   it("reports every section's metrics equal to the stored rollup values (spec 011, SC-004)", async () => {
-    const overview = await DashboardService.getIntelligenceOverview(overviewInput);
+    const overview =
+      await DashboardService.getIntelligenceOverview(overviewInput);
 
     // Search visibility derives from the stored rank snapshot: desktop
     // position 2 (top3/top10/top100), mobile 12 (top100); desktop improved
@@ -745,9 +757,9 @@ describe("DashboardService unified section states (spec 011)", () => {
     });
     // SEO performance mirrors the stored GSC totals for the same window.
     expect(overview.sections.seoPerformance.metrics?.clicks.current).toBe(100);
-    expect(
-      overview.sections.seoPerformance.metrics?.impressions.current,
-    ).toBe(1000);
+    expect(overview.sections.seoPerformance.metrics?.impressions.current).toBe(
+      1000,
+    );
   });
 
   it("lists project goal conversions by stored goal name when goals exist (spec 011, T020)", async () => {
@@ -797,9 +809,9 @@ describe("DashboardService unified section states (spec 011)", () => {
     // A goal read failure degrades to the key-event list — never to a failed
     // section or zeroed conversions.
     expect(overview.sections.conversions.state).toBe("ready");
-    expect(
-      overview.sections.conversions.metrics?.keyEvents[0]?.name,
-    ).toBe("purchase");
+    expect(overview.sections.conversions.metrics?.keyEvents[0]?.name).toBe(
+      "purchase",
+    );
   });
 
   it("resolves every section through the unified state mapper (spec 011, T024)", async () => {
@@ -904,5 +916,4 @@ describe("DashboardService unified section states (spec 011)", () => {
     );
     expect(literals).toEqual([]);
   });
-
 });

@@ -39,13 +39,13 @@ Project scope is always the first predicate (P39).
 
 ## View semantics (honest states — P30/G9)
 
-| State | Rendered as | Source |
-| --- | --- | --- |
-| project has zero opportunities | `empty` (scheduling explainer) | `toOpportunitiesPageView` (existing) |
-| filters match nothing | `filtered-empty` (explicit, distinct from `empty`) | existing `filteredCount` input |
-| fetch fails | `error` line — never an empty list | existing `isError` |
+| State                                                   | Rendered as                                                       | Source                                                     |
+| ------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------- |
+| project has zero opportunities                          | `empty` (scheduling explainer)                                    | `toOpportunitiesPageView` (existing)                       |
+| filters match nothing                                   | `filtered-empty` (explicit, distinct from `empty`)                | existing `filteredCount` input                             |
+| fetch fails                                             | `error` line — never an empty list                                | existing `isError`                                         |
 | filter dimension has no available values in the project | that facet is disabled/not-applicable — never a fake empty choice | facet availability derived server-side from the result set |
-| GA4-backed types when GA4 disconnected | simply absent from results (no fabricated zero-severity rows) | natural consequence of stored data |
+| GA4-backed types when GA4 disconnected                  | simply absent from results (no fabricated zero-severity rows)     | natural consequence of stored data                         |
 
 Sorting: unchanged (existing `compareOpportunities` — impact/confidence/priority order).
 

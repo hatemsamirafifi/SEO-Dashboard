@@ -75,6 +75,24 @@ function sourceState(version: string | null): DetectionSourceState {
   };
 }
 
+function isMigrationJournal(value: unknown): value is {
+  entries: Array<{ tag: string }>;
+} {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("entries" in value)) return false;
+  const entries: unknown = value.entries;
+  return (
+    Array.isArray(entries) &&
+    entries.every(
+      (entry: unknown) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        "tag" in entry &&
+        typeof entry.tag === "string",
+    )
+  );
+}
+
 function migrationStatements(file: string): string[] {
   const withoutBlocks = readFileSync(
     resolve(process.cwd(), file),
@@ -105,14 +123,11 @@ beforeAll(async () => {
   const journal: unknown = JSON.parse(
     readFileSync(resolve(process.cwd(), "drizzle/meta/_journal.json"), "utf8"),
   );
-  if (typeof journal !== "object" || journal === null || !("entries" in journal)) {
+  if (!isMigrationJournal(journal)) {
     throw new Error("Migration journal has an unexpected shape");
   }
-  for (const entry of (journal as { entries: Array<{ tag: string }> })
-    .entries) {
-    for (const statement of migrationStatements(
-      `drizzle/${entry.tag}.sql`,
-    )) {
+  for (const entry of journal.entries) {
+    for (const statement of migrationStatements(`drizzle/${entry.tag}.sql`)) {
       await database.client.execute(statement);
     }
   }
@@ -208,19 +223,14 @@ describe("provenance protocol", () => {
       projectId: "project-1",
     });
     expect(found?.payload.provenance.metricSourceVersions).toHaveLength(64);
-    expect(
-      found?.payload.provenance.collectionVersionsBefore,
-    ).toBeNull();
+    expect(found?.payload.provenance.collectionVersionsBefore).toBeNull();
     expect(consistencyBanner(found!.payload.provenance)).toBe(
       "All data sources were stable while this report was collected. No successful intelligence scan exists yet; insights and opportunities reflect whatever has been composed so far.",
     );
   });
 
   it("recovers with a retry when the first collection drifts", async () => {
-    const assemble = vi.spyOn(
-      SourceTokens,
-      "assembleDetectionSourceState",
-    );
+    const assemble = vi.spyOn(SourceTokens, "assembleDetectionSourceState");
     assemble
       .mockResolvedValueOnce(sourceState("sync-1"))
       .mockResolvedValueOnce(sourceState("sync-2"))
@@ -237,10 +247,7 @@ describe("provenance protocol", () => {
   });
 
   it("banners dual-sided output when drift persists", async () => {
-    const assemble = vi.spyOn(
-      SourceTokens,
-      "assembleDetectionSourceState",
-    );
+    const assemble = vi.spyOn(SourceTokens, "assembleDetectionSourceState");
     assemble
       .mockResolvedValueOnce(sourceState("sync-1"))
       .mockResolvedValueOnce(sourceState("sync-2"))
@@ -251,22 +258,15 @@ describe("provenance protocol", () => {
       id: row.id,
       projectId: "project-1",
     });
-    expect(
-      found?.payload.provenance.metricSourceVersions,
-    ).toBeNull();
-    expect(
-      found?.payload.provenance.collectionVersionsBefore,
-    ).toHaveLength(64);
+    expect(found?.payload.provenance.metricSourceVersions).toBeNull();
+    expect(found?.payload.provenance.collectionVersionsBefore).toHaveLength(64);
     expect(consistencyBanner(found!.payload.provenance)).toContain(
       "figures may mix two states",
     );
   });
 
   it("strict-aborts instead of banner output and stores nothing", async () => {
-    const assemble = vi.spyOn(
-      SourceTokens,
-      "assembleDetectionSourceState",
-    );
+    const assemble = vi.spyOn(SourceTokens, "assembleDetectionSourceState");
     assemble
       .mockResolvedValueOnce(sourceState("sync-1"))
       .mockResolvedValueOnce(sourceState("sync-2"))
@@ -274,7 +274,9 @@ describe("provenance protocol", () => {
     await expect(
       ReportService.generateReport(baseInput({ strict: true })),
     ).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(await ReportService.listReports({ projectId: "project-1" })).toHaveLength(0);
+    expect(
+      await ReportService.listReports({ projectId: "project-1" }),
+    ).toHaveLength(0);
   });
 });
 

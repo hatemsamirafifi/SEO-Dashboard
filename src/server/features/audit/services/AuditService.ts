@@ -14,6 +14,10 @@ import {
 import { AppError } from "@/server/lib/errors";
 import { AuditProgressKV } from "@/server/lib/audit/progress-kv";
 import {
+  extractionCompleteRatio,
+  ZERO_URL_COUNTERS,
+} from "@/server/lib/audit/finalize";
+import {
   parseAuditConfig,
   type AuditConfig,
   type LighthouseStrategy,
@@ -156,7 +160,64 @@ async function getStatus(auditId: string, projectId: string) {
     currentPhase: audit.currentPhase,
     startedAt: audit.startedAt,
     completedAt: audit.completedAt,
+    // Truthfulness payload: finalize counters + the share of analyzed pages
+    // whose extraction fully completed. Counters stay 0 while running.
+    urls: {
+      urlsDiscovered: audit.urlsDiscovered,
+      urlsFetched: audit.urlsFetched,
+      urlsAnalyzed: audit.urlsAnalyzed,
+      urlsBlocked: audit.urlsBlocked,
+      urlsFailed: audit.urlsFailed,
+      urlsSkipped: audit.urlsSkipped,
+      urlsRenderingRequired: audit.urlsRenderingRequired,
+      urlsExtractionComplete: audit.urlsExtractionComplete,
+    },
+    extractionCompleteRatio: extractionCompleteRatio({
+      ...ZERO_URL_COUNTERS,
+      urlsAnalyzed: audit.urlsAnalyzed,
+      urlsRenderingRequired: audit.urlsRenderingRequired,
+      urlsExtractionComplete: audit.urlsExtractionComplete,
+    }),
   };
+}
+
+/**
+ * Cooperative stop: flip the running audit to `cancelled` so the workflow
+ * notices between batches and finalizes with preserved page states (D8).
+ * The workflow instance is deliberately NOT terminated here — the crawl
+ * gets one clean exit in exchange for finalizing its own partial results.
+ */
+async function cancelAudit(input: {
+  actorUserId: string;
+  auditId: string;
+  projectId: string;
+}) {
+  const audit = await AuditRepository.getAuditForProject(
+    input.auditId,
+    input.projectId,
+  );
+  if (!audit) {
+    throw new AppError("NOT_FOUND", "Audit not found in this project.");
+  }
+  if (audit.status !== "running") {
+    throw new AppError("CONFLICT", "Only a running audit can be cancelled.");
+  }
+
+  const captured = await AuditRepository.cancelAudit(
+    input.auditId,
+    input.projectId,
+  );
+  if (!captured) {
+    // The workflow finalized (or a racer cancelled) between the read and
+    // the write — the audit is terminal, which satisfies the user's goal.
+    const latest = await AuditRepository.getAuditForProject(
+      input.auditId,
+      input.projectId,
+    );
+    return { auditId: input.auditId, status: latest?.status };
+  }
+
+  return { auditId: input.auditId, status: "cancelled" as const };
 }
 
 async function getResults(auditId: string, projectId: string) {
@@ -262,6 +323,7 @@ async function remove(auditId: string, projectId: string) {
 export const AuditService = {
   resolveAuditLimitTier,
   startAudit,
+  cancelAudit,
   getStatus,
   getCrawlProgress,
   getResults,

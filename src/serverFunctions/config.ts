@@ -10,4 +10,3 @@ export const getSeoApiKeyStatus = createServerFn({ method: "GET" })
     });
     return { configured: config.configured };
   });
-

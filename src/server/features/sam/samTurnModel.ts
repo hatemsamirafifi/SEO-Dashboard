@@ -12,7 +12,12 @@ import {
 
 export type SamTurnModelResult =
   | { kind: "refusal"; message: string }
-  | { kind: "model"; model: ReturnType<ReturnType<typeof AiProviderRegistry.get>["buildModel"]> }
+  | {
+      kind: "model";
+      model: ReturnType<
+        ReturnType<typeof AiProviderRegistry.get>["buildModel"]
+      >;
+    }
   | { kind: "env-default" };
 
 /**

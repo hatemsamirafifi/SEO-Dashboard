@@ -6,11 +6,7 @@ import {
   hashSourceState,
   describeActiveMutations,
 } from "./SourceTokens";
-import {
-  FindingService,
-  SCAN_FLOOR_MS,
-  SCAN_FORCE_MS,
-} from "./FindingService";
+import { FindingService, SCAN_FLOOR_MS, SCAN_FORCE_MS } from "./FindingService";
 
 /** Non-terminal runs older than this are treated as crashed, not in flight. */
 export const STUCK_RUN_MS = 30 * 60 * 1000;

@@ -10,9 +10,9 @@ describe("getStandardErrorMessage", () => {
     expect(getStandardErrorMessage(new Error("PAYMENT_REQUIRED"))).toBe(
       "An active hosted subscription is required before you can use OpenSEO.",
     );
-    expect(getStandardErrorMessage(new Error("DATAFORSEO_ACCESS_PAUSED"))).toContain(
-      "support@dataforseo.com",
-    );
+    expect(
+      getStandardErrorMessage(new Error("DATAFORSEO_ACCESS_PAUSED")),
+    ).toContain("support@dataforseo.com");
   });
 
   it("maps DATAFORSEO_ACCOUNT_PAUSED to actionable user-facing copy", () => {
@@ -83,4 +83,3 @@ describe("coded error messages (CODE: detail)", () => {
     );
   });
 });
-

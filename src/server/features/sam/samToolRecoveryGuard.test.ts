@@ -297,7 +297,6 @@ describe("executeAdaptedTool — 429 / 5xx single retry", () => {
 });
 
 describe("executeAdaptedTool — isolation and secrecy", () => {
-
   it("keeps other tools usable and never leaks raw provider text", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const { ctx, recovery } = testCtx();

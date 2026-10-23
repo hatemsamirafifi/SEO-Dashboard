@@ -95,8 +95,7 @@ async function fetchGa4SessionAgreement(input: {
       input.current.to,
     );
     const coveredIn = (from: string, to: string): number =>
-      coverage.coveredDates.filter((date) => date >= from && date <= to)
-        .length;
+      coverage.coveredDates.filter((date) => date >= from && date <= to).length;
     if (
       coveredIn(input.current.from, input.current.to) / input.windowDays <
         input.minCoverage ||

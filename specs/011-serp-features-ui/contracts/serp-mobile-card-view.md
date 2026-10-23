@@ -8,13 +8,13 @@ existing dense view is unchanged. One route, one data path, two layouts.
 
 ## Card anatomy (per organic result)
 
-| Element | Always visible | Source |
-| --- | --- | --- |
-| Position | yes | stored `organicResults[].position` (never recomputed) |
-| Result identity | yes | title → URL/domain fallback chain |
-| One-line summary | yes | stored snippet/description when present; absent stays absent |
-| Feature chips | when present | shared family chips from the presentation derivation |
-| Metrics (rank/enrichment) | expansion only | stored/007 values with their availability status |
+| Element                   | Always visible | Source                                                       |
+| ------------------------- | -------------- | ------------------------------------------------------------ |
+| Position                  | yes            | stored `organicResults[].position` (never recomputed)        |
+| Result identity           | yes            | title → URL/domain fallback chain                            |
+| One-line summary          | yes            | stored snippet/description when present; absent stays absent |
+| Feature chips             | when present   | shared family chips from the presentation derivation         |
+| Metrics (rank/enrichment) | expansion only | stored/007 values with their availability status             |
 
 - Metrics expansion: per-card disclosure; closed by default; expanding never shifts sibling cards
   (no layout reflow).

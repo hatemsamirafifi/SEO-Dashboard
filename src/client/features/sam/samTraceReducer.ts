@@ -122,7 +122,12 @@ export type TraceTurnSummary = {
   failed: number;
 };
 
-export type TraceFilter = "all" | "errors" | "blocked" | "retries" | "fallbacks";
+export type TraceFilter =
+  | "all"
+  | "errors"
+  | "blocked"
+  | "retries"
+  | "fallbacks";
 
 export type TraceViewState = {
   turnId: string | null;
@@ -256,9 +261,11 @@ function applyHandlerStart(acc: ToolAccumulator): void {
     // (its attempt index continues the timeline) or a defensive stray.
     const lastIndex =
       acc.view.attempts.length > 0
-        ? acc.view.attempts[acc.view.attempts.length - 1]?.index ?? 0
+        ? (acc.view.attempts[acc.view.attempts.length - 1]?.index ?? 0)
         : 0;
-    acc.active = newAttempt(Math.max(lastIndex + 1, acc.view.modelAttempts || 1));
+    acc.active = newAttempt(
+      Math.max(lastIndex + 1, acc.view.modelAttempts || 1),
+    );
   }
   acc.active.handlerExecuted = true;
   acc.view.handlerExecutions += 1;
@@ -354,7 +361,8 @@ function applyProviderError(
         call.httpStatus = diagnostics.httpStatus;
       }
       // Merge the seam's sanitized diagnostics into the call entry.
-      if (diagnostics) call.diagnostics = { ...call.diagnostics, ...diagnostics };
+      if (diagnostics)
+        call.diagnostics = { ...call.diagnostics, ...diagnostics };
     } else {
       counted = true;
       acc.active.providerCalls.push({ ...errorInfo, ok: false });
@@ -582,4 +590,3 @@ export function reduceTraceFrame(frame: SamTraceFrame): TraceViewState {
     summary,
   };
 }
-

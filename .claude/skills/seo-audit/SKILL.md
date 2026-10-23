@@ -47,7 +47,7 @@ Keep total spend modest: one audit, one backlinks overview, at most one domain o
    - Clean site, no backlinks: outreach to guests, partners, or directories, with a ready-to-send message.
    - Dead domain, live successor site: permanent redirect via hosting support, with the exact sentence to send them.
    - Blocked or noindexed pages: remove the block.
-   It must be doable this week by a non-technical person, with copy-paste-ready mechanics included.
+     It must be doable this week by a non-technical person, with copy-paste-ready mechanics included.
 7. When the site is healthy, propose a starting focus area: run one `research_keywords` call seeded from the site's actual topic, then pick one theme and 3 to 5 specific, low-difficulty keywords the site can realistically rank for, each with the page or post to make. This is a starting direction, not a keyword strategy; point the user at the `keyword-research` skill for the full workflow. Skip this step entirely when the site is down — the one thing is all that matters there.
 8. Write the report using `template.html` in this skill directory (see Output format).
 9. Review before delivering: run an adversarial pass with a second agent or model if your environment has one, otherwise do a fresh self-review. Give the reviewer the verified facts and have it attack four things: claims beyond the facts, unglossed jargon, anything overwhelming for a beginner, and dramatic language. The reviewer may also flag true facts it was not given; check those against your evidence instead of "fixing" them.

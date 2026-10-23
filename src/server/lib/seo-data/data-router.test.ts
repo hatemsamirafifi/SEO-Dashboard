@@ -5,10 +5,7 @@ import {
   ProviderUnsupportedError,
   BudgetExceededError,
 } from "./errors";
-import {
-  resetCostCounters,
-  resetBudgetConfigCache,
-} from "./cost-tracker";
+import { resetCostCounters, resetBudgetConfigCache } from "./cost-tracker";
 import { resetProviderConfigCache } from "./config";
 import { clearSingleFlight } from "./single-flight";
 import type { SEODataProvider, SEODataRequest } from "./types";
@@ -16,9 +13,9 @@ import type { SEODataProvider, SEODataRequest } from "./types";
 // Use vi.hoisted so the mock fns are available inside the hoisted vi.mock factory.
 const mocks = vi.hoisted(() => ({
   getCached: vi.fn<(key: string) => Promise<unknown>>(async () => null),
-  setCached: vi.fn<
-    (key: string, data: unknown, ttl: number) => Promise<void>
-  >(async () => {}),
+  setCached: vi.fn<(key: string, data: unknown, ttl: number) => Promise<void>>(
+    async () => {},
+  ),
   db: { select: vi.fn(), insert: vi.fn() },
 }));
 
@@ -55,9 +52,7 @@ function makeProvider(
   };
 }
 
-function makeRequest(
-  overrides: Partial<SEODataRequest> = {},
-): SEODataRequest {
+function makeRequest(overrides: Partial<SEODataRequest> = {}): SEODataRequest {
   return {
     dataType: "serp",
     keyword: "test",

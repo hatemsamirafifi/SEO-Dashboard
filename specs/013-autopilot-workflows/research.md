@@ -33,10 +33,11 @@ edited by the product-level PRs, and nothing can be started without both const m
 registration).
 
 **Alternatives considered**:
-- *Separate allowlist config/array decoupled from the type const* — rejected: two lists that
+
+- _Separate allowlist config/array decoupled from the type const_ — rejected: two lists that
   must agree is drift surface (a workflow registered but not startable, or startable but
   unregistered); the spec's allowlist semantics are fully expressed by const + registry.
-- *Runtime filtering of registry entries* (e.g. a `startable` flag on defs) — rejected:
+- _Runtime filtering of registry entries_ (e.g. a `startable` flag on defs) — rejected:
   extends `AutopilotWorkflowDef` for a distinction with zero current use; the six MVP types are
   all startable.
 
@@ -71,11 +72,12 @@ impacts only; a test asserts no new output contains an uplift percentage pattern
 percentages".
 
 **Alternatives considered**:
-- *LLM-in-the-loop synthesis via SAM's provider adapters* — rejected: no executor path exists,
+
+- _LLM-in-the-loop synthesis via SAM's provider adapters_ — rejected: no executor path exists,
   provider resolution is unconfigured in most environments, P34 forbids the workflow becoming
   an inventor of facts, and the existing pattern is pure builders; adding an LLM seam is a
   product decision with its own budget semantics (deferred, not scoped).
-- *Skipping `toolCalls` accounting for deterministic synthesis* — rejected: it would change
+- _Skipping `toolCalls` accounting for deterministic synthesis_ — rejected: it would change
   the budget ledger's meaning and the existing `stepExecutorBudgets.test.ts` invariants.
 
 ---
@@ -94,6 +96,7 @@ percentages".
 
 **Coverage semantics (P28/G9)**: collect produces an explicit `auditCoverage` field in frozen
 evidence with a deterministic state machine:
+
 - no audit row → `{ state: "never_run" }`
 - latest audit status is not a terminal success state (e.g. running/failed) →
   `{ state: "stale_or_failed", auditStatus }`
@@ -113,10 +116,11 @@ evidence surface as the product UI — no parallel read path. Audit data is stor
 (Lighthouse included), never a live provider call (P28, G10).
 
 **Alternatives considered**:
-- *Reading `collectOverviewParts`' technical envelope* — rejected: it collapses to a
+
+- _Reading `collectOverviewParts`' technical envelope_ — rejected: it collapses to a
   pagesCrawled/topIssues summary designed for report sections; the workflow needs per-issue
   severity ranking, which the repository read provides directly.
-- *Triggering a new audit from the workflow* — rejected: violates stored-evidence-only steps
+- _Triggering a new audit from the workflow_ — rejected: violates stored-evidence-only steps
   (spec FR-005, P28) and would make a workflow a mutation orchestrator; starting audits stays a
   user action (or a SAM `run_site_audit` tool call the user can request — the workflow itself
   never does).
@@ -128,7 +132,7 @@ evidence surface as the product UI — no parallel read path. Audit data is stor
 **Decision**: the monthly-review collect step derives two windows deterministically:
 `month = [first day of previous complete UTC calendar month, last day of that month]` and
 `prior = [the calendar month before that]` (UTC — consistent with cron/report conventions;
-late-started runs still review the previous *complete* month, never a partial current month).
+late-started runs still review the previous _complete_ month, never a partial current month).
 It then calls, for **both** windows in parallel:
 
 - `collectSearchVisibility(projectId, from, to)` — GSC clicks/impressions/CTR/position totals
@@ -166,11 +170,12 @@ evidence). Reusing them means zero new provider semantics and automatic P21/P8/P
 the workflow adds only the two-window comparison and the synthesis.
 
 **Alternatives considered**:
-- *Custom repository reads per source* — rejected: duplicates the collectors' coverage/absence
+
+- _Custom repository reads per source_ — rejected: duplicates the collectors' coverage/absence
   logic (drift surface; P2).
-- *Rolling 30-day windows* — rejected: "monthly review" is a calendar concept; reports and
+- _Rolling 30-day windows_ — rejected: "monthly review" is a calendar concept; reports and
   schedules (012) use calendar derivations; late runs must not silently shift the window.
-- *Differencing CTR/position* — rejected: non-additive deltas fabricate precision (P23).
+- _Differencing CTR/position_ — rejected: non-additive deltas fabricate precision (P23).
 
 ---
 
@@ -181,13 +186,13 @@ following the `report-autopilot-tools.ts` shape (`withMcpProjectAuth` + `mcpResp
 output schemas; `start`/`resume` annotations `readOnlyHint: false`, get/list
 `readOnlyHint: true`):
 
-| Tool | Delegates to (AutopilotService) | Notes |
-| --- | --- | --- |
-| `start_autopilot_run` | `startAutopilotRun({ ..., trigger: "sam_chat" })` | input: `workflowType` enum; `projectId` injected by adapter |
-| `get_autopilot_run` | `getAutopilotRun` | run + attempts + step table (mirrors existing MCP tool's text shape) |
-| `list_autopilot_runs` | `listAutopilotRuns` | bounded rows, status + workflow type columns |
-| `cancel_autopilot_run` | `cancelAutopilotRun` | terminal-state idempotency inherited from service |
-| `resume_autopilot_run` | `resumeAutopilotRun` | only running/cancelled resumes (service rule) |
+| Tool                   | Delegates to (AutopilotService)                   | Notes                                                                |
+| ---------------------- | ------------------------------------------------- | -------------------------------------------------------------------- |
+| `start_autopilot_run`  | `startAutopilotRun({ ..., trigger: "sam_chat" })` | input: `workflowType` enum; `projectId` injected by adapter          |
+| `get_autopilot_run`    | `getAutopilotRun`                                 | run + attempts + step table (mirrors existing MCP tool's text shape) |
+| `list_autopilot_runs`  | `listAutopilotRuns`                               | bounded rows, status + workflow type columns                         |
+| `cancel_autopilot_run` | `cancelAutopilotRun`                              | terminal-state idempotency inherited from service                    |
+| `resume_autopilot_run` | `resumeAutopilotRun`                              | only running/cancelled resumes (service rule)                        |
 
 `buildSamMcpTools` (`samChatTools.ts`) adapts all five via the existing `adapt()` helper —
 project injection, tracker dedup, guarded execute, per-turn recovery all inherited.
@@ -207,13 +212,14 @@ schema change; run rows are indistinguishable in shape, only in trigger value �
 provenance spec FR-015 requires.
 
 **Alternatives considered**:
-- *AI-SDK-native tools defined inline in `samChatTools.ts`* (like `map_links`/`read_pages`) —
+
+- _AI-SDK-native tools defined inline in `samChatTools.ts`_ (like `map_links`/`read_pages`) —
   rejected: those exist because they are SAM-only conveniences; autopilot operations are
   project-scoped product operations that belong in the shared MCP-definition shape so the
   eventual public registration (if ever approved) reuses the exact same definitions.
-- *Registering on the public MCP route now* — rejected: plan §4 marks it Later/optional;
+- _Registering on the public MCP route now_ — rejected: plan §4 marks it Later/optional;
   public run-starters need their own product review (external clients could burn budgets).
-- *Cached run polls for cheaper repeat calls* — rejected: contradicts the live-polling UI
+- _Cached run polls for cheaper repeat calls_ — rejected: contradicts the live-polling UI
   contract and the FRESH_READ precedent.
 
 ---
@@ -272,14 +278,14 @@ extends the existing evidence module where its tests already live
 
 ## Summary of decisions feeding Phase 1
 
-| ID | Decision | Contract artifact |
-| --- | --- | --- |
-| R1 | Six-entry `AUTOPILOT_WORKFLOW_TYPES` const = the allowlist; Zod enum at trust boundary; SAM schemas same enum; service registry fail-closed | workflow-definitions.md §1 |
-| R2 | Deterministic synthesis via existing serializer; `toolCalls: 1` accounting; qualitative impacts only; uplift-pattern test ban | workflow-definitions.md §4 |
-| R3 | Technical-SEO reads latest audit + issues + engine state; explicit `auditCoverage` state machine (`never_run`/`stale_or_failed`/`empty_crawl`/`ready`) | workflow-definitions.md §3 |
-| R4 | Monthly review = prior complete UTC month vs its predecessor; collectors reused with status envelopes verbatim; additive-only deltas; CTR/position side-by-side | workflow-definitions.md §3 |
-| R5 | Five tools in `autopilot-run-tools.ts` (MCP shape), adapted into SAM only; get/list fresh-read; `trigger: "sam_chat"`; no public route registration | sam-autopilot-tools.md |
-| R6 | No new pin inputs — all new evidence sources are already pin-covered | workflow-definitions.md §5 |
-| R7 | Picker extends by data; `autopilotEvidence.ts` gains three renderers; no new routes | sam-autopilot-tools.md §4 |
+| ID  | Decision                                                                                                                                                        | Contract artifact          |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| R1  | Six-entry `AUTOPILOT_WORKFLOW_TYPES` const = the allowlist; Zod enum at trust boundary; SAM schemas same enum; service registry fail-closed                     | workflow-definitions.md §1 |
+| R2  | Deterministic synthesis via existing serializer; `toolCalls: 1` accounting; qualitative impacts only; uplift-pattern test ban                                   | workflow-definitions.md §4 |
+| R3  | Technical-SEO reads latest audit + issues + engine state; explicit `auditCoverage` state machine (`never_run`/`stale_or_failed`/`empty_crawl`/`ready`)          | workflow-definitions.md §3 |
+| R4  | Monthly review = prior complete UTC month vs its predecessor; collectors reused with status envelopes verbatim; additive-only deltas; CTR/position side-by-side | workflow-definitions.md §3 |
+| R5  | Five tools in `autopilot-run-tools.ts` (MCP shape), adapted into SAM only; get/list fresh-read; `trigger: "sam_chat"`; no public route registration             | sam-autopilot-tools.md     |
+| R6  | No new pin inputs — all new evidence sources are already pin-covered                                                                                            | workflow-definitions.md §5 |
+| R7  | Picker extends by data; `autopilotEvidence.ts` gains three renderers; no new routes                                                                             | sam-autopilot-tools.md §4  |
 
 All seven decisions resolved with repo evidence; no NEEDS CLARIFICATION remains.

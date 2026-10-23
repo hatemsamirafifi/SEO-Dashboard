@@ -39,10 +39,7 @@ vi.mock("@/db/runBatch", () => ({
   },
 }));
 
-import {
-  Ga4AggregationError,
-  Ga4SyncRepository,
-} from "./Ga4SyncRepository";
+import { Ga4AggregationError, Ga4SyncRepository } from "./Ga4SyncRepository";
 
 const PROJECT = "project-1";
 const PROPERTY = "properties/42";
@@ -151,7 +148,10 @@ function techRow(input: {
 async function cover(
   dates: string[],
   grain: "geo" | "technology",
-  status: "SUCCESS_WITH_DATA" | "SUCCESS_ZERO_ROWS" | "FAILED" = "SUCCESS_WITH_DATA",
+  status:
+    | "SUCCESS_WITH_DATA"
+    | "SUCCESS_ZERO_ROWS"
+    | "FAILED" = "SUCCESS_WITH_DATA",
 ) {
   await Ga4SyncRepository.seedPendingUnits({
     projectId: PROJECT,
@@ -233,9 +233,30 @@ describe("Ga4SyncRepository geo grain reads", () => {
 describe("Ga4SyncRepository technology grain reads", () => {
   it("groups by the requested dimension over SUCCESS dates", async () => {
     await Ga4SyncRepository.upsertTechnologyRows([
-      techRow({ id: "t1", date: "2025-01-01", device: "desktop", browser: "Chrome", os: "Windows", sessions: 60 }),
-      techRow({ id: "t2", date: "2025-01-01", device: "mobile", browser: "Safari", os: "iOS", sessions: 40 }),
-      techRow({ id: "t3", date: "2025-01-01", device: "desktop", browser: "Firefox", os: "Linux", sessions: 10 }),
+      techRow({
+        id: "t1",
+        date: "2025-01-01",
+        device: "desktop",
+        browser: "Chrome",
+        os: "Windows",
+        sessions: 60,
+      }),
+      techRow({
+        id: "t2",
+        date: "2025-01-01",
+        device: "mobile",
+        browser: "Safari",
+        os: "iOS",
+        sessions: 40,
+      }),
+      techRow({
+        id: "t3",
+        date: "2025-01-01",
+        device: "desktop",
+        browser: "Firefox",
+        os: "Linux",
+        sessions: 10,
+      }),
     ]);
     await cover(["2025-01-01"], "technology");
     const byDevice = await Ga4SyncRepository.getTechnologyGroups(
@@ -245,10 +266,7 @@ describe("Ga4SyncRepository technology grain reads", () => {
       "2025-01-01",
       { dimension: "device" },
     );
-    expect(byDevice.map((group) => group.value)).toEqual([
-      "desktop",
-      "mobile",
-    ]);
+    expect(byDevice.map((group) => group.value)).toEqual(["desktop", "mobile"]);
     expect(byDevice[0]).toMatchObject({
       dimension: "device",
       sessions: 70,
@@ -311,7 +329,10 @@ describe("Ga4SyncRepository aggregation guards", () => {
 
   it("never sums distinct-user metrics in repository reads (static guard)", () => {
     const source = readFileSync(
-      resolve(process.cwd(), "src/server/features/ga4/repositories/Ga4SyncRepository.ts"),
+      resolve(
+        process.cwd(),
+        "src/server/features/ga4/repositories/Ga4SyncRepository.ts",
+      ),
       "utf8",
     );
     expect(source).not.toMatch(/sum\(\$\{ga4\w+\.(totalUsers|activeUsers)\}\)/);

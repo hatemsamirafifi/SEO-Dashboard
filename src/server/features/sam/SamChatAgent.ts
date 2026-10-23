@@ -17,7 +17,6 @@ import { handleRewindRequest } from "@/server/features/sam/samRewind";
 import { SamSessionRepository } from "@/server/features/sam/SamSessionRepository";
 import { SamProjectMemoryRepository } from "@/server/features/sam/SamProjectMemoryRepository";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
-import { buildSamMcpTools } from "@/server/features/sam/samChatTools";
 import { buildSamSystemPrompt } from "@/server/features/sam/samSystemPrompt";
 import {
   deriveTitle,
@@ -418,6 +417,13 @@ export class SamChatAgent extends Think {
         DEFAULT_MAX_TOOL_CALLS,
       );
 
+      // Tool schemas are costly to build: samChatTools statically imports every
+      // MCP tool module (each builds zod input/output schemas at module
+      // scope), and evaluating that graph at worker startup pushes toward the
+      // 400ms CPU limit. Load the toolset per turn instead, when a turn
+      // actually needs it.
+      const { buildSamMcpTools } =
+        await import("@/server/features/sam/samChatTools");
       const turn: TurnConfig = {
         tools: buildSamMcpTools(
           authContext,

@@ -100,7 +100,5 @@ export const backlinksHistoryItemSchema = z
 export type BacklinksSummaryItem = z.infer<typeof backlinksSummaryItemSchema>;
 export type BacklinksItem = z.infer<typeof backlinksItemSchema>;
 export type ReferringDomainItem = z.infer<typeof referringDomainItemSchema>;
-export type DomainPageSummaryItem = z.infer<
-  typeof domainPageSummaryItemSchema
->;
+export type DomainPageSummaryItem = z.infer<typeof domainPageSummaryItemSchema>;
 export type BacklinksHistoryItem = z.infer<typeof backlinksHistoryItemSchema>;

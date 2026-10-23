@@ -8,18 +8,18 @@ No new persisted tables. Models below are the frozen normalized contract (types 
 
 One normalized keyword SERP observation.
 
-| Field | Type | Rules |
-|---|---|---|
-| keyword | string | Canonical keyword form |
-| engine | enum | Normalized engine id (e.g. google) |
-| location | object | Canonical locationCode/location identity |
-| language | string | Canonical language code |
-| device | enum | Normalized device (desktop/mobile/…) |
-| checkedAt | ISO string | Full observation timestamp; never date-only |
+| Field          | Type                | Rules                                                      |
+| -------------- | ------------------- | ---------------------------------------------------------- |
+| keyword        | string              | Canonical keyword form                                     |
+| engine         | enum                | Normalized engine id (e.g. google)                         |
+| location       | object              | Canonical locationCode/location identity                   |
+| language       | string              | Canonical language code                                    |
+| device         | enum                | Normalized device (desktop/mobile/…)                       |
+| checkedAt      | ISO string          | Full observation timestamp; never date-only                |
 | organicResults | SerpOrganicResult[] | Position-ordered for display; never used as merge identity |
-| features | SerpFeatureSet | Only observed families present |
-| provider | string | Provenance only (dataforseo/serper/zenserp) |
-| providerStatus | string | Provider call status class |
+| features       | SerpFeatureSet      | Only observed families present                             |
+| provider       | string              | Provenance only (dataforseo/serper/zenserp)                |
+| providerStatus | string              | Provider call status class                                 |
 
 **Logical identity**: `(keyword, engine, location, language, device, checkedAt)` — all dimensions
 canonicalized pre-key. Provider excluded. ProjectId excluded (tenancy, storage key only).
@@ -27,12 +27,12 @@ canonicalized pre-key. Provider excluded. ProjectId excluded (tenancy, storage k
 
 ## SerpOrganicResult
 
-| Field | Type | Rules |
-|---|---|---|
-| position | integer | As observed |
-| title / url / domain | string | Raw observed values (enrichment canonicalizes downstream) |
-| resultType | string \| null | e.g. organic, sitelinks-augmented |
-| featureRefs | string[] | Associated feature keys (e.g. featured, local_pack) |
+| Field                | Type           | Rules                                                     |
+| -------------------- | -------------- | --------------------------------------------------------- |
+| position             | integer        | As observed                                               |
+| title / url / domain | string         | Raw observed values (enrichment canonicalizes downstream) |
+| resultType           | string \| null | e.g. organic, sitelinks-augmented                         |
+| featureRefs          | string[]       | Associated feature keys (e.g. featured, local_pack)       |
 
 ## SerpFeatureSet
 

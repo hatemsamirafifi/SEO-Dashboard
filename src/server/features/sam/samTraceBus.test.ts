@@ -16,7 +16,11 @@ describe("trace bus — event model and hygiene", () => {
     bus.startTurn();
     bus.push({ event: "model_attempt", toolName: "research_keywords" });
     bus.push({ event: "gate_allowed", toolName: "research_keywords" });
-    bus.push({ event: "handler_start", toolName: "research_keywords", attempt: 1 });
+    bus.push({
+      event: "handler_start",
+      toolName: "research_keywords",
+      attempt: 1,
+    });
     const snap = bus.snapshot();
     const seqs = snap?.events.map((e) => e.sequence) ?? [];
     expect(seqs).toEqual([1, 2, 3]);

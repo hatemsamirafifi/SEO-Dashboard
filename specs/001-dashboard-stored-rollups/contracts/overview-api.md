@@ -19,7 +19,7 @@ Server-function read contract consumed by the dashboard (and later the A1 sectio
   - Zero paid provider calls per invocation (assertable via trace: no paid activity).
   - `delta.previous == null ⟹ delta.change == null AND delta.changePct == null`.
   - Failed/missing source → section `state ∈ {not_connected, no_data, api_failed, permission_failed,
-    sync_running, sync_failed, partial, stale}` with metrics absent — never zero-filled.
+sync_running, sync_failed, partial, stale}` with metrics absent — never zero-filled.
   - Partial coverage sets `state = partial` with `coverage.detail` (e.g. "12/28 days"), never silent full.
 
 ## Per-section metric shapes (stored values only)

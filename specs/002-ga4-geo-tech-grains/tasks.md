@@ -12,7 +12,7 @@
 
 **Purpose**: Baseline verification before schema changes
 
-- [X] T001 Verify baseline green: `pnpm test Ga4SyncService Ga4Service ga4Migration schema-parity` and `pnpm types:check` on main
+- [x] T001 Verify baseline green: `pnpm test Ga4SyncService Ga4Service ga4Migration schema-parity` and `pnpm types:check` on main
 
 ---
 
@@ -22,10 +22,10 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T002 Add `ga4_daily_geo` + `ga4_daily_technology` tables with UNIQUE composites and project/date indexes in `src/db/ga4.schema.ts`
-- [X] T003 Mirror both tables in `src/db/pg/ga4.schema.ts`, add additive migration in `drizzle/` + `drizzle-pg/`, extend `src/db/ga4Migration.test.ts` and `src/db/schema-parity.test.ts`
-- [X] T004 Extend `ga4_sync_coverage` grain set (`geo`, `technology`) with truncation metadata (`isTruncated`, counts when known, `otherRowPresent`) in `src/db/ga4.schema.ts` + PG mirror
-- [X] T005 Implement deterministic "(other)" tail rollup with exact totals in `src/server/features/ga4/services/ga4SyncUtils.ts`
+- [x] T002 Add `ga4_daily_geo` + `ga4_daily_technology` tables with UNIQUE composites and project/date indexes in `src/db/ga4.schema.ts`
+- [x] T003 Mirror both tables in `src/db/pg/ga4.schema.ts`, add additive migration in `drizzle/` + `drizzle-pg/`, extend `src/db/ga4Migration.test.ts` and `src/db/schema-parity.test.ts`
+- [x] T004 Extend `ga4_sync_coverage` grain set (`geo`, `technology`) with truncation metadata (`isTruncated`, counts when known, `otherRowPresent`) in `src/db/ga4.schema.ts` + PG mirror
+- [x] T005 Implement deterministic "(other)" tail rollup with exact totals in `src/server/features/ga4/services/ga4SyncUtils.ts`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -41,14 +41,14 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [X] T006 [P] [US1] Geo grain sync/read tests (upsert idempotency, sentinel dims, reconciliation) in `src/server/features/ga4/services/Ga4SyncService.test.ts`
-- [X] T007 [P] [US1] Empty-window test (no geo coverage → explicit no-data state, never zeros) in `src/server/features/ga4/services/Ga4Service.test.ts`
+- [x] T006 [P] [US1] Geo grain sync/read tests (upsert idempotency, sentinel dims, reconciliation) in `src/server/features/ga4/services/Ga4SyncService.test.ts`
+- [x] T007 [P] [US1] Empty-window test (no geo coverage → explicit no-data state, never zeros) in `src/server/features/ga4/services/Ga4Service.test.ts`
 
 ### Implementation for User Story 1
 
-- [X] T008 [US1] Ingest geo chunks (bounded top-N + "(other)") in `src/server/features/ga4/services/Ga4SyncService.ts`
-- [X] T009 [US1] Add `getAnalyticsGeo` read fn with coverage join (`SUCCESS_*` only) in `src/server/features/ga4/services/Ga4Service.ts` and expose in `src/serverFunctions/ga4.ts`
-- [X] T010 [US1] Wire country filter to stored grain with capability-gated empty states (analytics filter path)
+- [x] T008 [US1] Ingest geo chunks (bounded top-N + "(other)") in `src/server/features/ga4/services/Ga4SyncService.ts`
+- [x] T009 [US1] Add `getAnalyticsGeo` read fn with coverage join (`SUCCESS_*` only) in `src/server/features/ga4/services/Ga4Service.ts` and expose in `src/serverFunctions/ga4.ts`
+- [x] T010 [US1] Wire country filter to stored grain with capability-gated empty states (analytics filter path)
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -62,12 +62,12 @@
 
 ### Tests for User Story 2
 
-- [X] T011 [P] [US2] Tech grain sync/read tests (composite UNIQUE, "(other)" composite) in `src/server/features/ga4/services/Ga4SyncService.test.ts`
+- [x] T011 [P] [US2] Tech grain sync/read tests (composite UNIQUE, "(other)" composite) in `src/server/features/ga4/services/Ga4SyncService.test.ts`
 
 ### Implementation for User Story 2
 
-- [X] T012 [US2] Ingest technology chunks in `src/server/features/ga4/services/Ga4SyncService.ts`
-- [X] T013 [US2] Add `getAnalyticsTechnology` read fn + device filter wiring in `src/server/features/ga4/services/Ga4Service.ts` and `src/serverFunctions/ga4.ts`
+- [x] T012 [US2] Ingest technology chunks in `src/server/features/ga4/services/Ga4SyncService.ts`
+- [x] T013 [US2] Add `getAnalyticsTechnology` read fn + device filter wiring in `src/server/features/ga4/services/Ga4Service.ts` and `src/serverFunctions/ga4.ts`
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -81,12 +81,12 @@
 
 ### Tests for User Story 3
 
-- [X] T014 [P] [US3] Quota-failure/resume tests (halt, FAILED coverage, idempotent backfill) in `src/server/features/ga4/services/Ga4SyncService.test.ts`
-- [X] T015 [P] [US3] Zero-row-vs-failure test for geo/tech grains in `src/server/features/ga4/services/Ga4Service.test.ts`
+- [x] T014 [P] [US3] Quota-failure/resume tests (halt, FAILED coverage, idempotent backfill) in `src/server/features/ga4/services/Ga4SyncService.test.ts`
+- [x] T015 [P] [US3] Zero-row-vs-failure test for geo/tech grains in `src/server/features/ga4/services/Ga4Service.test.ts`
 
 ### Implementation for User Story 3
 
-- [X] T016 [US3] Wire geo/tech chunks into existing quota-halt/resume and stale-PENDING recovery in `src/server/features/ga4/services/Ga4SyncService.ts` and `src/server/features/ga4/services/scheduledGa4Sync.ts`
+- [x] T016 [US3] Wire geo/tech chunks into existing quota-halt/resume and stale-PENDING recovery in `src/server/features/ga4/services/Ga4SyncService.ts` and `src/server/features/ga4/services/scheduledGa4Sync.ts`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -96,9 +96,9 @@
 
 **Purpose**: Parity, math guards, trace
 
-- [X] T017 Run `pnpm types:check`, `pnpm oxlint`, GA4 suite, `ga4Migration`, `schema-parity`
-- [X] T018 [P] Assert no `SUM(users)` violations and dimensioned-`newUsers` rollup refusal (static + behavioral per testing matrix)
-- [X] T019 [P] Run quickstart.md validation scenarios 1–4; extend `ga4_sync`/`ga4_read` trace coverage
+- [x] T017 Run `pnpm types:check`, `pnpm oxlint`, GA4 suite, `ga4Migration`, `schema-parity`
+- [x] T018 [P] Assert no `SUM(users)` violations and dimensioned-`newUsers` rollup refusal (static + behavioral per testing matrix)
+- [x] T019 [P] Run quickstart.md validation scenarios 1–4; extend `ga4_sync`/`ga4_read` trace coverage
 
 ---
 

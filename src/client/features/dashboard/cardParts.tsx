@@ -142,7 +142,11 @@ export function SectionStateShell({
 }) {
   if (state === "loading") {
     return (
-      <div className="flex flex-col gap-2" aria-busy data-testid="section-loading">
+      <div
+        className="flex flex-col gap-2"
+        aria-busy
+        data-testid="section-loading"
+      >
         <div className="skeleton h-6 w-3/4" />
         <div className="skeleton h-6 w-1/2" />
       </div>
@@ -160,7 +164,10 @@ export function SectionStateShell({
           ? "The latest sync failed."
           : "This section failed to load.";
     return (
-      <div className="flex flex-col items-start gap-2" data-testid="section-failed">
+      <div
+        className="flex flex-col items-start gap-2"
+        data-testid="section-failed"
+      >
         <p className="text-sm text-error">{label}</p>
         {detail ? (
           <p className="text-xs text-base-content/50">{detail}</p>
@@ -175,7 +182,11 @@ export function SectionStateShell({
   }
   if (state === "sync_running") {
     return (
-      <div className="flex flex-col gap-2" aria-busy data-testid="section-syncing">
+      <div
+        className="flex flex-col gap-2"
+        aria-busy
+        data-testid="section-syncing"
+      >
         <div className="skeleton h-6 w-2/3" />
         {detail ? (
           <p className="text-xs text-base-content/50">{detail}</p>
@@ -187,7 +198,10 @@ export function SectionStateShell({
   }
   if (state === "not_connected") {
     return (
-      <div className="flex flex-col items-start gap-3" data-testid="section-not-connected">
+      <div
+        className="flex flex-col items-start gap-3"
+        data-testid="section-not-connected"
+      >
         <p className="text-sm text-base-content/70">{notConnectedMessage}</p>
         {notConnectedCta}
       </div>
@@ -195,7 +209,10 @@ export function SectionStateShell({
   }
   if (state === "no_data" || state === "empty") {
     return (
-      <div className="flex flex-col items-start gap-2" data-testid="section-empty">
+      <div
+        className="flex flex-col items-start gap-2"
+        data-testid="section-empty"
+      >
         <p className="text-sm text-base-content/70">
           {state === "no_data" ? noDataMessage : emptyMessage}
         </p>

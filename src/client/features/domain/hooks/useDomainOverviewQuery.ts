@@ -77,7 +77,9 @@ export function useDomainOverviewQuery(input: Input) {
           status: "failed",
           httpStatus: 500,
           errorMessage:
-            err instanceof Error ? err.message : "Failed to fetch domain overview",
+            err instanceof Error
+              ? err.message
+              : "Failed to fetch domain overview",
         });
         throw err;
       }

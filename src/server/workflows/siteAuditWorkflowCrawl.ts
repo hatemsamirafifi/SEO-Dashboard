@@ -1,21 +1,37 @@
 import type { WorkflowStep } from "cloudflare:workers";
 import type { RobotsResult } from "@/server/lib/audit/discovery";
-import type { StepPageSummary } from "@/server/lib/audit/types";
+import type { CrawlThrottleState } from "@/server/lib/audit/crawl-throttle";
+import { createCrawlThrottle } from "@/server/lib/audit/crawl-throttle";
+import {
+  adjustCrawlWindow,
+  CRAWL_WINDOW,
+} from "@/server/lib/audit/crawl-window";
+import type {
+  CrawledPageResult,
+  StepPageSummary,
+} from "@/server/lib/audit/types";
 import { isSameOrigin, normalizeUrl } from "@/server/lib/audit/url-utils";
 import { isCrawlableUrl } from "@/server/lib/audit/url-policy";
 import { deterministicAuditRowId } from "@/server/lib/audit/ids";
 import { runPageReporters } from "@/server/lib/audit/issues/page-reporters";
 import { AuditRepository } from "@/server/features/audit/repositories/AuditRepository";
 import { AuditProgressKV } from "@/server/lib/audit/progress-kv";
-import { crawlPage } from "@/server/workflows/site-audit-workflow-helpers";
+import { crawlPageWithThrottle } from "@/server/workflows/site-audit-workflow-helpers";
 import { pgStep } from "@/server/workflows/pgStep";
+import {
+  buildPageSummaries,
+  dedupKeyOf,
+  requeuePendingEntries,
+  selectNextCrawlBatch,
+  type QueueEntry,
+} from "@/server/workflows/siteAuditWorkflowFrontier";
 
-const CRAWL_CONCURRENCY = 25;
-// Keep durable step state under the ~1MiB limit: full link lists live in D1;
-// the step return only carries new-to-the-frontier targets, deduped across
-// the batch and capped.
-const MAX_FRONTIER_LINKS_PER_BATCH = 2_000;
-const MAX_SUMMARY_TITLE_CHARS = 300;
+/**
+ * One crawl batch may not stretch forever: a site handing out minutes-long
+ * 429 pauses stops this batch early (URLs wait, requeued, for a later
+ * batch) instead of hanging a Workflow step.
+ */
+const MAX_BATCH_MS = 10 * 60_000;
 
 function shouldQueueCrawlLink(
   link: string,
@@ -24,19 +40,14 @@ function shouldQueueCrawlLink(
   visited: Set<string>,
   queued: Set<string>,
 ): boolean {
+  const key = dedupKeyOf(link);
   return (
     isSameOrigin(link, origin) &&
     isCrawlableUrl(link) &&
     robots.isAllowed(link) &&
-    !visited.has(link) &&
-    !queued.has(link)
+    !visited.has(key) &&
+    !queued.has(key)
   );
-}
-
-interface QueueEntry {
-  url: string;
-  /** Clicks from the start URL; null when only reachable via sitemap. */
-  depth: number | null;
 }
 
 type CrawlPhaseParams = {
@@ -56,11 +67,18 @@ export type CrawlPhaseResult = {
   pages: CrawledPageSummary[];
   /** True when the frontier was exhausted before hitting maxPages. */
   completed: boolean;
+  /** True when the crawl ended early: rate limits or inaccessible fetches. */
+  stoppedEarly: boolean;
+  /** True when the user cancelled mid-crawl (D8: page states stay intact). */
+  cancelled: boolean;
+  /** Where the frontier stood at loop exit — feeds the finalize counters. */
+  frontier: { discovered: number; remaining: number };
 };
 
 export async function runCrawlPhase(
   step: WorkflowStep,
   params: CrawlPhaseParams,
+  deps?: { isCancelled?: () => Promise<boolean> },
 ): Promise<CrawlPhaseResult> {
   const {
     auditId,
@@ -78,8 +96,20 @@ export async function runCrawlPhase(
   // orphan detection stays meaningful.
   const linkQueue: QueueEntry[] = [];
   const sitemapQueue: QueueEntry[] = [];
+  // Membership is keyed by dedup key (see dedupKeyOf), so a link-reached
+  // ?utm_ variant of a sitemap URL still reports inSitemap=true. Prefer the
+  // full membership set persisted at discovery — the seed list passed in is
+  // a frontier-capped fallback for replay robustness.
   const sitemapSet = new Set<string>();
   const summaries: CrawledPageSummary[] = [];
+  let stoppedEarly = false;
+  let cancelled = false;
+  // Readoutside any durable step so each replay and each live batch sees a
+  // fresh answer; a read failure means "keep crawling" rather than an
+  // instance kill for a transient DB hiccup.
+  const isCancelled =
+    deps?.isCancelled ??
+    (() => AuditRepository.getAuditCancelFlag(auditId).catch(() => false));
 
   const normalizedStart = normalizeUrl(startUrl) ?? startUrl;
   if (
@@ -87,25 +117,42 @@ export async function runCrawlPhase(
     isSameOrigin(normalizedStart, origin)
   ) {
     linkQueue.push({ url: normalizedStart, depth: 0 });
-    queued.add(normalizedStart);
+    queued.add(dedupKeyOf(normalizedStart));
   }
 
-  for (const sitemapUrl of sitemapUrls) {
+  const membership = await AuditProgressKV.loadSitemapMembership(auditId);
+  const membershipUrls = membership?.urls ?? [];
+  for (const sitemapUrl of membershipUrls.length > 0
+    ? membershipUrls
+    : sitemapUrls) {
     const normalized = normalizeUrl(sitemapUrl);
     if (!normalized) continue;
-    sitemapSet.add(normalized);
+    sitemapSet.add(dedupKeyOf(normalized));
     if (!shouldQueueCrawlLink(normalized, origin, robots, visited, queued)) {
       continue;
     }
     sitemapQueue.push({ url: normalized, depth: null });
-    queued.add(normalized);
+    queued.add(dedupKeyOf(normalized));
   }
+
+  // Evaluate the page analyzer once, before any measured fetch: its lazy
+  // import is a one-time module evaluation, and paying it inside the first
+  // concurrent batch would block the event loop and inflate the other
+  // fetches' responseTimeMs with initialization time instead of network
+  // latency. Everything the analyzer's graph needs (cheerio, the Salla
+  // extractors) is evaluated here, before the first batch.
+  await import("@/server/lib/audit/page-analyzer").catch(() => {});
 
   let crawlBatchIndex = 0;
   while (
     (linkQueue.length > 0 || sitemapQueue.length > 0) &&
     summaries.length < maxPages
   ) {
+    if (await isCancelled()) {
+      cancelled = true;
+      break;
+    }
+
     const batchEntries = selectNextCrawlBatch({
       linkQueue,
       sitemapQueue,
@@ -117,7 +164,7 @@ export async function runCrawlPhase(
     if (batchEntries.length === 0) continue;
 
     crawlBatchIndex += 1;
-    const crawledBatch = await runCrawlBatch(step, {
+    const { pages, requeued, throttled } = await runCrawlBatch(step, {
       crawlBatchIndex,
       auditId,
       batchEntries,
@@ -128,11 +175,38 @@ export async function runCrawlPhase(
     // Keep only the slim summary in memory: at 10k pages, retaining link
     // lists for the whole crawl would not fit in the 128MB Worker heap.
     summaries.push(
-      ...crawledBatch.map(({ internalLinks: _links, ...summary }) => summary),
+      ...pages.map(({ internalLinks: _links, ...summary }) => summary),
     );
 
+    // Requeue before any early exit: entries the origin deferred or that
+    // the throttle stopped mid-top-up must return to the frontier even
+    // when this batch produced nothing.
+    requeuePendingEntries({
+      batchEntries,
+      entries: requeued,
+      visited,
+      queued,
+      linkQueue,
+      sitemapQueue,
+    });
+
+    if (pages.length === 0) {
+      // Nothing could be fetched this batch: the origin is paused or
+      // unreachable and continuing would spin. End the crawl early; the
+      // remaining frontier is reported as uncrawled, truthfully.
+      stoppedEarly = true;
+      break;
+    }
+    if (throttled) {
+      // The throttle hit a hard stop (severe rate limiting).
+      stoppedEarly = true;
+      break;
+    }
+
     enqueueDiscoveredLinks({
-      crawledBatch,
+      crawledBatch: pages,
+      // Depth lookup needs every candidate's depth; requeued entries simply
+      // never produce a pageResult, so passing the full batch is equivalent.
       batchEntries,
       linkQueue,
       queued,
@@ -145,7 +219,7 @@ export async function runCrawlPhase(
       crawlBatchIndex,
       auditId,
       workflowInstanceId,
-      crawledBatch,
+      crawledBatch: pages,
       pagesCrawled: summaries.length,
       visitedCount: visited.size,
       queueLength: linkQueue.length + sitemapQueue.length,
@@ -153,38 +227,39 @@ export async function runCrawlPhase(
     });
   }
 
+  // Unique URLs that ever entered the frontier: selectNextCrawlBatch moves
+  // keys from `queued` to `visited`, so the union is an exact count. The
+  // remaining queues report what a completed_partial (or cancelled) audit
+  // never reached.
+  const frontier = {
+    discovered: visited.size + queued.size,
+    remaining: linkQueue.length + sitemapQueue.length,
+  };
+
   return {
     pages: summaries,
-    completed: linkQueue.length === 0 && sitemapQueue.length === 0,
+    completed:
+      !cancelled &&
+      linkQueue.length === 0 &&
+      sitemapQueue.length === 0 &&
+      !stoppedEarly,
+    stoppedEarly,
+    cancelled,
+    frontier,
   };
 }
 
-function selectNextCrawlBatch(params: {
-  linkQueue: QueueEntry[];
-  sitemapQueue: QueueEntry[];
-  queued: Set<string>;
-  visited: Set<string>;
-  robots: RobotsResult;
-  remaining: number;
-}) {
-  const { linkQueue, sitemapQueue, queued, visited, robots, remaining } =
-    params;
-  const batchSize = Math.min(CRAWL_CONCURRENCY, remaining);
-  const batchEntries: QueueEntry[] = [];
+type SettledFetch = {
+  entry: QueueEntry;
+  outcome: Awaited<ReturnType<typeof crawlPageWithThrottle>>;
+};
 
-  while (
-    (linkQueue.length > 0 || sitemapQueue.length > 0) &&
-    batchEntries.length < batchSize
-  ) {
-    const entry = (linkQueue.length > 0 ? linkQueue : sitemapQueue).shift()!;
-    queued.delete(entry.url);
-    if (visited.has(entry.url)) continue;
-    if (!robots.isAllowed(entry.url)) continue;
-    visited.add(entry.url);
-    batchEntries.push(entry);
-  }
-
-  return batchEntries;
+interface BatchOutcome {
+  pages: StepPageSummary[];
+  /** Entries selected but never fetched this batch (origin paused). */
+  requeued: QueueEntry[];
+  /** The throttle demanded a hard crawl stop. */
+  throttled: boolean;
 }
 
 async function runCrawlBatch(
@@ -197,21 +272,79 @@ async function runCrawlBatch(
     visited: Set<string>;
     queued: Set<string>;
   },
-): Promise<StepPageSummary[]> {
-  const {
-    crawlBatchIndex,
-    auditId,
-    batchEntries,
-    sitemapSet,
-    visited,
-    queued,
-  } = input;
+): Promise<BatchOutcome> {
+  const { crawlBatchIndex, auditId } = input;
   return pgStep(step, `crawl-batch-${crawlBatchIndex}`, undefined, async () => {
-    const pages = await Promise.all(
-      batchEntries.map((entry) =>
-        crawlPage(entry.url, entry.depth, sitemapSet.has(entry.url)),
-      ),
+    const prior = await AuditProgressKV.loadCrawlState(auditId);
+    const throttle = createCrawlThrottle(
+      Date.now() + MAX_BATCH_MS,
+      prior?.throttle as CrawlThrottleState | undefined,
     );
+    let windowSize = prior?.windowSize ?? CRAWL_WINDOW.initial;
+
+    const pages: CrawledPageResult[] = [];
+    const requeued: QueueEntry[] = [];
+    const pending: QueueEntry[] = [...input.batchEntries];
+    const inFlight = new Map<Promise<SettledFetch>, QueueEntry>();
+
+    for (;;) {
+      while (
+        inFlight.size < windowSize &&
+        pending.length > 0 &&
+        (await throttle.ready())
+      ) {
+        // throttle.ready() reserves a slot synchronously when ready, so
+        // sequential top-ups cannot overreach the origin pacing.
+        //
+        // Subrequest accounting (Phase 3 review): one crawlPage is exactly
+        // one subrequest — redirects are followed manually and each hop is
+        // its own page row, so a URL never chains subrequests. The window
+        // caps the batch at 25 in-flight fetches, comfortably under the
+        // 50-subrequest ceiling for a single step.
+        const entry = pending.shift()!;
+        const settled = crawlPageWithThrottle(throttle, entry.url).then(
+          (outcome) => ({ entry, outcome }),
+        );
+        inFlight.set(settled, entry);
+      }
+      // The throttle can stop admitting mid-top-up; entries the batch
+      // selected but never started must return to the frontier instead of
+      // being dropped with their visited marks.
+      if (inFlight.size === 0) {
+        requeued.push(...pending);
+        pending.length = 0;
+        break;
+      }
+
+      // Race wrapped pairs so the winning promise itself stays available as
+      // the map key to evict.
+      const [completed, settled] = await Promise.race(
+        [...inFlight.keys()].map((promise) =>
+          promise.then((value) => [promise, value] as const),
+        ),
+      );
+      inFlight.delete(completed);
+      const { entry, outcome } = settled;
+      if (outcome.notFetched) {
+        requeued.push(entry);
+        continue;
+      }
+      const result = outcome.result;
+      result.crawlDepth = entry.depth;
+      result.inSitemap = input.sitemapSet.has(dedupKeyOf(entry.url));
+      pages.push(result);
+
+      // Adapt the window per settled page: politeness reacts quickly,
+      // growth still requires a large clean sample.
+      windowSize = adjustCrawlWindow(windowSize, pages);
+    }
+
+    // Checkpoint throttle + window so a later batch resumes the site's
+    // pacing instead of resetting it.
+    await AuditProgressKV.saveCrawlState(auditId, {
+      throttle: throttle.state,
+      windowSize,
+    });
 
     // Deterministic ids keep the D1 writes idempotent across step retries.
     for (const page of pages) {
@@ -221,30 +354,12 @@ async function runCrawlBatch(
     const issues = pages.flatMap((page) => runPageReporters(page));
     await AuditRepository.insertCrawledBatch(auditId, pages, issues);
 
-    // Frontier candidates only: drop targets already visited/queued and
-    // dedupe across the batch, so the step return stays far under the
-    // ~1MiB durable-state limit even on mega-menu sites.
-    const seenTargets = new Set<string>();
-    return pages.map((page) => {
-      const internalLinks: string[] = [];
-      for (const link of page.links) {
-        if (!link.isInternal) continue;
-        if (seenTargets.size >= MAX_FRONTIER_LINKS_PER_BATCH) break;
-        if (visited.has(link.targetUrl) || queued.has(link.targetUrl)) continue;
-        if (seenTargets.has(link.targetUrl)) continue;
-        seenTargets.add(link.targetUrl);
-        internalLinks.push(link.targetUrl);
-      }
-      return {
-        id: page.id,
-        url: page.url,
-        statusCode: page.statusCode,
-        fetchClass: page.fetchClass,
-        redirectUrl: page.redirectUrl,
-        title: page.title.slice(0, MAX_SUMMARY_TITLE_CHARS),
-        internalLinks,
-      };
-    });
+    const summaries = buildPageSummaries(pages, input.visited, input.queued);
+    return {
+      pages: summaries,
+      requeued,
+      throttled: throttle.stopped,
+    };
   });
 }
 
@@ -279,7 +394,7 @@ function enqueueDiscoveredLinks(params: {
         continue;
       }
       linkQueue.push({ url: link, depth: childDepth });
-      queued.add(link);
+      queued.add(dedupKeyOf(link));
     }
 
     // Redirect targets continue the same navigation path: same depth.
@@ -289,7 +404,7 @@ function enqueueDiscoveredLinks(params: {
       shouldQueueCrawlLink(redirectTarget, origin, robots, visited, queued)
     ) {
       linkQueue.push({ url: redirectTarget, depth: pageDepth });
-      queued.add(redirectTarget);
+      queued.add(dedupKeyOf(redirectTarget));
     }
   }
 }

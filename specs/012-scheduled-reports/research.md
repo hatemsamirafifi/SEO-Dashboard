@@ -19,17 +19,17 @@ Phase 0 research for `/specs/012-scheduled-reports/`. Resolves the four open dec
   structurally impossible on both dialects without a transaction manager.
 - **Rationale**:
   - Workers/D1 has no cross-request locking primitive; PG deployments run through the same
-    repository code. A database constraint is the only enforcement point that is *identical*
+    repository code. A database constraint is the only enforcement point that is _identical_
     on both dialects — the repo's own `onConflictDoUpdate` precedent
     (`ScanLedgerRepository.ts:236`) shows constraint-based concurrency is the house style.
   - Claim-before-do (insert the ledger row before generating anything) means a crash at any
     later point leaves a `claimed` row, which the next cron tick treats as a stale claim to
     reclaim (with a bounded staleness window), never as a fresh duplicate.
-  - Alternative rejected — *conditional-then-insert* ("check no row exists, then insert"):
+  - Alternative rejected — _conditional-then-insert_ ("check no row exists, then insert"):
     the check and the insert race; the unique constraint still fires, but then the code has the
     same catch path anyway, so the check is dead weight. Doing the insert first is both
     simpler and always-safe.
-  - Alternative rejected — *transactional SELECT FOR UPDATE*: D1 does not support row locks;
+  - Alternative rejected — _transactional SELECT FOR UPDATE_: D1 does not support row locks;
     it would silently fork the two dialects (P3 violation in spirit).
 - **Test surface**: sequential double-invocation, concurrent double-invocation, stale-claim
   reclaim, failed→retry on the same row, and a succeeded-run re-entry (must no-op) — all
@@ -39,8 +39,8 @@ Phase 0 research for `/specs/012-scheduled-reports/`. Resolves the four open dec
 
 - **Decision**: pure `cadence.ts` deriving dates in UTC:
   - `weekly`: `scheduledFor` = the Monday (ISO start-of-week) of the due week; `monthly`: the
-    1st of the due month. `nextDueAt` on the schedule row is the *materialization* trigger
-    (indexed, drives the cron due-query); `scheduledFor` is the *logical* identity (P33 key).
+    1st of the due month. `nextDueAt` on the schedule row is the _materialization_ trigger
+    (indexed, drives the cron due-query); `scheduledFor` is the _logical_ identity (P33 key).
   - **Late runs target the passed due date**: a due schedule found at cron time runs for its
     `nextDueAt` date even if discovered hours late — "a late run is still that date's run".
   - **Missed multiple periods** (cron down for >1 period, or long pause): exactly one catch-up
@@ -49,11 +49,11 @@ Phase 0 research for `/specs/012-scheduled-reports/`. Resolves the four open dec
     silently hides an outage. One catch-up + advance is the honest MVP.
   - **Pause semantics**: paused schedules produce no runs and their `nextDueAt` freezes; on
     resume, `nextDueAt` is re-derived from the resume moment (resume = user action, per the
-    spec's edge case). A schedule paused *at* due time simply isn't in the due query
+    spec's edge case). A schedule paused _at_ due time simply isn't in the due query
     (`active AND nextDueAt <= now` — index-aligned).
 - **Rationale**: UTC + date-keyed identity keeps `scheduledFor` a stable, human-checkable ledger
   key (`2026-10-05` vs `2026-10`) and lexicographically sortable on both dialects (the
-  `Ga4SyncRepository` floor-comparison precedent). Month/week boundaries as *period keys* —
+  `Ga4SyncRepository` floor-comparison precedent). Month/week boundaries as _period keys_ —
   not instants — sidestep "which exact hour?" questions the MVP never promised to answer.
 - **Alternatives considered**: calendar-instant scheduling (cron-style `next` timestamps per
   user timezone — explicitly out of scope per spec Assumptions); per-run instant keys (breaks
@@ -68,7 +68,7 @@ Phase 0 research for `/specs/012-scheduled-reports/`. Resolves the four open dec
     ledger identity: a re-executed send after a crash presents the same key with no stored
     state required.
   - **State machine** (run row): `claimed → generating → delivering → delivered |
-    partially_delivered | failed | skipped`. Delivery state derives from per-recipient outcomes
+partially_delivered | failed | skipped`. Delivery state derives from per-recipient outcomes
     (`recipientOutcomesJson`: per recipient `sent | transient_failed | permanent_failed`):
     all-sent → `delivered`; some-sent → `partially_delivered`; none-sent → `failed`.
     `skipped` is recorded with a reason (e.g. schedule paused between claim and send, recipient
@@ -94,18 +94,18 @@ Phase 0 research for `/specs/012-scheduled-reports/`. Resolves the four open dec
   - **Transient**: 429 (rate limit — bounded retry with backoff), 5xx (bounded retry), network
     errors (bounded retry). Retry bound: 2 retries per recipient per run.
   - **Permanent**: 400 (bad request/unpublished template), 404 (template not found), 401/403
-    (credentials), 409 with a *different* payload (idempotency misuse — surface, don't retry).
+    (credentials), 409 with a _different_ payload (idempotency misuse — surface, don't retry).
     No retry; run records `failureClass: "permanent_send"`.
   - **Missing credentials/template config**: fail closed before any request — run records
     `failureClass: "missing_configuration"` (never a silent skip; mirrors the 009-observed
     `getRequiredEnv` honesty).
   - **Log hygiene**: the sender logs status/classification/key-hash only — never recipient
     addresses (009's finding: current paths log them; that stays true for the frozen auth paths
-    but is *fixed* for the new path from day one).
+    but is _fixed_ for the new path from day one).
   - **Template**: `LOOPS_TRANSACTIONAL_SCHEDULED_REPORT_ID` env (created during 009's unblock
     prerequisites — referenced by ID, never inlined content).
 - **Rationale**: 009's verdict blocked on exactly these unobservables (template ownership,
-  credential tier) — so the design consumes its *recorded* facts (idempotency support, status
+  credential tier) — so the design consumes its _recorded_ facts (idempotency support, status
   semantics, attachment caveat) and isolates everything provider-shaped in one service the
   READY re-run can verify against live. Keeping `loops.ts` frozen preserves 009's evidence base.
 - **Alternatives considered**: extending `loops.ts` with an options bag (rejected: every change
@@ -116,12 +116,12 @@ Phase 0 research for `/specs/012-scheduled-reports/`. Resolves the four open dec
 
 ## Consolidated resolution table
 
-| Unknown | Resolution | Contract/test anchor |
-| --- | --- | --- |
-| R1 exactly-once enforcement | Insert-as-claim + `UNIQUE(scheduleId, scheduledFor)` catch; stale-claim reclaim; retry reuses the row | contracts/schedule-runs.md; repository + scheduler suites |
-| R2 cadence/late/paused semantics | UTC period keys (Monday / 1st); late runs target passed date; one catch-up then advance; pause freezes `nextDueAt` | cadence fixtures incl. 3-month simulation (SC-003) |
-| R3 idempotency + delivery states | sha256(scheduleId, scheduledFor, recipient) per send; `delivered / partially_delivered / failed / skipped` derived from per-recipient outcomes | contracts/schedule-runs.md; sender suite (SC-005/006) |
-| R4 sender placement + classification | New `scheduledReportEmail.ts` (Loops untouched); transient/permanent/missing-config classes; scrubbed logs; env-referenced template | contracts/schedule-runs.md §delivery; gated on 009 = READY |
+| Unknown                              | Resolution                                                                                                                                     | Contract/test anchor                                       |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| R1 exactly-once enforcement          | Insert-as-claim + `UNIQUE(scheduleId, scheduledFor)` catch; stale-claim reclaim; retry reuses the row                                          | contracts/schedule-runs.md; repository + scheduler suites  |
+| R2 cadence/late/paused semantics     | UTC period keys (Monday / 1st); late runs target passed date; one catch-up then advance; pause freezes `nextDueAt`                             | cadence fixtures incl. 3-month simulation (SC-003)         |
+| R3 idempotency + delivery states     | sha256(scheduleId, scheduledFor, recipient) per send; `delivered / partially_delivered / failed / skipped` derived from per-recipient outcomes | contracts/schedule-runs.md; sender suite (SC-005/006)      |
+| R4 sender placement + classification | New `scheduledReportEmail.ts` (Loops untouched); transient/permanent/missing-config classes; scrubbed logs; env-referenced template            | contracts/schedule-runs.md §delivery; gated on 009 = READY |
 
 All NEEDS-CLARIFICATION-class unknowns from plan.md Technical Context are resolved; none remain.
 The G6 gate itself is not an unknown: it is a recorded hard gate with a structural gate-check

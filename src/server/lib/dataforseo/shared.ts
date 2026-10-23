@@ -111,13 +111,23 @@ const TRANSPORT_PATTERNS: Array<{
   category: DataforseoTransportError;
 }> = [
   // DNS resolution: ENOTFOUND / getaddrinfo / name-resolution failures.
-  { pattern: /ENOTFOUND|getaddrinfo|EAI_AGAIN|dns|name or service not known/i, category: "DNS_LOOKUP_FAILED" },
+  {
+    pattern: /ENOTFOUND|getaddrinfo|EAI_AGAIN|dns|name or service not known/i,
+    category: "DNS_LOOKUP_FAILED",
+  },
   // Timeouts: fetch aborts, socket timeouts, sim timeouts.
-  { pattern: /ETIMEDOUT|ETIMEOUT|timed?\s?out|abort|deadline/i, category: "TIMEOUT" },
+  {
+    pattern: /ETIMEDOUT|ETIMEOUT|timed?\s?out|abort|deadline/i,
+    category: "TIMEOUT",
+  },
   // TLS: certificate / SSL failures before any HTTP bytes arrived.
   { pattern: /CERT|SSL|TLS|certificate/i, category: "TLS_FAILED" },
   // Connection-level failures: refused / reset / dropped.
-  { pattern: /ECONNREFUSED|ECONNRESET|EPIPE|EHOSTUNREACH|ENETUNREACH|socket hang up|other side closed|fetch failed|connection/i, category: "CONNECTION_FAILED" },
+  {
+    pattern:
+      /ECONNREFUSED|ECONNRESET|EPIPE|EHOSTUNREACH|ENETUNREACH|socket hang up|other side closed|fetch failed|connection/i,
+    category: "CONNECTION_FAILED",
+  },
 ];
 
 /**

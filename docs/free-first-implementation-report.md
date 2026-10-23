@@ -3,15 +3,18 @@
 ## Implemented
 
 ### Phase 0 — Docker/Wrangler Local Dev Environment
+
 - `Dockerfile.dev` (node:22-bookworm + corepack pnpm), `compose.dev.yaml`, `docker-entrypoint.dev.sh`, `.env.docker.example`
 - Runs `vite dev` inside the full Cloudflare Workers local runtime (wrangler/vite-plugin-cloudflare): local D1 (migrations applied on boot), local R2, local KV, local DOs/Workflows
 - Scripts: `dev:docker`, `dev:docker:down`, `dev:docker:logs`, `dev:docker:reset`
 - Verified: `/api/health` 200, homepage SSR 200, `/mcp` initialize 200, 24 MCP tools registered, D1/R2/KV state initialized. See `docs/local-docker-development.md`
 
 ### Phase 1 — Audit
+
 Comprehensive codebase audit identifying all DataForSEO integration points, existing cache mechanisms, database schema, MCP architecture, and recommended insertion points. See `docs/free-first-architecture-audit.md`.
 
 ### Phase 2 — Provider Abstraction
+
 - `SEODataProvider` interface with `name`, `supports()`, `get()`
 - `SEODataRequest` / `SEODataResponse` types with full parameter support (keyword, domain, URL, location, language, device, date range, constraints)
 - `SEODataType` enum covering all 9 data types: `keyword_ideas`, `keyword_metrics`, `serp`, `domain_keywords`, `competitors`, `backlinks`, `site_audit`, `search_console`, `bing_search_performance`
@@ -25,12 +28,14 @@ Comprehensive codebase audit identifying all DataForSEO integration points, exis
 - Feature flags: `SEO_PROVIDER_ROUTER_ENABLED`, `DATAFORSEO_ENABLED`, `GOOGLE_SEARCH_CONSOLE_ENABLED`, `GOOGLE_ADS_ENABLED`, `BING_WEBMASTER_ENABLED`, `LOCAL_CRAWLER_ENABLED`
 
 ### Phase 4 — Google Search Console Provider
+
 - Wraps existing `GscService` (which uses the official GSC API via `gscClient`)
 - Serves `search_console` data type for verified properties
 - Graceful failure: `GscNotConnectedError` → `ProviderUnavailableError` (router falls back); `GscTokenError` → `ProviderUnavailableError`
 - No DataForSEO fallback for first-party GSC data
 
 ### Phase 5 — Google Ads Keyword Provider
+
 - Direct Google Ads API integration (`googleads.googleapis.com/v18`)
 - Serves `keyword_ideas` (GenerateKeywordIdeas) and `keyword_metrics` (GenerateHistoricalMetrics)
 - OAuth2 refresh token flow for authentication
@@ -38,11 +43,13 @@ Comprehensive codebase audit identifying all DataForSEO integration points, exis
 - Service-account compatible
 
 ### Phase 6 — Bing Webmaster Provider
+
 - Bing Webmaster API integration (`api.bingwebmaster.com/v3`)
 - Serves `bing_search_performance` data type
 - Returns structured `ProviderUnsupportedError` when API cannot support a requested operation
 
 ### Phase 7 — Local Technical SEO Crawler
+
 - Wraps existing audit crawler (`crawlPage` from `site-audit-workflow-helpers.ts`)
 - Serves `site_audit` data type without DataForSEO dependency
 - Checks: HTTP status, redirects, title, meta description, canonical, robots meta, X-Robots-Tag, H1, H2, images, missing alt, internal/external links, word count, hasStructuredData (JSON-LD), hreflang, isIndexable
@@ -51,6 +58,7 @@ Comprehensive codebase audit identifying all DataForSEO integration points, exis
 - Respects robots.txt (via existing crawler infrastructure)
 
 ### Phase 8 — DataForSEO Fallback Provider
+
 - Wraps existing `createDataforseoClient` (preserves all billing/metering)
 - Maps data types to DataForSEO client methods (`serp.live`, `domain.rankedKeywords`, `backlinks.summary`, `lighthouse.live`, etc.)
 - Budget guard: checks `isDataforseoBudgetAvailable()` before every call; throws `BudgetExceededError` if exceeded
@@ -59,12 +67,14 @@ Comprehensive codebase audit identifying all DataForSEO integration points, exis
 - NOT a fallback for `search_console` or `bing_search_performance` (first-party data)
 
 ### Phase 9 — MCP Integration
+
 - `get_serp_results` tool: now routes through `DataRouter` (cache → internal → DataForSEO)
 - `get_ranked_keywords` tool: now routes through `DataRouter` (cache → internal → DataForSEO)
 - `get_keyword_metrics` tool: now routes through `DataRouter` (cache → google_ads → internal → DataForSEO)
 - `search_local_businesses`, `get_local_serp_results`, `get_google_business_questions`, `find_serp_competitors`: budget guard added via `assertDataforseoBudget()` before DataForSEO calls (still direct-client; see "DataForSEO Calls Still Required")
 
 ### Phase 10 — Feature Services Routed Through DataRouter
+
 All three high-traffic feature services now route through the DataRouter instead of calling `createDataforseoClient` directly and managing their own R2 caches:
 
 - **DomainService** — `getOverview` (`domain_overview`), `getSuggestedKeywords` / `getKeywordsPage` (`domain_keywords` with limit/offset/orderBy/filters/includeSubdomains constraints), `getPagesPage` (`domain_pages`). Service-level R2 cache and `waitUntil` writes removed.
@@ -77,62 +87,62 @@ New data types: `domain_overview` and `domain_pages` added to `SEODataType` with
 
 ## Modified Files
 
-| File | Change |
-|------|--------|
-| `src/server/mcp/tools/get-serp-results.ts` | Replaced direct `createDataforseoClient` with `getSeoDataRouter().route()` |
-| `src/server/mcp/tools/dataforseo-research-tools.ts` | Wired `get_ranked_keywords` and `get_keyword_metrics` through DataRouter; added `assertDataforseoBudget()` guard to 4 remaining direct DataForSEO tools |
-| `.env.example` | Added all new configuration variables (feature flags, budget guards, provider credentials, cache TTL overrides) |
-| `src/server/lib/seo-data/providers/dataforseo-provider.ts` | Granular `constraints` support: `backlinkCall` (summary/history/rows/referring_domains/domain_pages), keyword-idea `source` (ideas/suggestions/related/google_ads), domain labs pagination |
-| `src/server/lib/seo-data/types.ts` / `config.ts` / `data-router.ts` | Added `domain_overview` + `domain_pages` data types, 7-day TTLs, provider priorities |
-| `src/server/features/domain/services/DomainService.ts` + `domainKeywordsPage.ts` + `domainPagesPage.ts` | Routed through DataRouter; removed service R2 cache |
-| `src/server/features/backlinks/services/backlinksServiceData.ts` + `BacklinksService.ts` | Routed through DataRouter; removed service R2 cache |
-| `src/server/features/keywords/services/research/*` | Routed through DataRouter; removed `kw:research`/`serp:analysis` R2 caches; D1 persistence kept |
-| `src/server/lib/dataforseo/backlinks-schemas.ts` | New SDK-free home for backlinks response zod schemas (keeps SDK out of the eager worker graph) |
-| `scripts/backlinks-cost-profile.ts` | Updated for cache-less service factory |
-| `Dockerfile.dev`, `compose.dev.yaml`, `docker-entrypoint.dev.sh`, `.env.docker.example` | Local Docker/Wrangler dev environment |
+| File                                                                                                    | Change                                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/server/mcp/tools/get-serp-results.ts`                                                              | Replaced direct `createDataforseoClient` with `getSeoDataRouter().route()`                                                                                                                 |
+| `src/server/mcp/tools/dataforseo-research-tools.ts`                                                     | Wired `get_ranked_keywords` and `get_keyword_metrics` through DataRouter; added `assertDataforseoBudget()` guard to 4 remaining direct DataForSEO tools                                    |
+| `.env.example`                                                                                          | Added all new configuration variables (feature flags, budget guards, provider credentials, cache TTL overrides)                                                                            |
+| `src/server/lib/seo-data/providers/dataforseo-provider.ts`                                              | Granular `constraints` support: `backlinkCall` (summary/history/rows/referring_domains/domain_pages), keyword-idea `source` (ideas/suggestions/related/google_ads), domain labs pagination |
+| `src/server/lib/seo-data/types.ts` / `config.ts` / `data-router.ts`                                     | Added `domain_overview` + `domain_pages` data types, 7-day TTLs, provider priorities                                                                                                       |
+| `src/server/features/domain/services/DomainService.ts` + `domainKeywordsPage.ts` + `domainPagesPage.ts` | Routed through DataRouter; removed service R2 cache                                                                                                                                        |
+| `src/server/features/backlinks/services/backlinksServiceData.ts` + `BacklinksService.ts`                | Routed through DataRouter; removed service R2 cache                                                                                                                                        |
+| `src/server/features/keywords/services/research/*`                                                      | Routed through DataRouter; removed `kw:research`/`serp:analysis` R2 caches; D1 persistence kept                                                                                            |
+| `src/server/lib/dataforseo/backlinks-schemas.ts`                                                        | New SDK-free home for backlinks response zod schemas (keeps SDK out of the eager worker graph)                                                                                             |
+| `scripts/backlinks-cost-profile.ts`                                                                     | Updated for cache-less service factory                                                                                                                                                     |
+| `Dockerfile.dev`, `compose.dev.yaml`, `docker-entrypoint.dev.sh`, `.env.docker.example`                 | Local Docker/Wrangler dev environment                                                                                                                                                      |
 
 ## New Files
 
-| File | Purpose |
-|------|---------|
-| `docs/free-first-architecture-audit.md` | Phase 1 audit document |
-| `docs/free-first-implementation-report.md` | This report |
-| `src/server/lib/seo-data/types.ts` | `SEODataProvider`, `SEODataRequest`, `SEODataResponse`, `SEODataType` |
-| `src/server/lib/seo-data/errors.ts` | Provider error types + `toAppError` translator |
-| `src/server/lib/seo-data/config.ts` | TTL configuration + feature flags from env |
-| `src/server/lib/seo-data/cache-service.ts` | `SeoCacheService` extending R2 cache |
-| `src/server/lib/seo-data/single-flight.ts` | Request coalescing |
-| `src/server/lib/seo-data/cost-tracker.ts` | Cost counters, budget guard, structured logging |
-| `src/server/lib/seo-data/data-router.ts` | Central `DataRouter` with provider priority |
-| `src/server/lib/seo-data/registry.ts` | Singleton router with all providers registered |
-| `src/server/lib/seo-data/index.ts` | Barrel export |
-| `src/server/lib/seo-data/providers/dataforseo-provider.ts` | DataForSEO fallback provider |
-| `src/server/lib/seo-data/providers/gsc-provider.ts` | Google Search Console provider |
-| `src/server/lib/seo-data/providers/google-ads-provider.ts` | Google Ads keyword provider |
-| `src/server/lib/seo-data/providers/bing-webmaster-provider.ts` | Bing Webmaster provider |
-| `src/server/lib/seo-data/providers/internal-provider.ts` | Internal D1 data provider |
-| `src/server/lib/seo-data/providers/local-crawler-provider.ts` | Local technical SEO crawler |
-| `src/server/lib/seo-data/providers/ssrf-guard.ts` | SSRF protection for crawler |
-| `src/server/lib/seo-data/cache-service.test.ts` | Cache tests (15) |
-| `src/server/lib/seo-data/single-flight.test.ts` | Single-flight tests (5) |
-| `src/server/lib/seo-data/data-router.test.ts` | Router tests (8) |
-| `src/server/lib/seo-data/providers/ssrf-guard.test.ts` | SSRF guard tests (20) |
+| File                                                           | Purpose                                                               |
+| -------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `docs/free-first-architecture-audit.md`                        | Phase 1 audit document                                                |
+| `docs/free-first-implementation-report.md`                     | This report                                                           |
+| `src/server/lib/seo-data/types.ts`                             | `SEODataProvider`, `SEODataRequest`, `SEODataResponse`, `SEODataType` |
+| `src/server/lib/seo-data/errors.ts`                            | Provider error types + `toAppError` translator                        |
+| `src/server/lib/seo-data/config.ts`                            | TTL configuration + feature flags from env                            |
+| `src/server/lib/seo-data/cache-service.ts`                     | `SeoCacheService` extending R2 cache                                  |
+| `src/server/lib/seo-data/single-flight.ts`                     | Request coalescing                                                    |
+| `src/server/lib/seo-data/cost-tracker.ts`                      | Cost counters, budget guard, structured logging                       |
+| `src/server/lib/seo-data/data-router.ts`                       | Central `DataRouter` with provider priority                           |
+| `src/server/lib/seo-data/registry.ts`                          | Singleton router with all providers registered                        |
+| `src/server/lib/seo-data/index.ts`                             | Barrel export                                                         |
+| `src/server/lib/seo-data/providers/dataforseo-provider.ts`     | DataForSEO fallback provider                                          |
+| `src/server/lib/seo-data/providers/gsc-provider.ts`            | Google Search Console provider                                        |
+| `src/server/lib/seo-data/providers/google-ads-provider.ts`     | Google Ads keyword provider                                           |
+| `src/server/lib/seo-data/providers/bing-webmaster-provider.ts` | Bing Webmaster provider                                               |
+| `src/server/lib/seo-data/providers/internal-provider.ts`       | Internal D1 data provider                                             |
+| `src/server/lib/seo-data/providers/local-crawler-provider.ts`  | Local technical SEO crawler                                           |
+| `src/server/lib/seo-data/providers/ssrf-guard.ts`              | SSRF protection for crawler                                           |
+| `src/server/lib/seo-data/cache-service.test.ts`                | Cache tests (15)                                                      |
+| `src/server/lib/seo-data/single-flight.test.ts`                | Single-flight tests (5)                                               |
+| `src/server/lib/seo-data/data-router.test.ts`                  | Router tests (8)                                                      |
+| `src/server/lib/seo-data/providers/ssrf-guard.test.ts`         | SSRF guard tests (20)                                                 |
 
 ## Provider Matrix
 
-| Data | Free Provider | Paid Fallback | Cache TTL |
-|------|---------------|---------------|-----------|
-| Keyword ideas | Google Ads | DataForSEO | 7 days |
-| Keyword metrics | Google Ads / Internal | DataForSEO | 7 days |
-| Search Console | GSC | None | 24 hours |
-| Bing performance | Bing Webmaster | None | 24 hours |
-| SERP | Internal (cache) | DataForSEO | 5 days |
-| Domain keywords | Internal (cache) | DataForSEO | 7 days |
-| Domain overview | Internal (cache) | DataForSEO | 7 days |
-| Domain pages | Internal (cache) | DataForSEO | 7 days |
-| Competitors | Internal (cache) — not persisted | DataForSEO | 7 days |
-| Backlinks | Internal (cache) | DataForSEO | 14 days |
-| Site audit | Local crawler | DataForSEO | 7 days |
+| Data             | Free Provider                    | Paid Fallback | Cache TTL |
+| ---------------- | -------------------------------- | ------------- | --------- |
+| Keyword ideas    | Google Ads                       | DataForSEO    | 7 days    |
+| Keyword metrics  | Google Ads / Internal            | DataForSEO    | 7 days    |
+| Search Console   | GSC                              | None          | 24 hours  |
+| Bing performance | Bing Webmaster                   | None          | 24 hours  |
+| SERP             | Internal (cache)                 | DataForSEO    | 5 days    |
+| Domain keywords  | Internal (cache)                 | DataForSEO    | 7 days    |
+| Domain overview  | Internal (cache)                 | DataForSEO    | 7 days    |
+| Domain pages     | Internal (cache)                 | DataForSEO    | 7 days    |
+| Competitors      | Internal (cache) — not persisted | DataForSEO    | 7 days    |
+| Backlinks        | Internal (cache)                 | DataForSEO    | 14 days   |
+| Site audit       | Local crawler                    | DataForSEO    | 7 days    |
 
 ## Cost Strategy
 
@@ -153,6 +163,7 @@ The implementation reduces DataForSEO usage through:
 ## DataForSEO Calls Still Required
 
 DataForSEO remains the only source for:
+
 - **Live SERP results** (organic results for a keyword) — no free reliable SERP API exists
 - **Backlink data** (backlink profiles, referring domains, history) — no free source provides this
 - **Domain ranked keywords** (full keyword universe for a domain) — Google Ads only provides seed-based ideas, not domain-level data
@@ -194,6 +205,7 @@ Note: `pnpm install` completed successfully (29 min on Windows with `--node-link
 Four consumers that previously bypassed the DataRouter now route through it, inheriting cache-first, free-provider preference, single-flight coalescing, and budget guarding. All four are fully tested, lint-clean, and committed on `feature/free-first-seo`:
 
 ### K1 — Rank-tracking metric refresh (`db12d89`)
+
 `RankTrackingService.refreshKeywordMetrics` no longer builds a DataForSEO client; it calls `router.route({ dataType: "keyword_metrics", ... })` with `creditFeature: "rank_tracking"` and `constraints.locationName`.
 
 - **google-ads-provider**: gated to Google Ads markets via `getKeywordDataProvider(locationCode) === "google_ads"` (throws `ProviderUnsupportedError` for `constraints.locationName`); output normalized to `KeywordMetricRow` (`result.keyword ?? result.text`, month mapping via `monthNumberFor`) so the service contract is unchanged.
@@ -202,9 +214,11 @@ Four consumers that previously bypassed the DataRouter now route through it, inh
 - Tested: RankTrackingService (9), internal-provider (10), dataforseo-provider (8).
 
 ### K2 — Onboarding market data (`9b749a8`)
+
 `onboardingMarketTools` routes `get_serp_results` through the `serp` data type (`constraints` carry keyword/location/language; `creditFeature: "onboarding"`) and `find_serp_competitors` through `competitors` with `constraints: { projectId, limit: 50 }`; `createDataforseoClient` removed from the onboarding `ToolContext` (`onboardingChatTools`). Tested: `onboardingMarketTools.test.ts` (4), including per-keyword failure isolation.
 
 ### K3 — Dashboard backlink refresh coalescing (`aee7444`)
+
 `DashboardService.ensureBacklinkSnapshot` routes through the `backlinks` data type (`dataType: "backlinks"`, `domain`, `creditFeature: "backlinks"`, `constraints: { projectId, backlinkCall: "summary" }`). The router's single-flight coalesces concurrent dashboard refreshes into one upstream call.
 
 - Snapshot insert only when the router actually paid DataForSEO (`provider === "dataforseo"`) or when no row exists yet (materializing cached data) — cached/internal refreshes over existing rows do NOT re-insert, so the dashboard's stale badge reflects real capture age.
@@ -212,15 +226,18 @@ Four consumers that previously bypassed the DataRouter now route through it, inh
 - Tested: `DashboardService.test.ts` (7).
 
 ### K4 — Lighthouse read-through cache (`3713b16`)
+
 `fetchAndStoreLighthouseResult` dropped its 3-attempt direct-client retry loop for a single `router.route({ dataType: "site_audit", device, constraints: { lighthouse: true } })` attempt — retrying around the router would multiply paid calls. Successful results are cached (7d `site_audit` TTL); failures are not cached and return a null-score result with `errorMessage` (no R2 write).
 
 - The `site_audit` provider priority is `["local_crawler", "dataforseo"]`; `local-crawler-provider.supports()` now returns `false` when `constraints.lighthouse === true`, so Lighthouse requests fall through to DataForSEO instead of silently receiving free crawl-check payloads. The cache key includes constraints, so crawl-check and Lighthouse payloads never collide.
 - Tested: `lighthouse.test.ts` (5), `local-crawler-provider.test.ts` (3).
 
 ### Follow-up (`f0d3332`)
+
 Silenced 4 oxlint findings in the new test files (vitest asymmetric-matcher and ToolSet-narrowing assertion patterns, matching the existing `oxlint-disable` convention).
 
 ### Phase K validation
+
 ```
 Full suite: 901/903 passed (107/108 files) — the 2 failures were load artifacts in
   the untouched client.test.ts metering file (5000ms timeout + shared-state contention
@@ -236,12 +253,14 @@ Direct createDataforseoClient verified absent from all four targeted areas.
 ```
 
 ### DataForSEO calls still required (unchanged by Phase K)
+
 - Backlinks detail endpoints via `backlinksServiceData` (`history`, `rows`, `referring_domains`, `domain_pages`) — already router-routed, still paid when cache/internal miss.
 - MCP `dataforseo-research-tools` remaining direct tools (business listings, local SERP, business questions — plus the budget-guarded direct calls).
 - AI-search `brandLookup` / `promptExplorer`.
 - Rank-check workflows (`rankCheckPaths`, `RankCheckWorkflow`) — scheduled SERP position checks.
 
 ### Future opportunities (explicitly out of Phase K scope)
+
 - Route local business listings / local SERP / business questions through new data types (needs new providers).
 - D1 persistence for `serp` snapshots (per-keyword) and `domain_keywords` rows, making the internal provider a free source for repeats.
 - Persistent budget accounting per organization (currently in-memory counters).
@@ -255,6 +274,7 @@ audit tools, workflow presets, tests, and docs. See
 `docs/in-app-ai-agent.md` for the full guide.
 
 ### O1 — AI settings schema
+
 - New `ai_agent_settings` table in both `src/db/sam.schema.ts` and
   `src/db/pg/sam.schema.ts`: `provider` (default `'openrouter'`), `model`
   (default `''` = unset/inherit), nullable `organization_id`/`project_id` FKs
@@ -267,6 +287,7 @@ audit tools, workflow presets, tests, and docs. See
   suite passes (132 tests).
 
 ### O2 — Settings service + repository
+
 - `AiSettingsRepository` (org/project get/upsert; project row with a cleared
   model deletes the row = inherit; empty model normalized to null).
 - `AiSettingsService` — model resolution order: project → organization →
@@ -275,6 +296,7 @@ audit tools, workflow presets, tests, and docs. See
   never touch the database or the client.
 
 ### O3 — Provider abstraction
+
 - `AiProvider` interface + `AiProviderRegistry` (`src/server/features/ai/providers.ts`);
   OpenRouter is the only provider this phase. `listModels` reads the public
   OpenRouter catalog, normalizes pricing/tool-support, and caches in R2 for
@@ -283,6 +305,7 @@ audit tools, workflow presets, tests, and docs. See
   unavailable, else unreachable).
 
 ### O4 — SAM agent hardening
+
 - `SamChatAgent.beforeTurn` resolves DB settings via the repository +
   `resolveAiModel`, applies `AI_AGENT_MAX_STEPS` (default 48) and a
   `toolCallCap` stop condition (`AI_AGENT_MAX_TOOL_CALLS`, default 24) that
@@ -298,11 +321,13 @@ audit tools, workflow presets, tests, and docs. See
   and cost policy (reuse fetched data).
 
 ### O5 — Server functions
+
 - `src/serverFunctions/aiSettings.ts`: `getGlobalAiSettings`,
   `updateGlobalAiSettings`, `getProjectAiSettings`, `updateProjectAiSettings`,
   `listAiModels`, `testAiConnection`.
 
 ### O6 — Settings UI
+
 - Global AI agent section on the Settings page (`AiSettingsSection`):
   provider, model picker (filterable, price/context/tool-support display),
   masked key status, connection test, save.
@@ -313,6 +338,7 @@ audit tools, workflow presets, tests, and docs. See
   plan) alongside the quick-question chips.
 
 ### O7 — Env/docs/tests
+
 - `AI_AGENT_MODEL`, `AI_AGENT_MAX_STEPS`, `AI_AGENT_MAX_TOOL_CALLS` added to
   `env.d.ts`, `alchemy.run.ts`, all `.env*.example` files, `compose.yaml`, and
   `compose.dev.yaml` (which also passes `OPENROUTER_API_KEY` through).
@@ -321,6 +347,7 @@ audit tools, workflow presets, tests, and docs. See
   env parsing + tool-call counter (3).
 
 ### Phase O validation
+
 ```
 Full suite: 975 passed (112 files)
 Typecheck: PASSED (0 errors)
@@ -329,6 +356,7 @@ Build: PASSED (vite build + tsc)
 ```
 
 ### Phase O known gaps / follow-ups
+
 - Live E2E of a real SAM turn requires a valid `OPENROUTER_API_KEY` in the
   deployment environment (the container currently runs without one; SAM
   responds with the billing/configuration notice in that state).

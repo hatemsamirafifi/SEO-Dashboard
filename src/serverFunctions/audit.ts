@@ -4,6 +4,7 @@ import { AuditService } from "@/server/features/audit/services/AuditService";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { requireProjectContext } from "@/serverFunctions/middleware";
 import {
+  cancelAuditSchema,
   deleteAuditSchema,
   getAuditHistorySchema,
   getAuditResultsSchema,
@@ -73,6 +74,31 @@ export const getCrawlProgress = createServerFn({ method: "POST" })
   .validator(getCrawlProgressSchema)
   .handler(async ({ data, context }) => {
     return AuditService.getCrawlProgress(data.auditId, context.projectId);
+  });
+
+export const cancelAudit = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(cancelAuditSchema)
+  .handler(async ({ data, context }) => {
+    const result = await AuditService.cancelAudit({
+      actorUserId: context.userId,
+      auditId: data.auditId,
+      projectId: context.projectId,
+    });
+
+    waitUntil(
+      captureServerEvent({
+        distinctId: context.userId,
+        event: "site_audit:cancel",
+        organizationId: context.organizationId,
+        properties: {
+          project_id: context.projectId,
+          status: result.status ?? "cancelled",
+        },
+      }),
+    );
+
+    return result;
   });
 
 export const deleteAudit = createServerFn({ method: "POST" })

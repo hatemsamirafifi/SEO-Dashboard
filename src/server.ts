@@ -14,13 +14,11 @@ import { runScheduledReportRuns } from "@/server/features/reports/services/sched
 import { getOrCreateOrganizationCustomer } from "@/server/billing/subscription";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getAuthMode, isHostedAuthMode } from "@/lib/auth-mode";
-import {
+import type {
+  OpenSeoOAuthEnv,
   createOpenSeoOAuthProvider,
-  type OpenSeoOAuthEnv,
 } from "@/server/mcp/oauth-provider";
 import { requestWithPublicOrigin } from "@/server/mcp/public-origin";
-import { MCP_ROUTE } from "@/server/mcp/context";
-import { handleSelfHostedOpenSeoMcpRequest } from "@/server/mcp/transport";
 import { withPgClient } from "@/db";
 import {
   AUTUMN_WEBHOOK_PATH,
@@ -28,8 +26,26 @@ import {
 } from "@/server/billing/autumn-webhook";
 import { maybeSendSelfHostHeartbeat } from "@/server/lib/self-host-telemetry";
 
+// Keep in sync with MCP_ROUTE in @/server/mcp/context — inlined as a literal
+// so importing it here cannot pull the MCP module graph into the eager
+// startup bundle (SDK protocol schemas + every tool's zod schemas evaluate
+// at module scope and push the Worker toward its 400ms startup CPU limit).
+const MCP_ROUTE = "/mcp";
+
 const appFetch = createStartHandler(defaultStreamHandler);
-const openSeoOAuthProvider = createOpenSeoOAuthProvider(appFetch);
+
+// Lazy singleton: the OAuth provider is only needed on the hosted auth path,
+// and building it evaluates the MCP stack (see MCP_ROUTE above).
+let openSeoOAuthProviderPromise: Promise<
+  ReturnType<typeof createOpenSeoOAuthProvider>
+> | null = null;
+
+function getOpenSeoOAuthProvider() {
+  openSeoOAuthProviderPromise ??= import("@/server/mcp/oauth-provider").then(
+    (m) => m.createOpenSeoOAuthProvider(appFetch),
+  );
+  return openSeoOAuthProviderPromise;
+}
 
 // Authorize an onboarding-chat connection in the Worker, before it reaches the
 // Durable Object. The DO instance name is the projectId (set client-side); we
@@ -137,11 +153,11 @@ function fetch(
   return withPgClient(() => Promise.resolve(handleFetch(request, env, ctx)));
 }
 
-function handleFetch(
+async function handleFetch(
   request: Request,
   env: Env,
   ctx: ExecutionContext,
-): Response | Promise<Response> {
+): Promise<Response> {
   ctx.waitUntil(maybeSendSelfHostHeartbeat());
 
   const authMode = getAuthMode(env.AUTH_MODE);
@@ -157,6 +173,7 @@ function handleFetch(
       return handleAutumnWebhookRequest(publicRequest);
     }
 
+    const openSeoOAuthProvider = await getOpenSeoOAuthProvider();
     return openSeoOAuthProvider.fetch(
       publicRequest,
       env as OpenSeoOAuthEnv,
@@ -168,6 +185,11 @@ function handleFetch(
     (authMode === "cloudflare_access" || authMode === "local_noauth") &&
     pathname === MCP_ROUTE
   ) {
+    // Lazy: see MCP_ROUTE above — the MCP server, its SDK protocol schemas,
+    // and every tool's zod input/output schemas load on the first MCP
+    // request, not at worker startup.
+    const { handleSelfHostedOpenSeoMcpRequest } =
+      await import("@/server/mcp/transport");
     return handleSelfHostedOpenSeoMcpRequest(publicRequest, authMode, env, ctx);
   }
 

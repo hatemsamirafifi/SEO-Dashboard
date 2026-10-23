@@ -53,6 +53,7 @@ import {
 import {
   buildChangedRows,
   deriveMonthWindows,
+  isRecord,
 } from "./autopilotWorkflowContent";
 import {
   containsBannedCausalVerb,
@@ -73,9 +74,7 @@ type Visibility = Awaited<
 type Traffic = Awaited<
   ReturnType<typeof reportSections.collectTrafficAndConversions>
 >;
-type Overview = Awaited<
-  ReturnType<typeof reportSections.collectOverviewParts>
->;
+type Overview = Awaited<ReturnType<typeof reportSections.collectOverviewParts>>;
 type StoredOpportunity = Awaited<
   ReturnType<typeof reportSections.collectOpportunities>
 >[number];
@@ -188,8 +187,8 @@ function summaryField(
   key: string,
 ): Record<string, unknown>[] {
   const summary = parseJsonObject(stepEvidenceJson ?? "null")["summary"];
-  if (typeof summary !== "object" || summary === null) return [];
-  const raw: unknown = (summary as Record<string, unknown>)[key];
+  if (!isRecord(summary)) return [];
+  const raw: unknown = summary[key];
   if (!Array.isArray(raw)) return [];
   return raw.filter(
     (entry: unknown): entry is Record<string, unknown> =>
@@ -299,7 +298,10 @@ describe("monthly changed rows", () => {
         month: searchVisibility(1000, 50000, 0.02, 8.5),
         prior: searchVisibility(1200, 48000, 0.025, 9.2),
       },
-      traffic: { month: trafficTotals(5000, 11000, 300, 20), prior: downTraffic },
+      traffic: {
+        month: trafficTotals(5000, 11000, 300, 20),
+        prior: downTraffic,
+      },
     });
     const byMetric = new Map(out.changed.map((row) => [row.metric, row]));
     // Only GSC compares: each direction is unique, so both stay provisional.
@@ -318,7 +320,8 @@ describe("monthly changed rows", () => {
     expect(out.unavailable.length).toBeGreaterThan(0);
     expect(
       out.unavailable.every(
-        (row) => typeof row.source === "string" && typeof row.reason === "string",
+        (row) =>
+          typeof row.source === "string" && typeof row.reason === "string",
       ),
     ).toBe(true);
   });
@@ -335,34 +338,28 @@ describe("monthly_review workflow", () => {
       "correlate",
       "synthesize",
     ]);
-    expect(
-      def?.steps.some((step) => step.kind === "side_effect"),
-    ).toBe(false);
+    expect(def?.steps.some((step) => step.kind === "side_effect")).toBe(false);
   });
 
   it("summarizes a two-window month with honest envelopes", async () => {
-    vi.spyOn(
-      reportSections,
-      "collectSearchVisibility",
-    ).mockImplementation(async (_projectId, from) =>
-      from.startsWith("2026-09")
-        ? searchVisibility(1000, 50000, 0.02, 8.5)
-        : searchVisibility(1200, 48000, 0.025, 9.2),
+    vi.spyOn(reportSections, "collectSearchVisibility").mockImplementation(
+      async (_projectId, from) =>
+        from.startsWith("2026-09")
+          ? searchVisibility(1000, 50000, 0.02, 8.5)
+          : searchVisibility(1200, 48000, 0.025, 9.2),
     );
-    vi.spyOn(
-      reportSections,
-      "collectTrafficAndConversions",
-    ).mockImplementation(async (_projectId, _orgId, from) =>
-      from.startsWith("2026-09")
-        ? trafficTotals(5000, 11000, 300, 20)
-        : trafficTotals(5500, 11000, 350, 18),
+    vi.spyOn(reportSections, "collectTrafficAndConversions").mockImplementation(
+      async (_projectId, _orgId, from) =>
+        from.startsWith("2026-09")
+          ? trafficTotals(5000, 11000, 300, 20)
+          : trafficTotals(5500, 11000, 350, 18),
     );
     vi.spyOn(reportSections, "collectOverviewParts").mockImplementation(
       async () => overviewReady(),
     );
-    vi.spyOn(reportSections, "collectInsights").mockImplementation(
-      async () => [openInsight()],
-    );
+    vi.spyOn(reportSections, "collectInsights").mockImplementation(async () => [
+      openInsight(),
+    ]);
     vi.spyOn(reportSections, "collectOpportunities").mockImplementation(
       async () => [openOpportunity()],
     );
@@ -404,24 +401,22 @@ describe("monthly_review workflow", () => {
   });
 
   it("completes honestly for a project with no stored data", async () => {
-    vi.spyOn(
-      reportSections,
-      "collectSearchVisibility",
-    ).mockImplementation(async () => ({
-      status: down("not_connected"),
-      totals: null,
-    }));
-    vi.spyOn(
-      reportSections,
-      "collectTrafficAndConversions",
-    ).mockImplementation(async () => ({
-      traffic: { status: down("not_connected"), totals: null },
-      conversions: {
+    vi.spyOn(reportSections, "collectSearchVisibility").mockImplementation(
+      async () => ({
         status: down("not_connected"),
-        keyEvents: null,
-        transactions: null,
-      },
-    }));
+        totals: null,
+      }),
+    );
+    vi.spyOn(reportSections, "collectTrafficAndConversions").mockImplementation(
+      async () => ({
+        traffic: { status: down("not_connected"), totals: null },
+        conversions: {
+          status: down("not_connected"),
+          keyEvents: null,
+          transactions: null,
+        },
+      }),
+    );
     vi.spyOn(reportSections, "collectOverviewParts").mockImplementation(
       async () => ({
         rankings: {

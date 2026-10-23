@@ -2,6 +2,7 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  cancelAudit,
   deleteAudit,
   getAuditHistory,
   startAudit,
@@ -17,7 +18,10 @@ import {
   createFormValidationErrors,
   shouldValidateFieldOnChange,
 } from "@/client/lib/forms";
-import { getStandardErrorMessage } from "@/client/lib/error-messages";
+import {
+  getStandardErrorMessage,
+  getErrorCode,
+} from "@/client/lib/error-messages";
 
 function getLaunchValidationErrors(
   value: LaunchFormValues,
@@ -51,8 +55,15 @@ export function useLaunchController({
   const historyQuery = useQuery({
     queryKey: ["audit-history", projectId],
     queryFn: () => getAuditHistory({ data: { projectId } }),
+    // A running audit's status/page counts would otherwise freeze until a
+    // manual reload; poll while anything is in flight, stop when idle.
+    refetchInterval: (query) =>
+      Array.isArray(query.state.data) &&
+      query.state.data.some((audit) => audit.status === "running")
+        ? 5_000
+        : false,
   });
-  const { startMutation, deleteMutation } = useLaunchMutations({
+  const { startMutation, deleteMutation, cancelMutation } = useLaunchMutations({
     projectId,
     historyRefetch: historyQuery.refetch,
   });
@@ -105,6 +116,10 @@ export function useLaunchController({
     maxPagesLimit,
     commitMaxPagesInput: () => commitMaxPagesInput(launchForm, maxPagesLimit),
     deleteAudit: (auditId: string) => deleteMutation.mutate(auditId),
+    cancelAudit: (auditId: string) => {
+      toast.info("Audit stopping — its workflow will finalize shortly.");
+      cancelMutation.mutate(auditId);
+    },
   };
 }
 
@@ -181,7 +196,25 @@ function useLaunchMutations({
     },
   });
 
-  return { startMutation, deleteMutation };
+  const cancelMutation = useMutation({
+    mutationFn: (auditId: string) =>
+      cancelAudit({ data: { projectId, auditId } }),
+    onSuccess: () => {
+      void historyRefetch();
+    },
+    // CONFLICT ("only running can be cancelled") can race an audit that
+    // finalizes on its own right as the user clicks — that is fine.
+    onError: (error) => {
+      const code = getErrorCode(error);
+      if (code === "CONFLICT" || code === "NOT_FOUND") {
+        void historyRefetch();
+        return;
+      }
+      toast.error(getStandardErrorMessage(error, "Failed to cancel audit"));
+    },
+  });
+
+  return { startMutation, deleteMutation, cancelMutation };
 }
 
 function commitMaxPagesInput(

@@ -90,8 +90,8 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [X] T013 Run `pnpm types:check && pnpm oxlint` and fix any violations
-- [X] T014 Run quickstart.md validation scenarios end-to-end (floor-gated emission, below-floor silence, failure-never-loss, idempotent re-scan + lifecycle)
+- [x] T013 Run `pnpm types:check && pnpm oxlint` and fix any violations
+- [x] T014 Run quickstart.md validation scenarios end-to-end (floor-gated emission, below-floor silence, failure-never-loss, idempotent re-scan + lifecycle)
 
 ---
 

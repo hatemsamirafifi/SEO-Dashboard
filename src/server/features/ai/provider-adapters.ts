@@ -4,11 +4,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
-import type {
-  AiModel,
-  AiProvider,
-  AiProviderId,
-} from "./providers";
+import type { AiModel, AiProvider, AiProviderId } from "./providers";
 import {
   cachedModels,
   missingKeyResult,
@@ -79,7 +75,9 @@ async function fetchOpenRouterModels(
   }
   const parsed = openRouterModelsSchema.safeParse(await response.json());
   if (!parsed.success) {
-    throw new Error("OpenRouter models response did not match the expected shape");
+    throw new Error(
+      "OpenRouter models response did not match the expected shape",
+    );
   }
   return parseOpenRouterRows(parsed.data.data);
 }
@@ -120,8 +118,7 @@ const openRouterProvider: AiProvider = {
     );
   },
   async testConnection(modelId, opts) {
-    const apiKey =
-      opts?.apiKey ?? (await this.getApiKey());
+    const apiKey = opts?.apiKey ?? (await this.getApiKey());
     if (!apiKey) return missingKeyResult(this, modelId);
     return runConnectionTest(this, apiKey, modelId);
   },
@@ -133,18 +130,15 @@ const openRouterProvider: AiProvider = {
     // restricts routing to Zero-Data-Retention endpoints; fallbacks stay on
     // within the ZDR set (pin-only caused a prod outage Jul 2026). The
     // `reasoning` channel keeps chain-of-thought out of the visible text.
-    return createOpenRouter({ apiKey })(
-      modelId,
-      {
-        usage: { include: true },
-        reasoning: { effort: "medium" },
-        provider: {
-          order: ["together", "atlas-cloud/fp8"],
-          zdr: true,
-          allow_fallbacks: true,
-        },
+    return createOpenRouter({ apiKey })(modelId, {
+      usage: { include: true },
+      reasoning: { effort: "medium" },
+      provider: {
+        order: ["together", "atlas-cloud/fp8"],
+        zdr: true,
+        allow_fallbacks: true,
       },
-    );
+    });
   },
   estimateCostUsd(providerMetadata) {
     const parsed = openRouterUsageSchema.safeParse(providerMetadata);
@@ -175,7 +169,9 @@ async function fetchOpenAiModels(apiKey: string): Promise<AiModel[]> {
     headers: { authorization: `Bearer ${apiKey}` },
   });
   if (!response.ok) {
-    throw new Error(`OpenAI models request failed with status ${response.status}`);
+    throw new Error(
+      `OpenAI models request failed with status ${response.status}`,
+    );
   }
   const parsed = openAiModelsSchema.safeParse(await response.json());
   if (!parsed.success) {
@@ -213,15 +209,12 @@ const openAiProvider: AiProvider = {
   async listModels(opts) {
     const apiKey = opts?.apiKey ?? (await this.getApiKey());
     if (!apiKey) return [];
-    return cachedModels(
-      "ai-models:openai",
-      () => fetchOpenAiModels(apiKey),
-      { refresh: opts?.refresh },
-    );
+    return cachedModels("ai-models:openai", () => fetchOpenAiModels(apiKey), {
+      refresh: opts?.refresh,
+    });
   },
   async testConnection(modelId, opts) {
-    const apiKey =
-      opts?.apiKey ?? (await this.getApiKey());
+    const apiKey = opts?.apiKey ?? (await this.getApiKey());
     if (!apiKey) return missingKeyResult(this, modelId);
     return runConnectionTest(this, apiKey, modelId);
   },
@@ -239,7 +232,8 @@ const openAiProvider: AiProvider = {
 // Google Gemini
 // ---------------------------------------------------------------------------
 
-const GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_MODELS_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models";
 
 const geminiModelsSchema = z.object({
   models: z.array(
@@ -255,7 +249,9 @@ const geminiModelsSchema = z.object({
 // bare id (what the SDK accepts) and keep only models that can generate
 // content. No pricing is published in this response, so prices stay null.
 async function fetchGeminiModels(apiKey: string): Promise<AiModel[]> {
-  const response = await fetch(`${GEMINI_MODELS_URL}?key=${encodeURIComponent(apiKey)}`);
+  const response = await fetch(
+    `${GEMINI_MODELS_URL}?key=${encodeURIComponent(apiKey)}`,
+  );
   if (!response.ok) {
     throw new Error(
       `Gemini models request failed with status ${response.status}`,
@@ -266,7 +262,9 @@ async function fetchGeminiModels(apiKey: string): Promise<AiModel[]> {
     throw new Error("Gemini models response did not match the expected shape");
   }
   return parsed.data.models
-    .filter((model) => model.supportedGenerationMethods?.includes("generateContent"))
+    .filter((model) =>
+      model.supportedGenerationMethods?.includes("generateContent"),
+    )
     .map((model) => {
       const id = model.name.replace(/^models\//, "");
       return {
@@ -302,15 +300,12 @@ const geminiProvider: AiProvider = {
   async listModels(opts) {
     const apiKey = opts?.apiKey ?? (await this.getApiKey());
     if (!apiKey) return [];
-    return cachedModels(
-      "ai-models:gemini",
-      () => fetchGeminiModels(apiKey),
-      { refresh: opts?.refresh },
-    );
+    return cachedModels("ai-models:gemini", () => fetchGeminiModels(apiKey), {
+      refresh: opts?.refresh,
+    });
   },
   async testConnection(modelId, opts) {
-    const apiKey =
-      opts?.apiKey ?? (await this.getApiKey());
+    const apiKey = opts?.apiKey ?? (await this.getApiKey());
     if (!apiKey) return missingKeyResult(this, modelId);
     return runConnectionTest(this, apiKey, modelId);
   },
@@ -352,7 +347,9 @@ async function fetchAnthropicModels(apiKey: string): Promise<AiModel[]> {
   }
   const parsed = anthropicModelsSchema.safeParse(await response.json());
   if (!parsed.success) {
-    throw new Error("Anthropic models response did not match the expected shape");
+    throw new Error(
+      "Anthropic models response did not match the expected shape",
+    );
   }
   return parsed.data.data.map((row) => ({
     id: row.id,
@@ -393,8 +390,7 @@ const anthropicProvider: AiProvider = {
     );
   },
   async testConnection(modelId, opts) {
-    const apiKey =
-      opts?.apiKey ?? (await this.getApiKey());
+    const apiKey = opts?.apiKey ?? (await this.getApiKey());
     if (!apiKey) return missingKeyResult(this, modelId);
     return runConnectionTest(this, apiKey, modelId);
   },
@@ -418,7 +414,10 @@ export {
   ollamaCloudProvider,
 } from "./provider-compatible-adapters";
 
-import { openAiCompatibleProvider, ollamaCloudProvider } from "./provider-compatible-adapters";
+import {
+  openAiCompatibleProvider,
+  ollamaCloudProvider,
+} from "./provider-compatible-adapters";
 
 export const PROVIDER_ADAPTERS: Record<AiProviderId, AiProvider> = {
   openrouter: openRouterProvider,

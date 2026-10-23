@@ -27,14 +27,14 @@ payload-sized results as the source of truth.
 
 ## Results
 
-| Model | Small | Medium | SAM-sized | Tool Calling | Streaming | Latency (L2) | Classification |
-|---|---|---|---|---|---|---|---|
-| `minimax/minimax-m3` | 200 (2.2s) | 200 (3.0s) | **200 (32.6s)** | ✓ (tool call returned) | ✓ (36 chunks, finish) | 3.0s | **STABLE-ZDR** |
-| `deepseek/deepseek-v4-flash-0731` | 200 (4.4s) | 200 (4.8s) | **200 (4.9s)** | ✓ | (not separately probed) | 4.8s | **STABLE-ZDR** |
-| `deepseek/deepseek-v4-pro-0813` | 200 | 200 | **402** — prompt tokens 25077 > 9850 (free-tier per-request cap) | ✓ (L1) | — | 7.8s | PARTIAL-ZDR |
-| `z-ai/glm-5.2` | 200 | 200 | **402** — prompt tokens 23726 > 11492 (free-tier cap) | ✓ (L1) | — | 6.2s | PARTIAL-ZDR |
-| `z-ai/glm-5.3` | 200 | **402** (10101 > 6767) | **402** (23725 > 6767) | ✓ (L1) | — | — | PARTIAL-ZDR |
-| `moonshotai/kimi-k3` | 200 | **402** (10101 > 2775) | **402** (23724 > 2775) | ✗ (no tool call returned) | — | — | PARTIAL-ZDR |
+| Model                             | Small      | Medium                 | SAM-sized                                                        | Tool Calling              | Streaming               | Latency (L2) | Classification |
+| --------------------------------- | ---------- | ---------------------- | ---------------------------------------------------------------- | ------------------------- | ----------------------- | ------------ | -------------- |
+| `minimax/minimax-m3`              | 200 (2.2s) | 200 (3.0s)             | **200 (32.6s)**                                                  | ✓ (tool call returned)    | ✓ (36 chunks, finish)   | 3.0s         | **STABLE-ZDR** |
+| `deepseek/deepseek-v4-flash-0731` | 200 (4.4s) | 200 (4.8s)             | **200 (4.9s)**                                                   | ✓                         | (not separately probed) | 4.8s         | **STABLE-ZDR** |
+| `deepseek/deepseek-v4-pro-0813`   | 200        | 200                    | **402** — prompt tokens 25077 > 9850 (free-tier per-request cap) | ✓ (L1)                    | —                       | 7.8s         | PARTIAL-ZDR    |
+| `z-ai/glm-5.2`                    | 200        | 200                    | **402** — prompt tokens 23726 > 11492 (free-tier cap)            | ✓ (L1)                    | —                       | 6.2s         | PARTIAL-ZDR    |
+| `z-ai/glm-5.3`                    | 200        | **402** (10101 > 6767) | **402** (23725 > 6767)                                           | ✓ (L1)                    | —                       | —            | PARTIAL-ZDR    |
+| `moonshotai/kimi-k3`              | 200        | **402** (10101 > 2775) | **402** (23724 > 2775)                                           | ✗ (no tool call returned) | —                       | —            | PARTIAL-ZDR    |
 
 Notes on the 402s: OpenRouter's **free tier enforces per-request prompt-token
 caps that vary per model/provider** (e.g. 9850 for deepseek-pro,
@@ -55,7 +55,7 @@ for real SAM turns on a free key.
    `glm-5.2` routed Together → DeepInfra → Sail Research across sizes.
    OpenRouter's router considers the request shape, so ZDR endpoint
    availability is **per-request**, not per-model.
-3. **Stable under ZDR at SAM size:** `minimax/minimax-m3` (100KB payload, 
+3. **Stable under ZDR at SAM size:** `minimax/minimax-m3` (100KB payload,
    32.6s — slow but complete) and `deepseek/deepseek-v4-flash-0731`
    (100KB, 4.9s — fast and 4× cheaper).
 4. **Not stable:** glm-5.3, kimi-k3 (fail at L2 already on this key);

@@ -20,9 +20,25 @@ export const AUDIT_ISSUE_TYPES = {
     severity: "critical",
     title: "Crawler was blocked",
     explanation:
-      "The site returned a bot challenge or access denial (e.g. a Cloudflare challenge, 403, or 429) instead of the page. We report this honestly rather than pretending the page is broken — but it means this page could not be audited, and other crawlers like search engines may face similar friction.",
+      "The site returned a bot challenge or access denial (e.g. a Cloudflare challenge or 403) instead of the page. We report this honestly rather than pretending the page is broken — but it means this page could not be audited, and other crawlers like search engines may face similar friction.",
     howToFix:
       'If you own this site, allowlist the "OpenSEO-Audit" user agent in your WAF/bot-protection settings (on Cloudflare: a WAF custom rule that skips bot protection when the user agent contains "OpenSEO-Audit"; on some free tiers you may need to relax bot protection). Then re-run the audit.',
+  },
+  "rate-limited-page": {
+    severity: "warning",
+    title: "Page rate-limited during audit",
+    explanation:
+      "The site answered this page with 429 Too Many Requests, and the audit's retries (with honored Retry-After pauses) still could not read it. The crawl slowed down and backed off first — the site is asking crawlers to go slower, and search engines see the same thing when they crawl too aggressively.",
+    howToFix:
+      "Raise your rate-limit ceiling or exempt audit/search crawlers from it (most CDNs let you set a per-crawler rule). If the limits are intentional, re-run the audit during a quieter window; pages that got through are still reported fully.",
+  },
+  "crawl-error": {
+    severity: "warning",
+    title: "Page could not be fetched",
+    explanation:
+      "The fetch for this URL failed (network error, timeout, or an unreachable host), so the page could not be audited. This is about transport, not content: the audit never saw the page's HTML.",
+    howToFix:
+      "Check that the URL resolves over the public internet (no private-network-only DNS), that the server accepts connections from external clients, and that pages respond within 15 seconds. A DNS, firewall, or TLS problem on the host is the usual cause.",
   },
   "server-error": {
     severity: "critical",
@@ -223,6 +239,38 @@ export const AUDIT_ISSUE_TYPES = {
       "The page declares a different URL as its canonical, telling search engines to index that URL instead. Fine when intentional (parameter pages, syndication) — a problem if this page was meant to rank.",
     howToFix:
       "If this page should rank on its own, set its canonical to itself. Otherwise no action is needed.",
+  },
+  "canonical-cross-domain": {
+    severity: "warning",
+    title: "Canonical points to another domain",
+    explanation:
+      "This page's canonical URL lives on a completely different site — usually a template or copy-paste mistake (a staging domain left in the markup, or markup imported from another store). While this declaration stands, search engines may index the other domain's URL and ignore this page entirely.",
+    howToFix:
+      "Set the canonical to this page's own URL. If pointing at another site is intentional, confirm that the target page exists and is indexable.",
+  },
+  "canonical-redirect-loop": {
+    severity: "warning",
+    title: "Canonical points into a redirect loop",
+    explanation:
+      "The canonical URL this page declares is itself part of a redirect loop, so the address search engines are told to index never resolves. The page may still get crawled via its own URL, but the canonical signal is worthless until it points somewhere real.",
+    howToFix:
+      "Set the canonical to a URL that resolves to a 200 response without redirecting — usually this page's own URL.",
+  },
+  "product-schema-missing-required": {
+    severity: "warning",
+    title: "Product schema missing required fields",
+    explanation:
+      "The page's Product structured data is missing fields product search results are built from (see details). The product itself may display fine in the browser — this verdict is about the markup, which search engines read to assemble product listings. An incomplete Product schema usually means no product rich results at all.",
+    howToFix:
+      'Complete the Product JSON-LD: include "name", at least one "image", and an "offers" block carrying a "price". Then re-run the audit for the page.',
+  },
+  "product-schema-missing-recommended": {
+    severity: "info",
+    title: "Product schema missing recommended fields",
+    explanation:
+      "The page's Product structured data is valid enough to exist, but omits fields that qualify it for fuller rich results (see details): without an explicit currency the price is ambiguous, and without availability Google shows weaker or no stock labels.",
+    howToFix:
+      'Add "priceCurrency" and "availability" (e.g. "https://schema.org/InStock") inside the offers object of the Product markup.',
   },
   "deep-page": {
     severity: "info",

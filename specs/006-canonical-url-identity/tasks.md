@@ -86,8 +86,8 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [X] T012 Run `pnpm types:check && pnpm oxlint` and fix any violations
-- [X] T013 Run quickstart.md validation scenarios end-to-end (fixture determinism, base semantics unchanged, agreement, guard, no-history-corruption upgrade)
+- [x] T012 Run `pnpm types:check && pnpm oxlint` and fix any violations
+- [x] T013 Run quickstart.md validation scenarios end-to-end (fixture determinism, base semantics unchanged, agreement, guard, no-history-corruption upgrade)
 
 ---
 

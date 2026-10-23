@@ -164,7 +164,9 @@ describe("autopilotEvidence", () => {
             },
           ],
           ratios: [{ metric: "ctr", monthValue: 0.02, priorValue: 0.025 }],
-          unavailable: [{ source: "ga4", reason: "no_coverage (prior window)" }],
+          unavailable: [
+            { source: "ga4", reason: "no_coverage (prior window)" },
+          ],
           unresolved: [
             { kind: "opportunity", label: "High", title: "Pricing lost rank" },
           ],

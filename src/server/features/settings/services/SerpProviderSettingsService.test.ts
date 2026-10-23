@@ -35,7 +35,7 @@ vi.mock(
           input: {
             enabled: boolean;
             circuitBreakerEnabled: boolean;
-    maxRetries: number;
+            maxRetries: number;
             priority: number;
             credentialsCiphertext: string | null;
           },

@@ -10,7 +10,7 @@ const LOCKED_TOKENS = [
   "rankScore",
   "causedBy",
   "finding_samples",
-  "report_schedules",   // ← removed by this feature
+  "report_schedules", // ← removed by this feature
 ];
 ```
 
@@ -23,9 +23,9 @@ enumerated at lines ~380–442). The comment at the file head still narrates
 
 1. **Token removed from `LOCKED_TOKENS`** (the other three stay frozen forever).
 2. **Narrative updated**: the file-head comment and the Stage-1 notes change from
-   "no report_schedules exists (structural lock)" to "report_schedules exists (spec 012) and is
-   pinned below" — the lock's *purpose* flips from non-existence to location-pinning.
-3. **New files join the swept surface** (they now *must not contain* the remaining locked tokens,
+   "no `report_schedules` exists (structural lock)" to "`report_schedules` exists (spec 012) and is
+   pinned below" — the lock's **purpose** flips from non-existence to location-pinning.
+3. **New files join the swept surface** (they now **must not contain** the remaining locked tokens,
    and — via a new dedicated check — the schedule tables are only touched from allowed files).
    The guard file itself
    (`src/server/features/intelligence/intelligence-boundaries.test.ts`) is allowlisted: it
@@ -35,7 +35,7 @@ enumerated at lines ~380–442). The comment at the file head still narrates
    - the new migrations (D1 + PG)
    - `src/server/features/reports/repositories/ReportScheduleRepository.ts`
    - `src/server/features/reports/services/{ReportScheduleService,ScheduleRunService,
-     scheduledReportRuns,cadence,scheduledReportEmail}.ts`
+scheduledReportRuns,cadence,scheduledReportEmail}.ts`
    - `src/serverFunctions/reports.ts` (already swept)
    - `src/types/schemas/reports.ts`, `src/shared/reports.ts` (already swept)
    - `src/client/features/reports/{ReportSchedulesPanel,ScheduleEmailModal,ReportsPage}.tsx`
@@ -54,7 +54,7 @@ enumerated at lines ~380–442). The comment at the file head still narrates
 ## Why same-PR
 
 Plan §2.4 mandates it: the boundary test asserting non-existence fails the moment the schema
-lands, so the flip is inseparable from the tables. The flip also *strengthens* the guard: the
+lands, so the flip is inseparable from the tables. The flip also _strengthens_ the guard: the
 pinned-location check keeps raw-token/`rankScore`-style leakage patterns out of the new surface
 from day one (G7 evidence: `shareToken` remains a swept-for pattern in the schedule files —
 fixtures assert `share_token`/raw-token strings never appear in schedule-related code paths).

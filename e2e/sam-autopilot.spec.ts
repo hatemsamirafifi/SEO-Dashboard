@@ -21,15 +21,18 @@ async function getProjectId(page: Page) {
 
 async function openAutopilotTab(page: Page, projectId: string) {
   await page.goto(`/p/${projectId}/sam`, { timeout: 60_000 });
-  const autopilotBtn = page.getByRole("button", { name: "Autopilot", exact: true });
+  const autopilotBtn = page.getByRole("button", {
+    name: "Autopilot",
+    exact: true,
+  });
   await expect(autopilotBtn).toBeVisible({ timeout: 30_000 });
   await autopilotBtn.click();
   await expect(
     page.getByRole("heading", { name: "Autopilot", exact: true }),
   ).toBeVisible({ timeout: 60_000 });
-  await expect(
-    page.getByRole("button", { name: "Start run" }),
-  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Start run" })).toBeVisible({
+    timeout: 30_000,
+  });
 }
 
 test.describe("sam autopilot (spec 013)", () => {
@@ -91,14 +94,20 @@ test.describe("sam autopilot (spec 013)", () => {
     const cancel = page.getByRole("button", { name: "Cancel", exact: true });
     const terminal = page.getByText(/Quick wins.+(Completed|Failed)/).first();
     const canCancel = await Promise.race([
-      cancel.waitFor({ state: "visible", timeout: 5_000 }).then(() => true).catch(() => false),
-      terminal.waitFor({ state: "visible", timeout: 10_000 }).then(() => false).catch(() => false),
+      cancel
+        .waitFor({ state: "visible", timeout: 5_000 })
+        .then(() => true)
+        .catch(() => false),
+      terminal
+        .waitFor({ state: "visible", timeout: 10_000 })
+        .then(() => false)
+        .catch(() => false),
     ]);
     if (canCancel) {
       await cancel.click();
-      await expect(
-        page.getByText(/Quick wins.+Cancelled/).first(),
-      ).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(/Quick wins.+Cancelled/).first()).toBeVisible(
+        { timeout: 30_000 },
+      );
       // Resume continues the cancelled run to its terminal state.
       await page.getByRole("button", { name: "Resume", exact: true }).click();
       await expect(terminal).toBeVisible({ timeout: 120_000 });

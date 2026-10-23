@@ -16,18 +16,13 @@ vi.mock("@tanstack/react-router", () => ({
     to: string;
     children: React.ReactNode;
     className?: string;
-  }) =>
-    React.createElement(
-      "a",
-      { href: to, className, ...rest },
-      children,
-    ),
+  }) => React.createElement("a", { href: to, className, ...rest }, children),
 }));
 
 // Mock researchKeywords server function to simulate provider failures
-const mockResearchKeywords = vi.fn();
+const mockResearchKeywords = vi.fn<(input: unknown) => Promise<unknown>>();
 vi.mock("@/serverFunctions/keywords", () => ({
-  researchKeywords: (...args: unknown[]) => mockResearchKeywords(...args),
+  researchKeywords: (input: unknown) => mockResearchKeywords(input),
 }));
 
 import {
@@ -80,7 +75,9 @@ describe("Keyword Research 40201 & Error Classification", () => {
     const standardMessage = STANDARD_MESSAGES.DATAFORSEO_ACCESS_PAUSED;
     expect(standardMessage).toBeDefined();
     expect(standardMessage).toContain("support@dataforseo.com");
-    expect(standardMessage).toContain("temporarily restricted API access as a security precaution");
+    expect(standardMessage).toContain(
+      "temporarily restricted API access as a security precaution",
+    );
     expect(standardMessage).not.toContain("unexpected error");
   });
 
@@ -106,7 +103,9 @@ describe("Keyword Research 40201 & Error Classification", () => {
       expect(html).toContain("Try again");
 
       // Action: [Contact Support] with mailto
-      expect(html).toContain("mailto:support@dataforseo.com?subject=Reactivate%20DataForSEO%20API%20Access");
+      expect(html).toContain(
+        "mailto:support@dataforseo.com?subject=Reactivate%20DataForSEO%20API%20Access",
+      );
       expect(html).toContain("Contact Support");
 
       // Secondary Action: [View Debug Trace]
@@ -120,63 +119,63 @@ describe("Keyword Research 40201 & Error Classification", () => {
 
   // Requirement 10: Insufficient funds error card
   describe("KeywordResearchErrorCard for Insufficient Funds", () => {
-    it.each([
-      ["INSUFFICIENT_FUNDS"],
-      ["CREDITS_UNAVAILABLE"],
-    ])("renders title Insufficient DataForSEO funds and settings link for %s", (code) => {
-      const error = new Error(code);
-      const html = renderToStaticMarkup(
-        React.createElement(KeywordResearchErrorCard, {
-          error,
-          errorMessage: "Insufficient funds",
-          onRetry: vi.fn(),
-        }),
-      );
+    it.each([["INSUFFICIENT_FUNDS"], ["CREDITS_UNAVAILABLE"]])(
+      "renders title Insufficient DataForSEO funds and settings link for %s",
+      (code) => {
+        const error = new Error(code);
+        const html = renderToStaticMarkup(
+          React.createElement(KeywordResearchErrorCard, {
+            error,
+            errorMessage: "Insufficient funds",
+            onRetry: vi.fn(),
+          }),
+        );
 
-      expect(html).toContain("Insufficient DataForSEO funds");
-      expect(html).toContain('href="/settings"');
-      expect(html).not.toContain("Try again");
-    });
+        expect(html).toContain("Insufficient DataForSEO funds");
+        expect(html).toContain('href="/settings"');
+        expect(html).not.toContain("Try again");
+      },
+    );
   });
 
   // Requirement 11: Rate limited error card
   describe("KeywordResearchErrorCard for Rate Limits", () => {
-    it.each([
-      ["RATE_LIMITED"],
-      ["TOO_MANY_SIMULTANEOUS_QUERIES"],
-    ])("renders title DataForSEO rate limit reached and Try again button for %s", (code) => {
-      const error = new Error(code);
-      const html = renderToStaticMarkup(
-        React.createElement(KeywordResearchErrorCard, {
-          error,
-          errorMessage: "Rate limited",
-          onRetry: vi.fn(),
-        }),
-      );
+    it.each([["RATE_LIMITED"], ["TOO_MANY_SIMULTANEOUS_QUERIES"]])(
+      "renders title DataForSEO rate limit reached and Try again button for %s",
+      (code) => {
+        const error = new Error(code);
+        const html = renderToStaticMarkup(
+          React.createElement(KeywordResearchErrorCard, {
+            error,
+            errorMessage: "Rate limited",
+            onRetry: vi.fn(),
+          }),
+        );
 
-      expect(html).toContain("DataForSEO rate limit reached");
-      expect(html).toContain("Try again");
-    });
+        expect(html).toContain("DataForSEO rate limit reached");
+        expect(html).toContain("Try again");
+      },
+    );
   });
 
   // Requirement 12: Upstream failure error card
   describe("KeywordResearchErrorCard for Upstream Failure", () => {
-    it.each([
-      ["UPSTREAM_UNAVAILABLE"],
-      ["TRANSIENT_UPSTREAM"],
-    ])("renders title Data provider unavailable and Try again button for %s", (code) => {
-      const error = new Error(code);
-      const html = renderToStaticMarkup(
-        React.createElement(KeywordResearchErrorCard, {
-          error,
-          errorMessage: "Provider unavailable",
-          onRetry: vi.fn(),
-        }),
-      );
+    it.each([["UPSTREAM_UNAVAILABLE"], ["TRANSIENT_UPSTREAM"]])(
+      "renders title Data provider unavailable and Try again button for %s",
+      (code) => {
+        const error = new Error(code);
+        const html = renderToStaticMarkup(
+          React.createElement(KeywordResearchErrorCard, {
+            error,
+            errorMessage: "Provider unavailable",
+            onRetry: vi.fn(),
+          }),
+        );
 
-      expect(html).toContain("Data provider unavailable");
-      expect(html).toContain("Try again");
-    });
+        expect(html).toContain("Data provider unavailable");
+        expect(html).toContain("Try again");
+      },
+    );
   });
 
   // Requirement 13: Generic error fallback

@@ -9,6 +9,7 @@ import { previousPeriod } from "@/server/features/gsc/searchPerformanceReport";
 import { InsightRepository } from "@/server/features/intelligence/repositories/InsightRepository";
 import { OpportunityService } from "@/server/features/intelligence/services/OpportunityService";
 import type { ReportPayload } from "@/shared/reports";
+import type { AuditStatus } from "@/shared/audit-fetch-class";
 
 type Availability = ReportPayload["searchVisibility"]["status"];
 
@@ -393,7 +394,7 @@ export async function collectOpportunities(
 export async function collectAuditSummary(projectId: string): Promise<{
   latestAudit: {
     id: string;
-    status: "running" | "completed" | "failed";
+    status: AuditStatus;
     pagesCrawled: number;
     completedAt: string | null;
   } | null;

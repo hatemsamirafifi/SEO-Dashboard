@@ -39,6 +39,11 @@ export const deleteAuditSchema = z.object({
   auditId: z.string().min(1),
 });
 
+export const cancelAuditSchema = z.object({
+  projectId: z.string().min(1),
+  auditId: z.string().min(1),
+});
+
 export const getCrawlProgressSchema = z.object({
   projectId: z.string().min(1),
   auditId: z.string().min(1),

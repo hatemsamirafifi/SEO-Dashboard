@@ -215,7 +215,7 @@ recipient-address log-hygiene check.
   derives its next scheduled-for date deterministically from its cadence rule.
 - **Schedule Run (ledger row)**: the exactly-once record for one schedule on one scheduled-for
   date — state machine: `claimed → generating → delivering → delivered | partially_delivered |
-  failed | skipped`; carries failure classification and per-recipient outcome summary; durable,
+failed | skipped`; carries failure classification and per-recipient outcome summary; durable,
   unique on `(scheduleId, scheduledFor)`.
 - **Scheduled Report**: an immutable report snapshot (existing entity per P31) produced by a
   schedule run; linked from its ledger row for provenance.

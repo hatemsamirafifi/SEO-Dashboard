@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { runPageReporters } from "@/server/lib/audit/issues/page-reporters";
-import {
-  findDuplicates,
-  findRedirectChainsAndLoops,
-  type SlimPage,
-} from "@/server/lib/audit/issues/multipage-checks";
 import type { CrawledPageResult, PageLink } from "@/server/lib/audit/types";
+import { getIssueDescriptor } from "@/shared/audit-issues";
+import {
+  serializeSallaExtraction,
+  type SallaProductExtraction,
+} from "@/server/lib/audit/salla/extraction";
 
 const HEALTHY_LINK: PageLink = {
   targetUrl: "https://example.com/catalog",
@@ -20,6 +20,11 @@ function makePage(overrides: Partial<CrawledPageResult>): CrawledPageResult {
     url: "https://example.com/a",
     statusCode: 200,
     fetchClass: "ok",
+    extractionState: "STATIC_COMPLETE",
+    failureReason: null,
+    retryAfter: null,
+    htmlBytes: 12_000,
+    structuredDataJson: null,
     redirectUrl: null,
     title: "A perfectly reasonable page title",
     metaDescription:
@@ -49,6 +54,11 @@ function makePage(overrides: Partial<CrawledPageResult>): CrawledPageResult {
     hreflangTags: [],
     isIndexable: true,
     responseTimeMs: 200,
+    platform: null,
+    platformConfidence: 0,
+    pageType: null,
+    pageTypeConfidence: null,
+    sallaExtractionJson: null,
     crawlDepth: 1,
     inSitemap: true,
     ...overrides,
@@ -70,10 +80,16 @@ describe("runPageReporters", () => {
     ).toEqual(["blocked-page"]);
   });
 
-  it("reports nothing for a fetch error", () => {
+  it("reports only crawl-error for a failed fetch", () => {
     expect(
-      issueTypes(makePage({ fetchClass: "error", statusCode: 0 })),
-    ).toEqual([]);
+      issueTypes(
+        makePage({
+          fetchClass: "error",
+          statusCode: 0,
+          failureReason: "network_error",
+        }),
+      ),
+    ).toEqual(["crawl-error"]);
   });
 
   it("classifies error statuses by range", () => {
@@ -202,135 +218,169 @@ describe("runPageReporters", () => {
   });
 });
 
-function makeSlimPage(overrides: Partial<SlimPage>): SlimPage {
-  return {
-    id: overrides.url ?? "page",
-    url: "https://example.com/a",
-    statusCode: 200,
-    fetchClass: "ok",
-    title: null,
-    metaDescription: null,
-    contentHash: null,
-    redirectUrl: null,
-    wordCount: 100,
-    isIndexable: true,
-    canonicalUrl: null,
-    headerCanonicalUrl: null,
-    ...overrides,
+function sparseProductJson(): string {
+  const sparse: SallaProductExtraction = {
+    kind: "product",
+    name: null,
+    sku: null,
+    mpn: null,
+    brand: null,
+    description: null,
+    price: null,
+    priceRaw: null,
+    compareAtPrice: null,
+    compareAtPriceRaw: null,
+    currency: null,
+    availability: { value: "UNKNOWN", from: null },
+    externalId: null,
+    images: [],
+    variants: [],
   };
+  const serialized = serializeSallaExtraction(sparse);
+  if (!serialized)
+    throw new Error("sparse product extraction did not serialize");
+  return serialized;
 }
 
-describe("findDuplicates", () => {
-  it("flags duplicate titles across pages and includes the other URLs", () => {
-    const issues = findDuplicates([
-      makeSlimPage({ url: "https://example.com/a", title: "Same" }),
-      makeSlimPage({ url: "https://example.com/b", title: "Same" }),
-      makeSlimPage({ url: "https://example.com/c", title: "Different" }),
-    ]);
-    const duplicateTitles = issues.filter(
-      (issue) => issue.issueType === "duplicate-title",
+function completeProductJson(): string {
+  const complete: SallaProductExtraction = {
+    kind: "product",
+    name: { value: "Berber Rug", from: "structured-data" },
+    sku: { value: "SKU-1", from: "structured-data" },
+    mpn: null,
+    brand: null,
+    description: null,
+    price: { value: 149.99, from: "structured-data" },
+    priceRaw: null,
+    compareAtPrice: null,
+    compareAtPriceRaw: null,
+    currency: { value: "SAR", from: "structured-data" },
+    availability: { value: "InStock", from: "structured-data" },
+    externalId: null,
+    images: [
+      {
+        url: "https://cdn.sa/img/rug.jpg",
+        alt: null,
+        from: "structured-data",
+      },
+    ],
+    variants: [],
+  };
+  const serialized = serializeSallaExtraction(complete);
+  if (!serialized)
+    throw new Error("complete product extraction did not serialize");
+  return serialized;
+}
+
+describe("canonical verdicts on catalog and generic pages", () => {
+  it("replaces canonicalized-page with canonical-cross-domain on products", () => {
+    const page = makePage({
+      pageType: "product",
+      canonicalUrl: "https://other-store.example/catalog/latest",
+      sallaExtractionJson: completeProductJson(),
+    });
+    const types = issueTypes(page);
+    expect(types).not.toContain("canonicalized-page");
+    const crossDomain = runPageReporters(page).find(
+      (reported) => reported.issueType === "canonical-cross-domain",
     );
-    expect(duplicateTitles).toHaveLength(2);
-    expect(duplicateTitles[0].details?.otherUrls).toEqual([
-      "https://example.com/b",
-    ]);
+    expect(crossDomain?.details).toEqual({
+      canonicalUrl: "https://other-store.example/catalog/latest",
+      pageOrigin: "https://example.com",
+      canonicalOrigin: "https://other-store.example",
+    });
   });
 
-  it("excludes noindexed and canonicalized pages from duplicate groups", () => {
-    const issues = findDuplicates([
-      makeSlimPage({ url: "https://example.com/a", title: "Same" }),
-      makeSlimPage({
-        url: "https://example.com/b",
-        title: "Same",
-        canonicalUrl: "https://example.com/a",
+  it("replaces canonicalized-page with canonical-cross-domain on categories", () => {
+    const types = issueTypes(
+      makePage({
+        pageType: "category",
+        canonicalUrl: "https://mirror-store.example/sale",
       }),
-      makeSlimPage({
-        url: "https://example.com/c",
-        title: "Same",
-        isIndexable: false,
-      }),
-    ]);
-    expect(issues).toHaveLength(0);
+    );
+    expect(types).toContain("canonical-cross-domain");
+    expect(types).not.toContain("canonicalized-page");
   });
 
-  it("ignores non-2xx and blocked pages", () => {
-    const issues = findDuplicates([
-      makeSlimPage({ url: "https://example.com/a", title: "Same" }),
-      makeSlimPage({
-        url: "https://example.com/b",
-        title: "Same",
-        fetchClass: "blocked",
-        statusCode: 403,
+  it("keeps same-origin canonicalization as canonicalized-page", () => {
+    const types = issueTypes(
+      makePage({
+        pageType: "product",
+        canonicalUrl: "https://example.com/products/fresh-look",
+        sallaExtractionJson: completeProductJson(),
       }),
-    ]);
-    expect(issues).toHaveLength(0);
+    );
+    expect(types).toContain("canonicalized-page");
+    expect(types).not.toContain("canonical-cross-domain");
   });
 
-  it("groups duplicate content by hash only when there is text", () => {
-    const issues = findDuplicates([
-      makeSlimPage({ url: "https://example.com/a", contentHash: "h1" }),
-      makeSlimPage({ url: "https://example.com/b", contentHash: "h1" }),
-      makeSlimPage({
-        url: "https://example.com/empty-1",
-        contentHash: "h2",
-        wordCount: 0,
+  it("leaves generic-page canonicalization untouched", () => {
+    const types = issueTypes(
+      makePage({
+        canonicalUrl: "https://elsewhere.example/moved",
       }),
-      makeSlimPage({
-        url: "https://example.com/empty-2",
-        contentHash: "h2",
-        wordCount: 0,
-      }),
-    ]);
-    expect(
-      issues.filter((issue) => issue.issueType === "duplicate-content"),
-    ).toHaveLength(2);
+    );
+    expect(types).toContain("canonicalized-page");
+    expect(types).not.toContain("canonical-cross-domain");
   });
 });
 
-describe("findRedirectChainsAndLoops", () => {
-  const redirect = (url: string, target: string) =>
-    makeSlimPage({ url, statusCode: 301, redirectUrl: target });
+describe("product schema ghosts on completed extractions", () => {
+  it("flags required and recommended gaps on a completed product", () => {
+    const issues = runPageReporters(
+      makePage({
+        pageType: "product",
+        sallaExtractionJson: sparseProductJson(),
+        canonicalUrl: "https://example.com/a",
+      }),
+    );
+    const required = issues.find(
+      (issue) => issue.issueType === "product-schema-missing-required",
+    );
+    const recommended = issues.find(
+      (issue) => issue.issueType === "product-schema-missing-recommended",
+    );
+    expect(required?.details?.fields).toEqual([
+      "name",
+      "image",
+      "offers.price",
+    ]);
+    expect(getIssueDescriptor(required?.issueType ?? "")?.severity).toBe(
+      "warning",
+    );
+    expect(recommended?.details?.fields).toEqual([
+      "offers.priceCurrency",
+      "offers.availability",
+    ]);
+    expect(getIssueDescriptor(recommended?.issueType ?? "")?.severity).toBe(
+      "info",
+    );
+  });
 
-  it("ignores single redirects", () => {
+  it("reports nothing extra for a complete structured product", () => {
     expect(
-      findRedirectChainsAndLoops([
-        redirect("https://example.com/a", "https://example.com/b"),
-        makeSlimPage({ url: "https://example.com/b" }),
-      ]),
-    ).toHaveLength(0);
+      issueTypes(
+        makePage({
+          pageType: "product",
+          sallaExtractionJson: completeProductJson(),
+        }),
+      ),
+    ).toEqual([]);
   });
 
-  it("flags a chain once, on its head", () => {
-    const issues = findRedirectChainsAndLoops([
-      redirect("https://example.com/a", "https://example.com/b"),
-      redirect("https://example.com/b", "https://example.com/c"),
-      makeSlimPage({ url: "https://example.com/c" }),
-    ]);
-    expect(issues).toHaveLength(1);
-    expect(issues[0].issueType).toBe("redirect-chain");
-    expect(issues[0].pageUrl).toBe("https://example.com/a");
-    expect(issues[0].details?.hops).toEqual([
-      "https://example.com/a",
-      "https://example.com/b",
-      "https://example.com/c",
-    ]);
-  });
-
-  it("flags loops", () => {
-    const issues = findRedirectChainsAndLoops([
-      redirect("https://example.com/a", "https://example.com/b"),
-      redirect("https://example.com/b", "https://example.com/a"),
-    ]);
+  it("skips schema checks without a product verdict or a completed extraction", () => {
+    // The sparse JSON would flag issues on a product page; these gates must
+    // keep it silent.
+    const sparse = sparseProductJson();
+    expect(issueTypes(makePage({ sallaExtractionJson: sparse }))).toEqual([]);
     expect(
-      issues.filter((issue) => issue.issueType === "redirect-loop").length,
-    ).toBeGreaterThan(0);
-  });
-
-  it("flags self-loops", () => {
-    const issues = findRedirectChainsAndLoops([
-      redirect("https://example.com/a", "https://example.com/a"),
-    ]);
-    expect(issues).toHaveLength(1);
-    expect(issues[0].issueType).toBe("redirect-loop");
+      issueTypes(
+        makePage({
+          pageType: "product",
+          extractionState: "STATIC_PARTIAL",
+          sallaExtractionJson: sparse,
+        }),
+      ),
+    ).toEqual([]);
   });
 });

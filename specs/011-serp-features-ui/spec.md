@@ -248,7 +248,7 @@ view matches the specified state — including failure ≠ empty and partial ≠
 - **Placement semantics**: the PAA placement rule (S9) — PAA tracked as a feature, not as an
   organic position displacement — is preserved from existing behavior and 007 enrichment rules.
 - **Provider boundaries already normalize units**: provider set/semantics handled at ingestion
-  (Constitution P6–P10); this package normalizes feature *shape*, not provider credentials/quotas.
+  (Constitution P6–P10); this package normalizes feature _shape_, not provider credentials/quotas.
 - **Rollups exist and are authoritative**: wave-1 (001) stored-rollup contracts are stable; the
   Dashboard sections add no new rollup definitions, only readers.
 - **11-state enumeration exists to extend**: an existing per-section state model is present in the

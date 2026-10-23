@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { db } from "@/db";
 import { competitorSnapshots, projects, keywordMetrics } from "@/db/schema";
 import { and, desc, eq } from "drizzle-orm";
@@ -13,6 +14,27 @@ import { and, desc, eq } from "drizzle-orm";
  * deduped, sorted — so "CRM", ["crm"] and ["crm", "sales"] + ["sales", "crm"]
  * all resolve to the same key. Rows accumulate; reads take the latest.
  */
+
+const itemsSchema = z.array(z.unknown());
+const countSchema = z.number();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** Reads a numeric counter off an untrusted payload field. */
+function readCount(source: unknown, key: string): number | undefined {
+  if (!isRecord(source)) return undefined;
+  const parsed = countSchema.safeParse(source[key]);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** Reads the competitor item list off an untrusted payload. */
+function readItems(source: unknown): unknown[] | null {
+  if (!isRecord(source)) return null;
+  const parsed = itemsSchema.safeParse(source.items);
+  return parsed.success ? parsed.data : null;
+}
 
 export function canonicalKeywordKey(keywords: string[]): string {
   const canonical = [
@@ -32,19 +54,11 @@ export async function persistCompetitorSnapshot(params: {
   limit?: number;
 }): Promise<void> {
   let payload: unknown = params.items;
-  const meta = params.items as unknown as {
-    total_count?: number;
-    items_count?: number;
-    limit?: number;
-  };
   const totalCount =
-    params.totalCount ??
-    (typeof meta.total_count === "number" ? meta.total_count : undefined);
+    params.totalCount ?? readCount(params.items, "total_count");
   const itemsCount =
-    params.itemsCount ??
-    (typeof meta.items_count === "number" ? meta.items_count : undefined);
-  const limit =
-    params.limit ?? (typeof meta.limit === "number" ? meta.limit : undefined);
+    params.itemsCount ?? readCount(params.items, "items_count");
+  const limit = params.limit ?? readCount(params.items, "limit");
 
   if (
     totalCount !== undefined ||
@@ -101,15 +115,10 @@ export async function getLatestCompetitorSnapshot(params: {
 
   try {
     const parsed: unknown = JSON.parse(row.itemsJson);
-    if (Array.isArray(parsed)) return parsed;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      "items" in parsed &&
-      Array.isArray((parsed as { items: unknown[] }).items)
-    ) {
-      return (parsed as { items: unknown[] }).items;
-    }
+    const items = itemsSchema.safeParse(parsed);
+    if (items.success) return items.data;
+    const nested = readItems(parsed);
+    if (nested) return nested;
     return null;
   } catch {
     return null;
@@ -152,44 +161,14 @@ export async function getLatestCompetitorSnapshotsForProject(
       const keywords: unknown = JSON.parse(row.keywordsJson);
       if (!Array.isArray(keywords)) continue;
 
-      let items: unknown[] = [];
-      let totalCount: number | null = null;
-      let itemsCount: number | null = null;
-      let snapshotLimit: number | null = null;
+      const arrayItems = itemsSchema.safeParse(parsed);
+      const nestedItems = arrayItems.success ? null : readItems(parsed);
+      const items = arrayItems.success ? arrayItems.data : nestedItems;
+      if (!items) continue;
 
-      if (Array.isArray(parsed)) {
-        items = parsed;
-        const meta = parsed as unknown as {
-          total_count?: number;
-          items_count?: number;
-          limit?: number;
-        };
-        totalCount =
-          typeof meta.total_count === "number" ? meta.total_count : null;
-        itemsCount =
-          typeof meta.items_count === "number" ? meta.items_count : null;
-        snapshotLimit = typeof meta.limit === "number" ? meta.limit : null;
-      } else if (
-        parsed &&
-        typeof parsed === "object" &&
-        "items" in parsed &&
-        Array.isArray((parsed as { items: unknown[] }).items)
-      ) {
-        const obj = parsed as {
-          items: unknown[];
-          total_count?: number;
-          items_count?: number;
-          limit?: number;
-        };
-        items = obj.items;
-        totalCount =
-          typeof obj.total_count === "number" ? obj.total_count : null;
-        itemsCount =
-          typeof obj.items_count === "number" ? obj.items_count : null;
-        snapshotLimit = typeof obj.limit === "number" ? obj.limit : null;
-      } else {
-        continue;
-      }
+      const totalCount = readCount(parsed, "total_count") ?? null;
+      const itemsCount = readCount(parsed, "items_count") ?? null;
+      const snapshotLimit = readCount(parsed, "limit") ?? null;
 
       out.push({
         id: row.id,

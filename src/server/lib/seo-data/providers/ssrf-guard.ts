@@ -11,7 +11,10 @@
  * local crawler provider, which may be called with arbitrary user-supplied URLs.
  */
 
-const PRIVATE_IP_PATTERNS: Array<{ name: string; test: (ip: string) => boolean }> = [
+const PRIVATE_IP_PATTERNS: Array<{
+  name: string;
+  test: (ip: string) => boolean;
+}> = [
   {
     name: "loopback",
     test: (ip) => ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0",

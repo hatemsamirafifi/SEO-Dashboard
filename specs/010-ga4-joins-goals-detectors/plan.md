@@ -45,6 +45,7 @@ failure≠zero everywhere (G9); D1/PG parity mandatory; summing non-additive use
 detector windows per existing threshold conventions (minWindowDays 28/7)
 
 **Open technical decisions** (resolved in [research.md](./research.md)):
+
 - Goal definition model (which GA4 event mapping a goal binds to) — research task R1
 - Engagement metric for the C2c detector — research task R2
 - Conversion/engagement threshold defaults and evidence shape — research task R3
@@ -52,7 +53,7 @@ detector windows per existing threshold conventions (minWindowDays 28/7)
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 **Post-Phase-1 re-check (2026-10-01): PASS.** Design artifacts ([data-model.md](./data-model.md),
 [contracts/](./contracts/)) were re-verified against each row below after the design was written:
@@ -63,23 +64,23 @@ registry with skip-reason coverage gating (P25/P28/G9); filters compose over exi
 explicit empty/failed states (P29/P30/P39); the goals table is additive with parity tests named
 (P3–P5). No violations; no complexity-tracking entries required.
 
-| Gate / Principle | Requirement for this feature | Status |
-| --- | --- | --- |
-| P1 (layers) | Goals: server fn → Ga4GoalService → repository; join: service-layer pure extension; detectors: existing engine pipeline | PASS by design |
-| P2 (no competing architecture) | Extend `AnalyticsJoinService.joinUrlEvidence` + `ga4_daily_events`; no parallel join, canonicalizer, or engine | PASS — import-ban tests extended |
-| P3–P5 (DB law) | `ga4_project_goals` additive on D1+PG, project-scoped FK, parity + migration tests in same change | PASS — data-model.md |
-| P23 (non-additive users) | Goal conversions from per-grain event/numerator counts; distinct users never summed across grains/periods | PASS — contract |
-| P24 / G1 (URL identity) | Join keys exclusively via `canonicalUrl()` (006 helper); boundary guard already covers join service | PASS — frozen upstream contract |
-| P25 / G3 (one engine) | Both detectors in existing `DETECTORS` registry, existing materializer/templates | PASS |
-| P26 (impact/confidence separate) | Existing separate columns preserved; no combined score | PASS |
-| P27 (facts vs recommendations) | Detectors emit `explanationFact` only; recommendations from templates | PASS |
-| P28 / G9 (failure ≠ trigger) | `InsufficientCoverageError` skip path + no-trigger on absent GA4; failure renders unavailable | PASS |
-| P29–P30 / G10 (dashboard law) | All new reads over stored grains; honest states via existing `AnalyticsCoverage`/page-view patterns | PASS |
-| P38–P39 (security) | Project context middleware on every server fn; MCP tools thin over same services; no credentials in trace | PASS |
-| P41–P42 (trace/ledgers) | `ga4_goal_change` trace entries; opportunity event ledger stays authoritative/idempotent (`eventKey` unique) | PASS |
-| P43–P45 (tests) | TDD; unit/repository/service/UI/E2E per category; `pnpm types:check` + `pnpm oxlint` + parity gates | PASS — quickstart.md |
-| P46–P47 (truthfulness) | Join wording correlational; conversions labeled per classification; no causal verbs | PASS |
-| P50 (scope discipline) | No new providers/tables beyond goals; MCP wrappers thin; no UI redesign | PASS |
+| Gate / Principle                 | Requirement for this feature                                                                                            | Status                           |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| P1 (layers)                      | Goals: server fn → Ga4GoalService → repository; join: service-layer pure extension; detectors: existing engine pipeline | PASS by design                   |
+| P2 (no competing architecture)   | Extend `AnalyticsJoinService.joinUrlEvidence` + `ga4_daily_events`; no parallel join, canonicalizer, or engine          | PASS — import-ban tests extended |
+| P3–P5 (DB law)                   | `ga4_project_goals` additive on D1+PG, project-scoped FK, parity + migration tests in same change                       | PASS — data-model.md             |
+| P23 (non-additive users)         | Goal conversions from per-grain event/numerator counts; distinct users never summed across grains/periods               | PASS — contract                  |
+| P24 / G1 (URL identity)          | Join keys exclusively via `canonicalUrl()` (006 helper); boundary guard already covers join service                     | PASS — frozen upstream contract  |
+| P25 / G3 (one engine)            | Both detectors in existing `DETECTORS` registry, existing materializer/templates                                        | PASS                             |
+| P26 (impact/confidence separate) | Existing separate columns preserved; no combined score                                                                  | PASS                             |
+| P27 (facts vs recommendations)   | Detectors emit `explanationFact` only; recommendations from templates                                                   | PASS                             |
+| P28 / G9 (failure ≠ trigger)     | `InsufficientCoverageError` skip path + no-trigger on absent GA4; failure renders unavailable                           | PASS                             |
+| P29–P30 / G10 (dashboard law)    | All new reads over stored grains; honest states via existing `AnalyticsCoverage`/page-view patterns                     | PASS                             |
+| P38–P39 (security)               | Project context middleware on every server fn; MCP tools thin over same services; no credentials in trace               | PASS                             |
+| P41–P42 (trace/ledgers)          | `ga4_goal_change` trace entries; opportunity event ledger stays authoritative/idempotent (`eventKey` unique)            | PASS                             |
+| P43–P45 (tests)                  | TDD; unit/repository/service/UI/E2E per category; `pnpm types:check` + `pnpm oxlint` + parity gates                     | PASS — quickstart.md             |
+| P46–P47 (truthfulness)           | Join wording correlational; conversions labeled per classification; no causal verbs                                     | PASS                             |
+| P50 (scope discipline)           | No new providers/tables beyond goals; MCP wrappers thin; no UI redesign                                                 | PASS                             |
 
 **Violations**: none. No complexity-tracking entries required.
 

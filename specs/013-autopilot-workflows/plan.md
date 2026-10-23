@@ -60,7 +60,7 @@ Key grounding facts discovered during planning (they shape the design):
   `AUTOPILOT_WORKFLOW_TYPES` so trust boundaries reject before the service runs.
 - **No schema change is required**: `autopilot_runs.workflowType` is a text column;
   `trigger` is a text column (`AutopilotService.ts:120` writes `trigger: input.trigger ??
-  "manual"`); attempts/steps are workflow-agnostic. Source plan §10 confirms "E workflow
+"manual"`); attempts/steps are workflow-agnostic. Source plan §10 confirms "E workflow
   definitions — no new schema required."
 - **`reportSections.ts` collectors return honest status envelopes** (READY with data, or
   `unavailable("not_connected" | "no_coverage" | "provider_failed" | "no_data")`) — the
@@ -135,6 +135,7 @@ bounded by collector caps (existing `COMPLETED_OPPORTUNITIES_CAP`, MCP row limit
 correlate caps — new workflows use ≤ 10-item ranked lists like the existing ones).
 
 **Open technical decisions** (resolved in [research.md](./research.md)):
+
 - R1: allowlist mechanics — where the single workflow-type enum lives and which layers
   enforce it (Zod schema, SAM tool schema, service registry).
 - R2: synthesis mechanics for new workflows — deterministic-first pure builders vs. LLM step
@@ -152,7 +153,7 @@ correlate caps — new workflows use ≤ 10-item ranked lists like the existing 
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 **Post-Phase-1 re-check (2026-10-04): PASS.** Design artifacts ([research.md](./research.md),
 [data-model.md](./data-model.md), [contracts/](./contracts/)) re-verified after design:
@@ -169,23 +170,23 @@ polls (P1/P39 confirmed in contracts/sam-autopilot-tools.md §1–2); public MCP
 unchanged (P50 — deferred-later honored §3); no new providers, no live provider I/O in any
 step (P6/G10). No violations; no complexity-tracking entries required.
 
-| Gate / Principle | Requirement for this feature | Status |
-| --- | --- | --- |
-| P1/P2 (layers, no competing architecture) | Workflows are data-only definitions registering through the existing seam; executor, firewall, budgets, Cloudflare Workflow untouched; SAM tools adapt through the existing `adaptMcpTool` path delegating to the same `AutopilotService` methods the UI fns use | PASS by design |
-| P3–P5 (DB law) | No schema changes — runs/attempts/steps absorb new `workflowType`/`trigger` values; parity tests stay green by no-op | PASS — data-model.md |
-| P6–P10 (provider law) | No new providers; workflow steps make zero provider calls (stored reads only); no DataForSEO classification touched | PASS |
-| G10/P13 (no render-time paid work) | Collect steps read repositories/collectors over stored data; SAM start tool creates a workflow instance (scheduled-execution path, not render-time); no enrichment in any step | PASS |
-| P21/P23 (zero-row ≠ failure; non-additive metrics) | Monthly-review reuses collectors with honest READY/unavailable envelopes; GA4 totals come from stored summary aggregates, never summed across grains | PASS — research R4 |
-| P25–P28 (intelligence law) | No detector logic in workflows — they consume stored opportunities/insights/audit; impact/confidence separate (P26); facts vs recommendations separated in output shapes (P27); absent audit → explicit no-coverage, never an invented "no issues" (P28) | PASS |
-| P34–P35 (autopilot law) | Orchestrator over frozen evidence only; explicit allowlist (shared const), bounded steps/tool calls/attempts — inherited from the untouched executor; no unconstrained agency (E2 exposes only the five bounded tools) | PASS |
-| P36/E1d (competitor gap gated) | Competitor-gap workflow explicitly out of scope; allowlist excludes it structurally (not in the const) | PASS |
-| P37 (Cloudflare-native execution) | Existing Cloudflare Workflow binding is the sole executor; no queue/cron/third-party scheduler added | PASS |
-| P38–P39 (security, project scope) | All five SAM tools run `withMcpProjectAuth`; `adaptMcpTool` injects the session project server-side (model cannot target another project); chat runs are project-scoped rows like UI runs | PASS |
-| P41–P42 (trace, ledgers) | Existing posthog events + `[autopilot:*]` logs extended only with new workflow types/trigger value; run/attempt/step ledger remains authoritative | PASS |
-| P43–P45 (tests, gates) | TDD: workflow definition tests, firewall extension, evidence-envelope matrix, tool adapter tests, auth tests, E2E lifecycle; `pnpm types:check` + `pnpm oxlint` + suites | PASS — quickstart.md |
-| P46–P47 (truthfulness) | Serializer's observational-only enforcement extended to new outputs; single-source rows marked provisional; evidence records carry periods and per-source status | PASS |
-| G9 (failure never zero) | Collectors' unavailable envelopes flow into frozen evidence and synthesis unchanged; banned from coercing to zero | PASS |
-| P50 (scope discipline) | No MCP-route registration of run-starters, no cadenced scheduling, no E1d, no new schema, no UI redesign — evidence rendering extended minimally | PASS |
+| Gate / Principle                                   | Requirement for this feature                                                                                                                                                                                                                                     | Status               |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| P1/P2 (layers, no competing architecture)          | Workflows are data-only definitions registering through the existing seam; executor, firewall, budgets, Cloudflare Workflow untouched; SAM tools adapt through the existing `adaptMcpTool` path delegating to the same `AutopilotService` methods the UI fns use | PASS by design       |
+| P3–P5 (DB law)                                     | No schema changes — runs/attempts/steps absorb new `workflowType`/`trigger` values; parity tests stay green by no-op                                                                                                                                             | PASS — data-model.md |
+| P6–P10 (provider law)                              | No new providers; workflow steps make zero provider calls (stored reads only); no DataForSEO classification touched                                                                                                                                              | PASS                 |
+| G10/P13 (no render-time paid work)                 | Collect steps read repositories/collectors over stored data; SAM start tool creates a workflow instance (scheduled-execution path, not render-time); no enrichment in any step                                                                                   | PASS                 |
+| P21/P23 (zero-row ≠ failure; non-additive metrics) | Monthly-review reuses collectors with honest READY/unavailable envelopes; GA4 totals come from stored summary aggregates, never summed across grains                                                                                                             | PASS — research R4   |
+| P25–P28 (intelligence law)                         | No detector logic in workflows — they consume stored opportunities/insights/audit; impact/confidence separate (P26); facts vs recommendations separated in output shapes (P27); absent audit → explicit no-coverage, never an invented "no issues" (P28)         | PASS                 |
+| P34–P35 (autopilot law)                            | Orchestrator over frozen evidence only; explicit allowlist (shared const), bounded steps/tool calls/attempts — inherited from the untouched executor; no unconstrained agency (E2 exposes only the five bounded tools)                                           | PASS                 |
+| P36/E1d (competitor gap gated)                     | Competitor-gap workflow explicitly out of scope; allowlist excludes it structurally (not in the const)                                                                                                                                                           | PASS                 |
+| P37 (Cloudflare-native execution)                  | Existing Cloudflare Workflow binding is the sole executor; no queue/cron/third-party scheduler added                                                                                                                                                             | PASS                 |
+| P38–P39 (security, project scope)                  | All five SAM tools run `withMcpProjectAuth`; `adaptMcpTool` injects the session project server-side (model cannot target another project); chat runs are project-scoped rows like UI runs                                                                        | PASS                 |
+| P41–P42 (trace, ledgers)                           | Existing posthog events + `[autopilot:*]` logs extended only with new workflow types/trigger value; run/attempt/step ledger remains authoritative                                                                                                                | PASS                 |
+| P43–P45 (tests, gates)                             | TDD: workflow definition tests, firewall extension, evidence-envelope matrix, tool adapter tests, auth tests, E2E lifecycle; `pnpm types:check` + `pnpm oxlint` + suites                                                                                         | PASS — quickstart.md |
+| P46–P47 (truthfulness)                             | Serializer's observational-only enforcement extended to new outputs; single-source rows marked provisional; evidence records carry periods and per-source status                                                                                                 | PASS                 |
+| G9 (failure never zero)                            | Collectors' unavailable envelopes flow into frozen evidence and synthesis unchanged; banned from coercing to zero                                                                                                                                                | PASS                 |
+| P50 (scope discipline)                             | No MCP-route registration of run-starters, no cadenced scheduling, no E1d, no new schema, no UI redesign — evidence rendering extended minimally                                                                                                                 | PASS                 |
 
 **Violations**: none. No complexity-tracking entries required.
 

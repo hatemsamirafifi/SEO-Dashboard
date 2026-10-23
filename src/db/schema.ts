@@ -5,6 +5,7 @@ import * as sqliteSam from "./sam.schema";
 import * as sqliteAuth from "./better-auth-schema";
 import * as sqliteBilling from "./billing.schema";
 import * as sqliteGsc from "./gsc.schema";
+import * as sqliteSalla from "./salla.schema";
 import * as sqliteGa4 from "./ga4.schema";
 import * as sqliteIntelligence from "./intelligence.schema";
 import * as sqliteInsights from "./insights.schema";
@@ -20,6 +21,7 @@ import * as pgSam from "./pg/sam.schema";
 import * as pgAuth from "./pg/better-auth-schema";
 import * as pgBilling from "./pg/billing.schema";
 import * as pgGsc from "./pg/gsc.schema";
+import * as pgSalla from "./pg/salla.schema";
 import * as pgGa4 from "./pg/ga4.schema";
 import * as pgIntelligence from "./pg/intelligence.schema";
 import * as pgInsights from "./pg/insights.schema";
@@ -46,6 +48,7 @@ type AppSchema = typeof sqliteApp &
   typeof sqliteAuth &
   typeof sqliteBilling &
   typeof sqliteGsc &
+  typeof sqliteSalla &
   typeof sqliteGa4 &
   typeof sqliteIntelligence &
   typeof sqliteInsights &
@@ -65,6 +68,7 @@ const runtimeSchema =
         ...pgAuth,
         ...pgBilling,
         ...pgGsc,
+        ...pgSalla,
         ...pgGa4,
         ...pgIntelligence,
         ...pgInsights,
@@ -82,6 +86,7 @@ const runtimeSchema =
         ...sqliteAuth,
         ...sqliteBilling,
         ...sqliteGsc,
+        ...sqliteSalla,
         ...sqliteGa4,
         ...sqliteIntelligence,
         ...sqliteInsights,
@@ -131,6 +136,7 @@ export const {
   invitation,
   billingCustomerStatus,
   gscConnections,
+  sallaConnections,
   ga4Connections,
   ga4DailySummary,
   ga4DailyAcquisition,

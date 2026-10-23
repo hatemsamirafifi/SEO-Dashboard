@@ -375,9 +375,7 @@ export const ga4ProjectGoals = pgTable(
       .references(() => organization.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     eventName: text("event_name").notNull(),
-    matchKeyEventOnly: boolean("match_key_event_only")
-      .notNull()
-      .default(false),
+    matchKeyEventOnly: boolean("match_key_event_only").notNull().default(false),
     archivedAt: text("archived_at"),
     ...ga4Timestamps,
   },

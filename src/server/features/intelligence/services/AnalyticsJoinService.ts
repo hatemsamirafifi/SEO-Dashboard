@@ -127,7 +127,8 @@ export function joinUrlEvidence(input: {
       const sessions = entry.ga4Sessions;
       const engagementAcc = entry.ga4EngagementAcc;
       const ga4Engagement =
-        sessions && engagementAcc &&
+        sessions &&
+        engagementAcc &&
         sessions.current > 0 &&
         sessions.previous > 0
           ? {

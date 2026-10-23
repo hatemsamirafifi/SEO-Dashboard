@@ -1,15 +1,8 @@
 import { waitUntil } from "cloudflare:workers";
-import {
-  canonicalJson,
-  stableHash,
-  type Finding,
-} from "@/shared/intelligence";
+import { canonicalJson, stableHash, type Finding } from "@/shared/intelligence";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { ArtifactStore } from "../repositories/ArtifactStore";
-import {
-  InsightRepository,
-  type InsightRow,
-} from "../repositories/InsightRepository";
+import { InsightRepository } from "../repositories/InsightRepository";
 import { OpportunityRepository } from "../repositories/OpportunityRepository";
 import { ScanLedgerRepository } from "../repositories/ScanLedgerRepository";
 import {
@@ -134,7 +127,9 @@ export function isMaterialChange(
   const linkageBefore = [
     ...parseStringArray(prev.findingKeysJson),
     ...parseStringArray(prev.opportunityIdsJson),
-  ].toSorted().join(",");
+  ]
+    .toSorted()
+    .join(",");
   const linkageAfter = [...next.findingKeys, ...next.opportunityIds]
     .toSorted()
     .join(",");
@@ -144,7 +139,10 @@ export function isMaterialChange(
     const baseline = prevMetrics[entity];
     if (baseline === undefined || baseline === 0) continue;
     const delta = Math.abs(current - baseline);
-    if (delta / Math.abs(baseline) >= METRIC_DRIFT_RATIO && delta >= METRIC_DRIFT_FLOOR) {
+    if (
+      delta / Math.abs(baseline) >= METRIC_DRIFT_RATIO &&
+      delta >= METRIC_DRIFT_FLOOR
+    ) {
       reasons.push("metrics");
       break;
     }
@@ -185,7 +183,13 @@ export async function composeRun(input: { runId: string }): Promise<{
     return {
       runId: run.id,
       insightKeys: [],
-      stats: { created: 0, updated: 0, versionBumped: 0, resolved: 0, reopened: 0 },
+      stats: {
+        created: 0,
+        updated: 0,
+        versionBumped: 0,
+        resolved: 0,
+        reopened: 0,
+      },
     };
   }
   if (
@@ -346,8 +350,9 @@ export async function composeRun(input: { runId: string }): Promise<{
 
   // Resolve pass: absent keys resolve only after a covering compose — a
   // skipped detector's absence never resolves (coverage gap, not clearing).
-  const unresolved =
-    await InsightRepository.listUnresolvedByProject(run.projectId);
+  const unresolved = await InsightRepository.listUnresolvedByProject(
+    run.projectId,
+  );
   const composed = new Set(composedKeys);
   for (const row of unresolved) {
     if (composed.has(row.insightKey)) continue;

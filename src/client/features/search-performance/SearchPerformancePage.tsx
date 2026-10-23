@@ -1,20 +1,15 @@
 import { useEffect, useState } from "react";
 import {
   keepPreviousData,
-  queryOptions,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { TablePagination } from "@/client/components/table/TablePagination";
 import { SearchConsoleConnectionCard } from "@/client/features/gsc/SearchConsoleConnectionCard";
 import { SearchPerformanceLoadingState } from "@/client/features/search-performance/SearchPerformanceLoadingState";
 import {
-  DimensionTable,
   exportDimensionRows,
   exportStriking,
-  StrikingDistanceTable,
   TotalsCards,
   type ExportTarget,
 } from "@/client/features/search-performance/SearchPerformanceParts";
@@ -24,83 +19,26 @@ import {
   type Tab,
 } from "@/client/features/search-performance/SearchPerformanceFilterToolbar";
 import { SearchPerformanceHeader } from "@/client/features/search-performance/SearchPerformanceHeader";
+import { SearchPerformanceTableBody } from "@/client/features/search-performance/SearchPerformanceTableBody";
+import {
+  buildFilterInput,
+  tabDimension,
+  tableQueryOptions,
+} from "@/client/features/search-performance/searchPerformanceFilters";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import {
   exportSearchPerformanceTable,
   getSearchPerformanceReport,
-  getSearchPerformanceTable,
-  triggerSearchPerformanceSync,
 } from "@/serverFunctions/searchPerformance";
+import { triggerSearchPerformanceSync } from "@/serverFunctions/searchPerformanceSync";
 import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
 import {
   SEARCH_PERFORMANCE_DEFAULT_PAGE_SIZE,
-  SEARCH_PERFORMANCE_PAGE_SIZES,
   type SearchPerformanceDateRange,
   type SearchPerformanceDevice,
-  type SearchPerformanceTableDimension,
 } from "@/types/schemas/search-performance";
 import type { CompareMode } from "@/types/schemas/date-range-compare";
 import type { DateRangeCompareValues } from "@/client/components/DateRangeCompareModal";
-
-function tabDimension(tab: Tab): SearchPerformanceTableDimension {
-  return tab === "pages" ? "page" : "query";
-}
-
-type FilterInput = {
-  dateRange: SearchPerformanceDateRange;
-  startDate?: string;
-  endDate?: string;
-  compareMode?: CompareMode;
-  compareStartDate?: string;
-  compareEndDate?: string;
-  device?: SearchPerformanceDevice;
-  country?: string;
-};
-
-function buildFilterInput(
-  range: SearchPerformanceDateRange,
-  startDate: string | undefined,
-  endDate: string | undefined,
-  compareMode: CompareMode,
-  compareStartDate: string | undefined,
-  compareEndDate: string | undefined,
-  device: SearchPerformanceDevice | typeof ALL,
-  country: string,
-): FilterInput {
-  return {
-    dateRange: range,
-    ...(startDate ? { startDate } : {}),
-    ...(endDate ? { endDate } : {}),
-    compareMode,
-    ...(compareStartDate ? { compareStartDate } : {}),
-    ...(compareEndDate ? { compareEndDate } : {}),
-    ...(device === ALL ? {} : { device }),
-    ...(country === ALL ? {} : { country }),
-  };
-}
-
-function tableQueryOptions(
-  projectId: string,
-  dimension: SearchPerformanceTableDimension,
-  page: number,
-  pageSize: number,
-  filterInput: FilterInput,
-) {
-  return queryOptions({
-    queryKey: [
-      "searchPerformanceTable",
-      projectId,
-      dimension,
-      page,
-      pageSize,
-      filterInput,
-    ],
-    queryFn: () =>
-      getSearchPerformanceTable({
-        data: { projectId, dimension, page, pageSize, ...filterInput },
-      }),
-  });
-}
 
 export function SearchPerformancePage({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
@@ -150,7 +88,7 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
     pageSize,
   ]);
 
-  const filterInput = buildFilterInput(
+  const filterInput = buildFilterInput({
     range,
     startDate,
     endDate,
@@ -159,7 +97,7 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
     compareEndDate,
     device,
     country,
-  );
+  });
 
   const reportQuery = useQuery({
     queryKey: [
@@ -412,43 +350,23 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
                 onExport={(target) => void handleExport(target)}
               />
 
-              {tab === "striking" ? (
-                <StrikingDistanceTable
-                  projectId={projectId}
-                  rows={report.strikingDistance}
-                />
-              ) : tableQuery.isPending ? (
-                <div className="flex items-center gap-2 p-8 text-sm text-base-content/60">
-                  <Loader2 className="size-4 animate-spin" /> Loading…
-                </div>
-              ) : tableQuery.isError ? (
-                <div className="p-4">
-                  <div className="alert alert-error">
-                    <span className="text-sm">
-                      {getStandardErrorMessage(tableQuery.error)}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="p-4">
-                    <DimensionTable
-                      rows={tableRows}
-                      keyLabel={tab === "queries" ? "Query" : "Page"}
-                    />
-                  </div>
-                  <TablePagination
-                    page={page}
-                    pageSize={pageSize}
-                    pageSizes={SEARCH_PERFORMANCE_PAGE_SIZES}
-                    totalCount={null}
-                    hasNextPage={hasNextPage}
-                    isLoading={tableQuery.isFetching}
-                    onPageChange={setPage}
-                    onPageSizeChange={setPageSize}
-                  />
-                </>
-              )}
+              <SearchPerformanceTableBody
+                projectId={projectId}
+                tab={tab}
+                strikingRows={report.strikingDistance}
+                table={{
+                  isPending: tableQuery.isPending,
+                  isError: tableQuery.isError,
+                  error: tableQuery.error,
+                  rows: tableRows,
+                  hasNextPage,
+                  isFetching: tableQuery.isFetching,
+                }}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+              />
             </div>
           </>
         )}

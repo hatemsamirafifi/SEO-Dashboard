@@ -102,7 +102,9 @@ export function KeywordResearchSearchBar({ controller }: Props) {
                   }
                 >
                   <option value="auto">Auto (Recommended)</option>
-                  <option value="related">Related searches (تم البحث أيضاً عن)</option>
+                  <option value="related">
+                    Related searches (تم البحث أيضاً عن)
+                  </option>
                   <option value="suggestions">Autocomplete suggestions</option>
                   <option value="ideas">Keyword ideas (Planner)</option>
                 </select>

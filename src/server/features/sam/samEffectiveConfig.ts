@@ -52,9 +52,8 @@ export async function resolveSamEffectiveConfig(input: {
       ? ((await decryptCredentialMap(projectRow.credentialsCiphertext)) ?? {})
       : {},
     organizationCredentials: organizationRow
-      ? ((await decryptCredentialMap(
-          organizationRow.credentialsCiphertext,
-        )) ?? {})
+      ? ((await decryptCredentialMap(organizationRow.credentialsCiphertext)) ??
+        {})
       : {},
     env: buildCredentialEnv(env),
   });

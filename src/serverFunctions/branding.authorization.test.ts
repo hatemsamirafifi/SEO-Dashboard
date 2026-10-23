@@ -39,10 +39,7 @@ vi.mock("@/server/features/reports/services/BrandingService", () => ({
   },
 }));
 
-import {
-  getClientProfile,
-  setClientProfile,
-} from "./branding";
+import { getClientProfile, setClientProfile } from "./branding";
 import { globalServerFunctionMiddleware } from "./middleware";
 import {
   getClientProfileSchema,
@@ -124,15 +121,13 @@ describe("branding server-function authorization", () => {
       { projectId: "other-project", clientName: "Client" },
       "setClientProfile",
     ],
-  ])(
+  ] as const)(
     "rejects wrong-organization access before %s runs",
     async (_name, fn, data, mockName) => {
       const result = await executeServerFunction(fn, data);
 
       expect(result).toMatchObject({ error: new Error("NOT_FOUND") });
-      expect(
-        mocks[mockName as "getClientProfile" | "setClientProfile"],
-      ).not.toHaveBeenCalled();
+      expect(mocks[mockName]).not.toHaveBeenCalled();
     },
   );
 

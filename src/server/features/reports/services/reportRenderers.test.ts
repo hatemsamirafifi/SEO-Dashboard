@@ -102,7 +102,7 @@ describe("renderPdfDocument", () => {
 describe("asciiPrintable", () => {
   it("transliterates punctuation and falls back on the rest", () => {
     expect(asciiPrintable("a—b–c“d”e‘f’g•h…i×j→k")).toBe(
-      'a-b-c"d"e\'f\'g-h...ixj->k',
+      "a-b-c\"d\"e'f'g-h...ixj->k",
     );
     expect(asciiPrintable("Café Münchner")).toBe("Cafe Munchner");
     expect(asciiPrintable("标题")).toBe("??");

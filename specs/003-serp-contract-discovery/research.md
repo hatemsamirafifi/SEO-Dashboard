@@ -21,6 +21,7 @@ All unknowns resolved via spec clarification (2026-09-28) + repository discovery
    snapshots in rank tables). Provider-call diagnostics do NOT go to the trace bus for this pipeline.
 
 **Pipeline B — Keyword research / MCP: DataRouter `dataType:"serp"` (cached, traced):**
+
 - Keyword research routes `dataType:"serp"` → `getOrFetch` (`src/server/features/keywords/services/research/serp.ts:1-63`,
   routes `:46-52`; service export `KeywordResearchService.ts:4,16`; server function `src/serverFunctions/keywords.ts:123-135`).
 - MCP `get_serp_results` (`src/server/mcp/tools/get-serp-results.ts:51-155`): routes the same way
@@ -66,7 +67,7 @@ All unknowns resolved via spec clarification (2026-09-28) + repository discovery
   (`src/types/keywords.ts:53-65`) in `mapOrganicSerpItems` (`serp.ts` keywords feature, `:15-31`).
   MCP returns `{type, rank, title, url, domain, description}` (`get-serp-results.ts:111-118`).
 - **Feature parsing truth**: No PAA/featured-snippet/local-pack/knowledge-graph CONTENT parsing exists
-  anywhere. Only feature-type *strings* flow today (`serpFeatures` in rank results;
+  anywhere. Only feature-type _strings_ flow today (`serpFeatures` in rank results;
   `RankTrackingTableParts.tsx:13-55` renders those label strings). The 011 package therefore consumes a
   contract designed ahead of provider parsing — providers currently return family names at best.
 

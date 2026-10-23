@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { isPrivateIp, isBlockedHostname, isCrawlTargetBlocked } from "./ssrf-guard";
+import {
+  isPrivateIp,
+  isBlockedHostname,
+  isCrawlTargetBlocked,
+} from "./ssrf-guard";
 
 describe("SSRF Guard", () => {
   describe("isPrivateIp", () => {

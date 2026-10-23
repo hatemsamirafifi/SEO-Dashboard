@@ -47,7 +47,10 @@ function resolveRankingFacts(
     if (!cur || s.checkedAt > cur.checkedAt) {
       latestByPair.set(key, s);
     } else if (s.checkedAt === cur.checkedAt) {
-      if (s.rankingStatus === "CHECK_FAILED" && cur.rankingStatus !== "CHECK_FAILED") {
+      if (
+        s.rankingStatus === "CHECK_FAILED" &&
+        cur.rankingStatus !== "CHECK_FAILED"
+      ) {
         latestByPair.set(key, s);
       }
     }
@@ -91,7 +94,10 @@ function resolveRankingFacts(
         )
         .toSorted((a, b) => b.checkedAt.localeCompare(a.checkedAt));
 
-      if (priorRanked.length > 0 && typeof priorRanked[0].position === "number") {
+      if (
+        priorRanked.length > 0 &&
+        typeof priorRanked[0].position === "number"
+      ) {
         fact.previousPosition = priorRanked[0].position;
       }
     }

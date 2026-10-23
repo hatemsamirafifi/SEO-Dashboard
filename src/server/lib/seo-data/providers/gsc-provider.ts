@@ -1,10 +1,10 @@
 import type { SEODataProvider, SEODataRequest } from "../types";
-import {
-  ProviderUnsupportedError,
-  ProviderUnavailableError,
-} from "../errors";
+import { ProviderUnsupportedError, ProviderUnavailableError } from "../errors";
 import { getProviderFeatureFlags } from "../config";
-import { GscService, GscNotConnectedError } from "@/server/features/gsc/services/GscService";
+import {
+  GscService,
+  GscNotConnectedError,
+} from "@/server/features/gsc/services/GscService";
 import { GscTokenError, GscApiError } from "@/server/lib/gscClient";
 
 /**

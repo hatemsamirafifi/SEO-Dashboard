@@ -81,6 +81,6 @@ goal name is snapshotted into evidence so archived/renamed goals never corrupt h
 ## Coverage gating (G2/G9)
 
 Fetchers throw `InsufficientCoverageError` (recorded as `skipped`) when: no GA4 connection
-(`Ga4ConnectionRepository.getByProjectId` precedent from `ga4OrganicChange`), no SUCCESS_* grain
+(`Ga4ConnectionRepository.getByProjectId` precedent from `ga4OrganicChange`), no SUCCESS\_\* grain
 coverage, or window coverage below `minCoverageRatio` — the windows anchor at the latest covered date,
 never wall clock (existing `splitWindows` precedent).

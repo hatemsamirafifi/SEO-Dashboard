@@ -1,11 +1,20 @@
 import type { WorkflowStep } from "cloudflare:workers";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
-import { discoverUrls, parseRobotsTxt } from "@/server/lib/audit/discovery";
+import {
+  discoverUrls,
+  parseRobotsTxt,
+  type DiscoveryCoverage,
+} from "@/server/lib/audit/discovery";
 import {
   fetchAndStoreLighthouseResult,
   selectLighthouseSample,
 } from "@/server/lib/audit/lighthouse";
 import { getOrigin } from "@/server/lib/audit/url-utils";
+import {
+  hasCoverageDeficit,
+  extractionCompleteRatio,
+  resolveFinalStatus,
+} from "@/server/lib/audit/finalize";
 import { AuditRepository } from "@/server/features/audit/repositories/AuditRepository";
 import { AuditProgressKV } from "@/server/lib/audit/progress-kv";
 import { runMultipageChecks } from "@/server/lib/audit/issues/multipage";
@@ -22,6 +31,10 @@ const LIGHTHOUSE_URL_BATCH_SIZE = 10;
 
 // Workflows rejects step outputs over 1MiB; keep the sitemap seed list well
 // under that. The crawl visits at most maxPages URLs, so extra seeds are moot.
+//
+// Phase 3 cap review: 768KiB stays below the 1MiB step limit with room
+// for the step envelope, and the seeds are also mirrored into KV (same
+// 1MiB value ceiling) — the budget covers both.
 const SITEMAP_SEED_BYTE_BUDGET = 768 * 1024;
 
 function capSitemapSeeds(urls: string[], maxPages: number): string[] {
@@ -80,15 +93,26 @@ export async function runAuditPhases(
     robots,
     sitemapUrls: discovery.sitemapUrls,
   });
-  await runLighthousePhase(step, {
-    auditId,
-    workflowInstanceId,
-    billingCustomer,
-    projectId,
-    startUrl,
-    config,
-    pages: crawl.pages,
-  });
+
+  // Re-check the cancel flag after the crawl loop: a user may have pressed
+  // stop while the last batch ran; that intent must win even when the crawl
+  // actually managed to drain its queue in the meantime.
+  const cancelRequested =
+    crawl.cancelled ||
+    (await AuditRepository.getAuditCancelFlag(auditId).catch(() => false));
+
+  if (!cancelRequested) {
+    await runLighthousePhase(step, {
+      auditId,
+      workflowInstanceId,
+      billingCustomer,
+      projectId,
+      startUrl,
+      config,
+      pages: crawl.pages,
+    });
+  }
+
   await finalizeAudit({
     step,
     auditId,
@@ -98,6 +122,8 @@ export async function runAuditPhases(
     startUrl,
     config,
     crawl,
+    coverage: discovery.coverage,
+    cancelRequested,
   });
 }
 
@@ -110,13 +136,22 @@ async function runDiscoveryPhase(
 ) {
   return pgStep(step, "discover-urls", undefined, async () => {
     const result = await discoverUrls(origin, maxPages);
+    // Full sitemap membership lives in KV (not step state — the ~1MiB
+    // Workflows limit only affords frontier-capped seeds): a sitemap URL the
+    // crawl later reaches by link still reports inSitemap=true, even past
+    // the seed cap. Idempotent put, safe on step replay.
+    await AuditProgressKV.saveSitemapMembership(auditId, {
+      urls: result.urls,
+      coverage: result.coverage,
+    });
     await AuditRepository.updateAuditProgress(auditId, workflowInstanceId, {
-      pagesTotal: Math.min(result.urls.length + 1, maxPages),
+      pagesTotal: Math.min(result.coverage.urlsFromSitemaps + 1, maxPages),
       currentPhase: "crawling",
     });
     return {
       sitemapUrls: capSitemapSeeds(result.urls, maxPages),
       robotsText: result.robotsText,
+      coverage: result.coverage,
     };
   });
 }
@@ -248,6 +283,8 @@ async function finalizeAudit(args: {
   startUrl: string;
   config: AuditConfig;
   crawl: CrawlPhaseResult;
+  coverage: DiscoveryCoverage;
+  cancelRequested: boolean;
 }) {
   const {
     step,
@@ -258,6 +295,8 @@ async function finalizeAudit(args: {
     startUrl,
     config,
     crawl,
+    coverage,
+    cancelRequested,
   } = args;
 
   await pgStep(step, "multipage-checks", undefined, async () => {
@@ -288,9 +327,27 @@ async function finalizeAudit(args: {
   });
 
   await pgStep(step, "finalize", undefined, async () => {
-    await AuditRepository.completeAudit(auditId, workflowInstanceId, {
-      pagesCrawled: crawl.pages.length,
-      pagesTotal: crawl.pages.length,
+    // Counters come from the persisted page rows (SQL aggregation) so they
+    // reconcile exactly with what readers can see; urls_discovered comes
+    // from the frontier set accounting, which additionally covers URLs the
+    // crawl queued but never fetched.
+    const pages = await AuditRepository.getAuditPageCounters(auditId);
+    const counters = {
+      ...pages,
+      urlsDiscovered: Math.max(pages.urlsFetched, crawl.frontier.discovered),
+    };
+    const frontierRemaining = Math.max(
+      0,
+      counters.urlsDiscovered - counters.urlsFetched,
+    );
+    const status = resolveFinalStatus({
+      cancelRequested,
+      deficit: hasCoverageDeficit({ counters, frontierRemaining }),
+    });
+
+    await AuditRepository.finalizeAuditRun(auditId, workflowInstanceId, {
+      status,
+      counters,
     });
     await captureServerEvent({
       distinctId: billingCustomer.userId,
@@ -298,14 +355,26 @@ async function finalizeAudit(args: {
       organizationId: billingCustomer.organizationId,
       properties: {
         project_id: projectId,
-        status: "completed",
-        pages_crawled: crawl.pages.length,
-        pages_total: crawl.pages.length,
-        crawl_completed: crawl.completed,
-        pages_blocked: crawl.pages.filter(
-          (page) => page.fetchClass === "blocked",
-        ).length,
+        status,
+        pages_crawled: counters.urlsFetched,
+        pages_total: counters.urlsFetched,
         run_lighthouse: config.lighthouseStrategy !== "none",
+        urls_discovered: counters.urlsDiscovered,
+        urls_blocked: counters.urlsBlocked,
+        urls_failed: counters.urlsFailed,
+        urls_skipped: counters.urlsSkipped,
+        urls_rendering_required: counters.urlsRenderingRequired,
+        urls_not_crawled: frontierRemaining,
+        extraction_complete_count: counters.urlsExtractionComplete,
+        extraction_complete_ratio: extractionCompleteRatio(counters),
+        crawl_stopped_early: crawl.stoppedEarly,
+        // Discovery coverage ledger (crawl-quality metrics feed)
+        robots_declared_sitemaps: coverage.robotsDeclaredSitemaps,
+        sitemap_docs_fetched: coverage.sitemapDocsFetched,
+        sitemap_docs_failed: coverage.sitemapDocsFailed,
+        sitemap_urls_discovered: coverage.urlsFromSitemaps,
+        sitemap_doc_cap_reached: coverage.sitemapDocCapReached,
+        discovery_url_cap_reached: coverage.urlCapReached,
       },
     });
     await AuditProgressKV.clear(auditId);

@@ -27,7 +27,10 @@ function validateExpiresAt(value: string | undefined): string | null {
     throw new AppError("VALIDATION_ERROR", "Share expiry must be an ISO date");
   }
   if (parsed <= Date.now()) {
-    throw new AppError("VALIDATION_ERROR", "Share expiry must be in the future");
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Share expiry must be in the future",
+    );
   }
   return value;
 }
@@ -62,7 +65,9 @@ export async function createReportShare(input: {
   );
   if (!report) throw new AppError("NOT_FOUND", "Report not found");
   const expiresAt = validateExpiresAt(input.expiresAt);
-  const token = toHex(crypto.getRandomValues(new Uint8Array(SHARE_TOKEN_BYTES)));
+  const token = toHex(
+    crypto.getRandomValues(new Uint8Array(SHARE_TOKEN_BYTES)),
+  );
   const share = await SharingRepository.insertShare({
     id: crypto.randomUUID(),
     reportId: report.id,
@@ -126,10 +131,8 @@ export async function revokeReportShare(input: {
   // duplicate events or telemetry.
   if (share.revokedAt) return { revokedAt: share.revokedAt };
   const revoked =
-    (await SharingRepository.revokeShare(
-      share.id,
-      new Date().toISOString(),
-    )) ?? share;
+    (await SharingRepository.revokeShare(share.id, new Date().toISOString())) ??
+    share;
   await recordEvent({
     reportId: report.id,
     organizationId: input.organizationId,

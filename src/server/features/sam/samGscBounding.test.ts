@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  boundAgentGscOutput,
-  SAM_GSC_AGENT_ROW_LIMIT,
-} from "./samGscBounding";
+import { boundAgentGscOutput, SAM_GSC_AGENT_ROW_LIMIT } from "./samGscBounding";
 
 function row(n: number) {
   return {
@@ -14,9 +11,13 @@ function row(n: number) {
   };
 }
 
-function okOutput(rows: ReturnType<typeof row>[], extra: Record<string, unknown> = {}) {
+function okOutput(
+  rows: ReturnType<typeof row>[],
+  extra: Record<string, unknown> = {},
+) {
   return {
-    summary: "site · query · 2026-01-01→2026-01-28 · 1000 rows (more available — paginate with startRow)\n| key | clicks | ... |",
+    summary:
+      "site · query · 2026-01-01→2026-01-28 · 1000 rows (more available — paginate with startRow)\n| key | clicks | ... |",
     data: {
       ok: true,
       siteUrl: "https://powersiment.ae",
@@ -89,8 +90,14 @@ describe("boundAgentGscOutput", () => {
     const rows = Array.from({ length: 60 }, (_, i) => row(i));
     const summary = summaryOf(boundAgentGscOutput(okOutput(rows)));
     // First 50 rows: clicks 1000..951, impressions 5000..4951.
-    const expectedClicks = Array.from({ length: 50 }, (_, i) => 1000 - i).reduce((a, b) => a + b, 0);
-    const expectedImpressions = Array.from({ length: 50 }, (_, i) => 5000 - i).reduce((a, b) => a + b, 0);
+    const expectedClicks = Array.from(
+      { length: 50 },
+      (_, i) => 1000 - i,
+    ).reduce((a, b) => a + b, 0);
+    const expectedImpressions = Array.from(
+      { length: 50 },
+      (_, i) => 5000 - i,
+    ).reduce((a, b) => a + b, 0);
     expect(summary).toContain(`sum to ${expectedClicks} clicks`);
     expect(summary).toContain(`${expectedImpressions} impressions`);
     // And explicitly labeled as returned-rows-only.
@@ -99,14 +106,18 @@ describe("boundAgentGscOutput", () => {
 
   it("points the model at the next slice using the tool's own nextStartRow", () => {
     const rows = Array.from({ length: 200 }, (_, i) => row(i));
-    expect(summaryOf(boundAgentGscOutput(okOutput(rows, { nextStartRow: 200 })))).toContain("startRow=200");
+    expect(
+      summaryOf(boundAgentGscOutput(okOutput(rows, { nextStartRow: 200 }))),
+    ).toContain("startRow=200");
   });
 
   it("falls back to the bounded length when nextStartRow is absent", () => {
     const rows = Array.from({ length: 80 }, (_, i) => row(i));
-    expect(summaryOf(boundAgentGscOutput(okOutput(rows, { nextStartRow: undefined })))).toContain(
-      `startRow=${SAM_GSC_AGENT_ROW_LIMIT}`,
-    );
+    expect(
+      summaryOf(
+        boundAgentGscOutput(okOutput(rows, { nextStartRow: undefined })),
+      ),
+    ).toContain(`startRow=${SAM_GSC_AGENT_ROW_LIMIT}`);
   });
 
   it("passes small results through untouched (same reference)", () => {
@@ -115,7 +126,9 @@ describe("boundAgentGscOutput", () => {
   });
 
   it("passes results exactly at the limit through untouched", () => {
-    const edge = okOutput(Array.from({ length: SAM_GSC_AGENT_ROW_LIMIT }, (_, i) => row(i)));
+    const edge = okOutput(
+      Array.from({ length: SAM_GSC_AGENT_ROW_LIMIT }, (_, i) => row(i)),
+    );
     expect(boundAgentGscOutput(edge)).toBe(edge);
   });
 

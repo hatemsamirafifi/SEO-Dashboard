@@ -8,7 +8,7 @@
 
 **Input**: User description: "Wave 3–5 (per docs/speckit-implementation-plan.md §3): package 013 — Autopilot workflows + orchestration (PR17 + PR18 + PR21, Track E). Content-refresh (E1a), technical-SEO (E1b), and monthly-review (E1c) workflows, deterministic-first, reading only stored engine state (frozen evidence, observational language, no invented uplift percentages); monthly review summarizes what changed, what remains unresolved, and evidence-backed next actions from GSC/GA4/rank/opportunities/insights/audit/backlink evidence. SAM chat orchestration (E2): start, get, list, cancel, and resume autopilot runs through existing SAM tool adapter patterns with an explicit workflow allowlist and existing budgets — no unconstrained autonomous workflow selection, no run-starters performing render-time paid provider reads (G10). Extends the existing autopilot runtime (runs/attempts/steps, attempt source-version pins, budgets, synthesis firewall) and the existing SAM chat agent/MCP tool patterns — no new queue engine, no second intelligence engine (Constitution P25, P34–P37, P50). MCP `run_autopilot_workflow` deferred-later per plan §4."
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Content-refresh workflow surfaces pages worth refreshing from stored evidence (Priority: P1)
 
@@ -93,7 +93,7 @@ A user conversing with SAM says "run the content-refresh workflow" or "what happ
 - **Unregistered workflow type at runtime** (definition registration failure): start fails closed with an explicit error — never a null run or silent fallback to another workflow.
 - **Resume after source invalidation**: resumed attempt re-collects evidence under the new pin; prior attempt's evidence stays stored but cannot feed synthesis of the resumed attempt (mixed-version synthesis remains structurally impossible).
 
-## Requirements *(mandatory)*
+## Requirements _(mandatory)_
 
 ### Functional Requirements
 
@@ -140,7 +140,7 @@ A user conversing with SAM says "run the content-refresh workflow" or "what happ
 - **Workflow Allowlist** (new, configuration-scale concept): the explicit set of workflow types start/resume accept — defined once, shared by UI validation and SAM tools, never inferred from registry state alone (registry membership is necessary but allowlist membership is the product decision).
 - **SAM Autopilot Tool Surface** (new surface over existing entities): the five adapted tools (start/get/list/cancel/resume) delegating to AutopilotService; reads return the same run views the UI renders.
 
-## Success Criteria *(mandatory)*
+## Success Criteria _(mandatory)_
 
 ### Measurable Outcomes
 

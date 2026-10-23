@@ -13,7 +13,10 @@ vi.mock("@/server/lib/r2", () => ({
   putTextToR2: mocks.putTextToR2,
 }));
 
-import { selectLighthouseSample, fetchAndStoreLighthouseResult } from "./lighthouse";
+import {
+  selectLighthouseSample,
+  fetchAndStoreLighthouseResult,
+} from "./lighthouse";
 
 const billingCustomer = {
   organizationId: "org_1",
@@ -42,8 +45,13 @@ describe("selectLighthouseSample", () => {
       ...Array.from({ length: 10 }, (_, index) => ({
         url: `https://example.com/section${index}`,
         statusCode: 200,
+        fetchClass: "ok" as const,
       })),
-      { url: "https://example.com/services/", statusCode: 200 },
+      {
+        url: "https://example.com/services/",
+        statusCode: 200,
+        fetchClass: "ok" as const,
+      },
     ];
 
     const selected = selectLighthouseSample(
@@ -59,14 +67,45 @@ describe("selectLighthouseSample", () => {
   it("prefers an exact start page when both slash forms return 2xx", () => {
     const selected = selectLighthouseSample(
       [
-        { url: "https://example.com/services/", statusCode: 200 },
-        { url: "https://example.com/services", statusCode: 200 },
+        {
+          url: "https://example.com/services/",
+          statusCode: 200,
+          fetchClass: "ok" as const,
+        },
+        {
+          url: "https://example.com/services",
+          statusCode: 200,
+          fetchClass: "ok" as const,
+        },
       ],
       "https://example.com/services",
       "auto",
     );
 
     expect(selected[0]).toBe("https://example.com/services");
+  });
+
+  it("never samples a 200-served bot challenge for a paid Lighthouse check", () => {
+    const selected = selectLighthouseSample(
+      [
+        {
+          url: "https://example.com/challenge",
+          statusCode: 200,
+          // classifyFetch marks 200-served challenges as blocked
+          fetchClass: "blocked" as const,
+        },
+        {
+          url: "https://example.com/real",
+          statusCode: 200,
+          fetchClass: "ok" as const,
+        },
+      ],
+      "https://example.com/challenge",
+      "auto",
+    );
+
+    expect(selected).toContain("https://example.com/real");
+    expect(selected).not.toContain("https://example.com/challenge");
   });
 });
 

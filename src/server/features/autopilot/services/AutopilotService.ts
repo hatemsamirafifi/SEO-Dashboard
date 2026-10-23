@@ -29,6 +29,16 @@ function workflowBinding() {
   return binding;
 }
 
+/**
+ * The slice of the Cloudflare workflow instance handle the resume path
+ * needs. `WorkflowInstance` satisfies it structurally, so the binding
+ * result is handed over without a type assertion.
+ */
+type ResumableWorkflowInstance = {
+  status: () => Promise<{ status: string }>;
+  restart?: () => Promise<void>;
+};
+
 function billingCustomerFor(input: {
   userId?: string;
   userEmail: string;
@@ -287,17 +297,11 @@ export async function resumeAutopilotRun(input: {
       "Only running or cancelled runs can resume",
     );
   }
-  let existingInstance: {
-    status: () => Promise<{ status: string }>;
-    restart?: () => Promise<void>;
-  } | null = null;
+  let existingInstance: ResumableWorkflowInstance | null = null;
   let instanceStatus: string | null = null;
   try {
     const instance = await workflowBinding().get(run.id);
-    existingInstance = instance as unknown as {
-      status: () => Promise<{ status: string }>;
-      restart?: () => Promise<void>;
-    };
+    existingInstance = instance;
     instanceStatus = (await instance.status()).status;
   } catch {
     existingInstance = null;

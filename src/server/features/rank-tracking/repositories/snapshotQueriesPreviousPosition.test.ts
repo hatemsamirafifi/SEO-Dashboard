@@ -46,10 +46,13 @@ function resolvePreviousPosition(
   for (const pair of pairs) {
     const validSnapshots = snapshots
       .filter((s) => {
-        if (s.trackingKeywordId !== pair.keywordId || s.device !== pair.device) return false;
+        if (s.trackingKeywordId !== pair.keywordId || s.device !== pair.device)
+          return false;
         if (!completedRunIds.has(s.runId)) return false;
-        if (options?.excludeRunId && s.runId === options.excludeRunId) return false;
-        if (options?.beforeDate && s.checkedAt >= options.beforeDate) return false;
+        if (options?.excludeRunId && s.runId === options.excludeRunId)
+          return false;
+        if (options?.beforeDate && s.checkedAt >= options.beforeDate)
+          return false;
         // Provider failure must not erase or overwrite previous known ranking
         if (s.rankingStatus === "CHECK_FAILED") return false;
         return true;
@@ -57,7 +60,10 @@ function resolvePreviousPosition(
       .toSorted((a, b) => b.checkedAt.localeCompare(a.checkedAt));
 
     if (validSnapshots.length > 0) {
-      result.set(`${pair.keywordId}:${pair.device}`, validSnapshots[0].position);
+      result.set(
+        `${pair.keywordId}:${pair.device}`,
+        validSnapshots[0].position,
+      );
     }
   }
 
@@ -392,7 +398,9 @@ describe("previousPosition resolution semantics", () => {
   });
 
   it("9. includes positions from partial runs as valid previous positions", () => {
-    const runs: TestRun[] = [{ id: "run-partial", configId, status: "partial" }];
+    const runs: TestRun[] = [
+      { id: "run-partial", configId, status: "partial" },
+    ];
     const snapshots: TestSnapshot[] = [
       {
         runId: "run-partial",

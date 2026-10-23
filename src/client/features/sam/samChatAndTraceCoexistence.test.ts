@@ -58,7 +58,10 @@ describe("SAM Chat Tool Activity and Debug Trace Coexistence", () => {
       id: "msg_sam_turn_1",
       role: "assistant",
       parts: [
-        { type: "reasoning", text: "Analyzing organic growth opportunities..." },
+        {
+          type: "reasoning",
+          text: "Analyzing organic growth opportunities...",
+        },
         // Legitimate duplicate tool calls:
         toolPart("tool-get_search_console_performance"),
         toolPart("tool-get_search_console_performance"),
@@ -82,7 +85,10 @@ describe("SAM Chat Tool Activity and Debug Trace Coexistence", () => {
               'Tool "research_keywords" is unavailable for this turn because the previous attempt failed with CREDITS_UNAVAILABLE. Do not retry this tool in this turn.',
           },
         }),
-        { type: "reasoning", text: "Attempting one more time before fallback..." },
+        {
+          type: "reasoning",
+          text: "Attempting one more time before fallback...",
+        },
         // research_keywords attempt 3: blocked by duplicate-call gate:
         toolPart("tool-research_keywords", {
           output: {
@@ -106,15 +112,33 @@ describe("SAM Chat Tool Activity and Debug Trace Coexistence", () => {
       // get_search_console_performance ×2
       ev("model_attempt", { toolName: "get_search_console_performance" }),
       ev("gate_allowed", { toolName: "get_search_console_performance" }),
-      ev("handler_start", { toolName: "get_search_console_performance", attempt: 1 }),
-      ev("handler_success", { toolName: "get_search_console_performance", attempt: 1 }),
-      ev("tool_completed", { toolName: "get_search_console_performance", attempt: 1 }),
+      ev("handler_start", {
+        toolName: "get_search_console_performance",
+        attempt: 1,
+      }),
+      ev("handler_success", {
+        toolName: "get_search_console_performance",
+        attempt: 1,
+      }),
+      ev("tool_completed", {
+        toolName: "get_search_console_performance",
+        attempt: 1,
+      }),
 
       ev("model_attempt", { toolName: "get_search_console_performance" }),
       ev("gate_allowed", { toolName: "get_search_console_performance" }),
-      ev("handler_start", { toolName: "get_search_console_performance", attempt: 1 }),
-      ev("handler_success", { toolName: "get_search_console_performance", attempt: 1 }),
-      ev("tool_completed", { toolName: "get_search_console_performance", attempt: 1 }),
+      ev("handler_start", {
+        toolName: "get_search_console_performance",
+        attempt: 1,
+      }),
+      ev("handler_success", {
+        toolName: "get_search_console_performance",
+        attempt: 1,
+      }),
+      ev("tool_completed", {
+        toolName: "get_search_console_performance",
+        attempt: 1,
+      }),
 
       // list_saved_keywords
       ev("model_attempt", { toolName: "list_saved_keywords" }),
@@ -141,7 +165,10 @@ describe("SAM Chat Tool Activity and Debug Trace Coexistence", () => {
       ev("model_attempt", { toolName: "research_keywords" }),
       ev("gate_allowed", { toolName: "research_keywords" }),
       ev("handler_start", { toolName: "research_keywords", attempt: 1 }),
-      ev("provider_request", { toolName: "research_keywords", provider: "DataForSEO" }),
+      ev("provider_request", {
+        toolName: "research_keywords",
+        provider: "DataForSEO",
+      }),
       ev("provider_error", {
         toolName: "research_keywords",
         provider: "DataForSEO",
@@ -156,7 +183,8 @@ describe("SAM Chat Tool Activity and Debug Trace Coexistence", () => {
       }),
       ev("fallback_selected", {
         toolName: "research_keywords",
-        fallbackHint: "Search Console queries, saved keywords, cached keyword data, or SERP analysis",
+        fallbackHint:
+          "Search Console queries, saved keywords, cached keyword data, or SERP analysis",
       }),
       ev("tool_completed", {
         toolName: "research_keywords",
@@ -165,23 +193,41 @@ describe("SAM Chat Tool Activity and Debug Trace Coexistence", () => {
 
       // research_keywords: attempt 2 (blocked)
       ev("model_attempt", { toolName: "research_keywords" }),
-      ev("gate_blocked", { toolName: "research_keywords", blocked: true, errorCode: "CREDITS_UNAVAILABLE" }),
+      ev("gate_blocked", {
+        toolName: "research_keywords",
+        blocked: true,
+        errorCode: "CREDITS_UNAVAILABLE",
+      }),
       ev("fallback_selected", {
         toolName: "research_keywords",
         blocked: true,
-        fallbackHint: "Search Console queries, saved keywords, cached keyword data, or SERP analysis",
+        fallbackHint:
+          "Search Console queries, saved keywords, cached keyword data, or SERP analysis",
       }),
-      ev("tool_completed", { toolName: "research_keywords", blocked: true, errorCode: "CREDITS_UNAVAILABLE" }),
+      ev("tool_completed", {
+        toolName: "research_keywords",
+        blocked: true,
+        errorCode: "CREDITS_UNAVAILABLE",
+      }),
 
       // research_keywords: attempt 3 (blocked)
       ev("model_attempt", { toolName: "research_keywords" }),
-      ev("gate_blocked", { toolName: "research_keywords", blocked: true, errorCode: "CREDITS_UNAVAILABLE" }),
+      ev("gate_blocked", {
+        toolName: "research_keywords",
+        blocked: true,
+        errorCode: "CREDITS_UNAVAILABLE",
+      }),
       ev("fallback_selected", {
         toolName: "research_keywords",
         blocked: true,
-        fallbackHint: "Search Console queries, saved keywords, cached keyword data, or SERP analysis",
+        fallbackHint:
+          "Search Console queries, saved keywords, cached keyword data, or SERP analysis",
       }),
-      ev("tool_completed", { toolName: "research_keywords", blocked: true, errorCode: "CREDITS_UNAVAILABLE" }),
+      ev("tool_completed", {
+        toolName: "research_keywords",
+        blocked: true,
+        errorCode: "CREDITS_UNAVAILABLE",
+      }),
 
       // get_serp_results
       ev("model_attempt", { toolName: "get_serp_results" }),
@@ -235,7 +281,9 @@ describe("SAM Chat Tool Activity and Debug Trace Coexistence", () => {
     // Check count on legitimate multiple call:
     const gscEntry = toolEntries[0];
     expect(gscEntry.group.parts).toHaveLength(2);
-    expect(humanizeToolLabel(gscEntry.group.type).done).toBe("Get search console performance");
+    expect(humanizeToolLabel(gscEntry.group.type).done).toBe(
+      "Get search console performance",
+    );
 
     // Check research_keywords:
     // It must appear ONCE (attempts 2 & 3 were blocked retries and must NOT create duplicate badges or inflate count)
@@ -266,7 +314,9 @@ describe("SAM Chat Tool Activity and Debug Trace Coexistence", () => {
     expect(traceView.ai.model).toBe("kimi-k2.7-code");
 
     // Detailed lifecycle for research_keywords:
-    const rkTrace = traceView.tools.find((t) => t.toolName === "research_keywords");
+    const rkTrace = traceView.tools.find(
+      (t) => t.toolName === "research_keywords",
+    );
     expect(rkTrace).toBeDefined();
     expect(rkTrace?.modelAttempts).toBe(3);
     expect(rkTrace?.handlerExecutions).toBe(1);

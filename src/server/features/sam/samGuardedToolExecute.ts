@@ -10,7 +10,10 @@ import {
 } from "@/server/features/sam/samToolRecovery";
 import { classifyToolOutput } from "@/server/features/sam/samToolBatchOutput";
 import { fallbackHintFor } from "@/server/features/sam/samToolRecoveryMessages";
-import { getSamTraceBus, runWithTraceScope } from "@/server/features/sam/samTraceBus";
+import {
+  getSamTraceBus,
+  runWithTraceScope,
+} from "@/server/features/sam/samTraceBus";
 import {
   diagnosticsToTraceMetadata,
   readDataforseoDiagnostics,
@@ -77,7 +80,10 @@ function httpStatusOf(code: string): number | undefined {
  * runtime hints, shortened for the trace. Undefined when no fallback applies
  * (input-validation failures have no data-source fallback).
  */
-function fallbackSourcesFor(classified: ClassifiedToolError, toolName: string): string | undefined {
+function fallbackSourcesFor(
+  classified: ClassifiedToolError,
+  toolName: string,
+): string | undefined {
   if (classified.failureClass === "TOOL_INPUT_INVALID") return undefined;
   const hint = fallbackHintFor(toolName);
   // "Use fallback sources instead: X, Y, or Z." → "X, Y, or Z"
@@ -125,7 +131,10 @@ export async function executeAdaptedTool(input: {
     });
   };
 
-  const emitProviderError = (classified: ClassifiedToolError, error?: unknown): void => {
+  const emitProviderError = (
+    classified: ClassifiedToolError,
+    error?: unknown,
+  ): void => {
     // The provider/network outcome event: the DataRouter emits
     // provider_request/provider_success when it runs a provider; thrown
     // errors bypass it, so the guarded runner emits the error side here with
@@ -157,7 +166,9 @@ export async function executeAdaptedTool(input: {
         (typeof diagnostics?.httpStatus === "number"
           ? diagnostics.httpStatus
           : undefined),
-      metadata: diagnostics ? diagnosticsToTraceMetadata(diagnostics) : undefined,
+      metadata: diagnostics
+        ? diagnosticsToTraceMetadata(diagnostics)
+        : undefined,
     });
   };
 
@@ -310,7 +321,10 @@ export async function executeAdaptedTool(input: {
     }
     return { error: notice };
   };
-  const failThrown = (error: unknown, classified: ClassifiedToolError): unknown => {
+  const failThrown = (
+    error: unknown,
+    classified: ClassifiedToolError,
+  ): unknown => {
     logError();
     // Surface a curated, secret-free failure signal so the model can recover
     // or report it, rather than aborting the whole turn on one bad tool call.
@@ -369,7 +383,11 @@ export async function executeAdaptedTool(input: {
       });
       await sleep(retryDelayMs(classified));
       try {
-        bus.push({ event: "retry_executed", toolName, attempt: handlerAttempt + 1 });
+        bus.push({
+          event: "retry_executed",
+          toolName,
+          attempt: handlerAttempt + 1,
+        });
         return failBatch(await runAttempt());
       } catch (retryError) {
         const retryClassified = classifyToolError(retryError);

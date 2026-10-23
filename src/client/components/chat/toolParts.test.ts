@@ -73,12 +73,14 @@ describe("isBlockedToolPart and isToolPartFailed", () => {
     const blockedExplicit = toolPart("tool-research_keywords", {
       output: {
         recoveryBlocked: true,
-        error: 'Tool "research_keywords" is unavailable for this turn because...',
+        error:
+          'Tool "research_keywords" is unavailable for this turn because...',
       },
     });
     const blockedByText = toolPart("tool-research_keywords", {
       output: {
-        error: 'Tool "research_keywords" is unavailable for this turn. Do not retry.',
+        error:
+          'Tool "research_keywords" is unavailable for this turn. Do not retry.',
       },
     });
     const normalSuccess = toolPart("tool-research_keywords", {
@@ -97,13 +99,15 @@ describe("isBlockedToolPart and isToolPartFailed", () => {
   it("detects tool failures and formats user-friendly failure details", () => {
     const creditFailure = toolPart("tool-research_keywords", {
       output: {
-        error: 'Tool "research_keywords" failed: credits unavailable — it is now unavailable for this turn.',
-        recoveryNotice: 'credits unavailable',
+        error:
+          'Tool "research_keywords" failed: credits unavailable — it is now unavailable for this turn.',
+        recoveryNotice: "credits unavailable",
       },
     });
     const rateLimitFailure = toolPart("tool-get_keyword_metrics", {
       output: {
-        error: 'Tool "get_keyword_metrics" was rate-limited. One automatic retry is allowed...',
+        error:
+          'Tool "get_keyword_metrics" was rate-limited. One automatic retry is allowed...',
       },
     });
     const inputFailure = toolPart("tool-save_keywords", {
@@ -113,10 +117,14 @@ describe("isBlockedToolPart and isToolPartFailed", () => {
     });
 
     expect(isToolPartFailed(creditFailure)).toBe(true);
-    expect(getToolFailureDetail(creditFailure)).toBe("Credits unavailable — using fallback");
+    expect(getToolFailureDetail(creditFailure)).toBe(
+      "Credits unavailable — using fallback",
+    );
 
     expect(isToolPartFailed(rateLimitFailure)).toBe(true);
-    expect(getToolFailureDetail(rateLimitFailure)).toBe("Rate limited — using fallback");
+    expect(getToolFailureDetail(rateLimitFailure)).toBe(
+      "Rate limited — using fallback",
+    );
 
     expect(isToolPartFailed(inputFailure)).toBe(true);
     expect(getToolFailureDetail(inputFailure)).toBe("Invalid arguments");
@@ -230,15 +238,17 @@ describe("buildRenderPlan", () => {
       toolPart("tool-get_keyword_metrics"),
       toolPart("tool-research_keywords", {
         output: {
-          error: 'Tool "research_keywords" failed: credits unavailable — it is now unavailable for this turn.',
-          recoveryNotice: 'credits unavailable',
+          error:
+            'Tool "research_keywords" failed: credits unavailable — it is now unavailable for this turn.',
+          recoveryNotice: "credits unavailable",
         },
       }),
       reasoningPart("Research failed, trying again..."),
       toolPart("tool-research_keywords", {
         output: {
           recoveryBlocked: true,
-          error: 'Tool "research_keywords" is unavailable for this turn because the previous attempt failed with CREDITS_UNAVAILABLE. Do not retry.',
+          error:
+            'Tool "research_keywords" is unavailable for this turn because the previous attempt failed with CREDITS_UNAVAILABLE. Do not retry.',
         },
       }),
       reasoningPart("Still blocked, falling back to SERP..."),
@@ -357,7 +367,10 @@ describe("buildRenderPlan", () => {
       const plan = buildRenderPlan(seq);
       for (const entry of plan) {
         if (entry.kind === "tools") {
-          expect(entry.group, `sequence ${seq.map((p) => p.type).join(",")}`).toBeDefined();
+          expect(
+            entry.group,
+            `sequence ${seq.map((p) => p.type).join(",")}`,
+          ).toBeDefined();
           expect(entry.group.type.startsWith("tool-")).toBe(true);
           expect(entry.group.parts.length).toBeGreaterThanOrEqual(1);
         }

@@ -75,10 +75,7 @@ export const opportunities = sqliteTable(
     uniqueIndex("opportunities_active_key_uidx")
       .on(table.projectId, table.logicalKey)
       .where(sql`${table.status} IN ('open', 'in_progress')`),
-    index("opportunities_project_status_idx").on(
-      table.projectId,
-      table.status,
-    ),
+    index("opportunities_project_status_idx").on(table.projectId, table.status),
     index("opportunities_project_type_status_idx").on(
       table.projectId,
       table.type,

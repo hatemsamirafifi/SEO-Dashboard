@@ -293,9 +293,7 @@ export function rollUpOtherTail(input: {
     isTruncated: otherRowPresent,
     retainedDimensionCount: retained.length,
     omittedDimensionCount:
-      otherRowPresent && countsKnown && !apiOtherSeen
-        ? dropped.length
-        : null,
+      otherRowPresent && countsKnown && !apiOtherSeen ? dropped.length : null,
     otherRowPresent,
   };
 }

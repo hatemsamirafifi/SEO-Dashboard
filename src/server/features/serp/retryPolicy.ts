@@ -146,7 +146,9 @@ export function waitWithCancellation(
 ): Promise<void> {
   if (ms <= 0) {
     if (signal?.aborted) {
-      return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return Promise.reject(
+        signal.reason ?? new DOMException("Aborted", "AbortError"),
+      );
     }
     return Promise.resolve();
   }

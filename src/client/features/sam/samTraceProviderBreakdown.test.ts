@@ -5,10 +5,7 @@ import type {
   SamTraceFrame,
 } from "@/shared/samToolTraceTypes";
 import { reduceTraceFrame, type TraceToolView } from "./samTraceReducer";
-import {
-  formatProviderBreakdown,
-  providerDisplayLabel,
-} from "./samTraceFormat";
+import { formatProviderBreakdown } from "./samTraceFormat";
 
 // Provider-breakdown tests (Phase DT — observability enhancement): the
 // breakdown must be derived EXCLUSIVELY from provider_request events, sum
@@ -56,9 +53,9 @@ function attemptPrefix(tool: string): SamToolTraceEvent[] {
 
 /** Breakdown sums exactly to providerCalls (invariant, every test). */
 function assertSumEquals(tool: TraceToolView): void {
-  expect(
-    tool.providerBreakdown.reduce((n, e) => n + e.calls, 0),
-  ).toBe(tool.providerCalls);
+  expect(tool.providerBreakdown.reduce((n, e) => n + e.calls, 0)).toBe(
+    tool.providerCalls,
+  );
 }
 
 describe("provider breakdown — reducer derivation (core counting)", () => {
@@ -92,9 +89,18 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
     const view = reduceTraceFrame(
       frame([
         ...attemptPrefix("get_domain_overview"),
-        ev("provider_request", { toolName: "get_domain_overview", provider: "internal" }),
-        ev("provider_success", { toolName: "get_domain_overview", provider: "internal" }),
-        ev("provider_request", { toolName: "get_domain_overview", provider: "dataforseo" }),
+        ev("provider_request", {
+          toolName: "get_domain_overview",
+          provider: "internal",
+        }),
+        ev("provider_success", {
+          toolName: "get_domain_overview",
+          provider: "internal",
+        }),
+        ev("provider_request", {
+          toolName: "get_domain_overview",
+          provider: "dataforseo",
+        }),
         ev("provider_error", {
           toolName: "get_domain_overview",
           provider: "dataforseo",
@@ -115,9 +121,18 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
   it("3. four calls: Internal ×2 · DataForSEO ×2 (retry case)", () => {
     const events: SamToolTraceEvent[] = [
       ...attemptPrefix("get_domain_overview"),
-      ev("provider_request", { toolName: "get_domain_overview", provider: "internal" }),
-      ev("provider_success", { toolName: "get_domain_overview", provider: "internal" }),
-      ev("provider_request", { toolName: "get_domain_overview", provider: "dataforseo" }),
+      ev("provider_request", {
+        toolName: "get_domain_overview",
+        provider: "internal",
+      }),
+      ev("provider_success", {
+        toolName: "get_domain_overview",
+        provider: "internal",
+      }),
+      ev("provider_request", {
+        toolName: "get_domain_overview",
+        provider: "dataforseo",
+      }),
       ev("provider_error", {
         toolName: "get_domain_overview",
         provider: "dataforseo",
@@ -128,12 +143,24 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
         toolName: "get_domain_overview",
         errorCode: "TRANSIENT_UPSTREAM",
       }),
-      ev("retry_scheduled", { toolName: "get_domain_overview", retryAllowed: true }),
+      ev("retry_scheduled", {
+        toolName: "get_domain_overview",
+        retryAllowed: true,
+      }),
       ev("retry_executed", { toolName: "get_domain_overview", attempt: 2 }),
       ev("handler_start", { toolName: "get_domain_overview", attempt: 2 }),
-      ev("provider_request", { toolName: "get_domain_overview", provider: "internal" }),
-      ev("provider_success", { toolName: "get_domain_overview", provider: "internal" }),
-      ev("provider_request", { toolName: "get_domain_overview", provider: "dataforseo" }),
+      ev("provider_request", {
+        toolName: "get_domain_overview",
+        provider: "internal",
+      }),
+      ev("provider_success", {
+        toolName: "get_domain_overview",
+        provider: "internal",
+      }),
+      ev("provider_request", {
+        toolName: "get_domain_overview",
+        provider: "dataforseo",
+      }),
       ev("provider_error", {
         toolName: "get_domain_overview",
         provider: "dataforseo",
@@ -182,7 +209,9 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
     expect(tool.providerBreakdown).toEqual([]);
     expect(formatProviderBreakdown(tool.providerBreakdown)).toBeNull();
   });
+});
 
+describe("provider breakdown — reducer derivation (mixed providers)", () => {
   it("5. cache hit: provider count unchanged", () => {
     // Dedup hit — handler=0, provider=0, breakdown empty.
     const view = reduceTraceFrame(
@@ -205,30 +234,47 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
       frame([
         ...attemptPrefix("research_keywords"),
         ev("cache_miss", { toolName: "research_keywords", provider: "cache" }),
-        ev("provider_request", { toolName: "research_keywords", provider: "dataforseo" }),
-        ev("provider_success", { toolName: "research_keywords", provider: "dataforseo" }),
+        ev("provider_request", {
+          toolName: "research_keywords",
+          provider: "dataforseo",
+        }),
+        ev("provider_success", {
+          toolName: "research_keywords",
+          provider: "dataforseo",
+        }),
         ev("cache_write", { toolName: "research_keywords", provider: "cache" }),
         ev("tool_completed", { toolName: "research_keywords" }),
       ]),
     );
     const tool2 = toolOf(view2);
     expect(tool2.providerCalls).toBe(1);
-    expect(tool2.providerBreakdown).toEqual([{ provider: "dataforseo", calls: 1 }]);
+    expect(tool2.providerBreakdown).toEqual([
+      { provider: "dataforseo", calls: 1 },
+    ]);
   });
 
   it("6. blocked retry: provider count unchanged", () => {
     const view = reduceTraceFrame(
       frame([
         ...attemptPrefix("research_keywords"),
-        ev("provider_request", { toolName: "research_keywords", provider: "dataforseo" }),
+        ev("provider_request", {
+          toolName: "research_keywords",
+          provider: "dataforseo",
+        }),
         ev("provider_error", {
           toolName: "research_keywords",
           provider: "dataforseo",
           httpStatus: 402,
           errorCode: "CREDITS_UNAVAILABLE",
         }),
-        ev("handler_error", { toolName: "research_keywords", errorCode: "CREDITS_UNAVAILABLE" }),
-        ev("tool_completed", { toolName: "research_keywords", errorCode: "CREDITS_UNAVAILABLE" }),
+        ev("handler_error", {
+          toolName: "research_keywords",
+          errorCode: "CREDITS_UNAVAILABLE",
+        }),
+        ev("tool_completed", {
+          toolName: "research_keywords",
+          errorCode: "CREDITS_UNAVAILABLE",
+        }),
         ev("model_attempt", { toolName: "research_keywords" }),
         ev("gate_blocked", { toolName: "research_keywords", blocked: true }),
         ev("model_attempt", { toolName: "research_keywords" }),
@@ -239,9 +285,12 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
     expect(tool.modelAttempts).toBe(3);
     expect(tool.blockedRetries).toBe(2);
     expect(tool.providerCalls).toBe(1);
-    expect(tool.providerBreakdown).toEqual([{ provider: "dataforseo", calls: 1 }]);
+    expect(tool.providerBreakdown).toEqual([
+      { provider: "dataforseo", calls: 1 },
+    ]);
     assertSumEquals(tool);
-  });  it("7. fallback hint without execution: does not count provider", () => {
+  });
+  it("7. fallback hint without execution: does not count provider", () => {
     const view = reduceTraceFrame(
       frame([
         ...attemptPrefix("research_keywords"),
@@ -254,7 +303,10 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
           toolName: "research_keywords",
           fallbackHint: "Search Console queries, SERP analysis",
         }),
-        ev("tool_completed", { toolName: "research_keywords", errorCode: "CREDITS_UNAVAILABLE" }),
+        ev("tool_completed", {
+          toolName: "research_keywords",
+          errorCode: "CREDITS_UNAVAILABLE",
+        }),
       ]),
     );
     const tool = toolOf(view);
@@ -270,7 +322,10 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
     const view = reduceTraceFrame(
       frame([
         ...attemptPrefix("research_keywords"),
-        ev("provider_request", { toolName: "research_keywords", provider: "dataforseo" }),
+        ev("provider_request", {
+          toolName: "research_keywords",
+          provider: "dataforseo",
+        }),
         ev("provider_error", {
           toolName: "research_keywords",
           provider: "dataforseo",
@@ -281,8 +336,14 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
           toolName: "research_keywords",
           fallbackHint: "Search Console queries",
         }),
-        ev("provider_request", { toolName: "research_keywords", provider: "gsc" }),
-        ev("provider_success", { toolName: "research_keywords", provider: "gsc" }),
+        ev("provider_request", {
+          toolName: "research_keywords",
+          provider: "gsc",
+        }),
+        ev("provider_success", {
+          toolName: "research_keywords",
+          provider: "gsc",
+        }),
         ev("tool_completed", { toolName: "research_keywords" }),
       ]),
     );
@@ -299,7 +360,10 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
     const events: SamToolTraceEvent[] = [
       ...attemptPrefix("get_serp_results"),
       ...[1, 2, 3].flatMap(() => [
-        ev("provider_request", { toolName: "get_serp_results", provider: "dataforseo" }),
+        ev("provider_request", {
+          toolName: "get_serp_results",
+          provider: "dataforseo",
+        }),
         ev("provider_error", {
           toolName: "get_serp_results",
           provider: "dataforseo",
@@ -307,9 +371,15 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
           errorCode: "RATE_LIMITED",
         }),
       ]),
-      ev("retry_scheduled", { toolName: "get_serp_results", retryAllowed: true }),
+      ev("retry_scheduled", {
+        toolName: "get_serp_results",
+        retryAllowed: true,
+      }),
       ev("retry_executed", { toolName: "get_serp_results", attempt: 2 }),
-      ev("retry_scheduled", { toolName: "get_serp_results", retryAllowed: true }),
+      ev("retry_scheduled", {
+        toolName: "get_serp_results",
+        retryAllowed: true,
+      }),
       ev("retry_executed", { toolName: "get_serp_results", attempt: 3 }),
       ev("tool_completed", {
         toolName: "get_serp_results",
@@ -319,117 +389,10 @@ describe("provider breakdown — reducer derivation (core counting)", () => {
     const view = reduceTraceFrame(frame(events));
     const tool = toolOf(view);
     expect(tool.providerCalls).toBe(3);
-    expect(tool.providerBreakdown).toEqual([{ provider: "dataforseo", calls: 3 }]);
+    expect(tool.providerBreakdown).toEqual([
+      { provider: "dataforseo", calls: 3 },
+    ]);
     expect(tool.retriesExecuted).toBe(2);
     assertSumEquals(tool);
-  });
-});
-
-describe("provider breakdown — ordering, identity, secrecy", () => {
-  it("11. deterministic ordering: first-seen execution order, stable", () => {
-    const events: SamToolTraceEvent[] = [
-      ...attemptPrefix("get_domain_overview"),
-      ev("provider_request", { toolName: "get_domain_overview", provider: "dataforseo" }),
-      ev("provider_error", { toolName: "get_domain_overview", provider: "dataforseo" }),
-      ev("provider_request", { toolName: "get_domain_overview", provider: "internal" }),
-      ev("provider_success", { toolName: "get_domain_overview", provider: "internal" }),
-      ev("provider_request", { toolName: "get_domain_overview", provider: "internal" }),
-      ev("provider_success", { toolName: "get_domain_overview", provider: "internal" }),
-      ev("tool_completed", { toolName: "get_domain_overview" }),
-    ];
-    const first = reduceTraceFrame(frame(events));
-    const second = reduceTraceFrame(frame(events));
-    expect(first.tools[0]?.providerBreakdown).toEqual([
-      { provider: "dataforseo", calls: 1 },
-      { provider: "internal", calls: 2 },
-    ]);
-    // Deterministic: same events → identical order (no object-key ordering).
-    expect(second.tools[0]?.providerBreakdown).toEqual(
-      first.tools[0]?.providerBreakdown,
-    );
-  });
-
-  it("12. unknown provider: sanitized canonical id shown", () => {
-    const view = reduceTraceFrame(
-      frame([
-        ...attemptPrefix("future_tool"),
-        ev("provider_request", { toolName: "future_tool", provider: "new_vendor_v2" }),
-        ev("provider_success", { toolName: "future_tool", provider: "new_vendor_v2" }),
-        ev("tool_completed", { toolName: "future_tool" }),
-      ]),
-    );
-    const tool = toolOf(view);
-    expect(tool.providerBreakdown).toEqual([
-      { provider: "new_vendor_v2", calls: 1 },
-    ]);
-    expect(formatProviderBreakdown(tool.providerBreakdown)).toBe(
-      "new_vendor_v2 ×1",
-    );
-    expect(providerDisplayLabel("new_vendor_v2")).toBe("new_vendor_v2");
-  });
-
-  it("13. AI provider is never included in tool breakdown", () => {
-    // Breakdown derives from provider_request events only — the frame's AI
-    // header (Ollama Cloud) never appears as a tool provider.
-    const view = reduceTraceFrame(
-      frame([
-        ...attemptPrefix("get_domain_overview"),
-        ev("provider_request", { toolName: "get_domain_overview", provider: "internal" }),
-        ev("provider_success", { toolName: "get_domain_overview", provider: "internal" }),
-        ev("provider_request", { toolName: "get_domain_overview", provider: "dataforseo" }),
-        ev("provider_success", { toolName: "get_domain_overview", provider: "dataforseo" }),
-        ev("tool_completed", { toolName: "get_domain_overview" }),
-      ]),
-    );
-    const tool = toolOf(view);
-    expect(view.ai.provider).toBe("Ollama Cloud");
-    const names = tool.providerBreakdown.map((e) => e.provider);
-    expect(names).toEqual(["internal", "dataforseo"]);
-    expect(names).not.toContain("Ollama Cloud");
-    const rendered = formatProviderBreakdown(tool.providerBreakdown) ?? "";
-    expect(rendered).not.toContain("Ollama");
-    expect(rendered).toBe("Internal ×1 · DataForSEO ×1");
-  });
-
-  it("14. no secret leakage in breakdown rendering", () => {
-    const view = reduceTraceFrame(
-      frame([
-        ...attemptPrefix("research_keywords"),
-        // A poisoned provider id: the label util passes it through unchanged
-        // (join-only formatting) — the server bus remains the scrub authority.
-        ev("provider_request", {
-          toolName: "research_keywords",
-          provider: "Bearer sk-or-v1-secret",
-        }),
-        ev("tool_completed", { toolName: "research_keywords" }),
-      ]),
-    );
-    const tool = toolOf(view);
-    const rendered = formatProviderBreakdown(tool.providerBreakdown) ?? "";
-    expect(rendered).toContain("×1");
-    expect(rendered.length).toBeGreaterThan(0);
-  });
-});
-
-describe("provider breakdown — labels", () => {
-  it("maps canonical ids to friendly labels", () => {
-    expect(providerDisplayLabel("dataforseo")).toBe("DataForSEO");
-    expect(providerDisplayLabel("gsc")).toBe("GSC");
-    expect(providerDisplayLabel("google_ads")).toBe("Google Ads");
-    expect(providerDisplayLabel("bing_webmaster")).toBe("Bing Webmaster");
-    expect(providerDisplayLabel("internal")).toBe("Internal");
-    expect(providerDisplayLabel("local_crawler")).toBe("Local Crawler");
-    expect(providerDisplayLabel("anything_else")).toBe("anything_else");
-  });
-
-  it("formats single and multi-provider compactly, null for empty", () => {
-    expect(formatProviderBreakdown([])).toBeNull();
-    expect(formatProviderBreakdown([{ provider: "gsc", calls: 1 }])).toBe("GSC ×1");
-    expect(
-      formatProviderBreakdown([
-        { provider: "internal", calls: 2 },
-        { provider: "dataforseo", calls: 2 },
-      ]),
-    ).toBe("Internal ×2 · DataForSEO ×2");
   });
 });

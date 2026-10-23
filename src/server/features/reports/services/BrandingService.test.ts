@@ -57,7 +57,13 @@ import { BrandingService } from "./BrandingService";
 
 function sourceState(): DetectionSourceState {
   return {
-    versions: { gsc: null, ga4: null, rank: null, audit: null, backlinks: null },
+    versions: {
+      gsc: null,
+      ga4: null,
+      rank: null,
+      audit: null,
+      backlinks: null,
+    },
     sourceSet: [],
     detectorVersions: {},
     thresholdVersion: 2,

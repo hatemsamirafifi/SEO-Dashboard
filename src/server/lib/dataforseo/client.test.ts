@@ -37,10 +37,12 @@ vi.mock("cloudflare:workers", () => ({
   waitUntil: vi.fn(),
 }));
 
-vi.mock("@/server/features/settings/services/DataforseoSettingsService", () => ({
-  resolveEffectiveDataforseoConfig: resolveEffectiveDataforseoConfigMock,
-}));
-
+vi.mock(
+  "@/server/features/settings/services/DataforseoSettingsService",
+  () => ({
+    resolveEffectiveDataforseoConfig: resolveEffectiveDataforseoConfigMock,
+  }),
+);
 
 vi.mock("@/server/billing/autumn", () => ({
   autumn: {

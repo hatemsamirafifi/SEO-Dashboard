@@ -52,7 +52,10 @@ function lifecycle402(): SamToolTraceEvent[] {
     ev("gate_allowed", { toolName: "research_keywords" }),
     ev("cache_miss", { toolName: "research_keywords", cacheHit: false }),
     ev("handler_start", { toolName: "research_keywords", attempt: 1 }),
-    ev("provider_request", { toolName: "research_keywords", provider: "dataforseo" }),
+    ev("provider_request", {
+      toolName: "research_keywords",
+      provider: "dataforseo",
+    }),
     ev("provider_error", {
       toolName: "research_keywords",
       provider: "dataforseo",
@@ -66,7 +69,8 @@ function lifecycle402(): SamToolTraceEvent[] {
     }),
     ev("fallback_selected", {
       toolName: "research_keywords",
-      fallbackHint: "Search Console queries, saved keywords, cached keyword data, or SERP analysis",
+      fallbackHint:
+        "Search Console queries, saved keywords, cached keyword data, or SERP analysis",
     }),
     ev("tool_completed", {
       toolName: "research_keywords",
@@ -141,7 +145,10 @@ describe("reduceTraceFrame — 429 retry-then-success lifecycle", () => {
       ev("gate_allowed", { toolName: "research_keywords" }),
       ev("cache_miss", { toolName: "research_keywords" }),
       ev("handler_start", { toolName: "research_keywords", attempt: 1 }),
-      ev("provider_request", { toolName: "research_keywords", provider: "dataforseo" }),
+      ev("provider_request", {
+        toolName: "research_keywords",
+        provider: "dataforseo",
+      }),
       ev("provider_error", {
         toolName: "research_keywords",
         provider: "dataforseo",
@@ -161,9 +168,20 @@ describe("reduceTraceFrame — 429 retry-then-success lifecycle", () => {
       }),
       ev("retry_executed", { toolName: "research_keywords", attempt: 2 }),
       ev("handler_start", { toolName: "research_keywords", attempt: 2 }),
-      ev("provider_request", { toolName: "research_keywords", provider: "dataforseo" }),
-      ev("provider_success", { toolName: "research_keywords", provider: "dataforseo", durationMs: 420 }),
-      ev("handler_success", { toolName: "research_keywords", attempt: 2, durationMs: 880 }),
+      ev("provider_request", {
+        toolName: "research_keywords",
+        provider: "dataforseo",
+      }),
+      ev("provider_success", {
+        toolName: "research_keywords",
+        provider: "dataforseo",
+        durationMs: 420,
+      }),
+      ev("handler_success", {
+        toolName: "research_keywords",
+        attempt: 2,
+        durationMs: 880,
+      }),
       ev("cache_write", { toolName: "research_keywords", cacheWrite: true }),
       ev("tool_completed", { toolName: "research_keywords", durationMs: 900 }),
     ];
@@ -204,11 +222,22 @@ describe("reduceTraceFrame — 503 transient then success", () => {
         httpStatus: 503,
         errorCode: "TRANSIENT_UPSTREAM",
       }),
-      ev("retry_scheduled", { toolName: "get_serp_results", retryAllowed: true }),
+      ev("retry_scheduled", {
+        toolName: "get_serp_results",
+        retryAllowed: true,
+      }),
       ev("retry_executed", { toolName: "get_serp_results", attempt: 2 }),
       ev("handler_start", { toolName: "get_serp_results", attempt: 2 }),
-      ev("provider_success", { toolName: "get_serp_results", provider: "dataforseo", durationMs: 200 }),
-      ev("handler_success", { toolName: "get_serp_results", attempt: 2, durationMs: 210 }),
+      ev("provider_success", {
+        toolName: "get_serp_results",
+        provider: "dataforseo",
+        durationMs: 200,
+      }),
+      ev("handler_success", {
+        toolName: "get_serp_results",
+        attempt: 2,
+        durationMs: 210,
+      }),
       ev("tool_completed", { toolName: "get_serp_results", durationMs: 220 }),
     ];
     const view = reduceTraceFrame(frame(events));
@@ -227,7 +256,11 @@ describe("reduceTraceFrame — cache states", () => {
       ev("model_attempt", { toolName: "list_saved_keywords" }),
       ev("gate_allowed", { toolName: "list_saved_keywords" }),
       ev("cache_hit", { toolName: "list_saved_keywords", cacheHit: true }),
-      ev("tool_completed", { toolName: "list_saved_keywords", cacheHit: true, durationMs: 4 }),
+      ev("tool_completed", {
+        toolName: "list_saved_keywords",
+        cacheHit: true,
+        durationMs: 4,
+      }),
     ];
     const view = reduceTraceFrame(frame(events));
     const tool = view.tools[0];
@@ -242,11 +275,30 @@ describe("reduceTraceFrame — cache states", () => {
       ev("model_attempt", { toolName: "research_keywords" }),
       ev("gate_allowed", { toolName: "research_keywords" }),
       ev("cache_miss", { toolName: "research_keywords", cacheHit: false }), // dedup
-      ev("cache_miss", { toolName: "research_keywords", provider: "cache", cacheHit: false }), // R2
-      ev("provider_request", { toolName: "research_keywords", provider: "dataforseo" }),
-      ev("provider_success", { toolName: "research_keywords", provider: "dataforseo", durationMs: 640 }),
-      ev("cache_write", { toolName: "research_keywords", provider: "cache", cacheWrite: true }), // R2 write
-      ev("handler_success", { toolName: "research_keywords", attempt: 1, durationMs: 700 }),
+      ev("cache_miss", {
+        toolName: "research_keywords",
+        provider: "cache",
+        cacheHit: false,
+      }), // R2
+      ev("provider_request", {
+        toolName: "research_keywords",
+        provider: "dataforseo",
+      }),
+      ev("provider_success", {
+        toolName: "research_keywords",
+        provider: "dataforseo",
+        durationMs: 640,
+      }),
+      ev("cache_write", {
+        toolName: "research_keywords",
+        provider: "cache",
+        cacheWrite: true,
+      }), // R2 write
+      ev("handler_success", {
+        toolName: "research_keywords",
+        attempt: 1,
+        durationMs: 700,
+      }),
       ev("tool_completed", { toolName: "research_keywords", durationMs: 710 }),
     ];
     const view = reduceTraceFrame(frame(events));
@@ -270,11 +322,28 @@ describe("reduceTraceFrame — multiple tools, ordering, and unique counts", () 
       ev("model_attempt", { toolName: "get_search_console_performance" }),
       ev("gate_allowed", { toolName: "get_search_console_performance" }),
       ev("cache_miss", { toolName: "get_search_console_performance" }),
-      ev("handler_start", { toolName: "get_search_console_performance", attempt: 1 }),
-      ev("provider_request", { toolName: "get_search_console_performance", provider: "gsc" }),
-      ev("provider_success", { toolName: "get_search_console_performance", provider: "gsc", durationMs: 800 }),
-      ev("handler_success", { toolName: "get_search_console_performance", attempt: 1, durationMs: 820 }),
-      ev("tool_completed", { toolName: "get_search_console_performance", durationMs: 820 }),
+      ev("handler_start", {
+        toolName: "get_search_console_performance",
+        attempt: 1,
+      }),
+      ev("provider_request", {
+        toolName: "get_search_console_performance",
+        provider: "gsc",
+      }),
+      ev("provider_success", {
+        toolName: "get_search_console_performance",
+        provider: "gsc",
+        durationMs: 800,
+      }),
+      ev("handler_success", {
+        toolName: "get_search_console_performance",
+        attempt: 1,
+        durationMs: 820,
+      }),
+      ev("tool_completed", {
+        toolName: "get_search_console_performance",
+        durationMs: 820,
+      }),
     ];
     const view = reduceTraceFrame(frame(events));
     expect(view.tools.map((t) => t.toolName)).toEqual([
@@ -305,7 +374,9 @@ describe("filters", () => {
 
 describe("parseTraceFrame — WS frame intake", () => {
   it("accepts sam_trace frames and rejects everything else", () => {
-    expect(parseTraceFrame(JSON.stringify(frame(lifecycle402())))).not.toBeNull();
+    expect(
+      parseTraceFrame(JSON.stringify(frame(lifecycle402()))),
+    ).not.toBeNull();
     expect(parseTraceFrame('{"type":"cf_agent_chat_messages"}')).toBeNull();
     expect(parseTraceFrame("not json")).toBeNull();
     expect(
@@ -444,7 +515,8 @@ describe("reduceTraceFrame — DataForSEO diagnostics visibility", () => {
     const status = providerStatusLine(tool);
     expect(status).toBe("DataForSEO → HTTP 402");
   });
-});describe("reduceTraceFrame — DNS transport failure diagnostics", () => {
+});
+describe("reduceTraceFrame — DNS transport failure diagnostics", () => {
   const dnsLifecycle = (): SamToolTraceEvent[] => [
     ev("model_attempt", { toolName: "get_domain_overview" }),
     ev("gate_allowed", { toolName: "get_domain_overview" }),

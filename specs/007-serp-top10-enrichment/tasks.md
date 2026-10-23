@@ -95,8 +95,8 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [X] T018 Run `pnpm types:check && pnpm oxlint` and fix any violations
-- [X] T019 Run quickstart.md validation scenarios end-to-end (Top-10 selection, repeat/concurrent cost, failure degradation, MCP parity + vocabulary)
+- [x] T018 Run `pnpm types:check && pnpm oxlint` and fix any violations
+- [x] T019 Run quickstart.md validation scenarios end-to-end (Top-10 selection, repeat/concurrent cost, failure degradation, MCP parity + vocabulary)
 
 ---
 

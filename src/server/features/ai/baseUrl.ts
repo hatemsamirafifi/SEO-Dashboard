@@ -21,7 +21,10 @@ export function normalizeBaseUrl(raw: string): string {
 
 function isPrivateIpv4(host: string): boolean {
   const parts = host.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+  if (
+    parts.length !== 4 ||
+    parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)
+  ) {
     return false;
   }
   const [a, b] = parts;
@@ -44,9 +47,7 @@ function isPrivateIpv6(host: string): boolean {
   if (mappedHex) {
     const hi = parseInt(mappedHex[1], 16);
     const lo = parseInt(mappedHex[2], 16);
-    return isPrivateIpv4(
-      `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`,
-    );
+    return isPrivateIpv4(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
   }
   // Unique-local fc00::/7 and link-local fe80::/10.
   return /^(f[c-d][0-9a-f]{2}|fe[89ab][0-9a-f]{2}):/.test(lowered);
@@ -114,7 +115,8 @@ export function checkBaseUrl(
   if (hostIsMetadata) {
     return {
       ok: false,
-      reason: "Base URL points at a cloud metadata service, which is never allowed.",
+      reason:
+        "Base URL points at a cloud metadata service, which is never allowed.",
     };
   }
   const hostIsPrivate = isPrivateHost(parsed.hostname);
@@ -138,7 +140,9 @@ export function checkBaseUrl(
  * Deployment-aware check used by adapters: strict (HTTPS, public hosts only)
  * on the hosted deployment, permissive for explicit self-hosted/local setups.
  */
-export async function checkBaseUrlForDeployment(raw: string): Promise<BaseUrlCheck> {
+export async function checkBaseUrlForDeployment(
+  raw: string,
+): Promise<BaseUrlCheck> {
   let allowPrivate = true;
   try {
     allowPrivate = !(await isHostedServerAuthMode());

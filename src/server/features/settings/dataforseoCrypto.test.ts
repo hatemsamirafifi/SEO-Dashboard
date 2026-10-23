@@ -22,7 +22,10 @@ describe("dataforseoCrypto", () => {
 
   describe("encrypt and decrypt roundtrip", () => {
     it("encrypts and decrypts credentials successfully", async () => {
-      const creds = { login: "test-login@example.com", password: "secret-password-123" };
+      const creds = {
+        login: "test-login@example.com",
+        password: "secret-password-123",
+      };
       const ciphertext = await encryptDataforseoCredentials(creds);
 
       expect(ciphertext).toBeTypeOf("string");
@@ -37,13 +40,16 @@ describe("dataforseoCrypto", () => {
       const creds = { login: "user1", password: "pwd" };
       const ciphertext = await encryptDataforseoCredentials(creds);
 
-      process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "completely-different-key-32-chars!";
+      process.env.AI_CREDENTIALS_ENCRYPTION_KEY =
+        "completely-different-key-32-chars!";
       const decrypted = await decryptDataforseoCredentials(ciphertext);
       expect(decrypted).toBeNull();
     });
 
     it("fails safely (returns null) on corrupted ciphertext", async () => {
-      const decrypted = await decryptDataforseoCredentials("not-valid-ciphertext");
+      const decrypted = await decryptDataforseoCredentials(
+        "not-valid-ciphertext",
+      );
       expect(decrypted).toBeNull();
     });
 
@@ -51,7 +57,10 @@ describe("dataforseoCrypto", () => {
       delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
 
-      const encrypted = await encryptDataforseoCredentials({ login: "a", password: "b" });
+      const encrypted = await encryptDataforseoCredentials({
+        login: "a",
+        password: "b",
+      });
       expect(encrypted).toBeNull();
 
       const decrypted = await decryptDataforseoCredentials("some-cipher");
@@ -80,7 +89,9 @@ describe("dataforseoCrypto", () => {
 
   describe("parseLegacyDataforseoApiKey", () => {
     it("decodes valid base64 email:password format", () => {
-      const raw = Buffer.from("user@example.com:mypassword123").toString("base64");
+      const raw = Buffer.from("user@example.com:mypassword123").toString(
+        "base64",
+      );
       const result = parseLegacyDataforseoApiKey(raw);
       expect(result).toEqual({
         login: "user@example.com",

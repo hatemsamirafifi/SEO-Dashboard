@@ -10,7 +10,8 @@ export type InsightRow = typeof dashboardInsights.$inferSelect;
 export type InsightPreferenceRow = typeof insightUserPreferences.$inferSelect;
 
 export type InsightInsert = typeof dashboardInsights.$inferInsert;
-export type InsightPreferenceInsert = typeof insightUserPreferences.$inferInsert;
+export type InsightPreferenceInsert =
+  typeof insightUserPreferences.$inferInsert;
 
 async function findByKey(
   projectId: string,
@@ -45,9 +46,7 @@ async function listUnresolvedByProject(
     .orderBy(dashboardInsights.insightKey);
 }
 
-async function listVisibleByProject(
-  projectId: string,
-): Promise<InsightRow[]> {
+async function listVisibleByProject(projectId: string): Promise<InsightRow[]> {
   return listUnresolvedByProject(projectId);
 }
 

@@ -159,7 +159,9 @@ export async function upsertProjectAiSettingsRow(
 }
 
 /** Scope reset (S23): delete the override row; the parent scope inherits. */
-export async function deleteProjectAiSettings(projectId: string): Promise<void> {
+export async function deleteProjectAiSettings(
+  projectId: string,
+): Promise<void> {
   await db
     .delete(aiAgentSettings)
     .where(
@@ -203,7 +205,11 @@ export async function upsertOrganizationAiSettings(
   organizationId: string,
   input: AiAgentSettingsInput,
 ): Promise<void> {
-  await upsertOrganizationAiSettingsRow(organizationId, input, input.credentialsCiphertext ?? null);
+  await upsertOrganizationAiSettingsRow(
+    organizationId,
+    input,
+    input.credentialsCiphertext ?? null,
+  );
 }
 
 export async function upsertProjectAiSettings(
@@ -214,7 +220,11 @@ export async function upsertProjectAiSettings(
     await deleteProjectAiSettings(projectId);
     return;
   }
-  await upsertProjectAiSettingsRow(projectId, input, input.credentialsCiphertext ?? null);
+  await upsertProjectAiSettingsRow(
+    projectId,
+    input,
+    input.credentialsCiphertext ?? null,
+  );
 }
 
 export const AiSettingsRepository = {

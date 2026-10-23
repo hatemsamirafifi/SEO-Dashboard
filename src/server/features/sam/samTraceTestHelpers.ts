@@ -39,7 +39,11 @@ export function accessPaused40201(): Error {
       httpStatus: 200,
       dataforseoStatus: 40201,
       dataforseoMessage: "Account access temporarily paused.",
-      request: { target: "powersiment.ae", locationCode: 2784, languageCode: "ar" },
+      request: {
+        target: "powersiment.ae",
+        locationCode: 2784,
+        languageCode: "ar",
+      },
     },
   );
 }

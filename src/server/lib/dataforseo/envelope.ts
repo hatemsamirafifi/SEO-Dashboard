@@ -206,6 +206,17 @@ export function isDataforseoAccountPaused(
   return msg.includes("unusual activity") && msg.includes("paused access");
 }
 
+function isDataforseoTaskLike(value: unknown): value is DataforseoTaskLike {
+  if (typeof value !== "object" || value === null) return false;
+  if ("status_code" in value && typeof value.status_code !== "number") {
+    return false;
+  }
+  if ("status_message" in value && typeof value.status_message !== "string") {
+    return false;
+  }
+  return true;
+}
+
 export function findDataforseoAccountPausedItem(
   response: DataforseoResponseLike<DataforseoTaskLike> | null | undefined,
 ): { status_code?: number; status_message?: string; path?: string[] } | null {
@@ -215,8 +226,13 @@ export function findDataforseoAccountPausedItem(
     const found = response.tasks.find((t) => isDataforseoAccountPaused(t));
     if (found) return found;
   }
-  const singleTask = (response as { task?: DataforseoTaskLike }).task;
-  if (singleTask && isDataforseoAccountPaused(singleTask)) return singleTask;
+  const singleTask = response.task;
+  if (
+    isDataforseoTaskLike(singleTask) &&
+    isDataforseoAccountPaused(singleTask)
+  ) {
+    return singleTask;
+  }
   return null;
 }
 
@@ -269,7 +285,9 @@ export function assertOk<T extends DataforseoTaskLike>(
     );
     const pausedError = new AppError("DATAFORSEO_ACCESS_PAUSED", message, {
       provider: "DataForSEO",
-      providerStatusCode: String(pausedItem.status_code ?? response.status_code ?? 40201),
+      providerStatusCode: String(
+        pausedItem.status_code ?? response.status_code ?? 40201,
+      ),
       providerStatusMessage: message,
       errorClass: "DATAFORSEO_ACCESS_PAUSED",
     });

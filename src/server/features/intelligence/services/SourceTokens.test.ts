@@ -208,8 +208,7 @@ describe("SourceTokens selectors", () => {
         id: "run-a",
         configId: "cfg-a",
         projectId: "project-1",
-        // oxlint-disable-next-line typescript/no-unsafe-type-assertion, typescript/no-unsafe-assignment -- test simulation of partial rank check run
-        status: "partial" as any,
+        status: "partial",
         completedAt: "2026-01-03T00:00:00.000Z",
       },
     ]);
@@ -243,8 +242,7 @@ describe("SourceTokens selectors", () => {
       id: "run-empty",
       configId: "cfg-1",
       projectId: "project-1",
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion, typescript/no-unsafe-assignment -- test simulation of partial rank check run
-      status: "partial" as any,
+      status: "partial",
       completedAt: "2026-01-02T00:00:00.000Z",
     });
     expect(await SourceTokens.selectRankVersion("project-1")).toBeNull();

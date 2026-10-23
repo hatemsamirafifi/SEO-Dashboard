@@ -1,10 +1,6 @@
 import {
   isAutopilotRunActive,
-  type AutopilotAttemptStatus,
   type AutopilotRunStatus,
-  type AutopilotStepKind,
-  type AutopilotStepStatus,
-  type AutopilotWorkflowType,
 } from "@/shared/autopilot";
 
 // Pure autopilot-run readers for the SAM Autopilot tab (final-plan §13/§17).
@@ -23,9 +19,9 @@ import {
 
 export type AutopilotStepLike = {
   seq: number;
-  kind: AutopilotStepKind | string;
+  kind: string;
   name: string;
-  status: AutopilotStepStatus | string;
+  status: string;
   evidenceJson: string | null;
   toolCalls?: number | null;
 };
@@ -33,14 +29,14 @@ export type AutopilotStepLike = {
 export type AutopilotAttemptLike = {
   id: string;
   attemptNumber: number;
-  status: AutopilotAttemptStatus | string;
+  status: string;
   invalidationReason: string | null;
 };
 
 export type AutopilotRunLike = {
   id: string;
-  workflowType: AutopilotWorkflowType | string;
-  status: AutopilotRunStatus | string;
+  workflowType: string;
+  status: string;
   evidenceHash: string | null;
   error?: string | null;
   errorClass?: string | null;

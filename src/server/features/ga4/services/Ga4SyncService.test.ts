@@ -47,8 +47,9 @@ const mocks = vi.hoisted(() => ({
     vi.fn<(typeof Ga4SyncRepository)["upsertAcquisitionRows"]>(),
   upsertLandingRows: vi.fn<(typeof Ga4SyncRepository)["upsertLandingRows"]>(),
   upsertEventRows: vi.fn<(typeof Ga4SyncRepository)["upsertEventRows"]>(),
-  upsertGeoRows: vi.fn(),
-  upsertTechnologyRows: vi.fn(),
+  upsertGeoRows: vi.fn<(typeof Ga4SyncRepository)["upsertGeoRows"]>(),
+  upsertTechnologyRows:
+    vi.fn<(typeof Ga4SyncRepository)["upsertTechnologyRows"]>(),
   deterministicFactId: vi.fn(async () => "fact-id"),
   runReport: vi.fn<Ga4Client["runReport"]>(),
   batchRunReports: vi.fn<Ga4Client["batchRunReports"]>(),
@@ -673,14 +674,7 @@ describe("Ga4SyncService.runSync geo grain", () => {
     });
     expect(result.status).toBe("completed");
     expect(mocks.upsertGeoRows).toHaveBeenCalledTimes(1);
-    const rows = mocks.upsertGeoRows.mock.calls[0][0] as Array<{
-      id: string;
-      date: string;
-      country: string;
-      sessions: number;
-      newUsers: number;
-      isOtherRow: boolean;
-    }>;
+    const rows = mocks.upsertGeoRows.mock.calls[0][0];
     expect(rows).toHaveLength(14);
     const us = rows.filter((row) => row.country === "United States");
     expect(us).toHaveLength(7);
@@ -693,7 +687,7 @@ describe("Ga4SyncService.runSync geo grain", () => {
     // Geo per-date sessions reconcile with the summary grain (7 + 3 = 10).
     const byDate = new Map<string, number>();
     for (const row of rows) {
-      byDate.set(row.date, (byDate.get(row.date) ?? 0) + row.sessions);
+      byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.sessions ?? 0));
     }
     for (const total of byDate.values()) expect(total).toBe(10);
     const geo = mocks.markUnits.mock.calls
@@ -755,11 +749,7 @@ describe("Ga4SyncService.runSync geo grain", () => {
       startDate: "2025-01-01",
       endDate: "2025-01-01",
     });
-    const rows = mocks.upsertGeoRows.mock.calls[0][0] as Array<{
-      country: string;
-      sessions: number;
-      isOtherRow: boolean;
-    }>;
+    const rows = mocks.upsertGeoRows.mock.calls[0][0];
     // 300 retained + 1 tail row; sessions rank desc so Country 300 folds in.
     expect(rows).toHaveLength(301);
     const other = rows.filter((row) => row.isOtherRow);
@@ -833,14 +823,7 @@ describe("Ga4SyncService.runSync technology grain", () => {
     });
     expect(result.status).toBe("completed");
     expect(mocks.upsertTechnologyRows).toHaveBeenCalledTimes(1);
-    const rows = mocks.upsertTechnologyRows.mock.calls[0][0] as Array<{
-      date: string;
-      device: string;
-      browser: string;
-      os: string;
-      sessions: number;
-      isOtherRow: boolean;
-    }>;
+    const rows = mocks.upsertTechnologyRows.mock.calls[0][0];
     expect(rows).toHaveLength(14);
     expect(rows[0]).toMatchObject({
       device: "desktop",
@@ -856,7 +839,7 @@ describe("Ga4SyncService.runSync technology grain", () => {
     // Tech per-date sessions reconcile with the summary grain (6 + 4 = 10).
     const byDate = new Map<string, number>();
     for (const row of rows) {
-      byDate.set(row.date, (byDate.get(row.date) ?? 0) + row.sessions);
+      byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.sessions ?? 0));
     }
     for (const total of byDate.values()) expect(total).toBe(10);
     const tech = mocks.markUnits.mock.calls
@@ -892,13 +875,7 @@ describe("Ga4SyncService.runSync technology grain", () => {
       startDate: "2025-01-01",
       endDate: "2025-01-01",
     });
-    const rows = mocks.upsertTechnologyRows.mock.calls[0][0] as Array<{
-      device: string;
-      browser: string;
-      os: string;
-      sessions: number;
-      isOtherRow: boolean;
-    }>;
+    const rows = mocks.upsertTechnologyRows.mock.calls[0][0];
     expect(rows).toHaveLength(1001);
     const other = rows.filter((row) => row.isOtherRow);
     expect(other).toHaveLength(1);

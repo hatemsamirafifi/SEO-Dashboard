@@ -102,6 +102,20 @@ const BASE = {
   userEmail: "owner@example.com",
 };
 
+/**
+ * `expect.stringContaining` is typed as `any`, so embedding it in a
+ * `toMatchObject` payload would push an untyped value into the assertion.
+ * Split the check instead: the error code via `toMatchObject`, the message
+ * via `toThrow` (substring match, same semantics as `stringContaining`).
+ */
+async function expectRejection(
+  promise: Promise<unknown>,
+  expected: { code: string; message: string },
+): Promise<void> {
+  await expect(promise).rejects.toMatchObject({ code: expected.code });
+  await expect(promise).rejects.toThrow(expected.message);
+}
+
 beforeAll(async () => {
   if (!database.client) throw new Error("Test database was not initialized");
   await setupAutopilotTestDb(database.client);
@@ -163,15 +177,16 @@ describe("startAutopilotRun", () => {
       state: "BLOCKED",
       latestVerdict: null,
     });
-    await expect(
+    await expectRejection(
       AutopilotService.startAutopilotRun({
         ...BASE,
         workflowType: "competitor_gap",
       }),
-    ).rejects.toMatchObject({
-      code: "VALIDATION_ERROR",
-      message: expect.stringContaining("G5 gate not ready"),
-    });
+      {
+        code: "VALIDATION_ERROR",
+        message: "G5 gate not ready",
+      },
+    );
   });
 
   it("rejects competitor_gap workflow when G5 is READY but no US2 materialized evidence exists", async () => {
@@ -180,17 +195,17 @@ describe("startAutopilotRun", () => {
       state: "READY",
       latestVerdict: null,
     });
-    await expect(
+    await expectRejection(
       AutopilotService.startAutopilotRun({
         ...BASE,
         workflowType: "competitor_gap",
       }),
-    ).rejects.toMatchObject({
-      code: "VALIDATION_ERROR",
-      message: expect.stringContaining(
-        "US2 operational acceptance requires valid materialized opportunity evidence",
-      ),
-    });
+      {
+        code: "VALIDATION_ERROR",
+        message:
+          "US2 operational acceptance requires valid materialized opportunity evidence",
+      },
+    );
   });
 
   it("allows competitor_gap workflow when G5 gate is READY and US2 opportunities exist", async () => {
@@ -309,15 +324,16 @@ describe("startAutopilotRun", () => {
       firstDetectedAt: "2026-01-01T00:00:00.000Z",
       lastDetectedAt: "2026-01-01T00:00:00.000Z",
     });
-    await expect(
+    await expectRejection(
       AutopilotService.startAutopilotRun({
         ...BASE,
         workflowType: "competitor_gap",
       }),
-    ).rejects.toMatchObject({
-      code: "VALIDATION_ERROR",
-      message: expect.stringContaining("lacks valid coverage or freshness"),
-    });
+      {
+        code: "VALIDATION_ERROR",
+        message: "lacks valid coverage or freshness",
+      },
+    );
   });
 });
 
@@ -407,16 +423,17 @@ describe("cancelAutopilotRun", () => {
       },
       restart: async () => {},
     });
-    await expect(
+    await expectRejection(
       AutopilotService.cancelAutopilotRun({
         runId,
         projectId: "project-1",
         organizationId: "org-1",
       }),
-    ).rejects.toMatchObject({
-      code: "INTERNAL_ERROR",
-      message: expect.stringContaining("terminate RPC failure"),
-    });
+      {
+        code: "INTERNAL_ERROR",
+        message: "terminate RPC failure",
+      },
+    );
     const run = await AutopilotRepository.getRun(runId);
     expect(run?.status).toBe("pending");
   });
@@ -479,13 +496,12 @@ describe("resumeAutopilotRun", () => {
       workflowType: "test-flow",
     });
     instances.states.set(runId, "complete");
-    await expect(
+    await expectRejection(
       AutopilotService.resumeAutopilotRun({ ...BASE, runId }),
-    ).rejects.toMatchObject({
-      code: "VALIDATION_ERROR",
-      message: expect.stringContaining(
-        "Cannot resume a completed workflow instance",
-      ),
-    });
+      {
+        code: "VALIDATION_ERROR",
+        message: "Cannot resume a completed workflow instance",
+      },
+    );
   });
 });

@@ -75,7 +75,11 @@ describe("required 402 trace — handler once, 402, blocked ×2, fallback", () =
     bus.push({ event: "model_attempt", toolName: "research_keywords" });
     bus.push({ event: "gate_allowed", toolName: "research_keywords" });
     bus.push({ event: "cache_miss", toolName: "research_keywords" });
-    bus.push({ event: "handler_start", toolName: "research_keywords", attempt: 1 });
+    bus.push({
+      event: "handler_start",
+      toolName: "research_keywords",
+      attempt: 1,
+    });
     bus.push({ event: "provider_request", provider: "dataforseo" });
     bus.push({
       event: "provider_error",
@@ -102,14 +106,24 @@ describe("required 402 trace — handler once, 402, blocked ×2, fallback", () =
       errorCode: "CREDITS_UNAVAILABLE",
     });
     bus.push({ event: "model_attempt", toolName: "research_keywords" });
-    bus.push({ event: "gate_blocked", toolName: "research_keywords", blocked: true });
+    bus.push({
+      event: "gate_blocked",
+      toolName: "research_keywords",
+      blocked: true,
+    });
     bus.push({ event: "model_attempt", toolName: "research_keywords" });
-    bus.push({ event: "gate_blocked", toolName: "research_keywords", blocked: true });
+    bus.push({
+      event: "gate_blocked",
+      toolName: "research_keywords",
+      blocked: true,
+    });
 
     const events = bus.snapshot()?.events ?? [];
     expect(count(events, "model_attempt")).toBe(3);
     expect(count(events, "handler_start")).toBe(1);
-    expect(events.filter((e) => e.event === "provider_request")).toHaveLength(1);
+    expect(events.filter((e) => e.event === "provider_request")).toHaveLength(
+      1,
+    );
     expect(count(events, "gate_blocked")).toBe(2);
     expect(count(events, "retry_scheduled")).toBe(0);
   });

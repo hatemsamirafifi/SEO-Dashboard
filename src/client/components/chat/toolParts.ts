@@ -24,7 +24,11 @@ export function isToolPart(part: MessagePart): part is ChatToolPart {
 
 /** Get the normalized tool type identifier (e.g. `tool-research_keywords`). */
 export function getToolPartType(part: ChatToolPart): string {
-  if (part.type === "dynamic-tool" && "toolName" in part && typeof part.toolName === "string") {
+  if (
+    part.type === "dynamic-tool" &&
+    "toolName" in part &&
+    typeof part.toolName === "string"
+  ) {
     return `tool-${part.toolName}`;
   }
   return part.type;
@@ -32,7 +36,11 @@ export function getToolPartType(part: ChatToolPart): string {
 
 /** Get the bare tool name without `tool-` prefix (e.g. `research_keywords`). */
 export function getToolPartName(part: ChatToolPart): string {
-  if (part.type === "dynamic-tool" && "toolName" in part && typeof part.toolName === "string") {
+  if (
+    part.type === "dynamic-tool" &&
+    "toolName" in part &&
+    typeof part.toolName === "string"
+  ) {
     return part.toolName;
   }
   return part.type.replace(/^tool-/, "");
@@ -61,7 +69,9 @@ export type ToolPartGroup = {
 };
 
 /** Best-effort read of a tool part's structured output object. */
-export function toolPartOutput(part: ChatToolPart): Record<string, unknown> | null {
+export function toolPartOutput(
+  part: ChatToolPart,
+): Record<string, unknown> | null {
   if (!("output" in part)) return null;
   return isRecord(part.output) ? part.output : null;
 }
@@ -91,7 +101,10 @@ export function isToolPartFailed(part: ChatToolPart): boolean {
   if (part.state === "output-available") {
     const output = toolPartOutput(part);
     if (output) {
-      if (typeof output.recoveryNotice === "string" && output.recoveryNotice.length > 0) {
+      if (
+        typeof output.recoveryNotice === "string" &&
+        output.recoveryNotice.length > 0
+      ) {
         return true;
       }
       if (typeof output.error === "string" && output.error.length > 0) {
@@ -112,14 +125,22 @@ export function isToolPartFailed(part: ChatToolPart): boolean {
 export function getToolFailureDetail(part: ChatToolPart): string | null {
   const output = toolPartOutput(part);
   const text =
-    (output && typeof output.recoveryNotice === "string" && output.recoveryNotice) ||
+    (output &&
+      typeof output.recoveryNotice === "string" &&
+      output.recoveryNotice) ||
     (output && typeof output.error === "string" && output.error) ||
-    ("errorText" in part && typeof part.errorText === "string" && part.errorText) ||
+    ("errorText" in part &&
+      typeof part.errorText === "string" &&
+      part.errorText) ||
     "";
 
   if (!text) return null;
 
-  if (/credits? unavailable|insufficient credits|payment required|HTTP_402/i.test(text)) {
+  if (
+    /credits? unavailable|insufficient credits|payment required|HTTP_402/i.test(
+      text,
+    )
+  ) {
     return "Credits unavailable — using fallback";
   }
   if (/rate.?limit/i.test(text)) {
@@ -144,9 +165,7 @@ export function getToolFailureDetail(part: ChatToolPart): string | null {
  * stay separate because document order carries meaning there. Reasoning/text
  * parts break a run like any other part type.
  */
-export function groupConsecutiveToolParts(
-  parts: unknown,
-): ToolPartGroup[] {
+export function groupConsecutiveToolParts(parts: unknown): ToolPartGroup[] {
   const safe = safeParts(parts);
   const groups: ToolPartGroup[] = [];
   const seenTypes = new Set<string>();
@@ -210,7 +229,11 @@ export function buildRenderPlan(parts: unknown): RenderPlanEntry[] {
 
     // If an internal retry was blocked, and this tool was already initiated/shown:
     // absorb it so normal chat does not duplicate badges or inflate legitimate execution counts.
-    if (isBlocked && (seenToolTypes.has(partType) || (currentGroup && currentGroup.type === partType))) {
+    if (
+      isBlocked &&
+      (seenToolTypes.has(partType) ||
+        (currentGroup && currentGroup.type === partType))
+    ) {
       continue;
     }
 

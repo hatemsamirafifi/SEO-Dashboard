@@ -47,11 +47,11 @@ The container is reachable at `127.0.0.1:${PORT}` only.
 
 ## Scripts
 
-| Script | What it does |
-|--------|--------------|
-| `pnpm dev:docker` | `docker compose -f compose.dev.yaml up --build` (foreground logs) |
-| `pnpm dev:docker:down` | Stop the container (`down`) |
-| `pnpm dev:docker:logs` | Tail logs from a running container |
+| Script                  | What it does                                                                |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `pnpm dev:docker`       | `docker compose -f compose.dev.yaml up --build` (foreground logs)           |
+| `pnpm dev:docker:down`  | Stop the container (`down`)                                                 |
+| `pnpm dev:docker:logs`  | Tail logs from a running container                                          |
 | `pnpm dev:docker:reset` | `down -v` — wipe the volumes (fresh node_modules + fresh local D1/R2 state) |
 
 ## Environment
@@ -59,13 +59,13 @@ The container is reachable at `127.0.0.1:${PORT}` only.
 `compose.dev.yaml` reads `.env.docker` if present (copy
 `.env.docker.example`). Key defaults for local dev:
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `AUTH_MODE` | `local_noauth` | No auth, single admin user |
-| `PORT` | `3001` | Host port (container always runs on 3001 internally) |
-| `DATAFORSEO_ENABLED` | `false` | Keep paid DataForSEO off in local dev |
-| `GOOGLE_ADS_ENABLED` / `GOOGLE_SEARCH_CONSOLE_ENABLED` / `BING_WEBMASTER_ENABLED` | `false` | Third-party providers off |
-| `LOCAL_CRAWLER_ENABLED` | `true` | Site-audit crawler runs locally |
+| Variable                                                                          | Default        | Meaning                                              |
+| --------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------- |
+| `AUTH_MODE`                                                                       | `local_noauth` | No auth, single admin user                           |
+| `PORT`                                                                            | `3001`         | Host port (container always runs on 3001 internally) |
+| `DATAFORSEO_ENABLED`                                                              | `false`        | Keep paid DataForSEO off in local dev                |
+| `GOOGLE_ADS_ENABLED` / `GOOGLE_SEARCH_CONSOLE_ENABLED` / `BING_WEBMASTER_ENABLED` | `false`        | Third-party providers off                            |
+| `LOCAL_CRAWLER_ENABLED`                                                           | `true`         | Site-audit crawler runs locally                      |
 
 Set `DATAFORSEO_API_KEY` etc. in `.env.docker` when you need to exercise the
 DataForSEO provider locally (billing applies — see
@@ -77,25 +77,25 @@ SAM reads its provider/model configuration from the settings UI (global
 setting on the Settings page, per-project override on the project settings
 page) and falls back to these environment variables:
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `AI_AGENT_PROVIDER` | `openrouter` | Default provider when no settings row is saved (`openrouter`/`openai`/`gemini`/`anthropic`) |
-| `OPENROUTER_API_KEY` | *(none)* | OpenRouter credential for model calls. Without at least one provider key, SAM responds with a billing/configuration notice instead of running |
-| `OPENAI_API_KEY` | *(none)* | OpenAI credential |
-| `GEMINI_API_KEY` | *(none)* | Google Gemini credential |
-| `ANTHROPIC_API_KEY` | *(none)* | Anthropic credential |
-| `OLLAMA_API_KEY` | *(none)* | Ollama Cloud credential (no local install needed; default endpoint `https://ollama.com/v1`) |
-| `OPENAI_COMPATIBLE_API_KEY` | *(none)* | OpenAI-Compatible gateway credential (optional for key-less gateways) |
-| `OPENAI_COMPATIBLE_BASE_URL` | *(none)* | OpenAI-Compatible endpoint, e.g. `http://host.docker.internal:11434/v1` for local Ollama from inside Docker |
-| `OLLAMA_CLOUD_BASE_URL` | `https://ollama.com/v1` | Ollama Cloud endpoint override |
-| `OPENAI_COMPATIBLE_MODEL` / `OLLAMA_CLOUD_MODEL` | *(none)* | Per-provider fallback models |
-| `AI_AGENT_MODEL` | *(none)* | Preferred env fallback model (for `AI_AGENT_PROVIDER`) |
-| `OPENROUTER_MODEL` | `minimax/minimax-m3` | OpenRouter fallback model |
-| `OPENAI_MODEL` | `gpt-5` | OpenAI fallback model |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini fallback model |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-5` | Anthropic fallback model |
-| `AI_AGENT_MAX_STEPS` | `48` | Think turn step bound |
-| `AI_AGENT_MAX_TOOL_CALLS` | `24` | Tool-call cap per turn (bounded-loop guard) |
+| Variable                                         | Default                 | Meaning                                                                                                                                       |
+| ------------------------------------------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AI_AGENT_PROVIDER`                              | `openrouter`            | Default provider when no settings row is saved (`openrouter`/`openai`/`gemini`/`anthropic`)                                                   |
+| `OPENROUTER_API_KEY`                             | _(none)_                | OpenRouter credential for model calls. Without at least one provider key, SAM responds with a billing/configuration notice instead of running |
+| `OPENAI_API_KEY`                                 | _(none)_                | OpenAI credential                                                                                                                             |
+| `GEMINI_API_KEY`                                 | _(none)_                | Google Gemini credential                                                                                                                      |
+| `ANTHROPIC_API_KEY`                              | _(none)_                | Anthropic credential                                                                                                                          |
+| `OLLAMA_API_KEY`                                 | _(none)_                | Ollama Cloud credential (no local install needed; default endpoint `https://ollama.com/v1`)                                                   |
+| `OPENAI_COMPATIBLE_API_KEY`                      | _(none)_                | OpenAI-Compatible gateway credential (optional for key-less gateways)                                                                         |
+| `OPENAI_COMPATIBLE_BASE_URL`                     | _(none)_                | OpenAI-Compatible endpoint, e.g. `http://host.docker.internal:11434/v1` for local Ollama from inside Docker                                   |
+| `OLLAMA_CLOUD_BASE_URL`                          | `https://ollama.com/v1` | Ollama Cloud endpoint override                                                                                                                |
+| `OPENAI_COMPATIBLE_MODEL` / `OLLAMA_CLOUD_MODEL` | _(none)_                | Per-provider fallback models                                                                                                                  |
+| `AI_AGENT_MODEL`                                 | _(none)_                | Preferred env fallback model (for `AI_AGENT_PROVIDER`)                                                                                        |
+| `OPENROUTER_MODEL`                               | `minimax/minimax-m3`    | OpenRouter fallback model                                                                                                                     |
+| `OPENAI_MODEL`                                   | `gpt-5`                 | OpenAI fallback model                                                                                                                         |
+| `GEMINI_MODEL`                                   | `gemini-2.5-flash`      | Gemini fallback model                                                                                                                         |
+| `ANTHROPIC_MODEL`                                | `claude-sonnet-4-5`     | Anthropic fallback model                                                                                                                      |
+| `AI_AGENT_MAX_STEPS`                             | `48`                    | Think turn step bound                                                                                                                         |
+| `AI_AGENT_MAX_TOOL_CALLS`                        | `24`                    | Tool-call cap per turn (bounded-loop guard)                                                                                                   |
 
 To run SAM locally, add your key(s) to `.env.docker` (a valid key, not a
 placeholder), then restart the container:

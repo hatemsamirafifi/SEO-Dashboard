@@ -245,7 +245,8 @@ export function KeywordTrendModal({
                       <td>
                         <span
                           className={`badge badge-sm font-mono text-[11px] ${
-                            r.rankingStatus === "RANKED" || (r.position !== null && !r.rankingStatus)
+                            r.rankingStatus === "RANKED" ||
+                            (r.position !== null && !r.rankingStatus)
                               ? "badge-success text-success-content"
                               : r.rankingStatus === "CHECK_FAILED"
                                 ? "badge-error text-error-content"
@@ -254,14 +255,17 @@ export function KeywordTrendModal({
                                   : "badge-ghost text-base-content/40"
                           }`}
                         >
-                          {r.rankingStatus ?? (r.position !== null ? "RANKED" : "—")}
+                          {r.rankingStatus ??
+                            (r.position !== null ? "RANKED" : "—")}
                         </span>
                       </td>
                       <td>
                         {r.rankingStatus === "CHECK_FAILED" ? (
                           <span
                             className="text-error text-xs"
-                            title={r.errorMessage ?? r.providerStatus ?? undefined}
+                            title={
+                              r.errorMessage ?? r.providerStatus ?? undefined
+                            }
                           >
                             Failed
                           </span>

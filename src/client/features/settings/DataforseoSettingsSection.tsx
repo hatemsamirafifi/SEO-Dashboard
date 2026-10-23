@@ -354,9 +354,7 @@ export function DataforseoSettingsSection({
               type="checkbox"
               className="toggle toggle-primary toggle-sm"
               checked={circuitBreakerEnabled}
-              onChange={(event) =>
-                setCircuitBreakerInput(event.target.checked)
-              }
+              onChange={(event) => setCircuitBreakerInput(event.target.checked)}
             />
             Circuit breaker
           </label>

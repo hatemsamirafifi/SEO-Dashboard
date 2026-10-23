@@ -253,7 +253,9 @@ export async function getScopeAiSettingsView(input: {
     env,
   });
 
-  const maskStored = (map: CredentialMap): Record<string, ScopeCredentialStatus> => {
+  const maskStored = (
+    map: CredentialMap,
+  ): Record<string, ScopeCredentialStatus> => {
     const out: Record<string, ScopeCredentialStatus> = {};
     for (const [providerId, key] of Object.entries(map)) {
       out[providerId] = { stored: true, masked: maskApiKey(key) };
@@ -286,4 +288,3 @@ export async function getScopeAiSettingsView(input: {
     providers: await getProviderStatuses(env.apiKeys),
   };
 }
-

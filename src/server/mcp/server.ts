@@ -29,6 +29,7 @@ import {
   getAuditStatusTool,
   runSiteAuditTool,
 } from "@/server/mcp/tools/site-audit-tools";
+import { cancelAuditTool } from "@/server/mcp/tools/site-audit-cancel-tool";
 import {
   getAnalyticsLandingPagesTool,
   getAnalyticsOverviewTool,
@@ -253,6 +254,15 @@ export function registerOpenSeoMcpTools(server: McpServer) {
       getAuditStatusTool.name,
       getAuditStatusTool.config.outputSchema,
       getAuditStatusTool.handler,
+    ),
+  );
+  server.registerTool(
+    cancelAuditTool.name,
+    cancelAuditTool.config,
+    instrumentMcpToolHandler(
+      cancelAuditTool.name,
+      cancelAuditTool.config.outputSchema,
+      cancelAuditTool.handler,
     ),
   );
   server.registerTool(

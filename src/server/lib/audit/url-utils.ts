@@ -40,6 +40,79 @@ export function normalizeUrl(url: string, base?: string): string | null {
 }
 
 /**
+ * Query parameters that never change which page a URL serves: analytics and
+ * ad-click identifiers. Two URLs differing only by these are the same page
+ * for crawl-dedup purposes; anything else (pagination ?page=N, filters) is
+ * meaningful and stays part of a page's identity.
+ */
+const TRACKING_PARAM_PREFIXES = ["utm_", "hsa_", "pk_"];
+const TRACKING_PARAMS = new Set([
+  "gclid",
+  "wbraid",
+  "gbraid",
+  "gclsrc",
+  "fbclid",
+  "msclkid",
+  "mc_cid",
+  "mc_eid",
+  "igshid",
+  "igsh",
+  "yclid",
+  "twclid",
+  "ttclid",
+  "li_fat_id",
+  "_ga",
+  "s_kwcid",
+  "wickedid",
+  "oly_enc_id",
+  "oly_anon_id",
+  "vero_id",
+  "ref_src",
+  "ref_url",
+  "spm",
+  "scm",
+]);
+
+function isTrackingParam(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    TRACKING_PARAMS.has(lower) ||
+    TRACKING_PARAM_PREFIXES.some((prefix) => lower.startsWith(prefix))
+  );
+}
+
+/**
+ * Crawl-dedup key: normalized host + path + retained query params, no
+ * fragment, tracking parameters collapsed. Meaningful params (pagination
+ * ?page=N, category filters) are preserved so distinct pages never collapse
+ * together, while ?utm_source= variants of one page dedup to a single crawl.
+ *
+ * This is membership-keying only — page rows and the frontier keep full
+ * normalized URLs, so the first-seen variant is the one crawled and stored.
+ */
+export function crawlDedupKey(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    parsed.hostname = parsed.hostname.toLowerCase();
+    parsed.hash = "";
+    const retained: Array<[string, string]> = [];
+    for (const [key, value] of parsed.searchParams) {
+      if (!isTrackingParam(key)) retained.push([key, value]);
+    }
+    parsed.search = "";
+    for (const [key, value] of retained) {
+      parsed.searchParams.append(key, value);
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * A canonical key for URL equality checks that should survive the common
  * redirect patterns a site uses to reach its canonical form:
  *   - trailing-slash redirects   (/services -> /services/)

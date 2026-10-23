@@ -50,8 +50,8 @@ export function BaseUrlSection({
       />
       <p className="text-xs text-base-content/50">
         Absolute http(s) URL; no embedded credentials; cloud metadata and (on
-        hosted deployments) private/loopback targets are rejected. Ollama
-        Cloud default: https://ollama.com/v1
+        hosted deployments) private/loopback targets are rejected. Ollama Cloud
+        default: https://ollama.com/v1
       </p>
     </div>
   );
@@ -247,7 +247,8 @@ export function FieldHeader({
 export function EffectiveReadout({ model }: { model: string | null }) {
   return (
     <p className="text-xs text-base-content/50">
-      In effect: <span className="font-mono">{model ?? "provider default"}</span>
+      In effect:{" "}
+      <span className="font-mono">{model ?? "provider default"}</span>
     </p>
   );
 }

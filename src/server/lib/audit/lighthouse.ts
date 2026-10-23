@@ -2,11 +2,13 @@ import { detectUrlTemplate, canonicalUrlKey } from "./url-utils";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
 import type { LighthouseResult, LighthouseStrategy } from "./types";
+import type { PageFetchClass } from "@/shared/audit-fetch-class";
 import { putTextToR2 } from "@/server/lib/r2";
 
 interface LighthouseSamplePage {
   url: string;
   statusCode: number;
+  fetchClass: PageFetchClass;
 }
 
 function canonicalUrlKeyWithoutTrailingSlash(url: string): string {
@@ -137,9 +139,11 @@ export function selectLighthouseSample(
 ): string[] {
   if (strategy === "none") return [];
 
-  // Only consider pages that loaded successfully
+  // Only consider pages that loaded successfully. A bot challenge can answer
+  // 200 (see classify-fetch), and a paid Lighthouse check of it measures the
+  // challenge page, not the site.
   const validPages = pages.filter(
-    (p) => p.statusCode >= 200 && p.statusCode < 300,
+    (p) => p.fetchClass === "ok" && p.statusCode >= 200 && p.statusCode < 300,
   );
 
   // strategy === "auto": homepage + 1 per URL pattern, capped at 10

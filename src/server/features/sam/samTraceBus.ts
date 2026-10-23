@@ -51,7 +51,9 @@ export type SamTraceTurn = {
 
 export type SamTraceBus = {
   /** Begin a new turn: resets events, mints a turn id. */
-  startTurn(input?: { ai?: { provider: string; model: string | null } }): string;
+  startTurn(input?: {
+    ai?: { provider: string; model: string | null };
+  }): string;
   /** Update the effective AI provider/model after config resolution. */
   setAi(ai: { provider: string; model: string | null }): void;
   /** Append one event to the current turn (no-op outside a turn). */
@@ -103,14 +105,18 @@ export function createSamTraceBus(): SamTraceBus {
       toolName: scrub(input.toolName ?? scope?.toolName),
       provider: scrub(input.provider),
       attempt: input.attempt ?? scope?.attempt,
-      errorCode: input.errorCode === undefined ? undefined : scrub(input.errorCode),
+      errorCode:
+        input.errorCode === undefined ? undefined : scrub(input.errorCode),
       httpStatus: input.httpStatus,
       retryAllowed: input.retryAllowed,
       blocked: input.blocked,
       durationMs: input.durationMs,
       cacheHit: input.cacheHit,
       cacheWrite: input.cacheWrite,
-      fallbackHint: input.fallbackHint === undefined ? undefined : scrub(input.fallbackHint),
+      fallbackHint:
+        input.fallbackHint === undefined
+          ? undefined
+          : scrub(input.fallbackHint),
       metadata: scrubMetadata(input.metadata),
     };
     current.events.push(event);
@@ -216,10 +222,7 @@ function scrubMetadata(
  * providers) attribute their events to the current tool + attempt without
  * explicit plumbing. Pure pass-through of the callback's return value.
  */
-export function runWithTraceScope<T>(
-  scope: TraceScope,
-  callback: () => T,
-): T {
+export function runWithTraceScope<T>(scope: TraceScope, callback: () => T): T {
   return traceScopeStorage.run(scope, callback);
 }
 

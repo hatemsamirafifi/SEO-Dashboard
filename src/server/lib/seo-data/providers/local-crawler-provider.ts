@@ -1,8 +1,5 @@
 import type { SEODataProvider, SEODataRequest } from "../types";
-import {
-  ProviderUnsupportedError,
-  ProviderUnavailableError,
-} from "../errors";
+import { ProviderUnsupportedError, ProviderUnavailableError } from "../errors";
 import { getProviderFeatureFlags } from "../config";
 import { isCrawlTargetBlocked } from "./ssrf-guard";
 
@@ -110,9 +107,10 @@ async function crawlSinglePage(
   _timeoutMs: number,
 ): Promise<CrawlSummary> {
   // Dynamic import to keep cheerio out of the eager module graph
-  const { crawlPage } = await import("@/server/workflows/site-audit-workflow-helpers");
+  const { crawlPage } =
+    await import("@/server/workflows/site-audit-workflow-helpers");
 
-  const page = await crawlPage(url, 0, false);
+  const page = await crawlPage(url);
 
   return {
     statusCode: page.statusCode,

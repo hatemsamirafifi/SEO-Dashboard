@@ -301,9 +301,9 @@ export function classifyToolError(error: unknown): ClassifiedToolError {
 }
 
 /**
-  * Classify free-text failure detail (per-item batch errors, which never
-  * throw) with the same text ladder as thrown errors.
-  */
+ * Classify free-text failure detail (per-item batch errors, which never
+ * throw) with the same text ladder as thrown errors.
+ */
 export function classifyToolErrorText(detail: string): ClassifiedToolError {
   return classifyToolError(new Error(detail));
 }

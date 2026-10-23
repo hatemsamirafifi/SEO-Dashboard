@@ -46,9 +46,7 @@ import {
 import { ScanLedgerRepository } from "../repositories/ScanLedgerRepository";
 import { InsightService } from "./InsightService";
 
-function insightRow(
-  overrides: Partial<InsightInsert> = {},
-): InsightInsert {
+function insightRow(overrides: Partial<InsightInsert> = {}): InsightInsert {
   return {
     id: `ins-${Math.random().toString(36).slice(2)}`,
     projectId: "project-1",
@@ -127,7 +125,9 @@ function baseInput(overrides = {}) {
 
 describe("InsightService.getDashboardInsights", () => {
   it("hides resolved and dismissed rows, counts dismissals", async () => {
-    await seed(insightRow({ id: "ins-1", insightKey: "dashboard:ranking_drop" }));
+    await seed(
+      insightRow({ id: "ins-1", insightKey: "dashboard:ranking_drop" }),
+    );
     await seed(
       insightRow({
         id: "ins-2",
@@ -230,7 +230,11 @@ describe("InsightService.getDashboardInsights", () => {
   it("treats lower dismissed versions and expired snoozes as visible, with snooze overriding newer content version", async () => {
     // Lower dismissed version (contentVersion 3 > dismissedVersion 2) -> visible
     await seed(
-      insightRow({ id: "ins-1", insightKey: "k:stale-dismiss", contentVersion: 3 }),
+      insightRow({
+        id: "ins-1",
+        insightKey: "k:stale-dismiss",
+        contentVersion: 3,
+      }),
     );
     // Expired snooze in past -> visible
     await seed(insightRow({ id: "ins-2", insightKey: "k:expired-snooze" }));
@@ -238,7 +242,11 @@ describe("InsightService.getDashboardInsights", () => {
     await seed(insightRow({ id: "ins-3", insightKey: "k:exact-expiry" }));
     // Newer content version but independently snoozed -> hidden
     await seed(
-      insightRow({ id: "ins-4", insightKey: "k:new-version-snoozed", contentVersion: 2 }),
+      insightRow({
+        id: "ins-4",
+        insightKey: "k:new-version-snoozed",
+        contentVersion: 2,
+      }),
     );
 
     const now = Date.now();
@@ -280,9 +288,11 @@ describe("InsightService.getDashboardInsights", () => {
     });
 
     const result = await InsightService.getDashboardInsights(baseInput());
-    expect(
-      result.insights.map((row) => row.insightKey).toSorted(),
-    ).toEqual(["k:exact-expiry", "k:expired-snooze", "k:stale-dismiss"]);
+    expect(result.insights.map((row) => row.insightKey).toSorted()).toEqual([
+      "k:exact-expiry",
+      "k:expired-snooze",
+      "k:stale-dismiss",
+    ]);
     expect(result.dismissedCount).toBe(1);
     const staleDismissInsight = result.insights.find(
       (row) => row.insightKey === "k:stale-dismiss",

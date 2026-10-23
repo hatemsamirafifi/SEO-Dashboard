@@ -14,14 +14,14 @@ back to `AI_AGENT_PROVIDER` (default `openrouter`). All credentials are
 server-side deployment secrets — never stored in the app database, never sent
 to the browser.
 
-| Provider | Required secret | Optional model var | Base URL | Model discovery | Tool calling | Streaming |
-|---|---|---|---|---|---|---|
-| OpenRouter | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` | fixed | ✓ (`/api/v1/models`) | ✓ | ✓ |
-| OpenAI | `OPENAI_API_KEY` | `OPENAI_MODEL` | fixed | ✓ (`/v1/models`) | ✓ | ✓ |
-| Google Gemini | `GEMINI_API_KEY` | `GEMINI_MODEL` | fixed | ✓ (`/v1beta/models`) | ✓ | ✓ |
-| Anthropic | `ANTHROPIC_API_KEY` | `ANTHROPIC_MODEL` | fixed | ✓ (`/v1/models`) | ✓ | ✓ |
-| OpenAI Compatible | `OPENAI_COMPATIBLE_API_KEY` (optional for key-less gateways) | `OPENAI_COMPATIBLE_MODEL` | **required**: `OPENAI_COMPATIBLE_BASE_URL` | ✓ (`<base>/models`) when reachable; manual entry otherwise | ✓ | ✓ |
-| Ollama Cloud | `OLLAMA_API_KEY` | `OLLAMA_CLOUD_MODEL` | optional: `OLLAMA_CLOUD_BASE_URL` (default `https://ollama.com/v1`) | ✓ (`<base>/models`) | ✓ | ✓ |
+| Provider          | Required secret                                              | Optional model var        | Base URL                                                            | Model discovery                                            | Tool calling | Streaming |
+| ----------------- | ------------------------------------------------------------ | ------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------- | ------------ | --------- |
+| OpenRouter        | `OPENROUTER_API_KEY`                                         | `OPENROUTER_MODEL`        | fixed                                                               | ✓ (`/api/v1/models`)                                       | ✓            | ✓         |
+| OpenAI            | `OPENAI_API_KEY`                                             | `OPENAI_MODEL`            | fixed                                                               | ✓ (`/v1/models`)                                           | ✓            | ✓         |
+| Google Gemini     | `GEMINI_API_KEY`                                             | `GEMINI_MODEL`            | fixed                                                               | ✓ (`/v1beta/models`)                                       | ✓            | ✓         |
+| Anthropic         | `ANTHROPIC_API_KEY`                                          | `ANTHROPIC_MODEL`         | fixed                                                               | ✓ (`/v1/models`)                                           | ✓            | ✓         |
+| OpenAI Compatible | `OPENAI_COMPATIBLE_API_KEY` (optional for key-less gateways) | `OPENAI_COMPATIBLE_MODEL` | **required**: `OPENAI_COMPATIBLE_BASE_URL`                          | ✓ (`<base>/models`) when reachable; manual entry otherwise | ✓            | ✓         |
+| Ollama Cloud      | `OLLAMA_API_KEY`                                             | `OLLAMA_CLOUD_MODEL`      | optional: `OLLAMA_CLOUD_BASE_URL` (default `https://ollama.com/v1`) | ✓ (`<base>/models`)                                        | ✓            | ✓         |
 
 Selection precedence: project row → organization row → `AI_AGENT_PROVIDER` +
 `AI_AGENT_MODEL` → the provider's own model env var → built-in default.
@@ -126,7 +126,7 @@ PORT=3002 docker compose -f compose.dev.yaml up -d --build
   recreate: `docker compose -f compose.dev.yaml up -d --build`. If logs go
   silent while the app still responds (Docker Desktop pty flake after daemon
   hiccups), recreate the container — `docker compose rm -sf open-seo-dev &&
-  docker compose -f compose.dev.yaml up -d`.
+docker compose -f compose.dev.yaml up -d`.
 - **Credentials flow via `env_file` (.env.docker) only.** Never map provider
   secrets under `environment:` — an explicit entry overrides env_file with
   the host shell's (unset) value and silently disables the provider.

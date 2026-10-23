@@ -9,13 +9,13 @@ All five run through the existing `requireProjectContext` middleware (project-sc
 P39; same shape as the existing report fns in that file). Zod schemas in
 `src/types/schemas/reports.ts` are the trust boundary.
 
-| Function | Input (beyond project context) | Output | Notes |
-| --- | --- | --- | --- |
-| `createReportSchedule` | `reportType` (frozen enum), `cadence` (`weekly` \| `monthly`), `recipients` (email[], ≤10, deduped+lowercased server-side), `shareId?` | schedule row | `shareId` validated to belong to this project; `nextDueAt` derived at create |
-| `updateReportSchedule` | `scheduleId`, any of the above fields | schedule row | recipients re-validated; editing never touches run history |
-| `pauseReportSchedule` | `scheduleId` | schedule row | sets `active=false`, `pausedAt`; **`nextDueAt` freezes** (pause is a user action, not a failure) |
-| `resumeReportSchedule` | `scheduleId` | schedule row | clears `pausedAt`, re-derives `nextDueAt` from resume moment |
-| `listReportSchedules` | — | schedules + last-run summary per schedule | last-run = latest run row (`state`, `completedAt`, `scheduledFor`); honest states per FR-005 |
+| Function               | Input (beyond project context)                                                                                                         | Output                                    | Notes                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `createReportSchedule` | `reportType` (frozen enum), `cadence` (`weekly` \| `monthly`), `recipients` (email[], ≤10, deduped+lowercased server-side), `shareId?` | schedule row                              | `shareId` validated to belong to this project; `nextDueAt` derived at create                     |
+| `updateReportSchedule` | `scheduleId`, any of the above fields                                                                                                  | schedule row                              | recipients re-validated; editing never touches run history                                       |
+| `pauseReportSchedule`  | `scheduleId`                                                                                                                           | schedule row                              | sets `active=false`, `pausedAt`; **`nextDueAt` freezes** (pause is a user action, not a failure) |
+| `resumeReportSchedule` | `scheduleId`                                                                                                                           | schedule row                              | clears `pausedAt`, re-derives `nextDueAt` from resume moment                                     |
+| `listReportSchedules`  | —                                                                                                                                      | schedules + last-run summary per schedule | last-run = latest run row (`state`, `completedAt`, `scheduledFor`); honest states per FR-005     |
 
 Deletion rides the existing report-delete surface semantics if the product wants it later;
 MVP ships create/edit/pause/resume/list (the spec's US1 acceptance set).

@@ -31,52 +31,52 @@ identity = (
 
 ## SerpSnapshot (Zod: `serpSnapshotSchema`)
 
-| Field | Type | Rules |
-|---|---|---|
-| keyword | string (min 1) | Canonical keyword form (trimmed by identity canonicalization) |
-| engine | enum `google` | Normalized engine id |
-| location | object | `{ locationCode: int>0, locationName, countryCode }` |
-| language | string (min 1) | Canonical language code |
-| device | enum `desktop \| mobile` | Normalized device |
-| checkedAt | full ISO string | OpenSEO fetch/observation time — date-only rejected |
-| providerSnapshotAt | full ISO string | Provider-snapshot time; distinct from fetch time (FR-006); freshness policy consults this, not fetch time alone (P19) |
-| organicResults | SerpOrganicResult[] | Position-ordered for display; never merge identity |
-| features | SerpFeatureSet | Only OBSERVED families present; absent = absent (FR-007) |
-| provider | enum `dataforseo \| serper \| zenserp` | Provenance only |
-| providerStatus | string | Provider call status class |
-| contentHash | string \| null (optional) | Integrity/dedup aid only |
+| Field              | Type                                   | Rules                                                                                                                 |
+| ------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| keyword            | string (min 1)                         | Canonical keyword form (trimmed by identity canonicalization)                                                         |
+| engine             | enum `google`                          | Normalized engine id                                                                                                  |
+| location           | object                                 | `{ locationCode: int>0, locationName, countryCode }`                                                                  |
+| language           | string (min 1)                         | Canonical language code                                                                                               |
+| device             | enum `desktop \| mobile`               | Normalized device                                                                                                     |
+| checkedAt          | full ISO string                        | OpenSEO fetch/observation time — date-only rejected                                                                   |
+| providerSnapshotAt | full ISO string                        | Provider-snapshot time; distinct from fetch time (FR-006); freshness policy consults this, not fetch time alone (P19) |
+| organicResults     | SerpOrganicResult[]                    | Position-ordered for display; never merge identity                                                                    |
+| features           | SerpFeatureSet                         | Only OBSERVED families present; absent = absent (FR-007)                                                              |
+| provider           | enum `dataforseo \| serper \| zenserp` | Provenance only                                                                                                       |
+| providerStatus     | string                                 | Provider call status class                                                                                            |
+| contentHash        | string \| null (optional)              | Integrity/dedup aid only                                                                                              |
 
 Strict object: unknown keys rejected. Extra provider fields are ignored by the normalized model
 (available via trace/debug, not via the contract).
 
 ## SerpOrganicResult
 
-| Field | Type | Rules |
-|---|---|---|
-| position | int ≥ 1 | As observed |
-| title | string \| null | Raw observed value (enrichment canonicalizes downstream) |
-| url | string | Raw observed URL |
-| domain | string | Raw observed domain |
-| resultType | string \| null | e.g. `organic`, `sitelinks-augmented` (raw provider classification) |
-| featureRefs | string[] | Associated feature keys (see enum below), default [] |
+| Field       | Type           | Rules                                                               |
+| ----------- | -------------- | ------------------------------------------------------------------- |
+| position    | int ≥ 1        | As observed                                                         |
+| title       | string \| null | Raw observed value (enrichment canonicalizes downstream)            |
+| url         | string         | Raw observed URL                                                    |
+| domain      | string         | Raw observed domain                                                 |
+| resultType  | string \| null | e.g. `organic`, `sitelinks-augmented` (raw provider classification) |
+| featureRefs | string[]       | Associated feature keys (see enum below), default []                |
 
 ## SerpFeatureSet
 
 Optional members — each present **only when observed** (absent family ≠ empty claim; never fabricated,
 never null-coerced):
 
-| Family key | Payload |
-|---|---|
-| `featuredResult` | `{ title, url?, domain?, snippet }` |
-| `peopleAlsoAsk` | `{ items: [{ question, url?, placement? }] }` — placement is optional observed metadata; rendering policy is the 011 package's decision |
-| `relatedSearches` | `{ items: string[] }` |
-| `localPack` | `{ items: [{ title, url?, domain?, address?, rating?, reviewCount? }] }` |
-| `images` | `{ items: [{ url, title?, domain? }] }` |
-| `videos` | `{ items: [{ url, title?, domain? }] }` |
-| `shopping` | `{ items: [{ title, url?, domain?, price? }] }` — price only when provider observed it |
-| `news` | `{ items: [{ title, url?, domain?, sourceName?, publishedAt? }] }` — publishedAt full ISO or absent |
-| `knowledgeGraph` | `{ title, url?, domain?, description? }` |
-| `sitelinks` | `{ items: [{ url, domain?, title? }] }` |
+| Family key        | Payload                                                                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `featuredResult`  | `{ title, url?, domain?, snippet }`                                                                                                     |
+| `peopleAlsoAsk`   | `{ items: [{ question, url?, placement? }] }` — placement is optional observed metadata; rendering policy is the 011 package's decision |
+| `relatedSearches` | `{ items: string[] }`                                                                                                                   |
+| `localPack`       | `{ items: [{ title, url?, domain?, address?, rating?, reviewCount? }] }`                                                                |
+| `images`          | `{ items: [{ url, title?, domain? }] }`                                                                                                 |
+| `videos`          | `{ items: [{ url, title?, domain? }] }`                                                                                                 |
+| `shopping`        | `{ items: [{ title, url?, domain?, price? }] }` — price only when provider observed it                                                  |
+| `news`            | `{ items: [{ title, url?, domain?, sourceName?, publishedAt? }] }` — publishedAt full ISO or absent                                     |
+| `knowledgeGraph`  | `{ title, url?, domain?, description? }`                                                                                                |
+| `sitelinks`       | `{ items: [{ url, domain?, title? }] }`                                                                                                 |
 
 Feature keys (for `featureRefs` and detector vocabulary): `featured_result`, `people_also_ask`,
 `related_searches`, `local_pack`, `images`, `videos`, `shopping`, `news`, `knowledge_graph`,
@@ -90,6 +90,7 @@ families the providers it calls can actually populate, and 011 renders only obse
 ## Metric vocabulary (FR-005, P16)
 
 Provider-accurate names ONLY:
+
 - **DataForSEO**: Domain Rank, Page Rank, referring domains, backlinks, rank info (`rank_group` /
   `rank_absolute`), etv (estimated traffic value) — estimated traffic only where genuinely available.
 - **Serper.dev / Zenserp**: their documented credit/position fields as observed.

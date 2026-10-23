@@ -139,7 +139,9 @@ describe("classifyToolError — DataForSEO diagnostics (low-level cause)", () =>
     // across module-graph duplication. The duck-typed `code` property keeps
     // the product vocabulary authoritative.
     const crossBoundaryError = Object.assign(
-      new Error("DataForSEO HTTP 402 on /v3/dataforseo_labs/google/domain_rank_overview/live"),
+      new Error(
+        "DataForSEO HTTP 402 on /v3/dataforseo_labs/google/domain_rank_overview/live",
+      ),
       { code: "PAYMENT_REQUIRED" },
     );
     const classified = classifyToolError(crossBoundaryError);
@@ -186,12 +188,15 @@ describe("classifyToolError — DataForSEO diagnostics (low-level cause)", () =>
   });
 
   it("transport failures (httpStatus=null) stay TRANSIENT_UPSTREAM via text, never credits", () => {
-    const error = Object.assign(new Error("getaddrinfo ENOTFOUND api.dataforseo.com"), {
-      dataforseoDiagnostics: {
-        httpStatus: null,
-        transportError: "DNS_LOOKUP_FAILED",
+    const error = Object.assign(
+      new Error("getaddrinfo ENOTFOUND api.dataforseo.com"),
+      {
+        dataforseoDiagnostics: {
+          httpStatus: null,
+          transportError: "DNS_LOOKUP_FAILED",
+        },
       },
-    });
+    );
     const classified = classifyToolError(error);
     expect(classified.failureClass).toBe("TRANSIENT_UPSTREAM");
   });
@@ -199,14 +204,20 @@ describe("classifyToolError — DataForSEO diagnostics (low-level cause)", () =>
 
 describe("classifyToolError — DataForSEO 40201 access-paused (dedicated class)", () => {
   /** The live-observed get_domain_overview shape: HTTP 200 + task 40201. */
-  function accessPaused40201(message = "Account access temporarily paused."): Error {
+  function accessPaused40201(
+    message = "Account access temporarily paused.",
+  ): Error {
     return attachDataforseoDiagnostics(new Error(message), {
       endpoint: "v3/dataforseo_labs/google/domain_rank_overview/live",
       api: "dataforseo_labs",
       httpStatus: 200,
       dataforseoStatus: 40201,
       dataforseoMessage: message,
-      request: { target: "powersiment.ae", locationCode: 2784, languageCode: "ar" },
+      request: {
+        target: "powersiment.ae",
+        locationCode: 2784,
+        languageCode: "ar",
+      },
     });
   }
 
@@ -219,10 +230,16 @@ describe("classifyToolError — DataForSEO 40201 access-paused (dedicated class)
 
   it("a real charged-task 40201 error classifies access-paused, not credits", () => {
     const error = attachDataforseoDiagnostics(
-      new DataforseoChargedTaskError(
-        "Account access temporarily paused.",
-        { path: ["v3", "dataforseo_labs", "google", "domain_rank_overview", "live"], costUsd: 0 },
-      ),
+      new DataforseoChargedTaskError("Account access temporarily paused.", {
+        path: [
+          "v3",
+          "dataforseo_labs",
+          "google",
+          "domain_rank_overview",
+          "live",
+        ],
+        costUsd: 0,
+      }),
       {
         endpoint: "v3/dataforseo_labs/google/domain_rank_overview/live",
         httpStatus: 200,
@@ -240,7 +257,9 @@ describe("classifyToolError — DataForSEO 40201 access-paused (dedicated class)
     // Even if a 40201 message mentioned billing/balance words, the attached
     // application status_code — not a text heuristic — decides the class.
     const classified = classifyToolError(
-      accessPaused40201("Payment required — balance is too low, account paused"),
+      accessPaused40201(
+        "Payment required — balance is too low, account paused",
+      ),
     );
     expect(classified.failureClass).toBe("DATAFORSEO_ACCESS_PAUSED");
     expect(classified.code).toBe("APP_40201");
@@ -303,15 +322,19 @@ describe("classifyToolError — DataForSEO 40201 access-paused (dedicated class)
 describe("classifyToolError — payment/rate-limit/transient taxonomy preserved", () => {
   it("HTTP 402 transport + 40200/40210 app statuses stay CREDITS_UNAVAILABLE", () => {
     expect(
-      classifyToolError(new AppError("PAYMENT_REQUIRED", "DataForSEO HTTP 402")).failureClass,
+      classifyToolError(new AppError("PAYMENT_REQUIRED", "DataForSEO HTTP 402"))
+        .failureClass,
     ).toBe("CREDITS_UNAVAILABLE");
     for (const appStatus of [40200, 40210]) {
-      const error = attachDataforseoDiagnostics(new Error("Payment Required."), {
-        endpoint: "v3/dataforseo_labs/google/domain_rank_overview/live",
-        httpStatus: 200,
-        dataforseoStatus: appStatus,
-        dataforseoMessage: "Payment Required.",
-      });
+      const error = attachDataforseoDiagnostics(
+        new Error("Payment Required."),
+        {
+          endpoint: "v3/dataforseo_labs/google/domain_rank_overview/live",
+          httpStatus: 200,
+          dataforseoStatus: appStatus,
+          dataforseoMessage: "Payment Required.",
+        },
+      );
       expect(classifyToolError(error).failureClass).toBe("CREDITS_UNAVAILABLE");
     }
   });

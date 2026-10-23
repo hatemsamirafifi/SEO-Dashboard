@@ -1,7 +1,4 @@
 {
-  "version": "7",
-  "dialect": "sqlite",
-  "id": null,
   "entries": [
     {
       "idx": 0,
@@ -449,6 +446,42 @@
       "version": "6",
       "when": 1791561049432,
       "tag": "0063_spicy_toxin",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "6",
+      "when": 1792273078725,
+      "tag": "0064_overconfident_katie_power",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "6",
+      "when": 1792355219216,
+      "tag": "0065_handy_boom_boom",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "breakpoints": true,
+      "when": 1792362129728,
+      "version": "6",
+      "tag": "0066_brave_philosopher"
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1792363499683,
+      "tag": "0067_silent_falcon",
+      "statements": [""],
+      "breakpoints": [false]
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1792444349411,
+      "tag": "0068_audit_url_counters",
       "breakpoints": true
     }
   ]

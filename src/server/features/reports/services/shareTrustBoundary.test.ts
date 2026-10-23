@@ -15,7 +15,6 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
  *    log; only SHA-256 hashes exist, and audit rows never carry secrets.
  */
 import { stableHash } from "@/shared/intelligence";
-import type { ReportPayload } from "@/shared/reports";
 
 const database = vi.hoisted(() => ({
   client: undefined as Client | undefined,
@@ -211,7 +210,7 @@ describe("T008 public-payload leak audit", () => {
       ].toSorted(),
     );
     // The consistency banner derives from frozen provenance.
-    const payload = view.payload as ReportPayload;
+    const payload = view.payload;
     expect(payload.provenance.consistencyStatus).toBeTypeOf("string");
   });
 

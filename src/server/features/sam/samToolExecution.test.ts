@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createToolDedupCache, createToolExecutionTracker } from "./samToolExecution";
+import {
+  createToolDedupCache,
+  createToolExecutionTracker,
+} from "./samToolExecution";
 
 describe("createToolDedupCache", () => {
   it("returns the same value for identical tool+args keys", () => {
@@ -35,7 +38,9 @@ describe("createToolExecutionTracker", () => {
       summary: "data",
     });
     // Different args never collide with the cached entry.
-    expect(tracker.getCached("research_keywords", { query: "other" })).toBeUndefined();
+    expect(
+      tracker.getCached("research_keywords", { query: "other" }),
+    ).toBeUndefined();
 
     tracker.log({
       sessionId: "session_1",

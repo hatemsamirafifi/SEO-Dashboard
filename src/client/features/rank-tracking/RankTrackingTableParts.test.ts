@@ -251,9 +251,7 @@ describe("SerpFeatureTags vocabulary consolidation (spec 011, T014)", () => {
       "featuredResult",
     );
     expect(normalizeLegacyFeatureKey("top_stories")).toBe("news");
-    expect(normalizeLegacyFeatureKey("knowledge_panel")).toBe(
-      "knowledgeGraph",
-    );
+    expect(normalizeLegacyFeatureKey("knowledge_panel")).toBe("knowledgeGraph");
     expect(normalizeLegacyFeatureKey("video")).toBe("videos");
     const html = renderTags([
       "featured_snippet",

@@ -49,38 +49,38 @@ async function readBoundedText(response: Response): Promise<string | null> {
 
 async function fetchText(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, {
-      headers: { "user-agent": USER_AGENT, accept: "text/html,*/*" },
-      // Manual redirects so we can re-validate each hop against the SSRF guard;
-      // redirect:"follow" would let a 30x to an internal host bypass it.
-      redirect: "manual",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      if (!location) return null;
-      let redirectUrl: string;
-      try {
-        // Re-validates host, blocks private IPs, and does DoH DNS resolution.
-        redirectUrl = await normalizeAndValidateStartUrl(
-          new URL(location, url).toString(),
-        );
-      } catch {
-        return null; // blocked or invalid redirect destination
-      }
-      // One hop only; fetch the validated destination without following further.
-      const redirected = await fetch(redirectUrl, {
+    let currentUrl = url;
+    // Follow redirect chains (up to MAX_REDIRECTS hops) with each hop
+    // re-validated through the SSRF guard: redirect:"follow" would let a
+    // 30x to an internal host bypass it. Covers chains like
+    // https://apex → http://www → https://www (www-only certificates).
+    const MAX_REDIRECTS = 3;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const response = await fetch(currentUrl, {
         headers: { "user-agent": USER_AGENT, accept: "text/html,*/*" },
         redirect: "manual",
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
-      if (!redirected.ok) return null;
-      return await readBoundedText(redirected);
-    }
 
-    if (!response.ok) return null;
-    return await readBoundedText(response);
+      if (response.status >= 300 && response.status < 400) {
+        if (hop === MAX_REDIRECTS) return null;
+        const location = response.headers.get("location");
+        if (!location) return null;
+        try {
+          // Re-validates host, blocks private IPs, and does DoH DNS resolution.
+          currentUrl = await normalizeAndValidateStartUrl(
+            new URL(location, currentUrl).toString(),
+          );
+        } catch {
+          return null; // blocked or invalid redirect destination
+        }
+        continue;
+      }
+
+      if (!response.ok) return null;
+      return await readBoundedText(response);
+    }
+    return null;
   } catch {
     return null;
   }

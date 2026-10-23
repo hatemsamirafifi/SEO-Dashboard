@@ -12,7 +12,7 @@
 
 **Purpose**: Baseline before hardening
 
-- [X] T001 Verify baseline green: reports suite (`pnpm test ReportService ShareService BrandingService ExportService`) and `pnpm types:check` on main
+- [x] T001 Verify baseline green: reports suite (`pnpm test ReportService ShareService BrandingService ExportService`) and `pnpm types:check` on main
 
 ---
 
@@ -22,9 +22,9 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T002 Extend `report_shares` (`tokenHash` UNIQUE, `expiresAt` nullable, `revokedAt`, `viewCount`) in `src/db/reports.schema.ts` + PG mirror with additive migration in `drizzle/` + `drizzle-pg/` and parity coverage
-- [X] T003 Add `organization_branding` (UNIQUE org) + `project_client_profiles` (UNIQUE project, cascade) tables in `src/db/reports.schema.ts` + PG mirror, same migration, parity coverage
-- [X] T004 [P] Add token-hash helper (256-bit token, SHA-256 hash, single-display flow, never logs raw) in `src/server/features/reports/services/ShareService.ts`
+- [x] T002 Extend `report_shares` (`tokenHash` UNIQUE, `expiresAt` nullable, `revokedAt`, `viewCount`) in `src/db/reports.schema.ts` + PG mirror with additive migration in `drizzle/` + `drizzle-pg/` and parity coverage
+- [x] T003 Add `organization_branding` (UNIQUE org) + `project_client_profiles` (UNIQUE project, cascade) tables in `src/db/reports.schema.ts` + PG mirror, same migration, parity coverage
+- [x] T004 [P] Add token-hash helper (256-bit token, SHA-256 hash, single-display flow, never logs raw) in `src/server/features/reports/services/ShareService.ts`
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -40,12 +40,12 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [X] T005 [P] [US1] Token lifecycle tests (hash-only storage, single display unrecoverable, revoke immediacy, expiry fail-closed) in `src/server/features/reports/services/ShareService.test.ts`
+- [x] T005 [P] [US1] Token lifecycle tests (hash-only storage, single display unrecoverable, revoke immediacy, expiry fail-closed) in `src/server/features/reports/services/ShareService.test.ts`
 
 ### Implementation for User Story 1
 
-- [X] T006 [US1] Implement create/revoke/expiry in `src/server/features/reports/services/ShareService.ts` (hash lookup, resolution order invalid → revoked → expired → content)
-- [X] T007 [US1] Wire `createReportShare`/`revokeReportShare`/`getReportShares` server functions in `src/serverFunctions/reports.ts` (project-scoped)
+- [x] T006 [US1] Implement create/revoke/expiry in `src/server/features/reports/services/ShareService.ts` (hash lookup, resolution order invalid → revoked → expired → content)
+- [x] T007 [US1] Wire `createReportShare`/`revokeReportShare`/`getReportShares` server functions in `src/serverFunctions/reports.ts` (project-scoped)
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -59,12 +59,12 @@
 
 ### Tests for User Story 2
 
-- [X] T008 [P] [US2] Leak-audit test (payload allowlist; no credentials/costs/internal payloads/raw tokens/cross-project data) for the public route
-- [X] T009 [P] [US2] Storage inspection test (zero raw share tokens in all tables/logs; schedules store share ID only) in reports test suite
+- [x] T008 [P] [US2] Leak-audit test (payload allowlist; no credentials/costs/internal payloads/raw tokens/cross-project data) for the public route
+- [x] T009 [P] [US2] Storage inspection test (zero raw share tokens in all tables/logs; schedules store share ID only) in reports test suite
 
 ### Implementation for User Story 2
 
-- [X] T010 [US2] Harden public route `r/$token` (outside auth shell, no nav/session, hash-only lookup, state distinction, view counting)
+- [x] T010 [US2] Harden public route `r/$token` (outside auth shell, no nav/session, hash-only lookup, state distinction, view counting)
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -78,12 +78,12 @@
 
 ### Tests for User Story 3
 
-- [X] T011 [P] [US3] Branding validation tests (MIME/size/dimensions rejection) + freeze test (pre-change vs post-change report) in `src/server/features/reports/services/BrandingService.test.ts`
+- [x] T011 [P] [US3] Branding validation tests (MIME/size/dimensions rejection) + freeze test (pre-change vs post-change report) in `src/server/features/reports/services/BrandingService.test.ts`
 
 ### Implementation for User Story 3
 
-- [X] T012 [US3] Implement org branding + client profile CRUD with R2 `branding/` uploads in `src/server/features/reports/services/BrandingService.ts` (+ `brandLogo.ts` validation)
-- [X] T013 [US3] Freeze resolved branding into report snapshot at generation + emit `exported_pdf` event in `src/server/features/reports/services/ReportService.ts` and `src/server/features/reports/services/ExportService.ts`
+- [x] T012 [US3] Implement org branding + client profile CRUD with R2 `branding/` uploads in `src/server/features/reports/services/BrandingService.ts` (+ `brandLogo.ts` validation)
+- [x] T013 [US3] Freeze resolved branding into report snapshot at generation + emit `exported_pdf` event in `src/server/features/reports/services/ReportService.ts` and `src/server/features/reports/services/ExportService.ts`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -93,8 +93,8 @@
 
 **Purpose**: E2E + gates
 
-- [X] T014 Run `pnpm types:check`, `pnpm oxlint`, reports suites, `schema-parity`
-- [X] T015 [P] Public-share E2E spec (`e2e/`) + quickstart.md validation scenarios 1–4
+- [x] T014 Run `pnpm types:check`, `pnpm oxlint`, reports suites, `schema-parity`
+- [x] T015 [P] Public-share E2E spec (`e2e/`) + quickstart.md validation scenarios 1–4
 
 ---
 

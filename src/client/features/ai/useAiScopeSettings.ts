@@ -22,13 +22,19 @@ import {
 // Edit semantics: undefined = untouched (server-resolved), value = unsaved
 // edit feeding Test Connection and Save.
 
-const ENDPOINT_PROVIDERS: AiProviderId[] = ["openai_compatible", "ollama_cloud"];
+const ENDPOINT_PROVIDERS: AiProviderId[] = [
+  "openai_compatible",
+  "ollama_cloud",
+];
 
 export type SavePatch = Parameters<
   typeof saveScopeAiSettingsFn
 >[0]["data"]["patch"];
 
-export function useAiScopeSettings(scope: "organization" | "project", projectId?: string) {
+export function useAiScopeSettings(
+  scope: "organization" | "project",
+  projectId?: string,
+) {
   const queryClient = useQueryClient();
   const viewQuery = useQuery({
     queryKey: ["aiScopeSettings", scope, projectId ?? null],
@@ -41,7 +47,9 @@ export function useAiScopeSettings(scope: "organization" | "project", projectId?
         metadata: { scope },
         counters: { settingsReads: 1 },
         call: () =>
-          getScopeAiSettings({ data: { scope, projectId: projectId || undefined } }),
+          getScopeAiSettings({
+            data: { scope, projectId: projectId || undefined },
+          }),
       }),
   });
 
@@ -168,7 +176,9 @@ export function useAiScopeSettings(scope: "organization" | "project", projectId?
   const keySource = override?.credentials[selectedProvider]
     ? scope
     : (effective?.credentialSource ?? "none");
-  const baseUrlSource = isEndpoint ? (effective?.baseUrlSource ?? "none") : null;
+  const baseUrlSource = isEndpoint
+    ? (effective?.baseUrlSource ?? "none")
+    : null;
   const isDirty =
     provider !== null ||
     model !== null ||

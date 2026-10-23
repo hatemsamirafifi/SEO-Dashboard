@@ -15,12 +15,13 @@ additive metric, so window sums are valid (P23 satisfied: event counts are addit
 touched).
 
 **Rationale (repository evidence)**:
+
 - `ga4_daily_events` already stores exactly this shape: `eventName` (notNull), `eventCount`,
   `isKeyEvent` (`src/db/ga4.schema.ts:187-220`; PG mirror `src/db/pg/ga4.schema.ts:176-204`), with the
   upsert key `(projectId, propertyId, date, eventName)` and query index
   `(projectId, eventName, date)` — the exact access pattern goal filtering needs, already indexed.
 - The read path precedent exists: `getEventGroups(projectId, propertyId, from, to, { limit, keyEventsOnly })`
-  filters by `isKeyEvent = true` and groups by `eventName` over SUCCESS_*-covered dates only, with the
+  filters by `isKeyEvent = true` and groups by `eventName` over SUCCESS\_\*-covered dates only, with the
   SQLite/PG boolean-parity `max(case when ...)` aggregation pattern
   (`src/server/features/ga4/repositories/Ga4SyncRepository.ts:1083-1124`). Goal-scoped reads reuse this
   covered-dates subquery pattern; a goal is a persisted eventName filter with a display name.
@@ -32,11 +33,12 @@ touched).
   filtering. `keyEventsOnly` alone cannot express that choice.
 
 **Alternatives considered**:
-- *Goal = arbitrary GA4 Data API dimensions/expressions*: rejected — requires live API reads at render
+
+- _Goal = arbitrary GA4 Data API dimensions/expressions_: rejected — requires live API reads at render
   (violates G10/P29) and new fetch paths; the spec assumption says "no new GA4 API dimensions are fetched".
-- *Goal = session-scoped*: rejected — sessions are not conversions; `ga4_daily_events` is the only
+- _Goal = session-scoped_: rejected — sessions are not conversions; `ga4_daily_events` is the only
   conversion-shaped stored grain.
-- *Separate `ga4_goal_conversions` synced table*: rejected — duplicates data already queryable from
+- _Separate `ga4_goal_conversions` synced table_: rejected — duplicates data already queryable from
   `ga4_daily_events` (P50 scope discipline; additive-only schema law keeps migrations minimal).
 
 **Goal cap**: bounded per project (default 20 active goals, configurable constant in the service) to keep
@@ -53,6 +55,7 @@ summed numerators/denominators at query time — the exact `ratioOf` precedent a
 `AnalyticsService.ts:81-83`, never averaging daily rates).
 
 **Rationale (repository evidence)**:
+
 - `ga4_daily_landing_pages` carries per-page `sessions`, `engagedSessions`, `userEngagementDuration`,
   `screenPageViews` (`Ga4SyncRepository.ts:1046-1071` groups/returns exactly these), and
   `getLandingGroups` already demonstrates per-page grouping over covered dates with the
@@ -74,10 +77,11 @@ summed numerators/denominators at query time — the exact `ratioOf` precedent a
   (`ga4OrganicChange.ts:19-23,104-114`).
 
 **Alternatives considered**:
-- *`userEngagementDuration` per session*: viable but weaker signal-to-noise (long-tail outliers);
+
+- _`userEngagementDuration` per session_: viable but weaker signal-to-noise (long-tail outliers);
   engaged-session ratio is the standard GA4 surface users recognize.
-- *Bounce-rate-like inverse*: not stored in the grains; fabricating it violates P47.
-- *Site-level engagement* (not per-page): that's the existing `ga4_organic_change` shape
+- _Bounce-rate-like inverse_: not stored in the grains; fabricating it violates P47.
+- _Site-level engagement_ (not per-page): that's the existing `ga4_organic_change` shape
   (`ga4OrganicChange.ts` is site-level by design); C2c is explicitly page-scoped.
 
 ---
@@ -88,14 +92,14 @@ summed numerators/denominators at query time — the exact `ratioOf` precedent a
 `src/shared/intelligence-thresholds.ts:1-24` — "thresholds are injected into detectors, never
 hardcoded; every threshold applied is echoed in finding evidence"):
 
-| Threshold | conversion_drop (C2b) | engagement_drop (C2c) | Basis |
-| --- | --- | --- | --- |
-| `minWindowDays` | 28 | 28 | conversion/engagement shifts need ≥ a monthly window to avoid weekly churn; matches `content_decay`/`low_ctr_query` priors |
-| `minCoverageRatio` | 0.8 | 0.8 | house standard across all windowed detectors |
-| `minEventsPerWindow` (floor) | 10 | — | absolute conversions floor: below this the drop is noise (mirrors `minImpressions: 100` role) |
-| `declineRatio` | 0.3 | 0.25 | conversion drops of ≥30% / engagement-rate drops of ≥25% are actionable priors; near-miss logging (per header comment) calibrates without code-path changes |
-| `minSessionsPerWindow` | — | 100 | engagement-rate denominator floor before a ratio decline is meaningful |
-| `rankHoldRequired` | — | true (flag) | C2c's "while ranking held" — corroborated via join `rankWorsened=false` |
+| Threshold                    | conversion_drop (C2b) | engagement_drop (C2c) | Basis                                                                                                                                                       |
+| ---------------------------- | --------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `minWindowDays`              | 28                    | 28                    | conversion/engagement shifts need ≥ a monthly window to avoid weekly churn; matches `content_decay`/`low_ctr_query` priors                                  |
+| `minCoverageRatio`           | 0.8                   | 0.8                   | house standard across all windowed detectors                                                                                                                |
+| `minEventsPerWindow` (floor) | 10                    | —                     | absolute conversions floor: below this the drop is noise (mirrors `minImpressions: 100` role)                                                               |
+| `declineRatio`               | 0.3                   | 0.25                  | conversion drops of ≥30% / engagement-rate drops of ≥25% are actionable priors; near-miss logging (per header comment) calibrates without code-path changes |
+| `minSessionsPerWindow`       | —                     | 100                   | engagement-rate denominator floor before a ratio decline is meaningful                                                                                      |
+| `rankHoldRequired`           | —                     | true (flag)           | C2c's "while ranking held" — corroborated via join `rankWorsened=false`                                                                                     |
 
 **Evidence shape**: both detectors emit `FindingDraft` per `detectors/types.ts:36-64` — `entityKey` =
 canonical page (via `canonicalUrl` with `hostContext`, G1), `metrics` (before/after/window values),
@@ -110,14 +114,15 @@ impact factors — `businessIntent: null` can now become a real factor for the c
 `opportunityTemplates.ts:20-22`).
 
 **Skip semantics**: fetchers throw `InsufficientCoverageError` (`detectors/types.ts:88-93`) for no GA4
-connection, no SUCCESS_* coverage, below `minCoverageRatio`, or below floors → detection stage records
+connection, no SUCCESS\_\* coverage, below `minCoverageRatio`, or below floors → detection stage records
 `skipped` with reason. Failed/absent GA4 never reaches the detector (G9). Threshold version bumps 2 → 3
 with the two new entries (mirrors the 1→2 bump precedent recorded in the file header).
 
 **Alternatives considered**:
-- *Per-event-name conversion detector (one finding per event)*: rejected — fan-out unbounded; goals give
+
+- _Per-event-name conversion detector (one finding per event)_: rejected — fan-out unbounded; goals give
   the user-chosen scope, and C2b iterates project goals (one finding per page×goal).
-- *Combined "performance drop" detector*: rejected — collapses distinct signals (P26/P27: separate
+- _Combined "performance drop" detector_: rejected — collapses distinct signals (P26/P27: separate
   facts, separate templates, separate opportunities).
 
 ---
@@ -129,6 +134,7 @@ with the two new entries (mirrors the 1→2 bump precedent recorded in the file 
 the client drops its local type/priority re-filtering to the search-only refinement.
 
 **Rationale (repository evidence)**:
+
 - The DB is already indexed for exactly this: `opportunities_project_page_idx` (projectId, page),
   `opportunities_project_keyword_idx` (projectId, keyword), `opportunities_project_type_status_idx`
   (projectId, type, status), `opportunities_project_priority_impact_idx` (projectId, priority, impactScore)
@@ -160,9 +166,10 @@ the client drops its local type/priority re-filtering to the search-only refinem
   (`ga4Keys`) already exist in `EvidenceView.sourceRefs` (line 210).
 
 **Alternatives considered**:
-- *Client-only filtering*: rejected (unbounded fetch; see above).
-- *New filtered-list endpoint*: rejected — duplicate read path (P2); extend the existing one.
-- *Server-side pagination*: out of scope for this package (P50) — the existing full-list shape is
+
+- _Client-only filtering_: rejected (unbounded fetch; see above).
+- _New filtered-list endpoint_: rejected — duplicate read path (P2); extend the existing one.
+- _Server-side pagination_: out of scope for this package (P50) — the existing full-list shape is
   preserved; the schema accepts filter arrays only.
 
 ---
