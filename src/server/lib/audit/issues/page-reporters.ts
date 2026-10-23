@@ -14,6 +14,7 @@ import type {
 } from "@/server/lib/audit/types";
 import type { AuditIssueType } from "@/shared/audit-issues";
 import { validateProductSchema } from "@/server/lib/audit/salla/schema-validation";
+import { detectSchemaGap } from "@/server/lib/schema/gap-detector";
 
 const TITLE_MAX_CHARS = 60;
 const TITLE_MIN_CHARS = 10;
@@ -185,6 +186,9 @@ export function runPageReporters(page: CrawledPageResult): DetectedIssue[] {
   if (page.pageType === "product") {
     issues.push(...validateProductSchema(page));
   }
+
+  const schemaGap = detectSchemaGap(page);
+  if (schemaGap) issues.push(schemaGap);
 
   return issues;
 }
