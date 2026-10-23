@@ -10,6 +10,8 @@ data, or sensitive paths.
 
 ## Open
 
+- [ ] `2026-10-23T00:00:00Z` - `opencode` - A fresh worktree has no `.dev.vars` and an unseeded local D1, so `vite dev` boots without `AUTH_MODE=local_noauth` and Playwright fails with a redirect / `["projects"] data is undefined`. Copy the root `.dev.vars`, then run `pnpm db:migrate:local` and `pnpm seed:projects`; document this in the worktree setup step.
+- [ ] `2026-10-23T00:00:00Z` - `opencode` - Running `vite dev`/`vite build` regenerates `src/routeTree.gen.ts` with the router plugin's formatter (single quotes, no semicolons), replacing the committed Prettier-formatted file and leaving a ~2k-line dirty diff that is easy to commit by accident. Exclude the generated file from Prettier (as its header requests) or make the plugin emit the repo format.
 - [ ] `2026-10-23T00:00:00Z` - `opencode` - Drizzle snapshots stop at `0065`/`0043`; migrations `0066`-`0068` and `0044`-`0046` were hand-added to the journals. The next `drizzle-kit generate` diffs against the stale snapshot and will re-emit those columns as a duplicate migration. Regenerate the missing snapshots before the next schema change.
 - [ ] `2026-10-23T00:00:00Z` - `opencode` - `badseo/scripts/run-audit.ts` must pre-warm the page analyzer (`crawlPage` once) before its batch loop: the analyzer's first dynamic import evaluates the cheerio/Salla module graph synchronously (~4s cold under tsx on Windows), which blocks the Node event loop and inflates other concurrent first-batch `responseTimeMs` measurements into false `slow-response` results. `runCrawlPhase` now pre-warms too; keep the pattern in any new harness scripts.
 

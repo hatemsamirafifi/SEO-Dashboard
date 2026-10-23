@@ -4,11 +4,11 @@
 
 **Created**: 2026-10-23
 
-**Status**: Draft
+**Status**: Implemented - Phase 4 delivered 2026-10-23: observed-only generator (12 types), two-axis validation, existing-vs-proposed diff, `schema_gap` detector, project-scoped service/server function, read-only MCP `get_page_schema`, and the audit editor UI (preview/copy/export). Unit suites, `tsc`, Prettier, oxlint, and knip are clean; Playwright `audit-schema-editor` is 2/2. The full suite has one pre-existing env-gated live-API failure, and `vite build` hits a pre-existing lean-worker eager-boundary violation (see `docs/plans/reports/2026-10-23-schema-generator-phase4-verification.md`).
 
 **Input**: User description: "Phase 4 of the P1 SEO Intelligence master plan (`docs/plans/2026-10-17-p1-seo-intelligence-implementation.md` §3.2 row 4): `src/server/lib/schema/` extractors/validators/generator (observed-only property policy — never fabricate reviews/ratings/prices/addresses/authors); per-type coverage (Organization, LocalBusiness, Article, BlogPosting, Product, BreadcrumbList, FAQPage, WebSite, WebPage, Service, Person, Event); validity vs Google rich-result eligibility distinction; existing-vs-proposed diff; audit issues; server functions + editor UI (preview/copy/export); `schema_gap` detector; MCP tool; fabrication-guard tests."
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Generate JSON-LD from what the page actually shows (Priority: P1)
 
@@ -61,7 +61,7 @@ The audit surfaces a `schema_gap` insight/opportunity for `STATIC_COMPLETE` page
 - FAQPage: only observed question/answer pairs; no generated questions.
 - Event: only observed dates; no inferred occurrences.
 
-## Requirements *(mandatory)*
+## Requirements _(mandatory)_
 
 ### Functional Requirements
 
@@ -90,7 +90,7 @@ The audit surfaces a `schema_gap` insight/opportunity for `STATIC_COMPLETE` page
 - **SchemaDiff**: per-property classification (kept/added/changed/conflicting) with sources.
 - **SchemaGapFinding**: page, candidate types, missing requirements, evidence refs.
 
-## Success Criteria *(mandatory)*
+## Success Criteria _(mandatory)_
 
 - **SC-001**: Sparse/blocked/rendering-required fixtures never produce fabricated properties (fabrication-guard tests green).
 - **SC-002**: All 12 supported types produce valid documents on their fixture pages and report eligibility correctly.
