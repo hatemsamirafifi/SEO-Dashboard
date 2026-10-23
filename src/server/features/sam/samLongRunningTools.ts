@@ -3,7 +3,7 @@ import { z } from "zod";
 import { withPgClient } from "@/db";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ToolExtra } from "@/server/mcp/context";
-import { getAuditStatusTool } from "@/server/mcp/tools/site-audit-tools";
+import type { getAuditStatusTool } from "@/server/mcp/tools/site-audit-tools";
 import {
   backoffDelayMs,
   type PollConfig,
@@ -158,6 +158,21 @@ export type PollCoordinator = ReturnType<typeof createPollCoordinator>;
 
 // ─── The poll_site_audit tool (P3, P4) ───────────────────────────────────────
 
+// Lazy singleton: the site-audit tool module pulls the MCP tool graph, which
+// must stay out of the worker's startup bundle (SamChatAgent is a static
+// entry export). The first poll pays for it.
+type AuditStatusTool = typeof getAuditStatusTool;
+type AuditStatusToolArgs = Parameters<AuditStatusTool["handler"]>[0];
+
+let auditStatusToolPromise: Promise<AuditStatusTool> | null = null;
+
+function loadAuditStatusTool(): Promise<AuditStatusTool> {
+  auditStatusToolPromise ??= import("@/server/mcp/tools/site-audit-tools").then(
+    (module) => module.getAuditStatusTool,
+  );
+  return auditStatusToolPromise;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -168,12 +183,11 @@ async function readStatusViaMcp(
   projectId: string,
   extra: ToolExtra,
 ): Promise<CallToolResult> {
+  const getAuditStatusTool = await loadAuditStatusTool();
   return withPgClient(() =>
     getAuditStatusTool.handler(
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- handler re-validates these args against its own zod schema
-      { projectId, ...(auditId ? { auditId } : {}) } as Parameters<
-        typeof getAuditStatusTool.handler
-      >[0],
+      { projectId, ...(auditId ? { auditId } : {}) } as AuditStatusToolArgs,
       extra,
     ),
   );
