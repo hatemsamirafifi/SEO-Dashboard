@@ -1,17 +1,27 @@
 import { createServerFn } from "@tanstack/react-start";
 import { waitUntil } from "cloudflare:workers";
 import { AuditService } from "@/server/features/audit/services/AuditService";
+import { SchemaService } from "@/server/features/audit/services/SchemaService";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { requireProjectContext } from "@/serverFunctions/middleware";
 import {
   cancelAuditSchema,
   deleteAuditSchema,
   getAuditHistorySchema,
+  getAuditPageSchemaSchema,
   getAuditResultsSchema,
   getAuditStatusSchema,
   getCrawlProgressSchema,
   startAuditSchema,
 } from "@/types/schemas/audit";
+
+function shouldUseAuditE2eFixtures() {
+  return import.meta.env.VITE_E2E_AUDIT_FIXTURES === "1";
+}
+
+async function getAuditE2eFixtures() {
+  return import("../../e2e/fixtures/audit-schema-fixtures");
+}
 
 export const startAudit = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
@@ -52,6 +62,11 @@ export const getAuditStatus = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(getAuditStatusSchema)
   .handler(async ({ data, context }) => {
+    if (shouldUseAuditE2eFixtures()) {
+      const fixtures = await getAuditE2eFixtures();
+      const status = fixtures.getStatusFixture(data.auditId);
+      if (status) return status;
+    }
     return AuditService.getStatus(data.auditId, context.projectId);
   });
 
@@ -59,6 +74,11 @@ export const getAuditResults = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(getAuditResultsSchema)
   .handler(async ({ data, context }) => {
+    if (shouldUseAuditE2eFixtures()) {
+      const fixtures = await getAuditE2eFixtures();
+      const results = fixtures.getResultsFixture(data.auditId);
+      if (results) return results;
+    }
     return AuditService.getResults(data.auditId, context.projectId);
   });
 
@@ -74,6 +94,26 @@ export const getCrawlProgress = createServerFn({ method: "POST" })
   .validator(getCrawlProgressSchema)
   .handler(async ({ data, context }) => {
     return AuditService.getCrawlProgress(data.auditId, context.projectId);
+  });
+
+export const getAuditPageSchema = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(getAuditPageSchemaSchema)
+  .handler(async ({ data, context }) => {
+    if (shouldUseAuditE2eFixtures()) {
+      const fixtures = await getAuditE2eFixtures();
+      const result = fixtures.getPageSchemaFixture({
+        pageId: data.pageId,
+        type: data.type,
+      });
+      if (result) return result;
+    }
+    return SchemaService.getPageSchema({
+      pageId: data.pageId,
+      auditId: data.auditId,
+      projectId: context.projectId,
+      type: data.type,
+    });
   });
 
 export const cancelAudit = createServerFn({ method: "POST" })

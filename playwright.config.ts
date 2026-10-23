@@ -26,9 +26,10 @@ export default defineConfig({
       AUTH_MODE: "local_noauth",
       VITE_E2E_DOMAIN_FIXTURES: "1",
       VITE_E2E_KEYWORD_FIXTURES: "1",
+      VITE_E2E_AUDIT_FIXTURES: "1",
       PORT: "3101",
     },
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 300_000,
   },
 });

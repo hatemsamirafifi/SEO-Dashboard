@@ -272,6 +272,14 @@ export const AUDIT_ISSUE_TYPES = {
     howToFix:
       'Add "priceCurrency" and "availability" (e.g. "https://schema.org/InStock") inside the offers object of the Product markup.',
   },
+  "schema-gap": {
+    severity: "warning",
+    title: "Rich-result schema gap",
+    explanation:
+      "The page is fully readable and indexable, but its structured data does not match what search engines use to build rich results for this page type (see details). The page itself displays fine; the gap only affects how it can appear in search.",
+    howToFix:
+      "Generate the proposed JSON-LD for this page in the schema editor, review it against the visible content, and add it to the page template. Then re-run the audit to confirm the gap closes.",
+  },
   "deep-page": {
     severity: "info",
     title: "Page is deep in the site structure",

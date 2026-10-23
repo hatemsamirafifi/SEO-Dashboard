@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getAuditHistory: vi.fn(),
   getCrawlProgress: vi.fn(),
   deleteAudit: vi.fn(),
+  getPageSchema: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -33,6 +34,10 @@ vi.mock("@/server/features/projects/repositories/ProjectRepository", () => ({
   },
 }));
 
+vi.mock("@/server/features/audit/services/SchemaService", () => ({
+  SchemaService: { getPageSchema: mocks.getPageSchema },
+}));
+
 vi.mock("@/server/features/audit/services/AuditService", () => ({
   AuditService: {
     startAudit: mocks.startAudit,
@@ -50,6 +55,7 @@ import {
   cancelAudit,
   deleteAudit,
   getAuditHistory,
+  getAuditPageSchema,
   getAuditResults,
   getAuditStatus,
   getCrawlProgress,
@@ -119,6 +125,7 @@ describe("audit server-function project authorization", () => {
     mocks.getAuditHistory.mockReset();
     mocks.getCrawlProgress.mockReset();
     mocks.deleteAudit.mockReset();
+    mocks.getPageSchema.mockReset();
   });
 
   it.each([
@@ -135,6 +142,11 @@ describe("audit server-function project authorization", () => {
       { projectId: "other-project", auditId: "a1" },
     ],
     ["getAuditHistory", getAuditHistory, { projectId: "other-project" }],
+    [
+      "getAuditPageSchema",
+      getAuditPageSchema,
+      { projectId: "other-project", auditId: "a1", pageId: "p1" },
+    ],
     [
       "getCrawlProgress",
       getCrawlProgress,
@@ -162,6 +174,7 @@ describe("audit server-function project authorization", () => {
       expect(mocks.getAuditHistory).not.toHaveBeenCalled();
       expect(mocks.getCrawlProgress).not.toHaveBeenCalled();
       expect(mocks.deleteAudit).not.toHaveBeenCalled();
+      expect(mocks.getPageSchema).not.toHaveBeenCalled();
     },
   );
 

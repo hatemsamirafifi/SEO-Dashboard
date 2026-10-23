@@ -62,10 +62,16 @@ const EAGER_DENYLIST: Array<{ pattern: RegExp; expected: string }> = [
       "(site-audit-workflow-helpers.ts)",
   },
   {
-    // The MCP SDK builds its protocol schemas at module scope; it must only
-    // load behind the dynamic imports in src/server.ts (transport,
-    // oauth-provider) and SamChatAgent's per-turn tool builder.
-    pattern: /node_modules\/@modelcontextprotocol\/sdk\//,
+    // The MCP SDK's server implementation builds protocol schemas at module
+    // scope; it must only load behind the dynamic imports in src/server.ts
+    // (transport, oauth-provider) and SamChatAgent's per-turn tool builder.
+    // The client/validation subpaths are exempt: `agents`' Agent base class
+    // (which every statically exported chat DO extends) constructs an
+    // MCPClientManager, and its client transports import these three shared
+    // server helpers, so they are unavoidably eager. Keep the app's server
+    // graph guarded via the rule below.
+    pattern:
+      /node_modules\/@modelcontextprotocol\/sdk\/dist\/(?:esm|cjs)\/server\/(?!zod-compat|zod-json-schema-compat|auth\/errors)/,
     expected:
       "lazy-loaded behind the dynamic MCP entry points in src/server.ts " +
       "and SamChatAgent.beforeTurn",
