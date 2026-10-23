@@ -7,7 +7,8 @@
  * gated on STATIC_COMPLETE extraction so blocked/partial pages cannot produce
  * confirmed markup.
  */
-import type { JsonLdNode } from "../audit/salla/json-ld";
+import { toSchemaJson } from "./observations";
+import type { SchemaJson, SchemaJsonObject } from "./types";
 import {
   existingNodesOfType,
   observedBreadcrumbTrail,
@@ -23,7 +24,7 @@ import type {
 import { SCHEMA_ENTITY_TYPES } from "./types";
 
 interface Draft {
-  props: Record<string, unknown>;
+  props: Record<string, SchemaJson>;
   properties: ObservedProperty[];
 }
 
@@ -36,8 +37,8 @@ const SCHEMA_CONTEXT = "https://schema.org";
 function emit(
   properties: ObservedProperty[],
   path: string,
-  observation: Observed<unknown>,
-): unknown {
+  observation: Observed<SchemaJson>,
+): SchemaJson {
   properties.push({
     path,
     value: observation.value,
@@ -60,13 +61,14 @@ function existingTypeDraft(
     return refusal(`No observed ${type} structured data on this page`);
   }
   const properties: ObservedProperty[] = [];
-  const props: Record<string, unknown> = {};
+  const props: Record<string, SchemaJson> = {};
   for (const [key, value] of Object.entries(node)) {
     if (key === "@context" || key === "@type" || key === "@graph") continue;
-    props[key] = value;
+    const serializable = toSchemaJson(value);
+    props[key] = serializable;
     properties.push({
       path: key,
-      value,
+      value: serializable,
       source: `json-ld.${type}.${key}`,
     });
   }
@@ -84,7 +86,7 @@ function buildProduct(
     return refusal("Product name was not observed");
   }
   const properties: ObservedProperty[] = [];
-  const props: Record<string, unknown> = {};
+  const props: Record<string, SchemaJson> = {};
 
   props.name = emit(properties, "name", {
     value: product.name.value,
@@ -133,7 +135,7 @@ function buildProduct(
   }
 
   if (product.price) {
-    const offer: Record<string, unknown> = {
+    const offer: Record<string, SchemaJson> = {
       "@type": "Offer",
       price: emit(properties, "offers.price", {
         value: product.price.value,
@@ -175,7 +177,7 @@ function buildBreadcrumbList(
   }
   const properties: ObservedProperty[] = [];
   const itemListElement = trail.value.map((entry, index) => {
-    const item: Record<string, unknown> = {
+    const item: Record<string, SchemaJson> = {
       "@type": "ListItem",
       position: index + 1,
     };
@@ -208,7 +210,7 @@ function buildArticle(
     return refusal("Article headline was not observed");
   }
   const properties: ObservedProperty[] = [];
-  const props: Record<string, unknown> = {
+  const props: Record<string, SchemaJson> = {
     headline: emit(properties, "headline", headline),
   };
   if (blog?.datePublished) {
@@ -256,7 +258,7 @@ function buildWebPage(
     return refusal("Page title was not observed");
   }
   const properties: ObservedProperty[] = [];
-  const props: Record<string, unknown> = {
+  const props: Record<string, SchemaJson> = {
     name: emit(properties, "name", name),
     url: emit(properties, "url", {
       value: observations.pageUrl,
@@ -295,7 +297,7 @@ function buildWebSite(
     return refusal("Page URL is not absolute; site origin is unobservable");
   }
   const properties: ObservedProperty[] = [];
-  const props: Record<string, unknown> = {
+  const props: Record<string, SchemaJson> = {
     url: emit(properties, "url", {
       value: origin,
       source: "page.url.origin (derived)",
@@ -355,7 +357,7 @@ export function generateSchema(
     };
   }
 
-  const jsonLd: JsonLdNode = {
+  const jsonLd: SchemaJsonObject = {
     "@context": SCHEMA_CONTEXT,
     "@type": type,
     ...draft.props,

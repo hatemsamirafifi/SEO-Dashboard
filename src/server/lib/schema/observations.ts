@@ -12,11 +12,37 @@ import type {
   SallaCategoryExtraction,
   SallaProductExtraction,
 } from "../audit/salla/extraction";
-import type { SchemaPageInput } from "./types";
+import type { SchemaJson, SchemaPageInput } from "./types";
 
 export interface Observed<T> {
   value: T;
   source: string;
+}
+
+/**
+ * Narrow a value read out of parsed JSON to the serializable contract.
+ * JSON.parse only produces these kinds; anything else is treated as absent.
+ */
+export function toSchemaJson(value: unknown): SchemaJson {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (Array.isArray(value)) return value.map(toSchemaJson);
+  if (isJsonLdNode(value)) {
+    const result: Record<string, SchemaJson> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (item !== undefined) result[key] = toSchemaJson(item);
+    }
+    return result;
+  }
+  return null;
 }
 
 export interface SchemaObservations {

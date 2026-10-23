@@ -9,6 +9,7 @@
  */
 import { jsonLdTypeNames } from "../audit/salla/json-ld";
 import type { JsonLdNode } from "../audit/salla/json-ld";
+import { toSchemaJson } from "./observations";
 import { isSchemaEntityType } from "./types";
 import type {
   DiffEntry,
@@ -66,8 +67,8 @@ export function diffSchema(
       entries.push({
         path: key,
         status: "added",
-        existing: undefined,
-        proposed: proposedValue,
+        existing: null,
+        proposed: toSchemaJson(proposedValue),
         source,
       });
       continue;
@@ -76,8 +77,8 @@ export function diffSchema(
       entries.push({
         path: key,
         status: "kept",
-        existing: existingValue,
-        proposed: proposedValue,
+        existing: toSchemaJson(existingValue),
+        proposed: toSchemaJson(proposedValue),
         source,
       });
       continue;
@@ -85,8 +86,8 @@ export function diffSchema(
     entries.push({
       path: key,
       status: IDENTITY_PATHS.has(key) ? "conflicting" : "changed",
-      existing: existingValue,
-      proposed: proposedValue,
+      existing: toSchemaJson(existingValue),
+      proposed: toSchemaJson(proposedValue),
       source,
     });
   }
@@ -98,8 +99,8 @@ export function diffSchema(
       entries.push({
         path: key,
         status: "existing_only",
-        existing: existingValue,
-        proposed: undefined,
+        existing: toSchemaJson(existingValue),
+        proposed: null,
         source: null,
       });
     }

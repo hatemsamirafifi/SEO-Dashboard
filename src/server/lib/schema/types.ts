@@ -6,33 +6,27 @@
  * There is no "default" source — a property without observations is omitted
  * (D6/D12: never manufacture values).
  */
-import type { JsonLdNode } from "../audit/salla/json-ld";
 import type { PageTypeName } from "../audit/salla/page-type-evidence";
 import type { ExtractionState } from "@/shared/audit-fetch-class";
+import type { SchemaEntityType } from "@/shared/schema-types";
 
-export const SCHEMA_ENTITY_TYPES = [
-  "Organization",
-  "LocalBusiness",
-  "Article",
-  "BlogPosting",
-  "Product",
-  "BreadcrumbList",
-  "FAQPage",
-  "WebSite",
-  "WebPage",
-  "Service",
-  "Person",
-  "Event",
-] as const;
-
-export type SchemaEntityType = (typeof SCHEMA_ENTITY_TYPES)[number];
-
-const SCHEMA_ENTITY_TYPE_SET: ReadonlySet<string> = new Set(
+export {
   SCHEMA_ENTITY_TYPES,
-);
+  isSchemaEntityType,
+  type SchemaEntityType,
+} from "@/shared/schema-types";
 
-export function isSchemaEntityType(value: string): value is SchemaEntityType {
-  return SCHEMA_ENTITY_TYPE_SET.has(value);
+/** JSON-serializable value (server-function return contract). */
+export type SchemaJson =
+  | string
+  | number
+  | boolean
+  | null
+  | SchemaJson[]
+  | SchemaJsonObject;
+
+export interface SchemaJsonObject {
+  [key: string]: SchemaJson;
 }
 
 /** Stored page evidence available to the generator (no network reads). */
@@ -55,13 +49,13 @@ export interface SchemaPageInput {
 /** One emitted property and where its value was observed. */
 export interface ObservedProperty {
   path: string;
-  value: unknown;
+  value: SchemaJson;
   source: string;
 }
 
 export interface SchemaProposal {
   type: SchemaEntityType;
-  jsonLd: JsonLdNode;
+  jsonLd: SchemaJsonObject;
   properties: ObservedProperty[];
   notes: string[];
 }
@@ -89,8 +83,8 @@ export type DiffStatus =
 export interface DiffEntry {
   path: string;
   status: DiffStatus;
-  existing: unknown;
-  proposed: unknown;
+  existing: SchemaJson;
+  proposed: SchemaJson;
   source: string | null;
 }
 
@@ -98,5 +92,3 @@ export interface SchemaDiff {
   entries: DiffEntry[];
   notes: string[];
 }
-
-export type { JsonLdNode };

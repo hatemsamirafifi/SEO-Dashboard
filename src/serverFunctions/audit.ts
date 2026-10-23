@@ -1,12 +1,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { waitUntil } from "cloudflare:workers";
 import { AuditService } from "@/server/features/audit/services/AuditService";
+import { SchemaService } from "@/server/features/audit/services/SchemaService";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { requireProjectContext } from "@/serverFunctions/middleware";
 import {
   cancelAuditSchema,
   deleteAuditSchema,
   getAuditHistorySchema,
+  getAuditPageSchemaSchema,
   getAuditResultsSchema,
   getAuditStatusSchema,
   getCrawlProgressSchema,
@@ -74,6 +76,18 @@ export const getCrawlProgress = createServerFn({ method: "POST" })
   .validator(getCrawlProgressSchema)
   .handler(async ({ data, context }) => {
     return AuditService.getCrawlProgress(data.auditId, context.projectId);
+  });
+
+export const getAuditPageSchema = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(getAuditPageSchemaSchema)
+  .handler(async ({ data, context }) => {
+    return SchemaService.getPageSchema({
+      pageId: data.pageId,
+      auditId: data.auditId,
+      projectId: context.projectId,
+      type: data.type,
+    });
   });
 
 export const cancelAudit = createServerFn({ method: "POST" })

@@ -4,6 +4,7 @@ import {
   MIN_AUDIT_PAGES,
   PAID_MAX_AUDIT_PAGES,
 } from "@/shared/audit-limits";
+import { SCHEMA_ENTITY_TYPES } from "@/shared/schema-types";
 
 // ─── Server function input schemas ──────────────────────────────────────────
 
@@ -47,6 +48,13 @@ export const cancelAuditSchema = z.object({
 export const getCrawlProgressSchema = z.object({
   projectId: z.string().min(1),
   auditId: z.string().min(1),
+});
+
+export const getAuditPageSchemaSchema = z.object({
+  projectId: z.string().min(1),
+  auditId: z.string().min(1),
+  pageId: z.string().min(1),
+  type: z.enum(SCHEMA_ENTITY_TYPES).optional(),
 });
 
 // ─── URL search params schema for /p/$projectId/audit ────────────────────────

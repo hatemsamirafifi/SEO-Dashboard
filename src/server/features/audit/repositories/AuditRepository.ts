@@ -313,6 +313,27 @@ async function hasPagesForAudit(auditId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/**
+ * One page row, scoped to its audit and the audit's project. Returns null when
+ * either scope check fails so callers cannot read another project's pages.
+ */
+async function getAuditPageForProject(input: {
+  pageId: string;
+  auditId: string;
+  projectId: string;
+}) {
+  const audit = await getAuditForProject(input.auditId, input.projectId);
+  if (!audit) return null;
+  return (
+    (await db.query.auditPages.findFirst({
+      where: and(
+        eq(auditPages.id, input.pageId),
+        eq(auditPages.auditId, input.auditId),
+      ),
+    })) ?? null
+  );
+}
+
 async function getAuditsByProject(projectId: string) {
   const rows = await db
     .select({ audit: audits })
@@ -430,6 +451,7 @@ export const AuditRepository = {
   getLatestAuditForProject,
   getIssuesForAudit,
   getPagesForAudit,
+  getAuditPageForProject,
   hasPagesForAudit,
   getAuditsByProject,
   getAuditUsageForUser,
