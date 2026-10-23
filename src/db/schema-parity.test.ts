@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- the parity allowlists grow with the guarded surface */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getTableColumns, getTableName, is, Table } from "drizzle-orm";
@@ -18,6 +19,7 @@ import * as sqliteReportSharing from "./report-sharing.schema";
 import * as sqliteAutopilot from "./autopilot.schema";
 import * as sqliteReddit from "./reddit-attribution.schema";
 import * as sqliteTelemetry from "./telemetry.schema";
+import * as sqliteSerp from "./serp.schema";
 import * as pgApp from "./pg/app.schema";
 import * as pgSam from "./pg/sam.schema";
 import * as pgAuth from "./pg/better-auth-schema";
@@ -32,6 +34,7 @@ import * as pgReportSharing from "./pg/report-sharing.schema";
 import * as pgAutopilot from "./pg/autopilot.schema";
 import * as pgReddit from "./pg/reddit-attribution.schema";
 import * as pgTelemetry from "./pg/telemetry.schema";
+import * as pgSerp from "./pg/serp.schema";
 
 // Guards the ONE structural artifact `db:generate` does not regenerate: the
 // hand-written Postgres schema. The provider-aware `db`/`@/db/schema` barrel
@@ -428,4 +431,84 @@ describe("no direct db.batch (must use runBatch)", () => {
       .filter((path) => /\.batch\(/.test(readFileSync(path, "utf8")));
     expect(offenders).toEqual([]);
   }, 30000);
+});
+
+describe("spec 019: SERP organic snapshot table", () => {
+  // The generic suite compares columns, primary keys, unique constraints, and
+  // foreign keys - but NOT secondary index column sets. The clustering read
+  // path depends on the market/device and freshness indexes, so they are
+  // asserted explicitly here.
+  const sqliteByName = tablesFrom(sqliteSerp);
+  const pgByName = tablesFrom(pgSerp);
+
+  function indexColumns(table: Table, dialect: Dialect): string[] {
+    const config = getConfig(table, dialect);
+    return sortStrings(
+      config.indexes.map((index) =>
+        sortStrings(
+          index.config.columns
+            .map(columnName)
+            .filter((name): name is string => name !== null),
+        ).join(","),
+      ),
+    );
+  }
+
+  it("defines serp_organic_snapshots on both backends", () => {
+    expect(sqliteByName.get("serp_organic_snapshots")).toBeDefined();
+    expect(pgByName.get("serp_organic_snapshots")).toBeDefined();
+  });
+
+  it("matches the spec'd serp_organic_snapshots columns", () => {
+    const table = sqliteByName.get("serp_organic_snapshots");
+    expect(table).toBeDefined();
+    if (!table) return;
+    expect(
+      columnsOf(table)
+        .map((c) => c.name)
+        .toSorted(),
+    ).toEqual(
+      [
+        "id",
+        "project_id",
+        "config_id",
+        "run_id",
+        "tracking_keyword_id",
+        "keyword",
+        "search_engine",
+        "location_code",
+        "location_name",
+        "language_code",
+        "device",
+        "position",
+        "url",
+        "normalized_url",
+        "title",
+        "domain",
+        "provider",
+        "coverage_status",
+        "observed_at",
+        "created_at",
+      ].toSorted(),
+    );
+  });
+
+  it("keeps the market/device, freshness, and run indexes identical", () => {
+    const sqliteTable = sqliteByName.get("serp_organic_snapshots");
+    const pgTable = pgByName.get("serp_organic_snapshots");
+    expect(sqliteTable).toBeDefined();
+    expect(pgTable).toBeDefined();
+    if (!sqliteTable || !pgTable) return;
+    expect(indexColumns(sqliteTable, "sqlite")).toEqual(
+      indexColumns(pgTable, "pg"),
+    );
+    expect(indexColumns(sqliteTable, "sqlite")).toEqual(
+      [
+        "device,language_code,location_code,project_id",
+        "observed_at,project_id",
+        "run_id",
+        "device,position,run_id,tracking_keyword_id",
+      ].toSorted(),
+    );
+  });
 });
