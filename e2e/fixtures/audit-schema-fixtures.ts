@@ -6,6 +6,7 @@ type AuditResultsFixture = Awaited<ReturnType<typeof AuditService.getResults>>;
 type AuditPageRow = AuditResultsFixture["pages"][number];
 
 const AUDIT_ID = "e2e-audit";
+const PARTIAL_AUDIT_ID = "e2e-audit-partial";
 const PRODUCT_PAGE_ID = "e2e-page-product";
 const BLOG_PAGE_ID = "e2e-page-blog";
 const PRODUCT_URL = "https://example.com/products/widget";
@@ -26,6 +27,7 @@ function page(
     ogDescription: null,
     ogImage: null,
     h1Count: 1,
+    h1Text: null,
     h2Count: 2,
     h3Count: 0,
     h4Count: 0,
@@ -78,11 +80,12 @@ const PAGES: AuditPageRow[] = [
 export function getStatusFixture(
   auditId: string,
 ): Awaited<ReturnType<typeof AuditService.getStatus>> | null {
-  if (auditId !== AUDIT_ID) return null;
+  if (auditId !== AUDIT_ID && auditId !== PARTIAL_AUDIT_ID) return null;
+  const partial = auditId === PARTIAL_AUDIT_ID;
   return {
-    id: AUDIT_ID,
+    id: auditId,
     startUrl: "https://example.com/",
-    status: "completed" as const,
+    status: partial ? ("completed_partial" as const) : ("completed" as const),
     pagesCrawled: PAGES.length,
     pagesTotal: PAGES.length,
     lighthouseTotal: 0,
@@ -106,12 +109,13 @@ export function getStatusFixture(
 }
 
 export function getResultsFixture(auditId: string): AuditResultsFixture | null {
-  if (auditId !== AUDIT_ID) return null;
+  if (auditId !== AUDIT_ID && auditId !== PARTIAL_AUDIT_ID) return null;
+  const partial = auditId === PARTIAL_AUDIT_ID;
   return {
     audit: {
-      id: AUDIT_ID,
+      id: auditId,
       startUrl: "https://example.com/",
-      status: "completed" as const,
+      status: partial ? ("completed_partial" as const) : ("completed" as const),
       pagesCrawled: PAGES.length,
       pagesTotal: PAGES.length,
       startedAt: "2026-10-23T10:00:00.000Z",
