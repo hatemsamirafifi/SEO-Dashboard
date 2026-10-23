@@ -14,3 +14,4 @@ export * from "./report-sharing.schema";
 export * from "./autopilot.schema";
 export * from "./reddit-attribution.schema";
 export * from "./telemetry.schema";
+export * from "./serp.schema";

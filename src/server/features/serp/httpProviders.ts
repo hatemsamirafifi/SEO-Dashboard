@@ -197,6 +197,7 @@ function result(input: {
   inspectedDepth: number;
   calls: SerpProviderCall[];
   match?: NormalizedOrganic;
+  organic?: NormalizedOrganic[];
 }): NormalizedSerpResult {
   return {
     keywordId: input.searchInput.keywordId,
@@ -209,6 +210,14 @@ function result(input: {
     provider: input.provider,
     inspectedDepth: Math.min(input.searchInput.depth, input.inspectedDepth),
     calls: input.calls,
+    organicResults: (input.organic ?? []).slice(0, 10).map((entry) => ({
+      position: entry.position,
+      title: entry.title,
+      url: entry.url,
+      domain: entry.domain,
+      resultType: "organic",
+      featureRefs: [],
+    })),
   };
 }
 
@@ -225,6 +234,7 @@ export function createHttpSerpProvider(
       const requestedDepth = Math.min(100, Math.max(10, input.depth));
       const calls: SerpProviderCall[] = [];
       const pageFingerprints = new Set<string>();
+      const collectedOrganic: NormalizedOrganic[] = [];
       let inspectedDepth = 0;
       let noProgressPages = 0;
 
@@ -307,6 +317,7 @@ export function createHttpSerpProvider(
         }
 
         const pageOrganic = normalizeOrganic(parsed.data, pageNumber);
+        collectedOrganic.push(...pageOrganic);
         const fingerprint = pageOrganic
           .map((item) => item.url)
           .toSorted()
@@ -348,6 +359,7 @@ export function createHttpSerpProvider(
             inspectedDepth,
             calls,
             match,
+            organic: collectedOrganic,
           });
         }
         if (inspectedDepth >= requestedDepth) {
@@ -357,6 +369,7 @@ export function createHttpSerpProvider(
             provider: options.id,
             inspectedDepth,
             calls,
+            organic: collectedOrganic,
           });
         }
         if (noProgressPages >= 2) break;

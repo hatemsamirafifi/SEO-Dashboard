@@ -234,6 +234,17 @@ export function canonicalCannibalizationPair(
   return `cannibalization:${canonicalKeyword(query)}:${pages[0]}:${pages[1]}`;
 }
 
+/**
+ * Identity of an observed SERP cluster (spec 019): the config it was seen in
+ * plus the deterministic cluster id (the sorted normalized URLs).
+ */
+export function canonicalSerpClusterKey(
+  configId: string,
+  clusterId: string,
+): string {
+  return `serp_cluster:${configId}:${clusterId}`;
+}
+
 // ---------------------------------------------------------------------------
 // Identity builders
 // ---------------------------------------------------------------------------

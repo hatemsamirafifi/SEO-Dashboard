@@ -106,6 +106,14 @@ function dataforseoProvider(client: DataforseoClient): SerpProvider {
           provider: "dataforseo" as const,
           inspectedDepth: input.depth,
           calls: [call],
+          organicResults: (result.organicResults ?? []).map((entry) => ({
+            position: entry.position,
+            title: entry.title,
+            url: entry.url,
+            domain: entry.domain,
+            resultType: "organic",
+            featureRefs: [],
+          })),
         };
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") throw error;

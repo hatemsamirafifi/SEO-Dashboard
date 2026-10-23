@@ -532,6 +532,41 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
     }),
   },
   // Spec 014: competitor visibility gap against first-party ranking/absence.
+  serp_cluster_new_page: {
+    type: "serp_cluster",
+    title: (finding) => {
+      const count = metricNumber(finding.evidence.metrics, "keywordCount") ?? 0;
+      return `Pages rank together on ${count} tracked keywords`;
+    },
+    recommendation: (finding) => {
+      const newPages = finding.entity.newPageUrls;
+      const pages =
+        typeof newPages === "string" && newPages.length > 0
+          ? newPages
+          : "a page";
+      return (
+        `Review the observed cluster: ${pages} kept appearing next to the ` +
+        `project's pages on the same tracked keywords. Decide whether a ` +
+        `dedicated page fits the topic, and check the internal links that ` +
+        `point at it. Forward-looking: this reflects the organic results ` +
+        `observed so far, not a prediction of how a page will rank.`
+      );
+    },
+    keywordOf: () => null,
+    pageOf: (finding) => {
+      const pages = finding.entity.newPageUrls;
+      return typeof pages === "string" && pages.length > 0 ? pages : null;
+    },
+    factorsOf: (finding) => ({
+      trafficPotential: logScaleVolume(
+        metricNumber(finding.evidence.metrics, "keywordCount") ?? 0,
+      ),
+      proximity: null,
+      decline: null,
+      businessIntent: null,
+      conversionSignal: null,
+    }),
+  },
   competitor_gap: {
     type: "competitor_gap",
     title: (finding) => {

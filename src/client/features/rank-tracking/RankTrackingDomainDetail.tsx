@@ -43,6 +43,7 @@ import { MissingRankingsConfirmModal } from "./MissingRankingsConfirmModal";
 import { useMetricsRefresh } from "./useMetricsRefresh";
 import { useRankCheckTrigger } from "./useRankCheckTrigger";
 import { useRankRunPolling } from "./useRankRunPolling";
+import { SerpClustersSection } from "@/client/features/serp-clustering/SerpClustersSection";
 
 function deviceVisibility(
   devices: RankTrackingConfig["devices"],
@@ -381,6 +382,13 @@ export function RankTrackingDomainDetail({
           )}
         </div>
       </div>
+
+      {/* Spec 019: the observed SERP clusters for this config and device. */}
+      <SerpClustersSection
+        projectId={projectId}
+        configId={config.id}
+        device={activeDevice}
+      />
 
       {pendingCheck && !pendingCheck.missingRankings && (
         <CheckConfirmModal

@@ -494,6 +494,13 @@
       "when": 1792782863952,
       "tag": "0069_audit_page_h1_text",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1792794614147,
+      "tag": "0070_serp_organic_snapshots",
+      "breakpoints": true
     }
   ]
 }

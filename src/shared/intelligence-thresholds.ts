@@ -12,7 +12,8 @@
 // Bumped 3 → 4 in spec 014: competitor_gap detector.
 // Bumped 4 → 5 in spec 018: cannibalization classification tiers
 // (dominant share, intent overlap, evidence row cap).
-export const THRESHOLD_VERSION = 5;
+// Bumped 5 → 6 in spec 019: SERP cluster detection thresholds.
+export const THRESHOLD_VERSION = 6;
 
 import {
   STRIKING_DISTANCE_MAX_POSITION,
@@ -127,6 +128,16 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     minCompetitorRank: 10,
     maxFirstPartyPosition: 20,
     minVolume: 50,
+  },
+  // Spec 019: SERP pages observed together on the tracked keywords.
+  // minKeywordThreshold: shared keywords before two pages form a cluster
+  // (the bridge guard keeps weakly linked groups apart). minClusterPages:
+  // pages a cluster needs. freshnessDays: how old an observation may be.
+  serp_cluster_new_page: {
+    minKeywordThreshold: 3,
+    minCoverageRatio: 0.8,
+    minClusterPages: 2,
+    freshnessDays: 30,
   },
 };
 

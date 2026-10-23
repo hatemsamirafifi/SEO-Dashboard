@@ -299,6 +299,12 @@ export type NormalizedSerpResult = {
   provider: SerpProviderId;
   inspectedDepth: number;
   calls: SerpProviderCall[];
+  /**
+   * The organic results the provider already returned (top 10, observed
+   * only). Optional: a provider that does not surface them omits the field
+   * rather than reporting an empty page of results.
+   */
+  organicResults?: SerpOrganicResult[];
 };
 
 export class SerpProviderError extends Error {
