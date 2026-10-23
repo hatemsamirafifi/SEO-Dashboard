@@ -7,6 +7,9 @@ import { scrubGlobalTraceText } from "@/shared/globalTraceTypes";
 import { formatDataforseoTaskErrorMessage } from "@/shared/dataforseoDiagnosticsParser";
 import { asAppError } from "@/server/lib/errors";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import { SerpOrganicSnapshotRepository } from "@/server/features/serp/clustering/SerpOrganicSnapshotRepository";
+import type { SerpOrganicSnapshotRow } from "@/server/features/serp/clustering/SerpOrganicSnapshotRepository";
+import { organicRowsForResult } from "@/server/features/serp/clustering/organicRows";
 import {
   fetchRankCheckTaskResult,
   MAX_TASKS_PER_POST,
@@ -101,6 +104,63 @@ function expandToTaskInputs(
       keywordId: kw.id,
       device,
     })),
+  );
+}
+
+/**
+ * Store the organic results the provider already returned (spec 019).
+ *
+ * Fully isolated: a failed write is reported on its own and never changes the
+ * rank snapshot, the run status, or the provider failure semantics.
+ */
+async function writeOrganicRows(
+  ctx: CheckContext,
+  rows: SerpOrganicSnapshotRow[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  try {
+    await SerpOrganicSnapshotRepository.insertOrganicSnapshots(rows);
+  } catch (error) {
+    console.warn(
+      `[rank-check] ${ctx.runId} organic snapshot write failed:`,
+      error,
+    );
+  }
+}
+
+function organicRowsForResults(
+  ctx: CheckContext,
+  results: Array<{
+    keywordId: string;
+    keyword: string;
+    device: "desktop" | "mobile";
+    provider?: string;
+    inspectedDepth?: number;
+    organicResults?: Array<{
+      position: number;
+      title?: string | null;
+      url: string;
+      domain?: string | null;
+    }>;
+  }>,
+  observedAt: string,
+) {
+  return results.flatMap((result) =>
+    organicRowsForResult({
+      projectId: ctx.projectId,
+      configId: ctx.configId,
+      runId: ctx.runId,
+      trackingKeywordId: result.keywordId,
+      keyword: result.keyword,
+      device: result.device,
+      provider: result.provider ?? "dataforseo",
+      locationCode: ctx.locationCode,
+      locationName: ctx.locationName ?? null,
+      languageCode: ctx.languageCode,
+      observedAt,
+      inspectedDepth: result.inspectedDepth ?? ctx.serpDepth,
+      organicResults: result.organicResults ?? [],
+    }),
   );
 }
 
@@ -324,6 +384,19 @@ async function checkBatchLive(
     const chunkSnapshotRows: Array<
       Omit<InferInsertModel<typeof rankSnapshots>, "id" | "checkedAt">
     > = [];
+    const chunkOrganicResults: Array<{
+      keywordId: string;
+      keyword: string;
+      device: "desktop" | "mobile";
+      provider: string;
+      inspectedDepth: number;
+      organicResults?: Array<{
+        position: number;
+        title?: string | null;
+        url: string;
+        domain?: string | null;
+      }>;
+    }> = [];
 
     for (const res of chunkResults) {
       if (!res.dispatched || !res.outcome) continue;
@@ -345,6 +418,14 @@ async function checkBatchLive(
           );
         }
         const isRanked = r.position !== null;
+        chunkOrganicResults.push({
+          keywordId: task.keywordId,
+          keyword: task.keyword,
+          device: task.device,
+          provider: r.provider,
+          inspectedDepth: r.inspectedDepth,
+          organicResults: r.organicResults,
+        });
         chunkSnapshotRows.push({
           runId: ctx.runId,
           projectId: ctx.projectId,
@@ -429,6 +510,13 @@ async function checkBatchLive(
         });
       }
     }
+
+    // Organic results the provider already returned (spec 019). Isolated: a
+    // failed write never changes the rank snapshot or the run.
+    await writeOrganicRows(
+      ctx,
+      organicRowsForResults(ctx, chunkOrganicResults, new Date().toISOString()),
+    );
 
     // Check if cancellation was requested while chunk was executing
     const postChunkRun = await RankTrackingRepository.getRunById(ctx.runId);
@@ -598,6 +686,12 @@ async function collectQueuedRound(
       );
     await RankTrackingRepository.insertSnapshots(
       mapResultsToSnapshotRows(ctx, completed, previousPositions),
+    );
+    // Organic results the provider already returned (spec 019). Isolated: a
+    // failed write never changes the rank snapshot or the run.
+    await writeOrganicRows(
+      ctx,
+      organicRowsForResults(ctx, completed, new Date().toISOString()),
     );
     // Progress for the UI; finalize recounts from the DB anyway.
     const snapshots = await RankTrackingRepository.getSnapshotsForRun(

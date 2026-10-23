@@ -171,6 +171,16 @@ describe("rank check task queue", () => {
         position: 3,
         url: "https://www.example.com/page",
         serpFeatures: ["organic"],
+        // Spec 019: the organic results the provider already returned are
+        // captured for the clustering read.
+        organicResults: [
+          {
+            position: 3,
+            title: null,
+            url: "https://www.example.com/page",
+            domain: "www.example.com",
+          },
+        ],
       },
     });
   });

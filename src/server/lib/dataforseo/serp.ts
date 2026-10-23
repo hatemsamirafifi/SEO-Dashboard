@@ -107,12 +107,28 @@ export async function fetchLiveSerp(input: {
   };
 }
 
+export interface RankCheckOrganicEntry {
+  position: number;
+  title: string | null;
+  url: string;
+  domain: string;
+}
+
+/** Organic results kept per keyword and device (spec 019). */
+const MAX_ORGANIC_CAPTURE = 10;
+
 export interface RankCheckResult {
   keywordId: string;
   keyword: string;
   position: number | null;
   url: string | null;
   serpFeatures: string[];
+  /**
+   * The organic results the provider already returned (top 10, observed
+   * only). The rank check paid for them, so they are captured here instead of
+   * asking the provider again.
+   */
+  organicResults?: RankCheckOrganicEntry[];
 }
 
 function buildRankCheckResult(
@@ -125,6 +141,22 @@ function buildRankCheckResult(
     const domain = item.domain.toLowerCase();
     return domain === target || domain.endsWith(`.${target}`);
   });
+  const organicResults: RankCheckOrganicEntry[] = [];
+  for (const item of items) {
+    if (item.type !== "organic") continue;
+    const url = item.url;
+    const domain = item.domain;
+    if (!url || !domain) continue;
+    const position = item.rank_group ?? item.rank_absolute;
+    if (!position) continue;
+    organicResults.push({
+      position,
+      title: item.title ?? null,
+      url,
+      domain,
+    });
+  }
+  organicResults.sort((a, b) => a.position - b.position);
 
   return {
     keywordId: input.keywordId,
@@ -137,6 +169,7 @@ function buildRankCheckResult(
       : null,
     url: organicMatch?.url ?? null,
     serpFeatures: [...new Set(items.map((item) => item.type).filter(Boolean))],
+    organicResults: organicResults.slice(0, MAX_ORGANIC_CAPTURE),
   };
 }
 

@@ -38,6 +38,20 @@ vi.mock("@/server/lib/dataforseo", () => ({
   MAX_TASKS_PER_POST: 100,
 }));
 
+const organicMocks = vi.hoisted(() => ({
+  insertOrganicSnapshots:
+    vi.fn<(rows: Array<Record<string, unknown>>) => Promise<void>>(),
+}));
+
+vi.mock(
+  "@/server/features/serp/clustering/SerpOrganicSnapshotRepository",
+  () => ({
+    SerpOrganicSnapshotRepository: {
+      insertOrganicSnapshots: organicMocks.insertOrganicSnapshots,
+    },
+  }),
+);
+
 type Ctx = Parameters<typeof runLiveCheck>[1];
 
 function makeCtx(
@@ -82,6 +96,8 @@ describe("runLiveCheck provider-reason capture", () => {
     repoMocks.getLatestPositionsMap.mockResolvedValue(new Map());
     repoMocks.getRunById.mockResolvedValue({ id: "run_1", status: "running" });
     repoMocks.getSnapshotsForRun.mockResolvedValue([]);
+    organicMocks.insertOrganicSnapshots.mockReset();
+    organicMocks.insertOrganicSnapshots.mockResolvedValue(undefined);
   });
 
   it("returns null and persists snapshots when every call succeeds", async () => {
@@ -350,4 +366,89 @@ describe("runLiveCheck provider-reason capture", () => {
       delete process.env.RANK_CHECK_CONCURRENCY;
     }
   }, 15000);
+});
+
+describe("runLiveCheck organic snapshot capture (spec 019)", () => {
+  beforeEach(() => {
+    repoMocks.updateRun.mockResolvedValue(undefined);
+    repoMocks.insertSnapshots.mockResolvedValue(undefined);
+    repoMocks.getLatestPositionsMap.mockResolvedValue(new Map());
+    repoMocks.getRunById.mockResolvedValue({ id: "run_1", status: "running" });
+    repoMocks.getSnapshotsForRun.mockResolvedValue([]);
+    organicMocks.insertOrganicSnapshots.mockReset();
+    organicMocks.insertOrganicSnapshots.mockResolvedValue(undefined);
+  });
+
+  it("stores the organic results the provider already returned", async () => {
+    const rankCheck = vi.fn(
+      async (input: { keywordId: string; keyword: string }) => ({
+        keywordId: input.keywordId,
+        keyword: input.keyword,
+        position: 5,
+        url: "https://x/",
+        serpFeatures: [],
+        organicResults: [
+          {
+            position: 1,
+            title: "Top result",
+            url: "https://example.com/a",
+            domain: "example.com",
+          },
+          {
+            position: 2,
+            title: "Second result",
+            url: "https://example.com/b",
+            domain: "example.com",
+          },
+        ],
+      }),
+    );
+
+    await runLiveCheck(step, makeCtx(rankCheck));
+
+    expect(organicMocks.insertOrganicSnapshots).toHaveBeenCalledTimes(1);
+    const rows = organicMocks.insertOrganicSnapshots.mock.calls[0]?.[0] ?? [];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      runId: "run_1",
+      projectId: "proj_1",
+      configId: "cfg_1",
+      keyword: "keyword 1",
+      device: "desktop",
+      locationCode: 784,
+      languageCode: "ar",
+      position: 1,
+      url: "https://example.com/a",
+      provider: "dataforseo",
+    });
+  });
+
+  it("keeps the rank check intact when the organic write fails", async () => {
+    organicMocks.insertOrganicSnapshots.mockRejectedValue(
+      new Error("D1 write failed"),
+    );
+    const rankCheck = vi.fn(
+      async (input: { keywordId: string; keyword: string }) => ({
+        keywordId: input.keywordId,
+        keyword: input.keyword,
+        position: 5,
+        url: "https://x/",
+        serpFeatures: [],
+        organicResults: [
+          {
+            position: 1,
+            title: "Top result",
+            url: "https://example.com/a",
+            domain: "example.com",
+          },
+        ],
+      }),
+    );
+
+    const firstError = await runLiveCheck(step, makeCtx(rankCheck));
+
+    expect(firstError).toBeNull();
+    expect(repoMocks.insertSnapshots).toHaveBeenCalledTimes(1);
+    expect(organicMocks.insertOrganicSnapshots).toHaveBeenCalledTimes(1);
+  });
 });
