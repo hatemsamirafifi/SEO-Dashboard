@@ -3,7 +3,7 @@
 Date: 2026-10-23
 Branch: `feat/p1-schema-generator`
 Base: `17091a54` (crawler milestone HEAD)
-Commits: `ac8bd94b`, `453fd9c4`, `aa956c9a`, `3d37312d`, `16a5f824`, `e4a54ee0`, `9a3490bd`, `2314446b`
+Commits: `ac8bd94b`, `453fd9c4`, `aa956c9a`, `3d37312d`, `16a5f824`, `e4a54ee0`, `9a3490bd`, `2314446b`, `6c2ac0a9`, `4e7e2f84`
 
 ## A. Repository Assessment
 
@@ -70,13 +70,14 @@ Not applicable; Phases 1-3 remain unchanged at `17091a54` and are covered by
 - `pnpm exec playwright test e2e/audit-schema-editor.spec.ts`: 2/2 passed
   (product changed-price flow with confirmation/copy/export; blog added-only
   flow without confirmation).
-- `pnpm build`: FAILS in `vite-plugin-lean-worker-bundle.ts`'s eager-boundary
-  check. This is pre-existing at base `17091a54` and independent of Phase 4:
-  `src/server.ts` statically exports `SamChatAgent`, which statically imports
-  `samLongRunningTools` -> `site-audit-tools` (denylisted MCP tools graph), and
-  `agents@0.17.3`'s client module statically imports
-  `@modelcontextprotocol/sdk`. Both denylist rules and both chains exist at
-  base; the build gate needs a follow-up boundary fix.
+- `pnpm build`: passes after `4e7e2f84` (client + SSR + `tsc`). The gate was
+  red at base `17091a54`: `SamChatAgent` statically imports `samLongRunningTools`
+  -> `site-audit-tools`, and `agents@0.17.3`'s Agent base class statically
+  imports the MCP client. The fix lazy-loads `get_audit_status` on the first
+  poll and narrows the SDK guard to the server implementation (the client and
+  its three shared helpers are intrinsic to the statically exported chat DOs).
+  `tsc --noEmit` was also verified independently (exit 0), and the affected SAM
+  suites pass (22/22).
 
 ## F. Cost & Security Review
 
@@ -88,8 +89,9 @@ Not applicable; Phases 1-3 remain unchanged at `17091a54` and are covered by
 
 ## G. Remaining Risks & Next Steps
 
-1. Fix the pre-existing lean-worker eager-boundary build failure before the
-   next release gate.
+1. Re-run the eager-boundary guard after any `agents`/`@cloudflare/think`
+   upgrade: the SDK client is now allowed because the Agent base class needs
+   it, but a new eager server-side SDK path should still fail the build.
 2. Regenerate the missing Drizzle snapshots (`0066`-`0068`, `0044`-`0046`)
    before the next schema change.
 3. Live-store validation remains pending (fixture-only acceptance basis).
