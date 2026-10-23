@@ -89,7 +89,7 @@ export interface PageSchemaResult {
   reasons: string[];
 }
 
-export interface GetPageSchemaInput {
+interface GetPageSchemaInput {
   pageId: string;
   auditId: string;
   projectId: string;

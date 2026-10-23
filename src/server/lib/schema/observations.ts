@@ -194,10 +194,3 @@ export function observedBreadcrumbTrail(
   }
   return null;
 }
-
-/** Existing nodes of any of the supported types, for the inventory view. */
-export function existingSchemaTypes(
-  observations: SchemaObservations,
-): string[] {
-  return [...new Set(observations.existing.map((entry) => entry.type))];
-}

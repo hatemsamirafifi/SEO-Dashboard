@@ -7,7 +7,7 @@ import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { downloadFile } from "@/client/lib/download";
 import type { SchemaEntityType } from "@/shared/schema-types";
 
-export interface SchemaEditorPage {
+interface SchemaEditorPage {
   id: string;
   url: string;
   pageType: string | null;
