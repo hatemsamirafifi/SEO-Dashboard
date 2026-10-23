@@ -1,7 +1,9 @@
 /* eslint-disable max-lines */
 import { OPPORTUNITY_WEIGHTS } from "@/shared/opportunity-weights";
 import {
+  cannibalizationClassificationSchema,
   renormalizedScore,
+  type CannibalizationClassification,
   type Finding,
   type ScoredFactor,
 } from "@/shared/intelligence";
@@ -54,6 +56,19 @@ function metricNumber(
 ): number | null {
   const value: unknown = metrics[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Spec 018: the cannibalization tier stored with the finding. Unknown or
+ * missing values fall back to the possible-cannibalization wording, so a
+ * legacy finding still reads as the overlap it is.
+ */
+function classificationOf(finding: Finding): CannibalizationClassification {
+  const stored =
+    finding.entity.classification ?? finding.evidence.metrics.classification;
+  if (typeof stored !== "string") return "POSSIBLE_CANNIBALIZATION";
+  const parsed = cannibalizationClassificationSchema.safeParse(stored);
+  return parsed.success ? parsed.data : "POSSIBLE_CANNIBALIZATION";
 }
 
 export type OpportunityTemplate = {
@@ -230,11 +245,51 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
     type: "cannibalization",
     title: (finding) => {
       const query = finding.entity.query;
-      return `Potential cannibalization for "${typeof query === "string" ? query : finding.entityKey}"`;
+      const label = typeof query === "string" ? query : finding.entityKey;
+      const tier = classificationOf(finding);
+      switch (tier) {
+        case "INTENT_DISTINCT":
+          return `Distinct-intent overlap for "${label}"`;
+        case "NORMAL_URL_DIVERSITY":
+          return `URL diversity for "${label}"`;
+        case "NEEDS_REVIEW":
+          return `Overlap needs review for "${label}"`;
+        case "INSUFFICIENT_DATA":
+          return `Unclassified overlap for "${label}"`;
+        default:
+          return `Potential cannibalization for "${label}"`;
+      }
     },
-    recommendation: () =>
-      "Consolidate overlapping pages or differentiate their intent and " +
-      "internal anchor signals; monitor which URL stabilizes.",
+    recommendation: (finding) => {
+      const tier = classificationOf(finding);
+      switch (tier) {
+        case "INTENT_DISTINCT":
+          return (
+            "Keep the two pages' query intents distinct and watch whether " +
+            "either page starts serving the other's queries."
+          );
+        case "NORMAL_URL_DIVERSITY":
+          return (
+            "Confirm the impression split is intentional; one URL is serving " +
+            "the query while the other appears occasionally."
+          );
+        case "NEEDS_REVIEW":
+          return (
+            "Review which URLs are serving this query now and confirm the " +
+            "intended site structure before changing anything."
+          );
+        case "INSUFFICIENT_DATA":
+          return (
+            "Stored Search Console data is not sufficient to classify this " +
+            "overlap; re-sync the property or review the pages manually."
+          );
+        default:
+          return (
+            "Consolidate overlapping pages or differentiate their intent and " +
+            "internal anchor signals; monitor which URL stabilizes."
+          );
+      }
+    },
     keywordOf: (finding) => {
       const query = finding.entity.query;
       return typeof query === "string" ? query : null;

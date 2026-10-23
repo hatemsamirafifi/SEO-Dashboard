@@ -541,6 +541,57 @@ describe("opportunity templates", () => {
     }
   });
 
+  it("matches the cannibalization copy to the stored tier", () => {
+    const template = OPPORTUNITY_TEMPLATES.cannibalization;
+    if (!template) throw new Error("missing cannibalization template");
+    const tierFinding = (classification: string) =>
+      finding("cannibalization", {
+        entity: { query: "espresso", classification },
+        evidence: {
+          metrics: { queryImpressions: 1500, classification },
+          sources: ["gsc"],
+          thresholdsApplied: {},
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: {},
+        },
+      });
+    expect(template.title(tierFinding("POSSIBLE_CANNIBALIZATION"))).toContain(
+      "Potential cannibalization",
+    );
+    expect(template.title(tierFinding("INTENT_DISTINCT"))).toContain(
+      "Distinct-intent overlap",
+    );
+    expect(template.title(tierFinding("NORMAL_URL_DIVERSITY"))).toContain(
+      "URL diversity",
+    );
+    expect(template.title(tierFinding("NEEDS_REVIEW"))).toContain(
+      "Overlap needs review",
+    );
+    expect(template.title(tierFinding("INSUFFICIENT_DATA"))).toContain(
+      "Unclassified overlap",
+    );
+    for (const tier of [
+      "POSSIBLE_CANNIBALIZATION",
+      "INTENT_DISTINCT",
+      "NORMAL_URL_DIVERSITY",
+      "NEEDS_REVIEW",
+      "INSUFFICIENT_DATA",
+    ]) {
+      const recommendation = template.recommendation(tierFinding(tier));
+      expect(recommendation, `${tier} recommendation verbs`).not.toMatch(
+        BANNED_VERBS,
+      );
+      expect(recommendation, `${tier} recommendation verbs`).not.toMatch(
+        /delete|remove the page|redirect it away|drop the url/i,
+      );
+    }
+    expect(template.recommendation(tierFinding("NEEDS_REVIEW"))).toContain(
+      "Review",
+    );
+  });
+
   it("extracts keyword/page refs per detector family", () => {
     expect(
       OPPORTUNITY_TEMPLATES.low_ctr_query?.keywordOf(

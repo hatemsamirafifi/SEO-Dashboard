@@ -4,7 +4,7 @@ import { fetchTrafficChangeInput } from "./organicTrafficChange";
 import { fetchLowCtrInput } from "./lowCtrQuery";
 import { fetchDecayInput } from "./contentDecay";
 import { fetchRankDropInput } from "./rankingDrop";
-import { fetchCannibalizationInput } from "./cannibalization";
+import { fetchCannibalizationInput } from "./cannibalizationInput";
 import { fetchTechnicalInput } from "./technicalOnImportantPage";
 import { fetchBacklinkChangeInput } from "./backlinkChange";
 import { fetchLostBacklinksInput } from "./lostBacklinks";

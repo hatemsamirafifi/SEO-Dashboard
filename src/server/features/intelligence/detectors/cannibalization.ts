@@ -1,24 +1,27 @@
 import {
   canonicalCannibalizationPair,
-  canonicalKeyword,
   canonicalUrl,
 } from "@/shared/intelligence";
-import { GscSearchPerformanceRepository } from "@/server/features/gsc/repositories/GscSearchPerformanceRepository";
-import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import {
-  InsufficientCoverageError,
   thresholdNumber,
   type DetectorContext,
   type DetectorDef,
   type FindingDraft,
 } from "./types";
-import { coverageRatio } from "./gscWindows";
+import {
+  cannibalizationExplanation,
+  classifyCannibalization,
+} from "./cannibalizationClassification";
 
 /**
  * `cannibalization` (final-plan §4): ≥2 URLs earning impressions for the
  * same query in an overlapping window (GSC query_page grain, or rank
  * overlap). Always worded "potential": overlap is observed, intent is not.
  * GA4 absence carries no penalty.
+ *
+ * Spec 018 extends the detector (never rebuilds it) with an explicit tier per
+ * candidate and a comparison against the immediately preceding window of the
+ * same length. Tiers describe what was observed; they never claim intent.
  */
 
 export type CannibalizationCandidate = {
@@ -31,11 +34,27 @@ export type CannibalizationCandidate = {
   factIds: string[];
   /** True when the pair comes from rank overlap without GSC facts. */
   rankWitnessOnly: boolean;
+  /**
+   * Observed query-set overlap between the two top URLs (0-1): the share of
+   * the smaller query set both URLs serve. 1 means identical query spaces.
+   */
+  urlQueryOverlap: number;
+  /** Distinct queries observed for each of the two top URLs. */
+  urlQueryCounts: [number, number];
+  /** URLs that served this query in the preceding window. */
+  priorUrls: string[];
+  /** True when the preceding window is covered (synced, or enough fact days). */
+  priorCovered: boolean;
+  /** URLs serving the query now but not before, and before but not now. */
+  shiftedIn: string[];
+  shiftedOut: string[];
 };
 
 export type CannibalizationInput = {
   periodFrom: string;
   periodTo: string;
+  periodFromPrior: string;
+  periodToPrior: string;
   candidates: CannibalizationCandidate[];
   thresholds: Record<string, string | number | boolean>;
 };
@@ -52,161 +71,20 @@ export function isCannibalizationInput(
     typeof value.periodFrom === "string" &&
     "periodTo" in value &&
     typeof value.periodTo === "string" &&
+    "periodFromPrior" in value &&
+    typeof value.periodFromPrior === "string" &&
+    "periodToPrior" in value &&
+    typeof value.periodToPrior === "string" &&
     "thresholds" in value &&
     typeof value.thresholds === "object" &&
     value.thresholds !== null
   );
 }
 
-function normalizedPage(url: string | null): string | null {
+export function normalizedPage(url: string | null): string | null {
   if (!url) return null;
   // One shared helper for grouping, keys, joins, and opportunities.
   return canonicalUrl(url);
-}
-
-type RankRunRow = Awaited<
-  ReturnType<typeof RankTrackingRepository.getRecentRunsForConfig>
->[number];
-
-/** Newest run with committed snapshots (completed, or partial with rows). */
-async function latestQualifyingRankRun(
-  configId: string,
-): Promise<RankRunRow | null> {
-  const runs = await RankTrackingRepository.getRecentRunsForConfig(configId, 6);
-  for (const run of runs) {
-    if (run.status === "completed") return run;
-    if ((run.status as string) === "partial") {
-      const snapshots = await RankTrackingRepository.getSnapshotsForRun(run.id);
-      if (snapshots.length > 0) return run;
-    }
-  }
-  return null;
-}
-
-export async function fetchCannibalizationInput(
-  projectId: string,
-  ctx: DetectorContext,
-): Promise<CannibalizationInput> {
-  const windowDays = thresholdNumber(ctx.thresholds, "minWindowDays");
-  const minCoverage = thresholdNumber(ctx.thresholds, "minCoverageRatio");
-  const latestDate = await GscSearchPerformanceRepository.getLatestFactDate(
-    projectId,
-    "query_page",
-  );
-  if (!latestDate) {
-    throw new InsufficientCoverageError(
-      "cannibalization: no GSC query_page facts",
-    );
-  }
-  const to = latestDate;
-  const from = new Date(`${to}T00:00:00Z`);
-  from.setUTCDate(from.getUTCDate() - (windowDays - 1));
-  const fromStr = from.toISOString().slice(0, 10);
-  const rows = await GscSearchPerformanceRepository.getDailyGrainFacts(
-    projectId,
-    "query_page",
-    fromStr,
-    to,
-  );
-  const window = { from: fromStr, to };
-  if (coverageRatio(rows, window) < minCoverage) {
-    throw new InsufficientCoverageError(
-      `cannibalization: query_page coverage below ${minCoverage} ` +
-        `for ${fromStr}..${to}`,
-    );
-  }
-  const byQuery = new Map<
-    string,
-    Map<string, { impressions: number; factIds: string[] }>
-  >();
-  for (const row of rows) {
-    if (!row.query || !row.page) continue;
-    const query = canonicalKeyword(row.query);
-    let pages = byQuery.get(query);
-    if (!pages) {
-      pages = new Map();
-      byQuery.set(query, pages);
-    }
-    const normalized = normalizedPage(row.page) ?? row.page;
-    const entry = pages.get(normalized) ?? { impressions: 0, factIds: [] };
-    entry.impressions += row.impressions;
-    if (entry.factIds.length < 100) entry.factIds.push(row.id);
-    pages.set(normalized, entry);
-  }
-  // Rank overlap as a second witness: same keyword, ≥2 distinct ranking URLs
-  // in the latest qualifying run per config.
-  const rankOverlap = new Map<string, string[]>();
-  try {
-    const configs =
-      await RankTrackingRepository.getConfigsForProject(projectId);
-    for (const config of configs) {
-      const chosen = await latestQualifyingRankRun(config.id);
-      if (!chosen) continue;
-      const snapshots = await RankTrackingRepository.getSnapshotsForRun(
-        chosen.id,
-      );
-      const urlsByKeyword = new Map<string, Set<string>>();
-      for (const snap of snapshots) {
-        if (snap.rankingStatus !== "RANKED" || !snap.url) continue;
-        const key = canonicalKeyword(snap.keyword);
-        let urls = urlsByKeyword.get(key);
-        if (!urls) {
-          urls = new Set();
-          urlsByKeyword.set(key, urls);
-        }
-        const normalized = normalizedPage(snap.url) ?? snap.url;
-        urls.add(normalized);
-      }
-      for (const [key, urls] of urlsByKeyword) {
-        if (urls.size >= 2) {
-          rankOverlap.set(key, [...urls].toSorted());
-        }
-      }
-    }
-  } catch {
-    // Rank overlap is corroboration only; its failure never blocks GSC.
-  }
-  const candidates: CannibalizationCandidate[] = [];
-  for (const [query, pages] of byQuery) {
-    const ranked = [...pages.entries()].toSorted(
-      ([, a], [, b]) => b.impressions - a.impressions,
-    );
-    const total = ranked.reduce((sum, [, entry]) => sum + entry.impressions, 0);
-    candidates.push({
-      query,
-      urls: ranked.map(([url]) => url),
-      urlImpressions: ranked.map(([, entry]) => entry.impressions),
-      queryImpressions: total,
-      topShare: total > 0 ? (ranked[0]?.[1].impressions ?? 0) / total : 0,
-      factIds: ranked.flatMap(([, entry]) => entry.factIds).slice(0, 200),
-      rankWitnessOnly: false,
-    });
-  }
-  // Merge rank-only witnesses (queries with rank overlap but no GSC pair).
-  for (const [query, urls] of rankOverlap) {
-    if (!byQuery.has(query)) {
-      candidates.push({
-        query,
-        urls,
-        urlImpressions: urls.map(() => 0),
-        queryImpressions: 0,
-        topShare: 0,
-        factIds: [],
-        rankWitnessOnly: true,
-      });
-    }
-  }
-  return {
-    periodFrom: fromStr,
-    periodTo: to,
-    candidates,
-    thresholds: {
-      minWindowDays: windowDays,
-      minCoverageRatio: minCoverage,
-      minUrls: thresholdNumber(ctx.thresholds, "minUrls"),
-      minImpressions: thresholdNumber(ctx.thresholds, "minImpressions"),
-    },
-  };
 }
 
 export function detectCannibalization(
@@ -215,6 +93,8 @@ export function detectCannibalization(
 ): FindingDraft[] {
   const minUrls = thresholdNumber(ctx.thresholds, "minUrls");
   const minImpressions = thresholdNumber(ctx.thresholds, "minImpressions");
+  const dominantShare = thresholdNumber(ctx.thresholds, "dominantShare");
+  const intentOverlapMax = thresholdNumber(ctx.thresholds, "intentOverlapMax");
   const findings: FindingDraft[] = [];
   for (const candidate of input.candidates) {
     // Both URLs above the impression floor. Rank-only witnesses carry no
@@ -233,22 +113,44 @@ export function detectCannibalization(
       second,
       candidate.query,
     );
+    const classification = classifyCannibalization(
+      {
+        rankWitnessOnly: candidate.rankWitnessOnly,
+        priorCovered: candidate.priorCovered,
+        shiftedInCount: candidate.shiftedIn.length,
+        shiftedOutCount: candidate.shiftedOut.length,
+        urlQueryOverlap: candidate.urlQueryOverlap,
+        topShare: candidate.topShare,
+      },
+      { dominantShare, intentOverlapMax },
+    );
     findings.push({
       entityKey,
       entity: {
         query: candidate.query,
         urlA: first,
         urlB: second,
+        classification: classification.tier,
       },
-      explanationFact:
-        `Potential cannibalization: "${candidate.query}" is served by both ` +
-        `${first} and ${second} in ${input.periodFrom}..${input.periodTo} ` +
-        `(overlap observed; intent not determined).`,
+      explanationFact: cannibalizationExplanation(classification.tier, {
+        query: candidate.query,
+        first,
+        second,
+        window: `${input.periodFrom}..${input.periodTo}`,
+        priorWindow: `${input.periodFromPrior}..${input.periodToPrior}`,
+        urlQueryOverlap: candidate.urlQueryOverlap,
+        topShare: candidate.topShare,
+      }),
       evidence: {
         metrics: {
           queryImpressions: candidate.queryImpressions,
           urlCount: candidate.urls.length,
           topShare: candidate.topShare,
+          classification: classification.tier,
+          urlQueryOverlap: Number(candidate.urlQueryOverlap.toFixed(3)),
+          priorUrlCount: candidate.priorUrls.length,
+          shiftedUrlCount:
+            candidate.shiftedIn.length + candidate.shiftedOut.length,
         },
         periods: { from: input.periodFrom, to: input.periodTo },
         sources: candidate.factIds.length > 0 ? ["gsc", "rank"] : ["rank"],
@@ -256,15 +158,21 @@ export function detectCannibalization(
         thresholdsApplied: input.thresholds,
         correlations: [],
         evidenceType: "observational",
-        partialData: candidate.rankWitnessOnly ? ["rank_witness_only"] : [],
+        partialData: classification.partialData,
         confidenceInputs: {
           urlCount: candidate.urls.length,
           rankWitnessOnly: candidate.rankWitnessOnly,
+          urlQueryOverlap: Number(candidate.urlQueryOverlap.toFixed(3)),
+          priorCovered: candidate.priorCovered,
         },
       },
       detectedAt: new Date().toISOString(),
-      confidenceScore: 55,
-      coverageFlags: { queryPageCoverage: true },
+      confidenceScore: classification.confidence,
+      coverageFlags: {
+        queryPageCoverage: true,
+        priorWindowCovered: candidate.priorCovered,
+        classification: classification.tier,
+      },
     });
   }
   return findings;
@@ -272,7 +180,7 @@ export function detectCannibalization(
 
 export const cannibalizationDetector: DetectorDef = {
   detectorKey: "cannibalization",
-  version: 1,
+  version: 2,
   requiredSources: ["gsc"],
   optionalCorroborators: ["rank"],
   minConfidenceToEmit: 40,
