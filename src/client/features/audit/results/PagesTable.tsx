@@ -16,6 +16,7 @@ import {
   HttpStatusBadge,
 } from "@/client/features/audit/shared";
 import type { AuditResultsData } from "@/client/features/audit/results/types";
+import { SchemaEditorModal } from "@/client/features/audit/schema/SchemaEditorModal";
 import {
   countActiveFilters,
   EmptyTableMessage,
@@ -86,9 +87,11 @@ const EmptyCell = () => <span className="text-xs text-base-content/40">-</span>;
 function buildPagesColumns({
   canonicalHost,
   missingTitlePageIds,
+  onOpenSchema,
 }: {
   canonicalHost: string;
   missingTitlePageIds: Set<string>;
+  onOpenSchema: (page: PageRow) => void;
 }): ColumnDef<PageRow>[] {
   return [
     pageColumnHelper.accessor("url", {
@@ -180,20 +183,40 @@ function buildPagesColumns({
       },
       sortingFn: nullableNumberSort,
     }),
+    pageColumnHelper.display({
+      id: "schema",
+      header: () => <span className="sr-only">Schema</span>,
+      cell: ({ row }) => (
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs"
+          onClick={() => onOpenSchema(row.original)}
+          data-testid="schema-open"
+        >
+          Schema
+        </button>
+      ),
+      enableSorting: false,
+    }),
   ];
 }
 
 export function PagesTable({
+  projectId,
+  auditId,
   pages,
   startUrl,
   issues,
 }: {
+  projectId: string;
+  auditId: string;
   pages: AuditResultsData["pages"];
   startUrl: string;
   issues: AuditResultsData["issues"];
 }) {
   const [filters, setFilters] = useState<PagesFilters>(EMPTY_PAGES_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
+  const [schemaPage, setSchemaPage] = useState<PageRow | null>(null);
   // URL order reads as a site inventory; status-first would open the table
   // on its most boring rows (redirects) whenever a site has no errors.
   const [sorting, setSorting] = useState<SortingState>([
@@ -214,6 +237,7 @@ export function PagesTable({
             .map((issue) => issue.pageId)
             .filter((pageId): pageId is string => pageId !== null),
         ),
+        onOpenSchema: setSchemaPage,
       }),
     [issues, pages, startUrl],
   );
@@ -247,6 +271,14 @@ export function PagesTable({
         className="table table-sm"
         empty={<EmptyTableMessage label="No pages match these filters." />}
       />
+      {schemaPage && (
+        <SchemaEditorModal
+          projectId={projectId}
+          auditId={auditId}
+          page={schemaPage}
+          onClose={() => setSchemaPage(null)}
+        />
+      )}
     </div>
   );
 }

@@ -115,6 +115,8 @@ export function ResultsView({
           {activeTab === "issues" && <IssuesView issues={issues} />}
           {activeTab === "pages" && (
             <PagesTable
+              projectId={projectId}
+              auditId={audit.id}
               pages={pages}
               startUrl={audit.startUrl}
               issues={issues}
