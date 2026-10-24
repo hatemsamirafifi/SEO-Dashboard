@@ -43,6 +43,23 @@ export type SEODataResponse<T = unknown> = {
   fromCache: boolean;
   fallbackReason?: string;
   durationMs: number;
+  /** ISO timestamp of the payload as fetched by the serving provider
+   *  (first-party keyword flows only). */
+  fetchedAt?: string;
+  /** A first-party provider's sanitized failure, attached when a DataForSEO
+   *  fallback succeeded after that provider already failed in the walk. */
+  firstPartyError?: SEOFirstPartyError;
+};
+
+/** Sanitized first-party failure provenance. The classification is built from
+ *  the provider's own error taxonomy — upstream response text never leaks
+ *  into these fields. */
+export type SEOFirstPartyError = {
+  provider: string;
+  errorClass: string;
+  message: string;
+  /** Whether a retry later may plausibly succeed. */
+  retryable: boolean;
 };
 
 export interface SEODataProvider {

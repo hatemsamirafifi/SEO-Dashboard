@@ -36,6 +36,10 @@ type ResearchResult = {
   rows: KeywordResearchRow[];
   source: ResearchSource;
   usedFallback: boolean;
+  // Set by the Google-Ads-served path: true when the payload was the
+  // first-party planner envelope, so persistence skips the legacy DFS
+  // upsert and the follow-up storage hook records the rows instead.
+  firstParty?: boolean;
   diagnostics: ResearchDiagnostics;
 };
 
@@ -128,7 +132,7 @@ async function fetchGoogleAdsRows(
   billingCustomer: BillingCustomerContext,
   creditFeature?: CreditFeature,
 ): Promise<ResearchResult> {
-  const rows = await fetchGoogleAdsResearchRows(
+  const { rows, servedFirstParty } = await fetchGoogleAdsResearchRows(
     {
       seedKeyword,
       locationCode: input.locationCode,
@@ -138,13 +142,21 @@ async function fetchGoogleAdsRows(
     },
     billingCustomer,
   );
+  const requestedMode = input.mode ?? "auto";
 
   return {
     rows,
     source: "google_ads",
-    usedFallback: false,
+    firstParty: servedFirstParty,
+    // Honesty: the DataForSEO keywords_for_keywords endpoint IS a fallback
+    // for Google-Ads-served markets, but only relative to what the user
+    // asked for. A user who picked an explicit mode and got DFS rows
+    // "fell back"; the auto waterfall treats that endpoint as one of its
+    // normal steps, so an auto request that ends up there is not a
+    // fallback. First-party planner payloads are never a fallback.
+    usedFallback: !servedFirstParty && requestedMode !== "auto",
     diagnostics: {
-      requestedMode: "auto",
+      requestedMode,
       threshold: MIN_NON_SEED_FOR_AUTO,
       sourceAttempts: [
         {
@@ -213,6 +225,20 @@ function persistRows(
   });
 }
 
+/** No-op persistence hook for first-party research rows. The legacy
+ *  `upsertKeywordMetric` path is DataForSEO-shaped (competition in the DFS
+ *  ratio space, keyword difficulty, intent) and first-party planner rows do
+ *  not faithfully fit it, so they skip that legacy persistence for now; this
+ *  hook stays the single place to add first-party row storage in a follow-up
+ *  storage task once its schema decision is made. */
+export function recordFirstPartyResearchRows(
+  rows: EnrichedKeyword[],
+  input: ResolvedResearchKeywordsInput,
+): void {
+  void rows;
+  void input;
+}
+
 export async function research(
   input: ResolvedResearchKeywordsInput,
   billingCustomer: BillingCustomerContext,
@@ -228,13 +254,14 @@ export async function research(
 
   const seedKeyword = uniqueKeywords[0];
   const provider = getKeywordDataProvider(input.locationCode);
-  // Labs source modes and clickstream refinement don't exist for
-  // Google-Ads-served countries; collapse both so equivalent requests share
-  // one cache entry.
+  // Clickstream refinement is a DataForSEO Labs capability and doesn't exist
+  // for Google-Ads-served countries; drop it so equivalent requests share one
+  // cache entry. The user's mode is PRESERVED (not collapsed to "auto"): the
+  // diagnostics must report the mode the user actually chose, and an explicit
+  // mode — unlike the auto waterfall — turns a DataForSEO-served response
+  // into an honest fallback.
   const effectiveInput: ResolvedResearchKeywordsInput =
-    provider === "google_ads"
-      ? { ...input, mode: "auto", clickstream: false }
-      : input;
+    provider === "google_ads" ? { ...input, clickstream: false } : input;
   const mode = effectiveInput.mode ?? "auto";
 
   // No outer kw:research cache: the DataRouter caches each per-source call
@@ -264,7 +291,11 @@ export async function research(
             creditFeature,
           );
 
-  persistRows(effectiveInput, result.rows);
+  if (result.firstParty) {
+    recordFirstPartyResearchRows(result.rows, effectiveInput);
+  } else {
+    persistRows(effectiveInput, result.rows);
+  }
 
   return result;
 }

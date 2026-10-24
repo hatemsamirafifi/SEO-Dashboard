@@ -1,5 +1,5 @@
 import { passthroughSchema } from "./cache-service";
-import { SeoCacheService } from "./cache-service";
+import { SeoCacheService, isKeywordCacheDataType } from "./cache-service";
 import { singleFlight } from "./single-flight";
 import {
   assertDataforseoBudgetAvailable,
@@ -21,8 +21,60 @@ import type {
   SEODataRequest,
   SEODataResponse,
   SEODataType,
+  SEOFirstPartyError,
 } from "./types";
 import type { ZodTypeAny } from "zod";
+
+/** The serving provider's fetch timestamp when the payload itself carries
+ *  one (planner envelopes do; legacy DFS wraps it under `_meta`). */
+function payloadFetchedAt(data: unknown): string | undefined {
+  if (typeof data !== "object" || data === null) return undefined;
+  if ("fetchedAt" in data && typeof data.fetchedAt === "string") {
+    return data.fetchedAt;
+  }
+  if (
+    !("_meta" in data) ||
+    typeof data._meta !== "object" ||
+    data._meta === null ||
+    !("fetchedAt" in data._meta) ||
+    typeof data._meta.fetchedAt !== "string"
+  ) {
+    return undefined;
+  }
+  return data._meta.fetchedAt;
+}
+
+/** Structural guard for the sanitized first-party failure a provider
+ *  attached to its own thrown error (drafted by the provider layer; the
+ *  router never imports provider internals for this). */
+function isSeoFirstPartyError(value: unknown): value is SEOFirstPartyError {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "provider" in value &&
+    typeof value.provider === "string" &&
+    "errorClass" in value &&
+    typeof value.errorClass === "string" &&
+    "message" in value &&
+    typeof value.message === "string" &&
+    "retryable" in value &&
+    typeof value.retryable === "boolean"
+  );
+}
+
+/** Reads the sanitized first-party failure from a thrown error. Anything
+ *  else returns null. */
+function firstPartyMetaFromError(error: unknown): SEOFirstPartyError | null {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("firstPartyError" in error) ||
+    !isSeoFirstPartyError(error.firstPartyError)
+  ) {
+    return null;
+  }
+  return error.firstPartyError;
+}
 
 /**
  * The priority order of providers for each data type. The first provider that
@@ -108,6 +160,18 @@ export class DataRouter {
     }
 
     // 1. Cache check
+    const isKeywordFlow = isKeywordCacheDataType(request.dataType);
+    // Keyword flows keep provenance for their callers: the provider that
+    // actually produced the fresh payload, and a sanitized first-party
+    // failure to surface when the walk fell back after a first-party miss.
+    // Boxed so control-flow analysis cannot narrow these to their
+    // initializers — the fetcher closure below writes them invisibly to it.
+    const serving: {
+      provider: string | null;
+      fetchedAt: string | undefined;
+      firstPartyFailure: SEOFirstPartyError | null;
+    } = { provider: null, fetchedAt: undefined, firstPartyFailure: null };
+
     const cacheResult = await SeoCacheService.getOrFetch<T>(
       request,
       schema,
@@ -140,14 +204,24 @@ export class DataRouter {
               recordFreeProviderCall(providerName);
             }
 
+            serving.provider = providerName;
+            serving.fetchedAt = payloadFetchedAt(data);
+
             // Cache the result (fire-and-forget is the caller's job via
             // waitUntil; here we await to ensure persistence within the
             // request lifecycle).
-            await SeoCacheService.set(request, cacheKey, data);
+            await SeoCacheService.set(request, cacheKey, data, {
+              provider: providerName,
+              fetchedAt: serving.fetchedAt,
+            });
 
             // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- provider returns unknown; caller types it
             return data as T;
           } catch (error) {
+            if (isKeywordFlow) {
+              const meta = firstPartyMetaFromError(error);
+              if (meta) serving.firstPartyFailure = meta;
+            }
             if (error instanceof ProviderUnsupportedError) {
               // Expected — try the next provider
               if (primaryError === null) lastError = error;
@@ -202,18 +276,45 @@ export class DataRouter {
       traceCacheDecision(false);
     }
 
+    // Keyword flows declare the REAL serving provider (the planner that won
+    // the walk, the cached provenance on a hit, or DataForSEO on fallback);
+    // every other flow keeps the stable "provider" / "cache" literals their
+    // consumers already depend on.
+    const providerLabel = isKeywordFlow
+      ? cacheResult.fromCache
+        ? (cacheResult.cacheProvider ?? "cache")
+        : (serving.provider ?? "provider")
+      : cacheResult.fromCache
+        ? "cache"
+        : "provider";
+    const fetchedAt = isKeywordFlow
+      ? cacheResult.fromCache
+        ? cacheResult.fetchedAt
+        : serving.fetchedAt
+      : undefined;
+    const firstPartyError =
+      !cacheResult.fromCache &&
+      isKeywordFlow &&
+      serving.firstPartyFailure !== null &&
+      serving.provider !== null &&
+      serving.provider !== serving.firstPartyFailure.provider
+        ? serving.firstPartyFailure
+        : undefined;
+
     const response: SEODataResponse<T> = {
       dataType: request.dataType,
-      provider: cacheResult.fromCache ? "cache" : "provider",
+      provider: providerLabel,
       data: cacheResult.data,
       fromCache: cacheResult.fromCache,
       durationMs: Date.now() - startTime,
+      ...(fetchedAt !== undefined ? { fetchedAt } : {}),
+      ...(firstPartyError !== undefined ? { firstPartyError } : {}),
     };
 
     logRequest({
       requestId,
       dataType: request.dataType,
-      provider: cacheResult.fromCache ? "cache" : "provider",
+      provider: providerLabel,
       cacheStatus: cacheResult.fromCache ? "hit" : "miss",
       fallback: !cacheResult.fromCache,
       durationMs: response.durationMs,

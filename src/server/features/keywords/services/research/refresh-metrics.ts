@@ -1,5 +1,7 @@
 import { KeywordResearchRepository } from "@/server/features/keywords/repositories/KeywordResearchRepository";
 import { normalizeIntent } from "@/server/features/keywords/services/research/helpers";
+import { mapGoogleMetricRecords } from "@/server/features/keywords/services/research/google-records";
+import type { GoogleAdsKeywordRecord } from "@/server/lib/googleAdsPlanner";
 import type { KeywordMetricRow } from "@/server/lib/dataforseo/keyword-metrics";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
@@ -35,9 +37,7 @@ export async function refreshSavedKeywordMetrics(
     const { locationCode, languageCode } = groupRows[0].row;
     // projectId scopes the internal provider's D1 read to this project's
     // previously persisted metrics before any paid fallback.
-    const { data: metrics } = await getSeoDataRouter().route<
-      KeywordMetricRow[]
-    >({
+    const { data: metricsRaw } = await getSeoDataRouter().route({
       dataType: "keyword_metrics",
       keywords: groupRows.map((r) => r.row.keyword),
       locationCode,
@@ -46,6 +46,30 @@ export async function refreshSavedKeywordMetrics(
       creditFeature: "keyword_research",
       constraints: { projectId: input.projectId },
     });
+    // The keyword_metrics router walk may answer with either the legacy
+    // DataForSEO row array or the first-party Google Ads planner envelope
+    // (an object with source "google_ads" plus a keywords array). Map the
+    // envelope into the same legacy upsert rows so saved-keyword refresh
+    // keeps working either way.
+    let metrics: KeywordMetricRow[];
+    if (Array.isArray(metricsRaw)) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- legacy DFS keyword_metrics rows from the router payload the call produced
+      metrics = metricsRaw as KeywordMetricRow[];
+    } else if (
+      typeof metricsRaw === "object" &&
+      metricsRaw !== null &&
+      "keywords" in metricsRaw &&
+      Array.isArray(metricsRaw.keywords)
+    ) {
+      metrics = mapGoogleMetricRecords(
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- planner record rows are validated downstream by mapGoogleMetricRecords
+        metricsRaw.keywords as GoogleAdsKeywordRecord[],
+      );
+    } else {
+      // Neither shape — surface an explicit shape error instead of crashing
+      // downstream with "X.map is not a function" along the upsert fan-out.
+      throw new Error("Unsupported keyword_metrics payload shape");
+    }
     const byKeyword = new Map(
       metrics.map((metric) => [metric.keyword.toLowerCase(), metric]),
     );

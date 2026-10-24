@@ -8,6 +8,11 @@ export type EnrichedKeyword = {
   competition: number | null;
   keywordDifficulty: number | null;
   intent: KeywordIntent;
+  // First-party (Google Ads) additions, present only when the planner
+  // supplied the metric — consumers detect availability with `in row`.
+  lowTopOfPageBid?: number;
+  highTopOfPageBid?: number;
+  competitionLevel?: string;
 };
 
 export function normalizeKeyword(input: string): string {

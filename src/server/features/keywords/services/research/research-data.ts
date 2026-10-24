@@ -11,7 +11,9 @@ import {
   normalizeKeyword,
   type EnrichedKeyword,
 } from "./helpers";
+import { mapGoogleResearchRecords } from "./google-records";
 import type { KeywordSource } from "./selection";
+import type { GoogleAdsKeywordRecord } from "@/server/lib/googleAdsPlanner";
 
 type FetchResearchRowsParams = {
   seedKeyword: string;
@@ -108,15 +110,58 @@ export function mapAdsKeywordItems(
   return rows;
 }
 
-/** Research rows for countries DataForSEO Labs doesn't support. */
+/** The router serves keyword_ideas from two payload shapes:
+ *  - legacy `AdsKeywordIdeaItem[]` / `LabsKeywordDataItem[]` arrays
+ *    (DataForSEO), and
+ *  - the first-party Google Ads planner envelope (an object with
+ *    `source: "google_ads"` plus `ideas` / `keywords` record arrays).
+ *  Discriminate structurally — never by trusting the typed response body
+ *  against the runtime reality.
+ */
+function asRecordRows(value: unknown): GoogleAdsKeywordRecord[] {
+  return Array.isArray(value)
+    ? // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- planner record rows are validated downstream by the google-records mappers
+      (value as GoogleAdsKeywordRecord[])
+    : [];
+}
+
+function mapResearchIdeasPayload(data: unknown): EnrichedKeyword[] {
+  if (Array.isArray(data)) {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the array branch is the DFS keywords_for_keywords item shape routed by this call
+    return mapAdsKeywordItems(data as AdsKeywordIdeaItem[]);
+  }
+  if (typeof data === "object" && data !== null) {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- envelope handling: data is only known to be an object here
+    const envelope = data as { ideas?: unknown; keywords?: unknown };
+    return mapGoogleResearchRecords([
+      ...asRecordRows(envelope.ideas),
+      ...asRecordRows(envelope.keywords),
+    ]);
+  }
+  // Neither shape — surface an explicit shape error instead of crashing
+  // downstream with "items is not iterable".
+  throw new Error("Unsupported keyword_ideas payload shape");
+}
+
+/** Research rows for countries DataForSEO Labs doesn't support, plus the
+ *  provenance signal the consumer needs to route persistence honestly:
+ *  `servedFirstParty` is true only when the payload was the first-party
+ *  planner envelope (an object), never for the legacy DFS item array. */
+export type GoogleAdsResearchRows = {
+  rows: EnrichedKeyword[];
+  servedFirstParty: boolean;
+};
+
 export async function fetchGoogleAdsResearchRows(
   params: Omit<FetchResearchRowsParams, "source">,
   billingCustomer: BillingCustomerContext,
-): Promise<EnrichedKeyword[]> {
+): Promise<GoogleAdsResearchRows> {
   // DataForSEO's keywords_for_keywords (Google Ads) endpoint. The router's
   // google_ads API provider does not apply this source (see the adsIdeas
-  // branch in the DataForSEO provider), so the DFS provider serves it.
-  const { data } = await getSeoDataRouter().route<AdsKeywordIdeaItem[]>({
+  // branch in the DataForSEO provider), so the DFS provider serves it —
+  // unless the project runs first-party, in which case the google_ads
+  // provider wins the walk and answers with its planner envelope instead.
+  const { data } = await getSeoDataRouter().route({
     dataType: "keyword_ideas",
     keyword: params.seedKeyword,
     locationCode: params.locationCode,
@@ -128,7 +173,11 @@ export async function fetchGoogleAdsResearchRows(
       limit: params.resultLimit,
     },
   });
-  return mapAdsKeywordItems(data);
+  return {
+    rows: mapResearchIdeasPayload(data),
+    servedFirstParty:
+      typeof data === "object" && data !== null && !Array.isArray(data),
+  };
 }
 
 export async function fetchResearchRowsBySource(
@@ -163,7 +212,16 @@ export async function fetchResearchRowsBySource(
     );
   }
 
-  const { data } =
-    await getSeoDataRouter().route<LabsKeywordDataItem[]>(request);
-  return mapKeywordDataItems(data);
+  if (params.source !== "ideas") {
+    // `suggestions` stays on the Labs item mapper: DataForSEO serves this
+    // mode and the planner never claims it.
+    const { data } =
+      await getSeoDataRouter().route<LabsKeywordDataItem[]>(request);
+    return mapKeywordDataItems(data);
+  }
+
+  // The "ideas" mode is the only one the first-party provider claims, so the
+  // payload may legitimately arrive in either shape here.
+  const { data } = await getSeoDataRouter().route(request);
+  return mapResearchIdeasPayload(data);
 }
