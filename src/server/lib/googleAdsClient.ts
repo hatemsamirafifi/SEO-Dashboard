@@ -10,6 +10,58 @@ import {
   formatGoogleAdsCustomerId,
   normalizeGoogleAdsCustomerId,
 } from "@/shared/google-ads";
+import {
+  buildHistoricalMetricsRequest,
+  buildKeywordIdeasRequest,
+  GOOGLE_ADS_DEFAULT_PLANNER_NETWORK,
+  GOOGLE_ADS_PLANNER_SOURCE,
+  type GoogleAdsHistoricalMetricsInput,
+  type GoogleAdsHistoricalMetricsResult,
+  type GoogleAdsKeywordIdeasInput,
+  type GoogleAdsKeywordIdeasResult,
+} from "./googleAdsPlanner";
+import {
+  collectKeywordRecords,
+  parseHistoricalPage,
+  parseIdeasPage,
+} from "./googleAdsPlanner.metrics";
+import {
+  buildGeoTargetSuggestRequest,
+  buildLanguageConstantQuery,
+  parseGeoTargetSuggestions,
+  parseLanguageConstants,
+  selectCountryGeoTargetConstant,
+  selectLanguageConstant,
+  type GoogleAdsGeoTargetConstant,
+  type GoogleAdsGeoTargetSuggestBody,
+  type GoogleAdsGeoTargetSuggestInput,
+  type GoogleAdsLanguageConstant,
+  type GoogleAdsLanguageConstantInput,
+} from "./googleAdsTarget";
+import {
+  buildGoogleAdsDailyQuery,
+  validateGoogleAdsDailyFactsWindow,
+  type GoogleAdsDailyAccountRow,
+  type GoogleAdsDailyAdGroupRow,
+  type GoogleAdsDailyCampaignRow,
+  type GoogleAdsDailyDeviceRow,
+  type GoogleAdsDailyFactsInput,
+  type GoogleAdsDailyFactsResult,
+  type GoogleAdsDailyKeywordRow,
+  type GoogleAdsDailyLandingPageRow,
+  type GoogleAdsDailySearchTermRow,
+  type GoogleAdsReportingGrain,
+} from "./googleAdsReporting";
+import {
+  extractGoogleAdsDailyAccountRow,
+  extractGoogleAdsDailyAdGroupRow,
+  extractGoogleAdsDailyCampaignRow,
+  extractGoogleAdsDailyDeviceRow,
+  extractGoogleAdsDailyKeywordRow,
+  extractGoogleAdsDailyLandingPageRow,
+  extractGoogleAdsDailySearchTermRow,
+  type DailyRowParseResult,
+} from "./googleAdsReporting.parsers";
 
 /* Read-only Google Ads API v26 REST boundary (Phase 1: connection foundation).
  * Only explicit discovery reads are exposed — no mutate/SearchStream/query
@@ -27,7 +79,29 @@ import {
  * validated against an enum-style allowlist before being re-exposed. A
  * successful response that does not match the v26 schema becomes a bounded
  * GoogleAdsMalformedResponseError instead of a raw Zod error carrying
- * upstream values. */
+ * upstream values.
+ *
+ * Phase 2 adds the read-only Keyword Planner boundary on the same transport:
+ * - POST /v26/customers/{id}:generateKeywordIdeas
+ *   https://developers.google.com/google-ads/api/reference/rpc/v26/GenerateKeywordIdeasRequest
+ * - POST /v26/customers/{id}:generateKeywordHistoricalMetrics
+ *   https://developers.google.com/google-ads/api/reference/rpc/v26/GenerateKeywordHistoricalMetricsRequest
+ * - POST /v26/geoTargetConstants:suggest
+ *   https://developers.google.com/google-ads/api/reference/rpc/v26/SuggestGeoTargetConstantsRequest
+ * Planner paging is its own contract (bounded pageSize, pageToken,
+ * totalSize) and is NOT the Search endpoint's paging: a Search request still
+ * sends no pageSize at all, and the historical-metrics endpoint has no paging
+ * fields whatsoever. The metric and targeting semantics live in
+ * googleAdsPlanner and googleAdsTarget so this file stays a transport.
+ *
+ * Phase 3 adds the fixed daily reporting reads on the same transport: seven
+ * getDaily*Facts methods, each one fixed GAQL query per grain (account,
+ * campaign, ad_group, keyword, search_term, device, landing_page) over an
+ * inclusive segments.date window bounded to 37 months. No caller-supplied
+ * GAQL, mutate/SearchStream/query endpoint or pageSize exists here; every
+ * read pages with pageToken only, treats malformed rows as `partial`, and
+ * the query construction and row parsers live in googleAdsReporting so this
+ * file stays a transport. */
 
 /** Pagination is server-controlled in v26 (fixed pages up to 10,000 rows).
  *  The client still imposes explicit traversal ceilings so every paid path
@@ -104,7 +178,10 @@ const listAccessibleCustomersSchema = z
 
 const searchResponseSchema = z
   .object({
-    results: z.array(z.record(z.string(), z.unknown())).optional(),
+    // ProtoJSON omits empty repeated fields and a null behaves like
+    // absence: an absent or null results list is an empty successful
+    // page, while a present non-array is a malformed payload.
+    results: z.array(z.record(z.string(), z.unknown())).nullable().optional(),
     nextPageToken: z.string().min(1).optional(),
     fieldMask: z.string().optional(),
   })
@@ -334,9 +411,12 @@ SELECT
   customer_client.test_account
 FROM customer_client`;
 
-/** v26 search request body: the GAQL query plus an optional pageToken.
- *  `pageSize` is rejected by the API and is never sent. */
-type AdsSearchBody = { query: string; pageToken?: string };
+/** v26 REST request body. The Search endpoint takes the GAQL query plus an
+ *  optional pageToken; `pageSize` is rejected by that API and is never sent.
+ *  The Planner endpoints take their own documented bodies (bounded pageSize,
+ *  pageToken and totalSize for the ideas endpoint; no paging fields at all
+ *  for historical metrics). */
+type AdsRequestBody = Record<string, unknown>;
 
 export function createGoogleAdsClient(options: {
   userId: string;
@@ -368,7 +448,7 @@ export function createGoogleAdsClient(options: {
     path: string,
     request: {
       method: "GET" | "POST";
-      body?: AdsSearchBody;
+      body?: AdsRequestBody;
       loginCustomerId?: string | null;
     },
   ): Promise<Response> {
@@ -429,7 +509,7 @@ export function createGoogleAdsClient(options: {
     let pageToken: string | undefined;
     for (let page = 0; page < GOOGLE_ADS_MAX_SEARCH_PAGES; page += 1) {
       // v26 search accepts no explicit page count; only pageToken advances.
-      const body: AdsSearchBody = { query };
+      const body: AdsRequestBody = { query };
       if (pageToken) body.pageToken = pageToken;
       const response = await adsRequest(path, {
         method: "POST",
@@ -457,6 +537,21 @@ export function createGoogleAdsClient(options: {
       pageToken = next;
     }
     return { rows, truncated: true, lastPageToken: pageToken };
+  }
+
+  /** One `geoTargetConstants:suggest` call, shared by the raw suggestion
+   *  read and the strict country resolver so both always send the same
+   *  documented request. */
+  async function suggestGeoTargets(
+    request: GoogleAdsGeoTargetSuggestBody,
+  ): Promise<GoogleAdsGeoTargetConstant[]> {
+    const response = await adsRequest("/geoTargetConstants:suggest", {
+      method: "POST",
+      body: { ...request },
+    });
+    const parsed = parseGeoTargetSuggestions(await readJson(response));
+    if (!parsed.ok) throw new GoogleAdsMalformedResponseError();
+    return parsed.value.constants;
   }
 
   return {
@@ -535,6 +630,267 @@ export function createGoogleAdsClient(options: {
         partial: truncated || malformedRows > 0,
       };
     },
+
+    /** Keyword ideas from a keyword seed, a URL seed or both. The request is
+     *  bounded on every axis (seed size, geo constants, page size, total
+     *  results, pages) and the result says whether it is the complete set:
+     *  `truncated` and `partial` are never silently false. */
+    async generateKeywordIdeas(
+      input: GoogleAdsKeywordIdeasInput,
+    ): Promise<GoogleAdsKeywordIdeasResult> {
+      const request = buildKeywordIdeasRequest(input);
+      if (!request.ok) throw new GoogleAdsRequestError(request.reason);
+      const customerId = normalizeCustomerId(input.customerId);
+      const loginCustomerId = input.loginCustomerId
+        ? normalizeCustomerId(input.loginCustomerId)
+        : null;
+      const path = `/customers/${customerId}:generateKeywordIdeas`;
+      const collected = await collectKeywordRecords({
+        fetchPage: async (pageToken) => {
+          const body: AdsRequestBody = { ...request.value.body };
+          if (pageToken) body.pageToken = pageToken;
+          const response = await adsRequest(path, {
+            method: "POST",
+            body,
+            loginCustomerId,
+          });
+          return parseIdeasPage(await readJson(response));
+        },
+        maxResults: request.value.maxResults,
+        maxPages: request.value.maxPages,
+      });
+      if (!collected.ok) throw new GoogleAdsMalformedResponseError();
+      return {
+        ideas: collected.value.records,
+        totalResults: collected.value.totalResults,
+        truncated: collected.value.truncated,
+        malformedIdeas: collected.value.malformedRecords,
+        partial:
+          collected.value.truncated || collected.value.malformedRecords > 0,
+        source: GOOGLE_ADS_PLANNER_SOURCE,
+        fetchedAt: new Date().toISOString(),
+        currencyCode: request.value.currencyCode,
+        network: GOOGLE_ADS_DEFAULT_PLANNER_NETWORK,
+      };
+    },
+
+    /** Historical metrics for a bounded list of keywords. Close variants stay
+     *  one record with membership, and a keyword Google returned no group for
+     *  is reported as missing — never as a zero-volume keyword. */
+    async generateKeywordHistoricalMetrics(
+      input: GoogleAdsHistoricalMetricsInput,
+    ): Promise<GoogleAdsHistoricalMetricsResult> {
+      const request = buildHistoricalMetricsRequest(input);
+      if (!request.ok) throw new GoogleAdsRequestError(request.reason);
+      const customerId = normalizeCustomerId(input.customerId);
+      const loginCustomerId = input.loginCustomerId
+        ? normalizeCustomerId(input.loginCustomerId)
+        : null;
+      const response = await adsRequest(
+        `/customers/${customerId}:generateKeywordHistoricalMetrics`,
+        {
+          method: "POST",
+          body: request.value.body,
+          loginCustomerId,
+        },
+      );
+      const parsed = parseHistoricalPage(await readJson(response));
+      if (!parsed.ok) throw new GoogleAdsMalformedResponseError();
+      const covered = new Set<string>();
+      for (const record of parsed.value.records) {
+        covered.add(record.keyword);
+        for (const variant of record.closeVariants) covered.add(variant);
+      }
+      const missingKeywords = request.value.keywords.filter(
+        (keyword) => !covered.has(keyword),
+      );
+      return {
+        keywords: parsed.value.records,
+        missingKeywords,
+        malformedKeywords: parsed.value.malformedRecords,
+        duplicateKeywords: parsed.value.duplicateRecords,
+        // The historical-metrics endpoint has no paging contract.
+        truncated: false,
+        partial:
+          parsed.value.malformedRecords > 0 || missingKeywords.length > 0,
+        source: GOOGLE_ADS_PLANNER_SOURCE,
+        fetchedAt: new Date().toISOString(),
+        currencyCode: request.value.currencyCode,
+        network: GOOGLE_ADS_DEFAULT_PLANNER_NETWORK,
+      };
+    },
+
+    /** The raw geo target suggestions for one country name. Nothing here
+     *  guesses an id: a Google geo target constant is only ever resolved
+     *  through the documented suggest call. */
+    async suggestGeoTargetConstants(
+      input: GoogleAdsGeoTargetSuggestInput,
+    ): Promise<GoogleAdsGeoTargetConstant[]> {
+      const request = buildGeoTargetSuggestRequest(input);
+      if (!request.ok) throw new GoogleAdsRequestError(request.reason);
+      return suggestGeoTargets(request.value);
+    },
+
+    /** Resolves one country to its Google geo target constant resource name.
+     *  A country that is unknown, disabled or ambiguous is rejected — the
+     *  client never substitutes a different country. */
+    async resolveCountryGeoTargetConstant(
+      input: GoogleAdsGeoTargetSuggestInput,
+    ): Promise<GoogleAdsGeoTargetConstant> {
+      const request = buildGeoTargetSuggestRequest(input);
+      if (!request.ok) throw new GoogleAdsRequestError(request.reason);
+      const constants = await suggestGeoTargets(request.value);
+      const selected = selectCountryGeoTargetConstant(
+        constants,
+        request.value.countryCode,
+      );
+      if (!selected.ok) throw new GoogleAdsRequestError(selected.reason);
+      return selected.value;
+    },
+
+    /** Resolves one language code to its Google language constant resource
+     *  name with a fixed, validated search on the selected customer. An
+     *  unknown or ambiguous language is rejected; English is never assumed. */
+    async resolveLanguageConstant(
+      input: GoogleAdsLanguageConstantInput,
+    ): Promise<GoogleAdsLanguageConstant> {
+      const query = buildLanguageConstantQuery(input.languageCode);
+      if (!query.ok) throw new GoogleAdsRequestError(query.reason);
+      const customerId = normalizeCustomerId(input.customerId);
+      const loginCustomerId = input.loginCustomerId
+        ? normalizeCustomerId(input.loginCustomerId)
+        : null;
+      const response = await adsRequest(searchPath(customerId), {
+        method: "POST",
+        body: { query: query.value },
+        loginCustomerId,
+      });
+      const parsed = parseLanguageConstants(await readJson(response));
+      if (!parsed.ok) throw new GoogleAdsMalformedResponseError();
+      const selected = selectLanguageConstant(
+        parsed.value.constants,
+        input.languageCode.trim(),
+      );
+      if (!selected.ok) throw new GoogleAdsRequestError(selected.reason);
+      return selected.value;
+    },
+
+    // Fixed daily reporting reads (Phase 3): their method shapes live in
+    // createDailyFactsMethods below so the factory stays within its
+    // size budget; here they are only wired to the bounded Search closure.
+    ...createDailyFactsMethods(searchBounded),
+  };
+}
+
+/** Fixed daily-facts method shapes: one documented v26 query per grain
+ *  (account, campaign, ad_group, keyword, search_term, device,
+ *  landing_page), validated window, no caller-supplied GAQL and no
+ *  pageSize. Segmented rows are parsed per grain; malformed rows surface
+ *  via `partial`, and absent segmented rows (the zero-metrics contract)
+ *  are a valid empty read, not a failure. */
+function createDailyFactsMethods(
+  searchBounded: (
+    customerId: string,
+    query: string,
+    loginCustomerId: string | null,
+  ) => Promise<{ rows: Array<Record<string, unknown>>; truncated: boolean }>,
+) {
+  /** Shared bounded daily-facts runner: the window is validated BEFORE
+   *  any auth work, the fixed per-grain query is then built, and Search
+   *  pages under the existing ceilings. Rows are parsed per grain;
+   *  malformed rows surface as `partial`, never as success-complete data. */
+  const runDailyFacts = async <Row>(
+    grain: GoogleAdsReportingGrain,
+    input: GoogleAdsDailyFactsInput,
+    extractRow: (row: unknown) => DailyRowParseResult<Row>,
+  ): Promise<GoogleAdsDailyFactsResult<Row>> => {
+    const window = validateGoogleAdsDailyFactsWindow(input);
+    if (!window.ok) throw new GoogleAdsRequestError(window.reason);
+    const built = buildGoogleAdsDailyQuery(grain, input);
+    if (!built.ok) throw new GoogleAdsRequestError(built.reason);
+    const { rows, truncated } = await searchBounded(
+      window.value.customerId,
+      built.value,
+      window.value.loginCustomerId,
+    );
+    let malformedRows = 0;
+    const facts: Row[] = [];
+    for (const row of rows) {
+      const parsed = extractRow(row);
+      if (!parsed.ok) {
+        // A malformed row in a successful payload is never silent: it is
+        // counted and surfaced via `partial`, mirroring the hierarchy
+        // traversal so incomplete data cannot pass as complete.
+        malformedRows += 1;
+        continue;
+      }
+      facts.push(parsed.value);
+    }
+    return {
+      grain,
+      customerId: window.value.customerId,
+      startDate: window.value.startDate,
+      endDate: window.value.endDate,
+      metricDateBasis: "interaction_date",
+      source: "google_ads",
+      fetchedAt: new Date().toISOString(),
+      rows: facts,
+      truncated,
+      malformedRows,
+      partial: truncated || malformedRows > 0,
+    };
+  };
+
+  return {
+    async getDailyAccountFacts(
+      input: GoogleAdsDailyFactsInput,
+    ): Promise<GoogleAdsDailyFactsResult<GoogleAdsDailyAccountRow>> {
+      return runDailyFacts("account", input, extractGoogleAdsDailyAccountRow);
+    },
+
+    async getDailyCampaignFacts(
+      input: GoogleAdsDailyFactsInput,
+    ): Promise<GoogleAdsDailyFactsResult<GoogleAdsDailyCampaignRow>> {
+      return runDailyFacts("campaign", input, extractGoogleAdsDailyCampaignRow);
+    },
+
+    async getDailyAdGroupFacts(
+      input: GoogleAdsDailyFactsInput,
+    ): Promise<GoogleAdsDailyFactsResult<GoogleAdsDailyAdGroupRow>> {
+      return runDailyFacts("ad_group", input, extractGoogleAdsDailyAdGroupRow);
+    },
+
+    async getDailyKeywordFacts(
+      input: GoogleAdsDailyFactsInput,
+    ): Promise<GoogleAdsDailyFactsResult<GoogleAdsDailyKeywordRow>> {
+      return runDailyFacts("keyword", input, extractGoogleAdsDailyKeywordRow);
+    },
+
+    async getDailySearchTermFacts(
+      input: GoogleAdsDailyFactsInput,
+    ): Promise<GoogleAdsDailyFactsResult<GoogleAdsDailySearchTermRow>> {
+      return runDailyFacts(
+        "search_term",
+        input,
+        extractGoogleAdsDailySearchTermRow,
+      );
+    },
+
+    async getDailyDeviceFacts(
+      input: GoogleAdsDailyFactsInput,
+    ): Promise<GoogleAdsDailyFactsResult<GoogleAdsDailyDeviceRow>> {
+      return runDailyFacts("device", input, extractGoogleAdsDailyDeviceRow);
+    },
+
+    async getDailyLandingPageFacts(
+      input: GoogleAdsDailyFactsInput,
+    ): Promise<GoogleAdsDailyFactsResult<GoogleAdsDailyLandingPageRow>> {
+      return runDailyFacts(
+        "landing_page",
+        input,
+        extractGoogleAdsDailyLandingPageRow,
+      );
+    },
   };
 }
 
@@ -548,6 +904,29 @@ export type GoogleAdsErrorClassification = {
  *  project is not cleared for production Ads API access. */
 const RESTRICTED_ERROR_CODES = new Set([
   "AuthorizationError.CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION",
+]);
+
+/** v26 AuthorizationError members meaning the Cloud project may not use the
+ *  requested Google Ads API service at all (official v26 text: "The developer
+ *  specified does not have access to the service"). Access-level restrictions
+ *  are conditional per service — for example, Explorer access excludes
+ *  KeywordPlanIdeaService for Planner calls — so the message stays generic
+ *  about the requested service. It is a Cloud access restriction, NOT an
+ *  expired or revoked OAuth grant.
+ *  https://developers.google.com/google-ads/api/reference/rpc/v26/AuthorizationErrorEnum.AuthorizationError */
+const SERVICE_ACCESS_DENIED_ERROR_CODES = new Set([
+  "AuthorizationError.SERVICE_ACCESS_DENIED",
+]);
+
+/** v26 Authorization/Authentication members that describe Cloud project or
+ *  Cloud organization access rather than the lifetime of the OAuth grant. */
+const CLOUD_ACCESS_ERROR_CODES = new Set([
+  "AuthorizationError.PROJECT_DISABLED",
+  "AuthorizationError.CLOUD_PROJECT_NOT_UNDER_ORGANIZATION",
+  "AuthorizationError.INCOMPLETE_SIGNUP",
+  "AuthorizationError.MISSING_TOS",
+  "AuthenticationError.ORGANIZATION_NOT_APPROVED",
+  "AuthenticationError.ORGANIZATION_NOT_RECOGNIZED",
 ]);
 
 /** v26 AuthenticationError enum members meaning the OAuth grant itself is
@@ -574,8 +953,10 @@ export function classifyGoogleAdsError(
   if (error instanceof GoogleAdsTokenError) {
     return {
       errorClass: "OAUTH_TOKEN_FAILURE",
+      // The token mint itself failed, so the cause is unknown: no expired or
+      // revoked grant is asserted without evidence from the upstream.
       message:
-        "Google Ads OAuth grant expired or revoked. Reconnect the account.",
+        "The Google Ads OAuth access token could not be obtained. Reconnect the Google account and try again.",
       retryable: false,
     };
   }
@@ -619,7 +1000,26 @@ export function classifyGoogleAdsError(
         retryable: false,
       };
     }
-    if (code === "QuotaError.RESOURCE_TEMPORARILY_EXHAUSTED") {
+    if (code && SERVICE_ACCESS_DENIED_ERROR_CODES.has(code)) {
+      return {
+        errorClass: "API_ACCESS_RESTRICTED",
+        message:
+          "This Google Ads Cloud project does not have access to the requested Google Ads API service (for example, Explorer access excludes the Keyword Planner service). Fix the Cloud project's access level for the calls being made.",
+        retryable: false,
+      };
+    }
+    if (code && CLOUD_ACCESS_ERROR_CODES.has(code)) {
+      return {
+        errorClass: "API_ACCESS_RESTRICTED",
+        message:
+          "The Google Cloud project backing this connection is not cleared for Google Ads API access.",
+        retryable: false,
+      };
+    }
+    if (
+      code === "QuotaError.RESOURCE_TEMPORARILY_EXHAUSTED" ||
+      code === "QuotaError.EXCESSIVE_SHORT_TERM_QUERY_RESOURCE_CONSUMPTION"
+    ) {
       return {
         errorClass: "QUOTA_TEMPORARILY_EXHAUSTED",
         message:
@@ -627,7 +1027,11 @@ export function classifyGoogleAdsError(
         retryable: true,
       };
     }
-    if (code === "QuotaError.RESOURCE_EXHAUSTED" || error.status === 429) {
+    if (
+      code === "QuotaError.RESOURCE_EXHAUSTED" ||
+      code === "QuotaError.EXCESSIVE_LONG_TERM_QUERY_RESOURCE_CONSUMPTION" ||
+      error.status === 429
+    ) {
       return {
         errorClass: "QUOTA_EXHAUSTED",
         message:
