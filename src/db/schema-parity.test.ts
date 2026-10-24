@@ -11,6 +11,8 @@ import * as sqliteBilling from "./billing.schema";
 import * as sqliteGsc from "./gsc.schema";
 import * as sqliteGa4 from "./ga4.schema";
 import * as sqliteGoogleAds from "./google-ads.schema";
+import * as sqliteGoogleAdsAnalytics from "./google-ads-analytics.schema";
+import * as sqliteGoogleAdsSync from "./google-ads-sync.schema";
 import * as sqliteIntelligence from "./intelligence.schema";
 import * as sqliteInsights from "./insights.schema";
 import * as sqliteOpportunities from "./opportunities.schema";
@@ -26,6 +28,8 @@ import * as pgBilling from "./pg/billing.schema";
 import * as pgGsc from "./pg/gsc.schema";
 import * as pgGa4 from "./pg/ga4.schema";
 import * as pgGoogleAds from "./pg/google-ads.schema";
+import * as pgGoogleAdsAnalytics from "./pg/google-ads-analytics.schema";
+import * as pgGoogleAdsSync from "./pg/google-ads-sync.schema";
 import * as pgIntelligence from "./pg/intelligence.schema";
 import * as pgInsights from "./pg/insights.schema";
 import * as pgOpportunities from "./pg/opportunities.schema";
@@ -156,6 +160,8 @@ const sqliteAppTables = tablesFrom(
   sqliteGsc,
   sqliteGa4,
   sqliteGoogleAds,
+  sqliteGoogleAdsAnalytics,
+  sqliteGoogleAdsSync,
   sqliteIntelligence,
   sqliteInsights,
   sqliteOpportunities,
@@ -172,6 +178,8 @@ const pgAppTables = tablesFrom(
   pgGsc,
   pgGa4,
   pgGoogleAds,
+  pgGoogleAdsAnalytics,
+  pgGoogleAdsSync,
   pgIntelligence,
   pgInsights,
   pgOpportunities,
