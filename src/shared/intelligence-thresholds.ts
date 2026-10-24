@@ -10,7 +10,9 @@
 // Bumped 2 → 3 in spec 010: conversion_drop (C2b) and engagement_drop (C2c)
 // GA4-backed detectors.
 // Bumped 3 → 4 in spec 014: competitor_gap detector.
-export const THRESHOLD_VERSION = 4;
+// Bumped 4 → 5 in the Google Ads master plan phase 5: paid_organic_query_gap
+// and paid_landing_page_technical_issue detectors.
+export const THRESHOLD_VERSION = 5;
 
 import {
   STRIKING_DISTANCE_MAX_POSITION,
@@ -116,6 +118,30 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     minCompetitorRank: 10,
     maxFirstPartyPosition: 20,
     minVolume: 50,
+  },
+  // Master plan phase 5 (google-ads): paid search terms/keywords whose spend
+  // (base micros, account currency) or stored conversions meet a floor while
+  // organic GSC visibility is weak or absent (striking-distance band or
+  // below the impression floor). Cost floors are in raw micros so they stay
+  // currency-agnostic before the account currency is echoed in evidence.
+  paid_organic_query_gap: {
+    minWindowDays: 28,
+    minCoverageRatio: 0.8,
+    minPaidCostMicros: 500_000,
+    minPaidConversions: 1,
+    minOrganicImpressions: 100,
+    minOrganicPosition: 11,
+  },
+  // Master plan phase 5 (google-ads): paid landing pages with windowed
+  // spend/clicks that also carry a critical audit issue on the same
+  // canonical page identity (or weak current GA4 engagement).
+  paid_landing_page_technical_issue: {
+    minWindowDays: 28,
+    minCoverageRatio: 0.8,
+    minPaidCostMicros: 500_000,
+    minPaidClicks: 25,
+    severity: "critical",
+    weakEngagementRate: 0.4,
   },
 };
 

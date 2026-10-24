@@ -6,7 +6,13 @@ export type Finding = z.infer<typeof findingSchema>;
 export type Opportunity = z.infer<typeof opportunitySchema>;
 
 /** Sources a detector may require or corroborate with. */
-export type DetectionSource = "gsc" | "ga4" | "rank" | "audit" | "backlinks";
+export type DetectionSource =
+  | "gsc"
+  | "ga4"
+  | "rank"
+  | "audit"
+  | "backlinks"
+  | "google_ads";
 
 /**
  * Coverage requirement for one source: the grain(s) that must hold
@@ -47,6 +53,8 @@ export type FindingDraft = {
       rankSnapshotIds?: Array<string | number>;
       auditIssueIds?: string[];
       ga4Keys?: string[];
+      /** Google Ads stored-evidence unit keys (`customerId:date:grain`). */
+      googleAdsUnitIds?: string[];
     };
     thresholdsApplied: Record<string, string | number | boolean>;
     correlations: Array<{

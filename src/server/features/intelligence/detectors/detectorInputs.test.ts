@@ -583,13 +583,23 @@ describe("full-scan integration over seeded sources", () => {
       expect(finding.confidenceScore).toBeGreaterThanOrEqual(40);
     }
     const outcomes = await ScanLedgerRepository.getDetectorOutcomes(run.id);
-    expect(outcomes).toHaveLength(13);
+    // 15 registered detectors: 12 completed (9 emitting findings, 3 emitting
+    // nothing by design) + 3 skipped (competitor_gap behind G5, and the two
+    // Google Ads detectors with no committed google_ads source).
+    expect(outcomes).toHaveLength(15);
     const completed = outcomes.filter((o) => o.status === "completed");
     const skipped = outcomes.filter((o) => o.status === "skipped");
     expect(completed).toHaveLength(12);
-    expect(skipped).toHaveLength(1);
+    expect(skipped).toHaveLength(3);
     expect(skipped[0]?.detectorKey).toBe("competitor_gap");
     expect(skipped[0]?.skipReason).toBe("G5_NO_READY_VERDICT");
+    expect(skipped.slice(1).map((o) => o.detectorKey)).toEqual([
+      "paid_organic_query_gap",
+      "paid_landing_page_technical_issue",
+    ]);
+    for (const adsSkip of skipped.slice(1)) {
+      expect(adsSkip.skipReason).toContain("google_ads");
+    }
     // The lost-backlinks detector ran and completed but correctly emitted
     // nothing: the fixture's single lost referring domain is below the floor.
     expect(byDetector.lost_backlinks).toBeUndefined();

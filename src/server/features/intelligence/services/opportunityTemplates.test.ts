@@ -69,6 +69,8 @@ const TEMPLATE_DETECTOR_KEYS = [
   "conversion_drop",
   "engagement_drop",
   "competitor_gap",
+  "paid_organic_query_gap",
+  "paid_landing_page_technical_issue",
 ];
 
 describe("impact normalizers", () => {
@@ -523,6 +525,68 @@ describe("opportunity templates", () => {
           confidenceInputs: {},
         },
       }),
+      paid_organic_query_gap: finding("paid_organic_query_gap", {
+        entityKey: "erp software",
+        entity: { query: "erp software" },
+        evidence: {
+          metrics: {
+            paidCostMicros: 2_500_000,
+            paidClicks: 80,
+            organicImpressions: 40,
+            organicClicks: 1,
+            organicAvgPosition: 14.5,
+            hasOrganicFacts: true,
+          },
+          sources: ["google_ads", "gsc"],
+          thresholdsApplied: {
+            minWindowDays: 28,
+            minCoverageRatio: 0.8,
+            minPaidCostMicros: 500_000,
+            minPaidConversions: 1,
+            minOrganicImpressions: 100,
+            minOrganicPosition: 11,
+          },
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: { hasPaidSignal: true, hasOrganicFacts: true },
+        },
+      }),
+      paid_landing_page_technical_issue: finding(
+        "paid_landing_page_technical_issue",
+        {
+          entityKey: "technical:missing_title:https://example.com/pricing",
+          entity: {
+            issueType: "missing_title",
+            page: "https://example.com/pricing",
+            auditId: "audit-1",
+          },
+          evidence: {
+            metrics: {
+              paidCostMicros: 1_200_000,
+              paidClicks: 60,
+              paidLandingCoverage: 1,
+            },
+            sources: ["google_ads", "audit"],
+            sourceRefs: {
+              googleAdsUnitIds: ["1234567890:2026-01-28:landing_page"],
+              auditIssueIds: ["audit-1:missing_title"],
+            },
+            thresholdsApplied: {
+              minWindowDays: 28,
+              minCoverageRatio: 0.8,
+              minPaidCostMicros: 500_000,
+              minPaidClicks: 25,
+              severity: "critical",
+              weakEngagementRate: 0.4,
+            },
+            correlations: [],
+            evidenceType: "observational",
+            partialData: [],
+            confidenceInputs: { auditIssuePresent: true },
+          },
+        },
+      ),
     };
     for (const key of TEMPLATE_DETECTOR_KEYS) {
       const template = OPPORTUNITY_TEMPLATES[key];
@@ -714,6 +778,106 @@ describe("spec 010 opportunity templates", () => {
     expect(factors.trafficPotential).toBeGreaterThan(0);
     expect(factors.decline).toBeCloseTo(1, 5);
     expect(factors.conversionSignal).toBeNull();
+    expect(scoreImpact(factors)).not.toBeNull();
+  });
+});
+
+describe("spec: google ads paid opportunity templates (phase 5)", () => {
+  it("scores query gaps on paid clicks and stored conversions", () => {
+    const template = OPPORTUNITY_TEMPLATES.paid_organic_query_gap;
+    if (!template) throw new Error("missing paid_organic_query_gap template");
+    expect(template.type).toBe("paid_query_gap");
+    const asFinding = finding("paid_organic_query_gap", {
+      entity: { query: "erp software" },
+      evidence: {
+        metrics: {
+          paidCostMicros: 4_000_000,
+          paidClicks: 120,
+          paidConversions: 9,
+          organicImpressions: 30,
+          organicClicks: 0,
+          hasOrganicFacts: true,
+        },
+        sources: ["google_ads", "gsc"],
+        thresholdsApplied: { minPaidCostMicros: 500_000 },
+        correlations: [],
+        evidenceType: "observational",
+        partialData: [],
+        confidenceInputs: { hasPaidSignal: true, hasOrganicFacts: true },
+      },
+    });
+    expect(template.title(asFinding)).toContain("erp software");
+    expect(template.title(asFinding)).toContain("9");
+    expect(template.keywordOf(asFinding)).toBe("erp software");
+    expect(template.pageOf(asFinding)).toBeNull();
+    const factors = template.factorsOf(asFinding);
+    // businessIntent stays unavailable until keyword-intent evidence ships.
+    expect(factors.businessIntent).toBeNull();
+    expect(factors.trafficPotential).toBeGreaterThan(0);
+    // First Ads-backed conversionSignal value: stored conversions.
+    expect(factors.conversionSignal).toBeGreaterThan(0);
+    expect(scoreImpact(factors)).not.toBeNull();
+  });
+
+  it("formats conversion-free query gaps on clicks and micros", () => {
+    const template = OPPORTUNITY_TEMPLATES.paid_organic_query_gap;
+    if (!template) throw new Error("missing paid_organic_query_gap template");
+    const asFinding = finding("paid_organic_query_gap", {
+      entity: { query: "crm pricing" },
+      evidence: {
+        metrics: {
+          paidCostMicros: 1_234_567,
+          paidClicks: 30,
+          organicImpressions: 0,
+          organicClicks: 0,
+          hasOrganicFacts: false,
+        },
+        sources: ["google_ads", "gsc"],
+        thresholdsApplied: {},
+        correlations: [],
+        evidenceType: "observational",
+        partialData: [],
+        confidenceInputs: {},
+      },
+    });
+    expect(template.title(asFinding)).toContain("30 paid clicks");
+    expect(template.title(asFinding)).toContain("1 base micros spend");
+    expect(template.recommendation(asFinding)).toContain("crm pricing");
+    expect(template.recommendation(asFinding)).not.toMatch(BANNED_VERBS);
+    expect(scoreImpact(template.factorsOf(asFinding))).not.toBeNull();
+  });
+
+  it("maps landing-page findings to their page with issue copy", () => {
+    const template = OPPORTUNITY_TEMPLATES.paid_landing_page_technical_issue;
+    if (!template) {
+      throw new Error("missing paid_landing_page_technical_issue template");
+    }
+    expect(template.type).toBe("paid_landing_page");
+    const asFinding = finding("paid_landing_page_technical_issue", {
+      entityKey: "technical:missing_title:https://example.com/pricing",
+      entity: {
+        issueType: "missing_title",
+        page: "https://example.com/pricing",
+        auditId: "audit-1",
+      },
+      evidence: {
+        metrics: { paidCostMicros: 1_200_000, paidClicks: 60 },
+        sources: ["google_ads", "audit"],
+        thresholdsApplied: {},
+        correlations: [],
+        evidenceType: "observational",
+        partialData: [],
+        confidenceInputs: { auditIssuePresent: true },
+      },
+    });
+    expect(template.title(asFinding)).toContain("https://example.com/pricing");
+    expect(template.title(asFinding)).toContain("missing_title");
+    expect(template.pageOf(asFinding)).toBe("https://example.com/pricing");
+    expect(template.keywordOf(asFinding)).toBeNull();
+    expect(template.recommendation(asFinding)).toContain("missing_title");
+    expect(template.recommendation(asFinding)).not.toMatch(BANNED_VERBS);
+    const factors = template.factorsOf(asFinding);
+    expect(factors.trafficPotential).toBeGreaterThan(0);
     expect(scoreImpact(factors)).not.toBeNull();
   });
 });

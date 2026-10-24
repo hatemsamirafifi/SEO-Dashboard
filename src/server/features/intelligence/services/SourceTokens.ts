@@ -5,6 +5,8 @@ import {
   backlinkSnapshots,
   ga4Connections,
   ga4Syncs,
+  googleAdsConnections,
+  googleAdsSyncRuns,
   gscSearchPerformanceSyncs,
   rankCheckRuns,
   rankSnapshots,
@@ -29,14 +31,30 @@ export const INTELLIGENCE_SOURCES = [
   "rank",
   "audit",
   "backlinks",
+  "google_ads",
 ] as const;
 export type IntelligenceSource = (typeof INTELLIGENCE_SOURCES)[number];
 
-export type SourceVersions = Record<IntelligenceSource, string | null>;
+/**
+ * Additive variant (master plan phase 5): `google_ads` is required whenever
+ * `assembleDetectionSourceState` builds the record, but stays OPTIONAL in the
+ * type so pre-Ads consumers (stored Reports/Autopilot state fixtures) keep
+ * compiling and hash-reading unchanged — a missing key is never a Google Ads
+ * token. Sequence numbers identify run order in the canonical list above;
+ * hashes only ever see sourceSet + versions content.
+ */
+type PreAdsSource = Exclude<IntelligenceSource, "google_ads">;
+export type SourceVersions = Record<PreAdsSource, string | null> & {
+  google_ads?: string | null;
+};
 
 export type ActiveMutation = {
   isMutating: boolean;
   activeRunIds: string[];
+};
+
+export type ActiveMutations = Record<PreAdsSource, ActiveMutation> & {
+  google_ads?: ActiveMutation;
 };
 
 export type DetectionSourceState = {
@@ -45,7 +63,7 @@ export type DetectionSourceState = {
   sourceSet: IntelligenceSource[];
   detectorVersions: Record<string, number>;
   thresholdVersion: number;
-  activeMutations: Record<IntelligenceSource, ActiveMutation>;
+  activeMutations: ActiveMutations;
 };
 
 /** GSC: latest run finalizing ≥1 unit (successful_units > 0), newest first. */
@@ -201,33 +219,105 @@ async function selectBacklinksVersion(
   return snapshot ? `backlinks:${snapshot.id}` : null;
 }
 
+/**
+ * Google Ads (master plan phase 5): the version token comes from the sync run
+ * ledger, scoped to the project's CURRENTLY selected customer id. A run
+ * qualifies only when it finalized at least one unit (`units_succeeded > 0`
+ * and a non-null `completed_at`); zero-success and unfinalized runs never
+ * advance the token. Ordered by completed_at DESC with a deterministic id
+ * DESC tiebreak. No connection row → no token (never a synthetic empty run).
+ */
+async function selectGoogleAdsVersion(
+  projectId: string,
+): Promise<string | null> {
+  const connections = await db
+    .select({ customerId: googleAdsConnections.customerId })
+    .from(googleAdsConnections)
+    .where(eq(googleAdsConnections.projectId, projectId))
+    .limit(2);
+  const connection = connections[0];
+  if (!connection) return null;
+  const rows = await db
+    .select({
+      id: googleAdsSyncRuns.id,
+      completedAt: googleAdsSyncRuns.completedAt,
+      unitsSucceeded: googleAdsSyncRuns.unitsSucceeded,
+    })
+    .from(googleAdsSyncRuns)
+    .where(
+      and(
+        eq(googleAdsSyncRuns.projectId, projectId),
+        eq(googleAdsSyncRuns.customerId, connection.customerId),
+        isNotNull(googleAdsSyncRuns.completedAt),
+      ),
+    )
+    .orderBy(desc(googleAdsSyncRuns.completedAt), desc(googleAdsSyncRuns.id))
+    .limit(25);
+  return rows.find((row) => (row.unitsSucceeded ?? 0) > 0)?.id ?? null;
+}
+
+/**
+ * Google Ads active mutation: pending/running runs for the project's
+ * connected customer id only (runs for a customer the project no longer has
+ * selected must not gate the detect stage).
+ */
+async function selectGoogleAdsMutation(
+  projectId: string,
+): Promise<ActiveMutation> {
+  const connections = await db
+    .select({ customerId: googleAdsConnections.customerId })
+    .from(googleAdsConnections)
+    .where(eq(googleAdsConnections.projectId, projectId))
+    .limit(2);
+  const connection = connections[0];
+  if (!connection) return { isMutating: false, activeRunIds: [] };
+  const rows = await db
+    .select({ id: googleAdsSyncRuns.id })
+    .from(googleAdsSyncRuns)
+    .where(
+      and(
+        eq(googleAdsSyncRuns.projectId, projectId),
+        eq(googleAdsSyncRuns.customerId, connection.customerId),
+        inArray(googleAdsSyncRuns.status, ["pending", "running"]),
+      ),
+    )
+    .limit(5);
+  return {
+    isMutating: rows.length > 0,
+    activeRunIds: rows.map((row) => row.id),
+  };
+}
+
 async function selectActiveMutations(
   projectId: string,
   auditActiveRunIds: string[],
-): Promise<Record<IntelligenceSource, ActiveMutation>> {
-  const [gscActive, ga4Active, rankActive] = await Promise.all([
-    GscSearchPerformanceRepository.getActiveSyncRun(projectId),
-    db
-      .select({ id: ga4Syncs.id })
-      .from(ga4Syncs)
-      .where(
-        and(
-          eq(ga4Syncs.projectId, projectId),
-          inArray(ga4Syncs.status, ["pending", "running"]),
-        ),
-      )
-      .limit(5),
-    db
-      .select({ id: rankCheckRuns.id })
-      .from(rankCheckRuns)
-      .where(
-        and(
-          eq(rankCheckRuns.projectId, projectId),
-          inArray(rankCheckRuns.status, ["pending", "running"]),
-        ),
-      )
-      .limit(5),
-  ]);
+): Promise<ActiveMutations> {
+  const [gscActive, ga4Active, rankActive, googleAdsActive] = await Promise.all(
+    [
+      GscSearchPerformanceRepository.getActiveSyncRun(projectId),
+      db
+        .select({ id: ga4Syncs.id })
+        .from(ga4Syncs)
+        .where(
+          and(
+            eq(ga4Syncs.projectId, projectId),
+            inArray(ga4Syncs.status, ["pending", "running"]),
+          ),
+        )
+        .limit(5),
+      db
+        .select({ id: rankCheckRuns.id })
+        .from(rankCheckRuns)
+        .where(
+          and(
+            eq(rankCheckRuns.projectId, projectId),
+            inArray(rankCheckRuns.status, ["pending", "running"]),
+          ),
+        )
+        .limit(5),
+      selectGoogleAdsMutation(projectId),
+    ],
+  );
   return {
     gsc: {
       isMutating: gscActive !== null,
@@ -248,18 +338,20 @@ async function selectActiveMutations(
     // Backlink snapshots are synchronous writes with no in-flight marker;
     // the before/after version comparison is the mutation signal.
     backlinks: { isMutating: false, activeRunIds: [] },
+    google_ads: googleAdsActive,
   };
 }
 
 export async function assembleDetectionSourceState(
   projectId: string,
 ): Promise<DetectionSourceState> {
-  const [gsc, ga4, rank, audit, backlinks] = await Promise.all([
+  const [gsc, ga4, rank, audit, backlinks, googleAds] = await Promise.all([
     selectGscVersion(projectId),
     selectGa4Version(projectId),
     selectRankVersion(projectId),
     selectAuditVersion(projectId),
     selectBacklinksVersion(projectId),
+    selectGoogleAdsVersion(projectId),
   ]);
   const versions: SourceVersions = {
     gsc,
@@ -267,11 +359,13 @@ export async function assembleDetectionSourceState(
     rank,
     audit: audit.version,
     backlinks,
+    google_ads: googleAds,
   };
   // Canonical order (sorted): connect/disconnect flips change identity via
   // the hashed sourceSet, never via insertion order.
   const sourceSet = INTELLIGENCE_SOURCES.filter(
-    (source) => versions[source] !== null,
+    // Loose !=: a pre-Ads state may literally omit the google_ads key.
+    (source) => versions[source] != null,
   ).toSorted((a, b) => (a < b ? -1 : 1));
   const activeMutations = await selectActiveMutations(
     projectId,
@@ -305,17 +399,17 @@ export async function hashSourceState(
 }
 
 export function hasActiveMutations(state: DetectionSourceState): boolean {
-  return Object.values(state.activeMutations).some(
-    (mutation) => mutation.isMutating,
+  return INTELLIGENCE_SOURCES.some(
+    (source) => state.activeMutations[source]?.isMutating ?? false,
   );
 }
 
 export function describeActiveMutations(state: DetectionSourceState): string[] {
   return INTELLIGENCE_SOURCES.filter(
-    (source) => state.activeMutations[source].isMutating,
+    (source) => state.activeMutations[source]?.isMutating ?? false,
   ).map(
     (source) =>
-      `${source}:${state.activeMutations[source].activeRunIds.join(",")}`,
+      `${source}:${state.activeMutations[source]?.activeRunIds.join(",")}`,
   );
 }
 
@@ -329,6 +423,8 @@ export const SourceTokens = {
   selectRankVersion,
   selectAuditVersion,
   selectBacklinksVersion,
+  selectGoogleAdsVersion,
+  selectGoogleAdsMutation,
 };
 
 export type { DetectionSourceState as SourceState };
