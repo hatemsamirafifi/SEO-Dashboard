@@ -10,6 +10,7 @@ import {
   formatDateTime,
   SECTION_TITLES,
 } from "@/client/features/reports/reportsCopy";
+import { PaidSearchSection } from "@/client/features/reports/PaidSearchReportSection";
 
 // Shared snapshot rendering for the private detail page and the public
 // `r/$token` page (identical sections, identical banner string).
@@ -27,7 +28,7 @@ export function severityBadgeClass(severity: string): string {
   }
 }
 
-function MetricCard({
+export function MetricCard({
   label,
   value,
   previousValue,
@@ -49,7 +50,7 @@ function MetricCard({
   );
 }
 
-function SectionShell({
+export function SectionShell({
   title,
   status,
   children,
@@ -361,6 +362,7 @@ export function ReportBody({ payload }: { payload: ReportPayload }) {
       {show("rankings") ? <RankingsSection payload={payload} /> : null}
       {show("technical") ? <TechnicalSection payload={payload} /> : null}
       {show("backlinks") ? <BacklinksSection payload={payload} /> : null}
+      {payload.paidSearch ? <PaidSearchSection payload={payload} /> : null}
       {show("opportunities") ? (
         <OpportunitiesSection payload={payload} />
       ) : null}

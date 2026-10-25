@@ -11,9 +11,17 @@ import type {
 } from "@/types/schemas/keywords";
 import type {
   MonthlySearch,
+  SavedKeywordGoogleAdsPlanner,
   SavedKeywordRow,
   SavedKeywordTagSummary,
 } from "@/types/keywords";
+import { GoogleAdsConnectionRepository } from "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository";
+import {
+  GoogleAdsPlannerKeywordRepository,
+  type GoogleAdsPlannerStoredGroup,
+} from "@/server/features/google-ads/repositories/GoogleAdsPlannerKeywordRepository";
+import { GOOGLE_ADS_PLANNER_CACHE_CONTRACT } from "@/server/lib/seo-data/providers/google-ads-planner-access";
+import { GOOGLE_ADS_DEFAULT_PLANNER_NETWORK } from "@/server/lib/googleAdsPlanner";
 import { normalizeKeyword } from "./helpers";
 import { z } from "zod";
 
@@ -109,7 +117,10 @@ export async function saveKeywords(input: ResolvedSaveKeywordsInput) {
   };
 }
 
-export async function getSavedKeywords(input: GetSavedKeywordsInput): Promise<{
+export async function getSavedKeywords(
+  input: GetSavedKeywordsInput,
+  context?: SavedKeywordsServingContext,
+): Promise<{
   rows: SavedKeywordRow[];
   totalCount: number;
   tags: SavedKeywordTagSummary[];
@@ -133,8 +144,15 @@ export async function getSavedKeywords(input: GetSavedKeywordsInput): Promise<{
     order: input.order,
   });
 
+  const mappedRows = mapSavedKeywordRows(result.rows);
+  const annotatedRows = await annotateRowsWithGoogleAdsPlanner(
+    input.projectId,
+    context?.organizationId,
+    mappedRows,
+  );
+
   return {
-    rows: mapSavedKeywordRows(result.rows),
+    rows: annotatedRows,
     totalCount: result.totalCount,
     tags: mapSavedKeywordTags(result.tags),
   };
@@ -142,6 +160,7 @@ export async function getSavedKeywords(input: GetSavedKeywordsInput): Promise<{
 
 export async function exportSavedKeywords(
   input: ExportSavedKeywordsInput,
+  context?: SavedKeywordsServingContext,
 ): Promise<{ rows: SavedKeywordRow[] }> {
   const result = await KeywordResearchRepository.listSavedKeywordsByProject({
     projectId: input.projectId,
@@ -160,7 +179,13 @@ export async function exportSavedKeywords(
     order: input.order,
   });
 
-  return { rows: mapSavedKeywordRows(result.rows) };
+  const annotatedRows = await annotateRowsWithGoogleAdsPlanner(
+    input.projectId,
+    context?.organizationId,
+    mapSavedKeywordRows(result.rows),
+  );
+
+  return { rows: annotatedRows };
 }
 
 export async function updateSavedKeywordTags(
@@ -241,6 +266,123 @@ function mapSavedKeywordTags(
     color: tag.color ?? null,
     keywordCount: tag.keywordCount,
   }));
+}
+
+/** Server-resolved context for reads that may enrich rows with first-party
+ *  planner estimates. Never client input: the Ads identity comes from the
+ *  project's connection row inside this organization. */
+export type SavedKeywordsServingContext = {
+  organizationId: string;
+};
+
+const GOOGLE_ADS_MICROS = 1_000_000;
+
+/** Builds the first-party annotation off the stored planner record. Money
+ *  micros are re-expressed in the account's currency units; Google-native
+ *  honesty flags stay untouched. */
+function plannerAnnotation(
+  normalizedKeyword: string,
+  stored: GoogleAdsPlannerStoredGroup,
+  isCanonical: boolean,
+): SavedKeywordGoogleAdsPlanner {
+  const record = stored.record;
+  return {
+    canonicalKeyword: record.keyword,
+    isCanonical,
+    sharedEstimate: !isCanonical,
+    searchVolume: record.avgMonthlySearches,
+    cpc:
+      record.averageCpcMicros === null
+        ? null
+        : record.averageCpcMicros / GOOGLE_ADS_MICROS,
+    lowTopOfPageBid:
+      record.lowTopOfPageBidMicros === null
+        ? null
+        : record.lowTopOfPageBidMicros / GOOGLE_ADS_MICROS,
+    highTopOfPageBid:
+      record.highTopOfPageBidMicros === null
+        ? null
+        : record.highTopOfPageBidMicros / GOOGLE_ADS_MICROS,
+    competitionLevel: record.competition,
+    competitionIndex: record.competitionIndex,
+    currencyCode: stored.currencyCode,
+    fetchedAt: stored.sourceFetchedAt,
+    monthlySearches: record.monthlySearchVolumes
+      .filter((entry) => entry.volume !== null)
+      .map((entry) => ({
+        year: entry.year,
+        month: entry.month,
+        searchVolume: entry.volume ?? 0,
+      })),
+  };
+}
+
+/** Attaches first-party planner estimates to saved rows when the project's
+ *  Ads connection holds stored planner observations. An annotatable list
+ *  can fail at any layer (unconnected project, repository hiccup, market
+ *  without a stored observation); the legacy rows always stay intact and
+ *  only the optional annotation is skipped. A list can span multiple saved
+ *  markets; planner estimates are scoped per market, so each
+ *  (location, language) group is matched separately. */
+async function annotateRowsWithGoogleAdsPlanner(
+  projectId: string,
+  organizationId: string | undefined,
+  rows: SavedKeywordRow[],
+): Promise<SavedKeywordRow[]> {
+  if (!organizationId || rows.length === 0) return rows;
+  let connection;
+  try {
+    connection = await GoogleAdsConnectionRepository.getByProjectId(
+      projectId,
+      organizationId,
+    );
+  } catch {
+    return rows;
+  }
+  if (!connection) return rows;
+
+  const byMarket = new Map<string, SavedKeywordRow[]>();
+  for (const row of rows) {
+    const marketKey = `${row.locationCode}:${row.languageCode}`;
+    const list = byMarket.get(marketKey) ?? [];
+    list.push(row);
+    byMarket.set(marketKey, list);
+  }
+
+  for (const [marketKey, marketRows] of byMarket) {
+    const [locationText, languageCode] = marketKey.split(":");
+    const locationCode = Number(locationText);
+    if (!Number.isInteger(locationCode)) continue;
+    let matches;
+    try {
+      matches = await GoogleAdsPlannerKeywordRepository.getKeywordGroupMatches(
+        {
+          projectId,
+          customerId: connection.customerId,
+          locationCode,
+          languageCode,
+          network: GOOGLE_ADS_DEFAULT_PLANNER_NETWORK,
+          contractVersion: GOOGLE_ADS_PLANNER_CACHE_CONTRACT,
+        },
+        marketRows.map((row) => row.keyword),
+      );
+    } catch {
+      continue;
+    }
+    for (const row of marketRows) {
+      const normalized = normalizeKeyword(row.keyword);
+      const canonical = matches.canonical.get(normalized);
+      if (canonical) {
+        row.googleAdsPlanner = plannerAnnotation(normalized, canonical, true);
+        continue;
+      }
+      const variant = matches.variants.get(normalized);
+      if (variant) {
+        row.googleAdsPlanner = plannerAnnotation(normalized, variant, false);
+      }
+    }
+  }
+  return rows;
 }
 
 export async function updateSavedKeywordTag(input: UpdateSavedKeywordTagInput) {

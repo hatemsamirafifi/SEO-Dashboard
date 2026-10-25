@@ -55,20 +55,26 @@ export const getSavedKeywords = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(getSavedKeywordsSchema)
   .handler(async ({ data, context }) => {
-    return KeywordResearchService.getSavedKeywords({
-      ...data,
-      projectId: context.projectId,
-    });
+    return KeywordResearchService.getSavedKeywords(
+      {
+        ...data,
+        projectId: context.projectId,
+      },
+      { organizationId: context.organizationId },
+    );
   });
 
 export const exportSavedKeywords = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(exportSavedKeywordsSchema)
   .handler(async ({ data, context }) => {
-    return KeywordResearchService.exportSavedKeywords({
-      ...data,
-      projectId: context.projectId,
-    });
+    return KeywordResearchService.exportSavedKeywords(
+      {
+        ...data,
+        projectId: context.projectId,
+      },
+      { organizationId: context.organizationId },
+    );
   });
 
 export const updateSavedKeywordTags = createServerFn({ method: "POST" })

@@ -36,6 +36,9 @@ export type SavedKeywordRow = {
   monthlySearches: MonthlySearch[];
   fetchedAt: string | null;
   tags: SavedKeywordTag[];
+  /** Present when the project's Google Ads identity has a stored planner
+   *  estimate covering this keyword; absent otherwise. */
+  googleAdsPlanner?: SavedKeywordGoogleAdsPlanner;
 };
 
 export type SavedKeywordTag = {
@@ -44,6 +47,32 @@ export type SavedKeywordTag = {
   normalizedName: string;
   /** Palette key (e.g. "blue"). Null = derive a stable color from the id. */
   color: string | null;
+};
+
+/** First-party Google Ads Keyword Planner estimate attached to a saved
+ *  keyword when the project's Ads identity has one in the normalized
+ *  planner storage. Google-native honesty: absent planner metrics stay
+ *  null (NOT organic difficulty or DFS competition), money fields are
+ *  currency units (planner micros / 1e6) of `currencyCode`, and a variant
+ *  keyword shares its canonical group's estimate (`sharedEstimate`) instead
+ *  of getting a copied or summed estimate. `fetchedAt` is the serving
+ *  planner fetch the numbers came from. */
+export type SavedKeywordGoogleAdsPlanner = {
+  /** The canonical keyword this estimate belongs to (normalized text). */
+  canonicalKeyword: string;
+  isCanonical: boolean;
+  sharedEstimate: boolean;
+  searchVolume: number | null;
+  cpc: number | null;
+  lowTopOfPageBid: number | null;
+  highTopOfPageBid: number | null;
+  competitionLevel: "LOW" | "MEDIUM" | "HIGH" | null;
+  competitionIndex: number | null;
+  currencyCode: string | null;
+  fetchedAt: string;
+  /** Months Google reported with a volume; a reported null volume is
+   *  absent trend data and is omitted (never fabricated to zero). */
+  monthlySearches: MonthlySearch[];
 };
 
 export type SavedKeywordTagSummary = SavedKeywordTag & {

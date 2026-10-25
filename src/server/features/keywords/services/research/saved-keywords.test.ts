@@ -18,6 +18,12 @@ vi.mock(
   }),
 );
 
+// The service now imports the Ads planner annotation chain; these tests
+// exercise the legacy rows, so the Ads lookups stay inert at module load.
+vi.mock("cloudflare:workers", () => ({
+  env: {},
+}));
+
 const savedKeywordRow = {
   id: "saved_1",
   projectId: "project_1",

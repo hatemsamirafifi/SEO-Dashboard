@@ -404,6 +404,7 @@ const sourceNameSchema = z.enum([
   "backlinks",
   "keywords",
   "competitors",
+  "google_ads",
 ]);
 
 const sourceRefsSchema = z
@@ -412,6 +413,9 @@ const sourceRefsSchema = z
     rankSnapshotIds: z.array(z.union([z.string(), z.number()])).optional(),
     auditIssueIds: z.array(z.string()).optional(),
     ga4Keys: z.array(z.string()).optional(),
+    // Google Ads stored-evidence refs: unit keys surfaced for auditability
+    // (`customerId:date:grain`) — master plan phase 5.
+    googleAdsUnitIds: z.array(z.string()).optional(),
   })
   .strict();
 

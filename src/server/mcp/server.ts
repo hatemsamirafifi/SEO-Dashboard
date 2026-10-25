@@ -6,6 +6,7 @@ import { getDomainKeywordSuggestionsTool } from "@/server/mcp/tools/get-domain-k
 import { getDomainOverviewTool } from "@/server/mcp/tools/get-domain-overview";
 import { getRankTrackerTool } from "@/server/mcp/tools/get-rank-tracker";
 import { getSerpResultsTool } from "@/server/mcp/tools/get-serp-results";
+import { getGoogleAdsOverviewTool } from "@/server/mcp/tools/google-ads-tools";
 import { createProjectTool } from "@/server/mcp/tools/create-project";
 import { listProjectsTool } from "@/server/mcp/tools/list-projects";
 import { listSavedKeywordsTool } from "@/server/mcp/tools/list-saved-keywords";
@@ -353,6 +354,15 @@ export function registerOpenSeoMcpTools(server: McpServer) {
       getAutopilotRunTool.name,
       getAutopilotRunTool.config.outputSchema,
       getAutopilotRunTool.handler,
+    ),
+  );
+  server.registerTool(
+    getGoogleAdsOverviewTool.name,
+    getGoogleAdsOverviewTool.config,
+    instrumentMcpToolHandler(
+      getGoogleAdsOverviewTool.name,
+      getGoogleAdsOverviewTool.config.outputSchema,
+      getGoogleAdsOverviewTool.handler,
     ),
   );
 }

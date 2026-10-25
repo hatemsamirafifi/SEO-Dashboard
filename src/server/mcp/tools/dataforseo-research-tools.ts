@@ -23,6 +23,8 @@ import {
   assertLabsLocationCode,
   assertLanguageForLocation,
 } from "@/server/lib/market";
+import { mapGoogleMetricRecords } from "@/server/features/keywords/services/research/google-records";
+import type { GoogleAdsKeywordRecord } from "@/server/lib/googleAdsPlanner";
 import {
   DEFAULT_LOCATION_CODE,
   languageCodeSchema,
@@ -543,6 +545,35 @@ function toMcpKeywordMetricRow(row: KeywordMetricRow) {
 
 type McpKeywordMetricRow = ReturnType<typeof toMcpKeywordMetricRow>;
 
+/** Reconciles the router's keyword_metrics payload to the DFS-shaped
+ *  `KeywordMetricRow[]` this tool renders. The router walk may answer with
+ *  the first-party Google Ads planner envelope (an object with a
+ *  `keywords` record array — served fresh by the planner or rebuilt from
+ *  the normalized planner storage); those records carry Google-native
+ *  fields (micros, enum competition) and are mapped by the shared
+ *  planner-records helper. Arrays pass through unchanged. */
+function isKeywordMetricRowArray(value: unknown): value is KeywordMetricRow[] {
+  return Array.isArray(value);
+}
+
+function normalizeMetricPayload(metrics: unknown): KeywordMetricRow[] {
+  if (isKeywordMetricRowArray(metrics)) return metrics;
+  if (
+    typeof metrics === "object" &&
+    metrics !== null &&
+    "keywords" in metrics &&
+    Array.isArray(metrics.keywords)
+  ) {
+    return mapGoogleMetricRecords(
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- validated envelope shape above; individual malformed records are null-guarded downstream
+      metrics.keywords as GoogleAdsKeywordRecord[],
+    );
+  }
+  throw new Error(
+    `keyword_metrics payload shape violation: expected DFS rows or a planner envelope, received ${typeof metrics}`,
+  );
+}
+
 function sortKeywordMetricRows(
   rows: McpKeywordMetricRow[],
   sortBy: NonNullable<GetKeywordMetricsArgs["sortBy"]> = "search_volume",
@@ -953,7 +984,7 @@ export const getKeywordMetricsTool = {
         creditFeature: "keyword_research",
       },
     });
-    const metrics = response.data;
+    const metrics = normalizeMetricPayload(response.data);
     const rows = sortKeywordMetricRows(
       metrics.map(toMcpKeywordMetricRow),
       args.sortBy ?? "search_volume",

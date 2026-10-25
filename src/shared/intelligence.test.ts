@@ -163,6 +163,79 @@ describe("intelligence structural locks", () => {
   });
 });
 
+function adsBaseFinding(
+  extraMetrics: Record<string, number | string | boolean> = {},
+) {
+  return {
+    findingKey: "d".repeat(64),
+    detectorKey: "paid_organic_query_gap",
+    detectorVersion: 1,
+    projectId: "p1",
+    entityKey: "erp software",
+    entity: { query: "erp software" },
+    explanationFact: "Paid search covered the query while organic was weak.",
+    evidence: {
+      metrics: {
+        paidCostMicros: 2_500_000,
+        organicImpressions: 40,
+        ...extraMetrics,
+      },
+      periods: { from: "2026-01-01", to: "2026-01-28" },
+      sources: ["google_ads", "gsc"],
+      sourceRefs: {
+        googleAdsUnitIds: ["1234567890:2026-01-28:search_term"],
+      },
+      thresholdsApplied: { minPaidCostMicros: 500_000 },
+      correlations: [],
+      evidenceType: "observational",
+      partialData: [],
+      confidenceInputs: { hasPaidSignal: true },
+    },
+    detectedAt: "2026-01-15T00:00:00.000Z",
+    confidenceScore: 72,
+    coverageFlags: { currencyCode: "USD" },
+  };
+}
+
+describe("google ads source contracts (phase 5)", () => {
+  it("accepts google_ads as a finding source with stored-evidence unit refs", () => {
+    expect(findingSchema.safeParse(adsBaseFinding()).success).toBe(true);
+  });
+
+  it("rejects unknown source names", () => {
+    const finding = adsBaseFinding();
+    (finding.evidence as { sources: string[] }).sources = [
+      "gads",
+      "paid_media",
+    ];
+    expect(findingSchema.safeParse(finding).success).toBe(false);
+  });
+
+  it("rejects unknown evidence refs (store contracts are closed)", () => {
+    const finding = adsBaseFinding();
+    (
+      finding.evidence as {
+        sourceRefs: Record<string, string[]>;
+      }
+    ).sourceRefs.googleAdsCostSummaries = ["x"];
+    expect(findingSchema.safeParse(finding).success).toBe(false);
+  });
+
+  it("keeps paid and organic evidence on distinct fields (no cross-metric fold)", () => {
+    // The schema must accept paid and organic fields side by side; the
+    // structural scan below ensures no combined "totalClicks"/rate field is
+    // introduced that would fold the two channels into one metric.
+    const finding = adsBaseFinding({ paidClicks: 80, organicClicks: 1 });
+    expect(findingSchema.safeParse(finding).success).toBe(true);
+    const content = readFileSync(
+      resolve(process.cwd(), "src/shared/intelligence.ts"),
+      "utf8",
+    );
+    expect(content.includes("totalClicks")).toBe(false);
+    expect(content.includes("combinedScore")).toBe(false);
+  });
+});
+
 describe("canonical keys", () => {
   it("lowercases keywords and agrees on page identity with GA4 sync", () => {
     expect(canonicalKeyword("  SEO Audit ")).toBe("seo audit");

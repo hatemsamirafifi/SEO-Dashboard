@@ -5,13 +5,19 @@ import {
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import type { CreditFeature } from "@/shared/billing-credit-features";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
+import {
+  parseStoredPlannerEnvelope,
+  type ParsedPlannerEnvelope,
+} from "@/server/lib/seo-data/providers/planner-envelope";
 import type { KeywordIdeasSource } from "@/server/lib/seo-data/providers/dataforseo-provider";
 import {
   normalizeIntent,
   normalizeKeyword,
   type EnrichedKeyword,
 } from "./helpers";
+import { mapGoogleResearchRecords } from "./google-records";
 import type { KeywordSource } from "./selection";
+import type { GoogleAdsKeywordRecord } from "@/server/lib/googleAdsPlanner";
 
 type FetchResearchRowsParams = {
   seedKeyword: string;
@@ -108,15 +114,82 @@ export function mapAdsKeywordItems(
   return rows;
 }
 
-/** Research rows for countries DataForSEO Labs doesn't support. */
+/** The router serves keyword_ideas from two payload shapes:
+ *  - legacy `AdsKeywordIdeaItem[]` / `LabsKeywordDataItem[]` arrays
+ *    (DataForSEO), and
+ *  - the first-party Google Ads planner envelope (an object with
+ *    `source: "google_ads"` plus `ideas` / `keywords` record arrays).
+ *  Discriminate structurally — never by trusting the typed response body
+ *  against the runtime reality.
+ */
+function asRecordRows(value: unknown): GoogleAdsKeywordRecord[] {
+  return Array.isArray(value)
+    ? // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- planner record rows are validated downstream by the google-records mappers
+      (value as GoogleAdsKeywordRecord[])
+    : [];
+}
+
+/** Splits a keyword_ideas payload into its two shapes:
+ *  - legacy `AdsKeywordIdeaItem[]` / `LabsKeywordDataItem[]` arrays
+ *    (DataForSEO), and
+ *  - the first-party Google Ads planner envelope (an object with
+ *    `source: "google_ads"` plus `ideas` / `keywords` record arrays).
+ *  Discriminate structurally — never by trusting the typed response body
+ *  against the runtime reality. */
+function isAdsKeywordIdeaItems(value: unknown): value is AdsKeywordIdeaItem[] {
+  return Array.isArray(value);
+}
+
+function mapResearchIdeasPayload(data: unknown): {
+  rows: EnrichedKeyword[];
+  records: GoogleAdsKeywordRecord[];
+} {
+  if (isAdsKeywordIdeaItems(data)) {
+    return {
+      rows: mapAdsKeywordItems(data),
+      records: [],
+    };
+  }
+  if (typeof data === "object" && data !== null) {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- envelope handling: data is only known to be an object here
+    const envelope = data as { ideas?: unknown; keywords?: unknown };
+    const records = [
+      ...asRecordRows(envelope.ideas),
+      ...asRecordRows(envelope.keywords),
+    ];
+    return { rows: mapGoogleResearchRecords(records), records };
+  }
+  // Neither shape — surface an explicit shape error instead of crashing
+  // downstream with "items is not iterable".
+  throw new Error("Unsupported keyword_ideas payload shape");
+}
+
+/** Research rows for countries DataForSEO Labs doesn't support, plus the
+ *  provenance signals the consumer needs to route persistence honestly:
+ *  `servedFirstParty` is true only when the payload was the first-party
+ *  planner envelope (an object), never for the legacy DFS item array, and
+ *  `rawPlannerRecords` carries the unflattened canonical keyword-group
+ *  records the persistence hook needs (the rows array alone has already
+ *  flattened close variants). */
+export type GoogleAdsResearchRows = {
+  rows: EnrichedKeyword[];
+  servedFirstParty: boolean;
+  rawPlannerRecords: GoogleAdsKeywordRecord[];
+  /** The R2-validated first-party envelope for the persistence hook; null
+   *  for DFS-served payloads and for envelopes that fail cache re-parse. */
+  plannerEnvelope: ParsedPlannerEnvelope | null;
+};
+
 export async function fetchGoogleAdsResearchRows(
   params: Omit<FetchResearchRowsParams, "source">,
   billingCustomer: BillingCustomerContext,
-): Promise<EnrichedKeyword[]> {
+): Promise<GoogleAdsResearchRows> {
   // DataForSEO's keywords_for_keywords (Google Ads) endpoint. The router's
   // google_ads API provider does not apply this source (see the adsIdeas
-  // branch in the DataForSEO provider), so the DFS provider serves it.
-  const { data } = await getSeoDataRouter().route<AdsKeywordIdeaItem[]>({
+  // branch in the DataForSEO provider), so the DFS provider serves it —
+  // unless the project runs first-party, in which case the google_ads
+  // provider wins the walk and answers with its planner envelope instead.
+  const { data } = await getSeoDataRouter().route({
     dataType: "keyword_ideas",
     keyword: params.seedKeyword,
     locationCode: params.locationCode,
@@ -128,7 +201,17 @@ export async function fetchGoogleAdsResearchRows(
       limit: params.resultLimit,
     },
   });
-  return mapAdsKeywordItems(data);
+  const payload = mapResearchIdeasPayload(data);
+  const servedFirstParty =
+    typeof data === "object" && data !== null && !Array.isArray(data);
+  return {
+    rows: payload.rows,
+    rawPlannerRecords: payload.records,
+    servedFirstParty,
+    // The cache-validated envelope; null when the payload is not a planner
+    // envelope or its re-parse fails (the row mapping above still holds).
+    plannerEnvelope: parseStoredPlannerEnvelope(data),
+  };
 }
 
 export async function fetchResearchRowsBySource(
@@ -163,7 +246,16 @@ export async function fetchResearchRowsBySource(
     );
   }
 
-  const { data } =
-    await getSeoDataRouter().route<LabsKeywordDataItem[]>(request);
-  return mapKeywordDataItems(data);
+  if (params.source !== "ideas") {
+    // `suggestions` stays on the Labs item mapper: DataForSEO serves this
+    // mode and the planner never claims it.
+    const { data } =
+      await getSeoDataRouter().route<LabsKeywordDataItem[]>(request);
+    return mapKeywordDataItems(data);
+  }
+
+  // The "ideas" mode is the only one the first-party provider claims, so the
+  // payload may legitimately arrive in either shape here.
+  const { data } = await getSeoDataRouter().route(request);
+  return mapResearchIdeasPayload(data).rows;
 }

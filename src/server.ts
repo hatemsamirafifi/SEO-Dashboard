@@ -9,6 +9,7 @@ import { SamSessionRepository } from "@/server/features/sam/SamSessionRepository
 import { runScheduledRankChecks } from "@/server/features/rank-tracking/services/scheduledRankChecks";
 import { runScheduledGscSync } from "@/server/features/gsc/services/scheduledGscSync";
 import { runScheduledGa4Sync } from "@/server/features/ga4/services/scheduledGa4Sync";
+import { runScheduledGoogleAdsSync } from "@/server/features/google-ads/services/scheduledGoogleAdsSync";
 import { runScheduledIntelligenceScan } from "@/server/features/intelligence/services/scheduledIntelligenceScan";
 import { runScheduledReportRuns } from "@/server/features/reports/services/scheduledReportRuns";
 import { getOrCreateOrganizationCustomer } from "@/server/billing/subscription";
@@ -195,6 +196,7 @@ export default {
       await runScheduledRankChecks(env);
       await runScheduledGscSync();
       await runScheduledGa4Sync();
+      await runScheduledGoogleAdsSync();
       await runScheduledIntelligenceScan();
       await runScheduledReportRuns();
     });
