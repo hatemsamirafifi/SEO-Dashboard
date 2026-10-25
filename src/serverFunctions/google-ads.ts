@@ -5,6 +5,17 @@ import { db } from "@/db";
 import { user } from "@/db/schema";
 import { GoogleAdsService } from "@/server/features/google-ads/services/GoogleAdsService";
 import {
+  getAdGroups,
+  getCampaigns,
+  getDevices,
+  getKeywords,
+  getLandingPages,
+  getOverview,
+  getSearchTerms,
+  getSyncState,
+} from "@/server/features/google-ads/services/GoogleAdsAnalyticsService";
+import { GoogleAdsSyncService } from "@/server/features/google-ads/services/GoogleAdsSyncService";
+import {
   discoverAccessibleCustomers,
   listManagerChildren,
 } from "@/server/features/google-ads/services/googleAdsDiscovery";
@@ -12,14 +23,23 @@ import { createSelfHostedGoogleAdsAuthorizationUrl } from "@/server/features/gsc
 import { hasSelfHostedGscConfig } from "@/server/features/gsc/oauth-config";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
+import type { GoogleAdsWindow } from "@/server/features/google-ads/services/googleAdsAnalyticsMath";
 import {
+  googleAdsAdGroupBreakdownSchema,
+  googleAdsAnalyticsWindowSchema,
+  googleAdsCampaignBreakdownSchema,
   googleAdsConnectionTestSchema,
+  googleAdsDeviceBreakdownSchema,
   googleAdsDiscoverySchema,
   googleAdsDisconnectSchema,
+  googleAdsKeywordBreakdownSchema,
+  googleAdsLandingPageBreakdownSchema,
   googleAdsLinkSchema,
   googleAdsManagerChildrenSchema,
   googleAdsProjectSchema,
+  googleAdsSearchTermBreakdownSchema,
   googleAdsSelectCustomerSchema,
+  googleAdsSyncTriggerSchema,
 } from "@/types/schemas/google-ads";
 import {
   requireAuthenticatedContext,
@@ -167,3 +187,241 @@ export const startSelfHostedGoogleAdsLink = createServerFn({ method: "POST" })
       publicOrigin: getPublicOrigin(getRequest()),
     }),
   }));
+
+// ---------------------------------------------------------------------------
+// Stored analytics + durable sync (server functions)
+// ---------------------------------------------------------------------------
+
+function defaultGoogleAdsWindow() {
+  const endDate = new Date().toISOString().slice(0, 10);
+  const startDate = new Date(Date.now() - 27 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  return { startDate, endDate };
+}
+
+function googleAdsBreakdownWindow(
+  startDate?: string,
+  endDate?: string,
+): GoogleAdsWindow {
+  return startDate !== undefined && endDate !== undefined
+    ? { startDate, endDate }
+    : defaultGoogleAdsWindow();
+}
+
+function googleAdsAnalyticsScope(
+  context: { projectId: string; organizationId: string },
+  customerId: string,
+) {
+  return {
+    projectId: context.projectId,
+    organizationId: context.organizationId,
+    customerId,
+  };
+}
+
+/** Triggers a manual sync. An explicit window is optional; the sync service
+ *  resolves the default window from the published-unit ledger. */
+export const triggerGoogleAdsSync = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(googleAdsSyncTriggerSchema)
+  .handler(async ({ data, context }) => {
+    const connection = await GoogleAdsService.getConnection(
+      context.projectId,
+      context.organizationId,
+    );
+    if (!connection) {
+      return { connected: false as const };
+    }
+    return GoogleAdsSyncService.runSync({
+      projectId: context.projectId,
+      organizationId: context.organizationId,
+      mode: "manual",
+      ...(data.startDate !== undefined && data.endDate !== undefined
+        ? { startDate: data.startDate, endDate: data.endDate }
+        : {}),
+    });
+  });
+
+export const getGoogleAdsSyncStatus = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(googleAdsProjectSchema)
+  .handler(async ({ context }) => {
+    const connection = await GoogleAdsService.getConnection(
+      context.projectId,
+      context.organizationId,
+    );
+    if (!connection) {
+      return { connected: false as const, syncState: null };
+    }
+    return {
+      connected: true as const,
+      syncState: await getSyncState({
+        projectId: context.projectId,
+        organizationId: context.organizationId,
+        customerId: connection.customerId,
+      }),
+    };
+  });
+
+export const getGoogleAdsOverview = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(googleAdsAnalyticsWindowSchema)
+  .handler(async ({ data, context }) => {
+    const connection = await GoogleAdsService.getConnection(
+      context.projectId,
+      context.organizationId,
+    );
+    if (!connection) {
+      return { connected: false as const, overview: null };
+    }
+    const window =
+      data.startDate !== undefined && data.endDate !== undefined
+        ? { startDate: data.startDate, endDate: data.endDate }
+        : defaultGoogleAdsWindow();
+    return {
+      connected: true as const,
+      overview: await getOverview({
+        scope: googleAdsAnalyticsScope(context, connection.customerId),
+        window,
+      }),
+    };
+  });
+
+export const getGoogleAdsCampaigns = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(googleAdsCampaignBreakdownSchema)
+  .handler(async ({ data, context }) => {
+    const [connection, window] = await Promise.all([
+      GoogleAdsService.getConnection(context.projectId, context.organizationId),
+      googleAdsBreakdownWindow(data.startDate, data.endDate),
+    ]);
+    if (!connection) {
+      return { connected: false as const, breakdown: null };
+    }
+    return {
+      connected: true as const,
+      breakdown: await getCampaigns({
+        scope: googleAdsAnalyticsScope(context, connection.customerId),
+        window,
+      }),
+    };
+  });
+
+export const getGoogleAdsAdGroups = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(googleAdsAdGroupBreakdownSchema)
+  .handler(async ({ data, context }) => {
+    const [connection, window] = await Promise.all([
+      GoogleAdsService.getConnection(context.projectId, context.organizationId),
+      googleAdsBreakdownWindow(data.startDate, data.endDate),
+    ]);
+    if (!connection) {
+      return { connected: false as const, breakdown: null };
+    }
+    return {
+      connected: true as const,
+      breakdown: await getAdGroups({
+        scope: googleAdsAnalyticsScope(context, connection.customerId),
+        window,
+      }),
+    };
+  });
+
+export const getGoogleAdsKeywords = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(googleAdsKeywordBreakdownSchema)
+  .handler(async ({ data, context }) => {
+    const [connection, window] = await Promise.all([
+      GoogleAdsService.getConnection(context.projectId, context.organizationId),
+      googleAdsBreakdownWindow(data.startDate, data.endDate),
+    ]);
+    if (!connection) {
+      return { connected: false as const, breakdown: null };
+    }
+    return {
+      connected: true as const,
+      breakdown: await getKeywords({
+        scope: googleAdsAnalyticsScope(context, connection.customerId),
+        window,
+      }),
+    };
+  });
+
+export const getGoogleAdsSearchTerms = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(googleAdsSearchTermBreakdownSchema)
+  .handler(async ({ data, context }) => {
+    const [connection, window] = await Promise.all([
+      GoogleAdsService.getConnection(context.projectId, context.organizationId),
+      googleAdsBreakdownWindow(data.startDate, data.endDate),
+    ]);
+    if (!connection) {
+      return { connected: false as const, breakdown: null };
+    }
+    const options: { searchText?: string; searchTextLike?: string } = {};
+    if (data.searchText !== undefined) options.searchText = data.searchText;
+    if (data.searchTextLike !== undefined) {
+      options.searchTextLike = data.searchTextLike;
+    }
+    return {
+      connected: true as const,
+      breakdown: await getSearchTerms(
+        {
+          scope: googleAdsAnalyticsScope(context, connection.customerId),
+          window,
+        },
+        options,
+      ),
+    };
+  });
+
+export const getGoogleAdsDevices = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(googleAdsDeviceBreakdownSchema)
+  .handler(async ({ data, context }) => {
+    const [connection, window] = await Promise.all([
+      GoogleAdsService.getConnection(context.projectId, context.organizationId),
+      googleAdsBreakdownWindow(data.startDate, data.endDate),
+    ]);
+    if (!connection) {
+      return { connected: false as const, breakdown: null };
+    }
+    return {
+      connected: true as const,
+      breakdown: await getDevices(
+        {
+          scope: googleAdsAnalyticsScope(context, connection.customerId),
+          window,
+        },
+        data.campaignResourceId !== undefined
+          ? { campaignResourceId: data.campaignResourceId }
+          : {},
+      ),
+    };
+  });
+
+export const getGoogleAdsLandingPages = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(googleAdsLandingPageBreakdownSchema)
+  .handler(async ({ data, context }) => {
+    const [connection, window] = await Promise.all([
+      GoogleAdsService.getConnection(context.projectId, context.organizationId),
+      googleAdsBreakdownWindow(data.startDate, data.endDate),
+    ]);
+    if (!connection) {
+      return { connected: false as const, breakdown: null };
+    }
+    return {
+      connected: true as const,
+      breakdown: await getLandingPages(
+        {
+          scope: googleAdsAnalyticsScope(context, connection.customerId),
+          window,
+        },
+        data.campaignResourceId !== undefined
+          ? { campaignResourceId: data.campaignResourceId }
+          : {},
+      ),
+    };
+  });

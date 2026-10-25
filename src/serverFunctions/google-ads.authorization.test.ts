@@ -57,6 +57,26 @@ vi.mock("@/server/features/google-ads/services/GoogleAdsService", () => ({
   },
 }));
 
+// The analytics and sync services are never invoked here; mocking them keeps
+// their repository and database module graphs out of the import entirely.
+vi.mock("@/server/features/google-ads/services/GoogleAdsSyncService", () => ({
+  GoogleAdsSyncService: { runSync: vi.fn() },
+}));
+
+vi.mock(
+  "@/server/features/google-ads/services/GoogleAdsAnalyticsService",
+  () => ({
+    getCampaigns: vi.fn(),
+    getAdGroups: vi.fn(),
+    getKeywords: vi.fn(),
+    getSearchTerms: vi.fn(),
+    getDevices: vi.fn(),
+    getLandingPages: vi.fn(),
+    getOverview: vi.fn(),
+    getSyncState: vi.fn(),
+  }),
+);
+
 vi.mock("@/server/features/google-ads/services/googleAdsDiscovery", () => ({
   discoverAccessibleCustomers: mocks.discoverAccessibleCustomers,
   listManagerChildren: mocks.listManagerChildren,
@@ -81,13 +101,22 @@ vi.mock("@/server/mcp/public-origin", () => ({
 import {
   disconnectGoogleAds,
   discoverGoogleAdsCustomers,
+  getGoogleAdsAdGroups,
+  getGoogleAdsCampaigns,
   getGoogleAdsConnectionStatus,
+  getGoogleAdsDevices,
   getGoogleAdsGrantStatus,
+  getGoogleAdsKeywords,
+  getGoogleAdsLandingPages,
+  getGoogleAdsOverview,
+  getGoogleAdsSearchTerms,
+  getGoogleAdsSyncStatus,
   googleAdsProjectScope,
   listGoogleAdsManagerChildren,
   selectGoogleAdsCustomer,
   startSelfHostedGoogleAdsLink,
   testGoogleAdsConnection,
+  triggerGoogleAdsSync,
 } from "./google-ads";
 import { globalServerFunctionMiddleware } from "./middleware";
 
@@ -217,6 +246,15 @@ describe("Google Ads server-function project authorization", () => {
     ["testGoogleAdsConnection", testGoogleAdsConnection, {}],
     ["disconnectGoogleAds", disconnectGoogleAds, {}],
     ["startSelfHostedGoogleAdsLink", startSelfHostedGoogleAdsLink, {}],
+    ["triggerGoogleAdsSync", triggerGoogleAdsSync, {}],
+    ["getGoogleAdsSyncStatus", getGoogleAdsSyncStatus, {}],
+    ["getGoogleAdsOverview", getGoogleAdsOverview, {}],
+    ["getGoogleAdsCampaigns", getGoogleAdsCampaigns, {}],
+    ["getGoogleAdsAdGroups", getGoogleAdsAdGroups, {}],
+    ["getGoogleAdsKeywords", getGoogleAdsKeywords, {}],
+    ["getGoogleAdsSearchTerms", getGoogleAdsSearchTerms, {}],
+    ["getGoogleAdsDevices", getGoogleAdsDevices, {}],
+    ["getGoogleAdsLandingPages", getGoogleAdsLandingPages, {}],
   ])(
     "rejects wrong-organization access before %s runs",
     async (_name, fn, extra) => {
@@ -282,6 +320,46 @@ describe("Google Ads server-function input validation", () => {
     expect(result).toMatchObject({ error: new Error("VALIDATION_ERROR") });
     expect(mocks.listManagerChildren).not.toHaveBeenCalled();
   });
+
+  it("rejects a one-sided analytics window", async () => {
+    const result = await executeServerFunction(getGoogleAdsOverview, {
+      projectId: PROJECT_ID,
+      startDate: "2026-10-01",
+    });
+
+    expect(result).toMatchObject({ error: new Error("VALIDATION_ERROR") });
+    expect(mocks.getConnection).not.toHaveBeenCalled();
+  });
+
+  it("rejects a window that exceeds the 37-month cap", async () => {
+    const result = await executeServerFunction(getGoogleAdsCampaigns, {
+      projectId: PROJECT_ID,
+      startDate: "2020-01-01",
+      endDate: "2026-10-01",
+    });
+
+    expect(result).toMatchObject({ error: new Error("VALIDATION_ERROR") });
+  });
+
+  it("rejects a calendar date that does not exist", async () => {
+    const result = await executeServerFunction(getGoogleAdsOverview, {
+      projectId: PROJECT_ID,
+      startDate: "2026-02-30",
+      endDate: "2026-03-01",
+    });
+
+    expect(result).toMatchObject({ error: new Error("VALIDATION_ERROR") });
+  });
+
+  it("rejects combining the exact and fuzzy search terms", async () => {
+    const result = await executeServerFunction(getGoogleAdsSearchTerms, {
+      projectId: PROJECT_ID,
+      searchText: "red shoes",
+      searchTextLike: "%red%",
+    });
+
+    expect(result).toMatchObject({ error: new Error("VALIDATION_ERROR") });
+  });
 });
 
 describe("Google Ads server-function trusted context", () => {
@@ -343,6 +421,15 @@ describe("Google Ads server-function transport", () => {
       testGoogleAdsConnection,
       disconnectGoogleAds,
       startSelfHostedGoogleAdsLink,
+      triggerGoogleAdsSync,
+      getGoogleAdsSyncStatus,
+      getGoogleAdsOverview,
+      getGoogleAdsCampaigns,
+      getGoogleAdsAdGroups,
+      getGoogleAdsKeywords,
+      getGoogleAdsSearchTerms,
+      getGoogleAdsDevices,
+      getGoogleAdsLandingPages,
     ]) {
       expect(fn.method).toBe("POST");
     }

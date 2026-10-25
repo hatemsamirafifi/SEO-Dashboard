@@ -1,8 +1,15 @@
 // Stored Google Ads analytics service: reads ONLY already-published data via
 // GoogleAdsAnalyticsRepository. No transport, no provider calls, no plaintext
 // payloads. Aggregation semantics live in googleAdsAnalyticsMath.
+//
+// IMPORTER CONTRACT: breakdown reads live in googleAdsAnalyticsBreakdowns
+// and are re-exported here to keep the public surface stable.
 import { GoogleAdsAnalyticsRepository } from "../repositories/GoogleAdsAnalyticsRepository";
 import type { GoogleAdsUnitScope } from "../repositories/googleAdsAnalyticsModel";
+import {
+  GoogleAdsSyncRepository,
+  type GoogleAdsSyncRunPublic,
+} from "../repositories/GoogleAdsSyncRepository";
 import {
   assertGoogleAdsWindow,
   googleAdsCompareGate,
@@ -14,6 +21,8 @@ import {
   type GoogleAdsKpiTotals,
   type GoogleAdsWindow,
 } from "./googleAdsAnalyticsMath";
+
+export * from "./googleAdsAnalyticsBreakdowns";
 
 export const GOOGLE_ADS_OVERVIEW_GRAIN = "account" as const;
 
@@ -150,4 +159,66 @@ export async function getOverview(
     })),
     compare,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sync state (durable ledger + published unit counts)
+// ---------------------------------------------------------------------------
+
+export type GoogleAdsUnitLedgerCounts = {
+  total: number;
+  pending: number;
+  successWithData: number;
+  successZeroRows: number;
+  partial: number;
+  failed: number;
+};
+
+export type GoogleAdsSyncState = {
+  runs: GoogleAdsSyncRunPublic[];
+  activeRun: GoogleAdsSyncRunPublic | null;
+  units: GoogleAdsUnitLedgerCounts;
+};
+
+/** The account's durable sync state: recent runs (fingerprint/lease/grant
+ *  fields never enter the public shape) plus the aggregate unit ledger the
+ *  coverage cards are built from. */
+export async function getSyncState(
+  scope: GoogleAdsUnitScope,
+): Promise<GoogleAdsSyncState> {
+  const [runs, units] = await Promise.all([
+    GoogleAdsSyncRepository.getRunHistory(scope, { limit: 5 }),
+    GoogleAdsAnalyticsRepository.listUnits(scope, {}),
+  ]);
+  const counts: GoogleAdsUnitLedgerCounts = {
+    total: units.length,
+    pending: 0,
+    successWithData: 0,
+    successZeroRows: 0,
+    partial: 0,
+    failed: 0,
+  };
+  for (const unit of units) {
+    switch (unit.status) {
+      case "pending":
+        counts.pending += 1;
+        break;
+      case "success_with_data":
+        counts.successWithData += 1;
+        break;
+      case "success_zero_rows":
+        counts.successZeroRows += 1;
+        break;
+      case "partial":
+        counts.partial += 1;
+        break;
+      case "failed":
+        counts.failed += 1;
+        break;
+    }
+  }
+  const activeRun = runs.find(
+    (run) => run.status === "pending" || run.status === "running",
+  );
+  return { runs, activeRun: activeRun ?? null, units: counts };
 }

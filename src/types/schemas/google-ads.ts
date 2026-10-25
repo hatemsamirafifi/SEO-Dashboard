@@ -64,3 +64,123 @@ export const googleAdsDisconnectSchema = googleAdsProjectSchema;
 /** The OAuth return path is built on the server from the trusted project id,
  *  so a client can never redirect the callback to another project or origin. */
 export const googleAdsLinkSchema = googleAdsProjectSchema;
+
+// ---------------------------------------------------------------------------
+// Stored analytics + durable sync (master-plan phases 3 & 7)
+// ---------------------------------------------------------------------------
+
+const googleAdsDateSchema = z.string().refine(
+  (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return (
+      !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+    );
+  },
+  { message: "Expected a calendar date (YYYY-MM-DD)" },
+);
+
+function monthsSpan(start: string, end: string): number {
+  const [startYear, startMonth] = start.split("-").map(Number);
+  const [endYear, endMonth] = end.split("-").map(Number);
+  return endYear * 12 + endMonth - (startYear * 12 + startMonth) + 1;
+}
+
+/** Optional server-side read window. Windows are validated like the storage
+ *  asserts: real calendar dates, start <= end, and the 37-month reporting
+ *  cap Google Ads itself enforces. */
+const googleAdsWindowObjectSchema = googleAdsProjectSchema
+  .extend({
+    startDate: googleAdsDateSchema.optional(),
+    endDate: googleAdsDateSchema.optional(),
+  })
+  .strict();
+
+function refineWindow<
+  T extends z.ZodType<z.output<typeof googleAdsWindowObjectSchema>>,
+>(schema: T) {
+  return schema.superRefine((value, ctx) => {
+    if ((value.startDate === undefined) !== (value.endDate === undefined)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["startDate"],
+        message: "startDate and endDate must be provided together",
+      });
+      return;
+    }
+    const { startDate, endDate } = value;
+    if (startDate !== undefined && endDate !== undefined) {
+      if (startDate > endDate) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["startDate"],
+          message: "startDate must not be after endDate",
+        });
+      }
+      if (monthsSpan(startDate, endDate) > 37) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["endDate"],
+          message: "Windows are capped at 37 months",
+        });
+      }
+    }
+  });
+}
+
+export const googleAdsAnalyticsWindowSchema = refineWindow(
+  googleAdsWindowObjectSchema,
+);
+
+/** Manual sync trigger: an explicit window is optional (both or none) and,
+ *  when given, must be ordered and stay inside the reporting cap. */
+export const googleAdsSyncTriggerSchema = googleAdsAnalyticsWindowSchema;
+
+const googleAdsBreakdownShape = z.object({
+  /** Exact search-term text filter (totals for exactly one term). */
+  searchText: z.string().trim().min(1).max(255).optional(),
+  /** Case-insensitive LIKE %…% filter for search-term text. */
+  searchTextLike: z.string().trim().min(1).max(255).optional(),
+  /** Restrict device / landing-page grains to one campaign. */
+  campaignResourceId: z.string().trim().min(1).max(512).optional(),
+});
+
+export const googleAdsCampaignBreakdownSchema = refineWindow(
+  googleAdsWindowObjectSchema,
+);
+export const googleAdsAdGroupBreakdownSchema = refineWindow(
+  googleAdsWindowObjectSchema,
+);
+export const googleAdsKeywordBreakdownSchema = refineWindow(
+  googleAdsWindowObjectSchema,
+);
+export const googleAdsSearchTermBreakdownSchema = refineFieldOptions(
+  refineWindow(
+    googleAdsWindowObjectSchema.extend(googleAdsBreakdownShape.shape).strict(),
+  ),
+  (value, ctx) => {
+    if (value.searchText !== undefined && value.searchTextLike !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["searchText"],
+        message: "At most one of searchText or searchTextLike may be provided",
+      });
+    }
+  },
+);
+export const googleAdsDeviceBreakdownSchema = refineWindow(
+  googleAdsWindowObjectSchema.extend(googleAdsBreakdownShape.shape).strict(),
+);
+export const googleAdsLandingPageBreakdownSchema = refineWindow(
+  googleAdsWindowObjectSchema.extend(googleAdsBreakdownShape.shape).strict(),
+);
+
+function refineFieldOptions<
+  T extends z.ZodType<{
+    searchText?: string;
+    searchTextLike?: string;
+    campaignResourceId?: string;
+  }>,
+>(schema: T, refine: (value: z.output<T>, ctx: z.RefinementCtx) => void) {
+  return schema.superRefine(refine);
+}

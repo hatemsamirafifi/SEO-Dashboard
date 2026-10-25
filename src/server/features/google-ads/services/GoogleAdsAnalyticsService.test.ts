@@ -1,154 +1,23 @@
-import type { Client } from "@libsql/client";
-import type { LibSQLDatabase } from "drizzle-orm/libsql";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-
-const database = vi.hoisted(() => ({
-  client: undefined as Client | undefined,
-  db: undefined as LibSQLDatabase | undefined,
-}));
-
-vi.mock("cloudflare:workers", () => ({ env: {} }));
-
-vi.mock("@/db", async () => {
-  const [{ createClient }, { drizzle }] = await Promise.all([
-    import("@libsql/client"),
-    import("drizzle-orm/libsql"),
-  ]);
-  database.client = createClient({ url: "file::memory:" });
-  database.db = drizzle(database.client);
-  return { db: database.db };
-});
-
-vi.mock("@/db/runBatch", () => ({
-  runBatch: async (build: (tx: unknown) => readonly Promise<unknown>[]) => {
-    if (!database.db) throw new Error("Test database was not initialized");
-    for (const statement of build(database.db)) await statement;
-  },
-  executeInBatches: async (
-    items: unknown[],
-    buildStatement: (tx: unknown, item: unknown) => Promise<unknown>,
-  ) => {
-    if (!database.db) throw new Error("Test database was not initialized");
-    for (const item of items) await buildStatement(database.db, item);
-  },
-}));
-
-import { GoogleAdsConnectionRepository } from "../repositories/GoogleAdsConnectionRepository";
+  COMPLETE_DAY,
+  FETCHED_AT,
+  SCOPE,
+  analyticsTestDbEach,
+  campaignRow,
+  initializeAnalyticsTestDatabase,
+  publish,
+  publishGrain,
+} from "./googleAdsAnalyticsTestDb";
 import { GoogleAdsAnalyticsRepository } from "../repositories/GoogleAdsAnalyticsRepository";
-import { getOverview } from "./GoogleAdsAnalyticsService";
+import { getOverview, getSyncState } from "./GoogleAdsAnalyticsService";
 
-const MIGRATIONS = [
-  "drizzle/0064_google_ads_connections.sql",
-  "drizzle/0065_great_stature.sql",
-];
-
-const SCOPE = {
-  projectId: "project-1",
-  organizationId: "org-a",
-  customerId: "1234567890",
-};
-
-const FETCHED_AT = "2026-02-01T10:00:00.000Z";
-
-async function connect(): Promise<void> {
-  await GoogleAdsConnectionRepository.upsert({
-    projectId: "project-1",
-    organizationId: "org-a",
-    customerId: "1234567890",
-    loginCustomerId: null,
-    customerDisplayName: "Example Customer",
-    grantAccountId: "google-sub-1",
-    connectedByUserId: "user-1",
-    currencyCode: "USD",
-    timeZone: "Europe/Lisbon",
-    isTestAccount: false,
-  });
-}
-
-function publish(
-  date: string,
-  metrics: {
-    impressions: number | null;
-    clicks: number | null;
-    costMicros: number | null;
-    conversions: number | null;
-    conversionsValue: number | null;
-  } | null,
-) {
-  return GoogleAdsAnalyticsRepository.publishUnit({
-    scope: SCOPE,
-    date,
-    grain: "account",
-    // null metrics row = success_zero_rows fixture (empty day).
-    rows: metrics ? [{ metrics }] : [],
-    sourceFetchedAt: FETCHED_AT,
-    currencyCode: "USD",
-    metricDateBasis: null,
-  });
-}
-
-const COMPLETE_DAY = {
-  impressions: 100,
-  clicks: 10,
-  costMicros: 2_500_000,
-  conversions: 2.5,
-  conversionsValue: 50,
-};
-
-beforeAll(async () => {
-  if (!database.client) throw new Error("Test database was not initialized");
-  await database.client.execute("PRAGMA foreign_keys = ON");
-  await database.client.execute(
-    "CREATE TABLE organization (id TEXT PRIMARY KEY NOT NULL)",
-  );
-  await database.client.execute(
-    `CREATE TABLE projects (
-       id TEXT PRIMARY KEY NOT NULL,
-       organization_id TEXT NOT NULL
-     )`,
-  );
-  for (const migration of MIGRATIONS) {
-    const sql = readFileSync(resolve(process.cwd(), migration), "utf8");
-    for (const statement of sql
-      .split("--> statement-breakpoint")
-      .map((part) => part.trim())
-      .filter(Boolean)) {
-      await database.client.execute(statement);
-    }
-  }
+beforeAll(() => initializeAnalyticsTestDatabase());
+analyticsTestDbEach();
+afterAll(() => {
+  // Each test file owns a fresh in-memory database; vitest's worker teardown
+  // closes the connection, so no cross-file connection sharing is needed.
 });
-
-beforeEach(async () => {
-  if (!database.client) throw new Error("Test database was not initialized");
-  for (const table of [
-    "google_ads_daily_account",
-    "google_ads_analytics_units",
-    "google_ads_connections",
-    "projects",
-    "organization",
-  ]) {
-    await database.client.execute(`DELETE FROM ${table}`);
-  }
-  await database.client.execute(
-    "INSERT INTO organization (id) VALUES ('org-a')",
-  );
-  await database.client.execute(
-    "INSERT INTO projects (id, organization_id) VALUES ('project-1', 'org-a')",
-  );
-  await connect();
-});
-
-afterAll(() => database.client?.close());
 
 describe("GoogleAdsAnalyticsService.getOverview", () => {
   it("aggregates stored sums with arithmetic-fixture precision", async () => {
@@ -279,5 +148,32 @@ describe("GoogleAdsAnalyticsService.getOverview", () => {
     });
     expect(mixed.coverage.status).toBe("covered");
     expect(mixed.compare.gate).toBe("mixed_metric_date_basis");
+  });
+
+  it("returns the bounded sync state ledger", async () => {
+    await publish("2026-01-15", COMPLETE_DAY);
+    await publishGrain("2026-01-15", "campaign", [campaignRow("campaign-1")]);
+
+    const state = await getSyncState(SCOPE);
+    expect(state.activeRun).toBeNull();
+    expect(state.runs).toEqual([]);
+    expect(state.units).toMatchObject({
+      total: 2,
+      pending: 0,
+      successWithData: 2,
+      successZeroRows: 0,
+      partial: 0,
+      failed: 0,
+    });
+
+    expect(
+      (
+        await getSyncState({
+          projectId: "unknown-project",
+          organizationId: "org-a",
+          customerId: "1234567890",
+        })
+      ).units,
+    ).toMatchObject({ total: 0 });
   });
 });
