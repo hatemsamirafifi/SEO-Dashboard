@@ -45,6 +45,7 @@ import { whoamiTool } from "@/server/mcp/tools/whoami";
 import { discoverSiteUrls, readPages, readSite } from "@/server/lib/scrape";
 import openSeoFactSheet from "@/server/features/onboarding/openseo-fact-sheet.md?raw";
 import { boundAgentGscOutput } from "@/server/features/sam/samGscBounding";
+import { boundAgentKeywordResearchOutput } from "@/server/features/sam/samKeywordResearchBounding";
 import {
   nullToolExecutionTracker,
   type ToolExecutionTracker,
@@ -301,7 +302,11 @@ export function buildSamMcpTools(
     ...scrapeTools(project.domain),
     whoami: adapt(whoamiTool),
     list_saved_keywords: adapt(listSavedKeywordsTool),
-    research_keywords: adapt(researchKeywordsTool),
+    research_keywords: adapt(researchKeywordsTool, {
+      description:
+        "Research keyword data (search volume, difficulty, CPC, related ideas) for seed keywords. Returns related keywords with volume/difficulty/CPC. Bulk-friendly.",
+      postProcess: boundAgentKeywordResearchOutput,
+    }),
     save_keywords: adapt(saveKeywordsTool),
     get_domain_overview: adapt(getDomainOverviewTool),
     get_domain_keyword_suggestions: adapt(getDomainKeywordSuggestionsTool),
