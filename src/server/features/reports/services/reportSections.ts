@@ -10,6 +10,13 @@ import { InsightRepository } from "@/server/features/intelligence/repositories/I
 import { OpportunityService } from "@/server/features/intelligence/services/OpportunityService";
 import type { ReportPayload } from "@/shared/reports";
 
+export {
+  collectPaidMonthlyEvidence,
+  collectPaidSearch,
+  type PaidMonthlyEnvelope,
+  type PaidMonthlyEvidence,
+} from "./reportSectionsPaid";
+
 type Availability = ReportPayload["searchVisibility"]["status"];
 
 function unavailable(reason: string): Availability {
@@ -17,6 +24,10 @@ function unavailable(reason: string): Availability {
 }
 
 const READY: Availability = { available: true, reason: null };
+
+function emptyVisibility(reason: string): ReportPayload["searchVisibility"] {
+  return { status: unavailable(reason), totals: null, previousTotals: null };
+}
 
 /** GSC totals over the report window, DB-stored only (snapshot reproducibility). */
 export async function collectSearchVisibility(
@@ -27,11 +38,7 @@ export async function collectSearchVisibility(
   try {
     const connection = await GscConnectionRepository.getByProjectId(projectId);
     if (!connection) {
-      return {
-        status: unavailable("not_connected"),
-        totals: null,
-        previousTotals: null,
-      };
+      return emptyVisibility("not_connected");
     }
     const covered = await GscSearchPerformanceRepository.hasCoverage(
       projectId,
@@ -39,11 +46,7 @@ export async function collectSearchVisibility(
       to,
     );
     if (!covered) {
-      return {
-        status: unavailable("no_coverage"),
-        totals: null,
-        previousTotals: null,
-      };
+      return emptyVisibility("no_coverage");
     }
     const totals = await GscSearchPerformanceRepository.getTotals(
       projectId,
@@ -81,11 +84,7 @@ export async function collectSearchVisibility(
       previousTotals,
     };
   } catch {
-    return {
-      status: unavailable("provider_failed"),
-      totals: null,
-      previousTotals: null,
-    };
+    return emptyVisibility("provider_failed");
   }
 }
 

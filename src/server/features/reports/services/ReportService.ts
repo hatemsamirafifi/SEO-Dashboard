@@ -25,6 +25,7 @@ import {
   collectInsights,
   collectOpportunities,
   collectOverviewParts,
+  collectPaidSearch,
   collectSearchVisibility,
   collectTrafficAndConversions,
 } from "./reportSections";
@@ -52,6 +53,7 @@ type CollectedSections = Pick<
   | "rankings"
   | "technical"
   | "backlinks"
+  | "paidSearch"
   | "opportunities"
   | "insights"
 >;
@@ -71,6 +73,7 @@ async function collectAttempt(input: {
     searchVisibility,
     trafficParts,
     overviewParts,
+    paidSearch,
     opportunities,
     insights,
   ] = await Promise.all([
@@ -88,6 +91,14 @@ async function collectAttempt(input: {
     needs("rankings") || needs("technical") || needs("backlinks")
       ? collectOverviewParts(input.projectId, input.domain)
       : null,
+    // Paid search rides on every generated payload (it is an optional
+    // extension, not a section selector): renderers decide visibility.
+    collectPaidSearch(
+      input.projectId,
+      input.organizationId,
+      input.from,
+      input.to,
+    ),
     needs("opportunities")
       ? collectOpportunities(input.projectId)
       : Promise.resolve([]),
@@ -128,6 +139,7 @@ async function collectAttempt(input: {
       referringDomains: null,
       capturedAt: null,
     },
+    paidSearch,
     opportunities,
     insights,
   };

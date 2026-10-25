@@ -220,6 +220,66 @@ const ga4TotalsSchema = z.object({
   transactions: z.number(),
 });
 
+export const PAID_SEARCH_SECTION_TITLE = "Paid search (Google Ads)";
+
+/** Additive Google Ads metrics plus derived ratios. Ratios are null unless
+ *  they were derived from complete metric components. */
+const paidSearchTotalsSchema = z.object({
+  impressions: z.number().nullable(),
+  clicks: z.number().nullable(),
+  /** Account currency units (costMicros / 1e6). */
+  cost: z.number().nullable(),
+  conversions: z.number().nullable(),
+  conversionsValue: z.number().nullable(),
+  ctr: z.number().nullable(),
+  cpc: z.number().nullable(),
+  cpa: z.number().nullable(),
+  roas: z.number().nullable(),
+});
+
+const paidSearchDeltaSchema = z.object({
+  metric: z.enum([
+    "impressions",
+    "clicks",
+    "cost",
+    "conversions",
+    "conversionsValue",
+  ]),
+  current: z.number().nullable(),
+  previous: z.number().nullable(),
+  absoluteChange: z.number().nullable(),
+  pctChange: z.number().nullable(),
+});
+
+/** Optional, backward-compatible paid-search extension (master plan phase 6).
+ *  Generated payloads always carry it (even when Google Ads is not connected,
+ *  so the renderer can show an explicit unavailable note) while stored V1
+ *  payloads from before the integration keep parsing without it. */
+export const paidSearchPayloadSchema = z.object({
+  status: metricAvailabilitySchema,
+  currencyCode: z.string().nullable(),
+  metricDateBasis: z.string().nullable(),
+  totals: paidSearchTotalsSchema.nullable(),
+  /** Present and non-null only when the equal-length preceding window was
+   *  fully covered on the same metric date basis. */
+  previousTotals: paidSearchTotalsSchema.nullable(),
+  deltas: z.array(paidSearchDeltaSchema),
+  campaigns: z.array(
+    z.object({
+      campaignResourceId: z.string(),
+      name: z.string().nullable(),
+      status: z.string().nullable(),
+      totals: paidSearchTotalsSchema,
+    }),
+  ),
+  searchTerms: z.array(
+    z.object({
+      searchText: z.string(),
+      totals: paidSearchTotalsSchema,
+    }),
+  ),
+});
+
 export const reportPayloadSchema = z.object({
   version: z.literal(REPORT_PAYLOAD_VERSION),
   reportType: reportTypeSchema,
@@ -296,9 +356,12 @@ export const reportPayloadSchema = z.object({
       contentVersion: z.number(),
     }),
   ),
+  paidSearch: paidSearchPayloadSchema.optional(),
   provenance: reportProvenanceSchema,
 });
 export type ReportPayload = z.infer<typeof reportPayloadSchema>;
+export type PaidSearchPayload = NonNullable<ReportPayload["paidSearch"]>;
+export type PaidSearchTotals = z.infer<typeof paidSearchTotalsSchema>;
 
 const ARABIC_RTL_REGEX =
   /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;

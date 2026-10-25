@@ -639,7 +639,7 @@ export function deriveMonthWindows(now: Date): {
 }
 
 export type ChangedRow = {
-  source: "gsc" | "ga4";
+  source: "gsc" | "ga4" | "google_ads";
   metric: string;
   monthValue: number | null;
   priorValue: number | null;
@@ -697,12 +697,12 @@ function monthTotals<T>(
     | undefined,
 ): T | null {
   if (!envelope || typeof envelope !== "object") return null;
-  if (envelope.status?.available !== true) return null;
+  if (!envelope.status?.available) return null;
   return envelope.totals ?? null;
 }
 
 type DeltaSpec = {
-  source: "gsc" | "ga4";
+  source: "gsc" | "ga4" | "google_ads";
   metric: string;
   monthValue: number | null;
   priorValue: number | null;
@@ -712,9 +712,75 @@ function directionOf(delta: number): string {
   return delta > 0 ? "up" : delta < 0 ? "down" : "flat";
 }
 
+export type GoogleAdsMetricsEnvelope = {
+  status: StatusEnvelope;
+  totals: GoogleAdsMetrics | null;
+};
+
+export type GoogleAdsMetrics = {
+  impressions: number | null;
+  clicks: number | null;
+  /** account currency units */
+  cost: number | null;
+  conversions: number | null;
+  conversionsValue: number | null;
+};
+
+const GOOGLE_ADS_METRIC_KEYS = [
+  "impressions",
+  "clicks",
+  "cost",
+  "conversions",
+  "conversionsValue",
+] as const satisfies readonly (keyof GoogleAdsMetrics)[];
+
+/** Append stored paid-ad deltas to the changed list (extracted from
+ *  buildChangedRows to keep its cognitive complexity below the limit). */
+function appendPaidAdsRows(
+  ads: { month: GoogleAdsMetricsEnvelope; prior: GoogleAdsMetricsEnvelope },
+  changed: ChangedRow[],
+  markUnavailable: (source: string, reason: string | null) => void,
+): void {
+  const adsMonth = monthTotals<GoogleAdsMetrics>(ads.month);
+  const adsPrior = monthTotals<GoogleAdsMetrics>(ads.prior);
+  let marked = false;
+  for (const key of GOOGLE_ADS_METRIC_KEYS) {
+    const monthValue = adsMonth?.[key] ?? null;
+    const priorValue = adsPrior?.[key] ?? null;
+    if (monthValue === null || priorValue === null) {
+      if (!marked) {
+        marked = true;
+        markUnavailable(
+          "google_ads",
+          Boolean(ads.month.status.available) && ads.month.totals === null
+            ? "google_ads has no data in the compared windows"
+            : ads.month.status.available
+              ? "google_ads coverage incomplete for the compared windows"
+              : (ads.month.status.reason ?? "unavailable"),
+        );
+      }
+      continue;
+    }
+    changed.push({
+      source: "google_ads",
+      metric: key,
+      monthValue,
+      priorValue,
+      delta: monthValue - priorValue,
+      agreement: "single_source",
+    });
+  }
+}
+
 export function buildChangedRows(input: {
   searchVisibility: { month: VisibilityEnvelope; prior: VisibilityEnvelope };
   traffic: { month: TrafficMonthEnvelope; prior: TrafficMonthEnvelope };
+  /** Stored Google Ads two-window evidence; absent (old runs / no
+   *  connection) means the review simply has no paid rows. */
+  ads?: {
+    month: GoogleAdsMetricsEnvelope;
+    prior: GoogleAdsMetricsEnvelope;
+  };
 }): {
   changed: ChangedRow[];
   ratios: RatioRow[];
@@ -724,14 +790,12 @@ export function buildChangedRows(input: {
   const svPrior = monthTotals(input.searchVisibility.prior);
   const trafficMonth = monthTotals(input.traffic.month.traffic);
   const trafficPrior = monthTotals(input.traffic.prior.traffic);
-  const conversionsMonth =
-    input.traffic.month.conversions.status?.available === true
-      ? input.traffic.month.conversions
-      : null;
-  const conversionsPrior =
-    input.traffic.prior.conversions.status?.available === true
-      ? input.traffic.prior.conversions
-      : null;
+  const conversionsMonth = input.traffic.month.conversions.status?.available
+    ? input.traffic.month.conversions
+    : null;
+  const conversionsPrior = input.traffic.prior.conversions.status?.available
+    ? input.traffic.prior.conversions
+    : null;
 
   const specs: DeltaSpec[] = [
     {
@@ -801,6 +865,10 @@ export function buildChangedRows(input: {
       agreement: "single_source",
     });
   }
+  if (input.ads) {
+    appendPaidAdsRows(input.ads, changed, markUnavailable);
+  }
+
   for (const row of changed) {
     if (row.delta === null) continue;
     const direction = directionOf(row.delta);
@@ -975,7 +1043,10 @@ function isUnresolvedRow(value: unknown): value is UnresolvedRow {
 
 function recordList(record: Record<string, unknown>, key: string): unknown[] {
   const raw: unknown = record[key];
-  return Array.isArray(raw) ? [...raw] : [];
+  if (!Array.isArray(raw)) return [];
+  const out: unknown[] = [];
+  for (const item of raw) out.push(item);
+  return out;
 }
 
 export function monthlyCorrelateOf(evidence: unknown): {
@@ -1021,6 +1092,35 @@ function isVisibilityEnvelope(value: unknown): value is VisibilityEnvelope {
     typeof totals["ctr"] === "number" &&
     typeof totals["position"] === "number"
   );
+}
+
+function isGoogleAdsMetricsEnvelope(
+  value: unknown,
+): value is GoogleAdsMetricsEnvelope {
+  if (!isRecord(value)) return false;
+  if (!isStatusEnvelope(value["status"])) return false;
+  const totals: unknown = value["totals"];
+  if (totals === null) return true;
+  if (!isRecord(totals)) return false;
+  return GOOGLE_ADS_METRIC_KEYS.every((key) => isNullableNumber(totals[key]));
+}
+
+function adsOf(
+  evidence: Record<string, unknown>,
+):
+  | { month: GoogleAdsMetricsEnvelope; prior: GoogleAdsMetricsEnvelope }
+  | undefined {
+  const raw: unknown = evidence["ads"];
+  if (!isRecord(raw)) return undefined;
+  const month: unknown = raw["month"];
+  const prior: unknown = raw["prior"];
+  if (
+    !isGoogleAdsMetricsEnvelope(month) ||
+    !isGoogleAdsMetricsEnvelope(prior)
+  ) {
+    return undefined;
+  }
+  return { month, prior };
 }
 
 function isTrafficMonthEnvelope(value: unknown): value is TrafficMonthEnvelope {
@@ -1085,6 +1185,8 @@ export function monthlyCollectOf(evidence: unknown): {
   prior: MonthWindow;
   searchVisibility: { month: VisibilityEnvelope; prior: VisibilityEnvelope };
   traffic: { month: TrafficMonthEnvelope; prior: TrafficMonthEnvelope };
+  /** Stored paid evidence; undefined for old runs / no Ads connection. */
+  ads?: { month: GoogleAdsMetricsEnvelope; prior: GoogleAdsMetricsEnvelope };
   opportunities: {
     status: string;
     priority: string;
@@ -1130,6 +1232,9 @@ export function monthlyCollectOf(evidence: unknown): {
     prior,
     searchVisibility: { month: svMonth, prior: svPrior },
     traffic: { month: tcMonth, prior: tcPrior },
+    // Tolerant parse: absent/null/corrupted Ads evidence stays undefined so
+    // replays of pre-Ads runs never fail monthly reviews.
+    ...(adsOf(evidence) ? { ads: adsOf(evidence) } : {}),
     opportunities: opportunities.filter(isStoredOpportunity),
     insights: insights.filter(isStoredInsight),
   };

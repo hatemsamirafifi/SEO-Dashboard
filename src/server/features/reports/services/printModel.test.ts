@@ -185,4 +185,149 @@ describe("buildPrintModel", () => {
     const arabicModel = buildPrintModel(payload, arabicBranding);
     expect(hasUnsupportedArabicText(arabicModel)).toBe(true);
   });
+
+  it("appends the paid_search section when the payload carries paidSearch", () => {
+    const payload = payloadFixture({
+      paidSearch: {
+        status: { available: true, reason: null },
+        currencyCode: "USD",
+        metricDateBasis: "month",
+        totals: {
+          impressions: 40000,
+          clicks: 2000,
+          cost: 150,
+          conversions: 30,
+          conversionsValue: 900,
+          ctr: 0.05,
+          cpc: 0.075,
+          cpa: 5,
+          roas: 6,
+        },
+        previousTotals: {
+          impressions: 38000,
+          clicks: 2100,
+          cost: 140,
+          conversions: 28,
+          conversionsValue: 850,
+          ctr: 0.055,
+          cpc: 0.067,
+          cpa: 5,
+          roas: 6.1,
+        },
+        deltas: [],
+        campaigns: [
+          {
+            campaignResourceId: "111",
+            name: "Brand",
+            status: "ENABLED",
+            totals: {
+              impressions: 30000,
+              clicks: 1500,
+              cost: 120,
+              conversions: 20,
+              conversionsValue: 600,
+              ctr: 0.05,
+              cpc: 0.08,
+              cpa: 6,
+              roas: 5,
+            },
+          },
+        ],
+        searchTerms: [
+          {
+            searchText: "seo tool",
+            totals: {
+              impressions: 10000,
+              clicks: 500,
+              cost: 60,
+              conversions: 10,
+              conversionsValue: 300,
+              ctr: 0.05,
+              cpc: 0.12,
+              cpa: 6,
+              roas: 5,
+            },
+          },
+        ],
+      },
+    });
+    const model = buildPrintModel(payload, BRANDING);
+    const paid = model.sections.find(
+      (section) => section.key === "paid_search",
+    );
+    expect(paid?.title).toBe("Paid search (Google Ads)");
+    expect(paid?.unavailableNote).toBeNull();
+    expect(paid?.metricRows.map((row) => row.label)).toEqual([
+      "Impressions",
+      "Clicks",
+      "Cost",
+      "Conversions",
+      "Conversions value",
+      "CTR",
+      "CPC",
+      "CPA",
+      "ROAS",
+      "Metric date basis",
+    ]);
+    expect(paid?.metricRows[2]).toEqual({
+      label: "Cost",
+      value: "150.00 USD (prev: 140.00 USD)",
+    });
+    expect(paid?.items).toHaveLength(2);
+    expect(paid?.items[0]).toMatchObject({
+      lead: "ENABLED",
+      title: "Brand",
+    });
+    expect(paid?.items[1]?.lead).toBe("Search term");
+  });
+
+  it("renders the paid section unavailable note without zeros", () => {
+    const payload = payloadFixture({
+      paidSearch: {
+        status: { available: false, reason: "not_connected" },
+        currencyCode: null,
+        metricDateBasis: null,
+        totals: null,
+        previousTotals: null,
+        deltas: [],
+        campaigns: [],
+        searchTerms: [],
+      },
+    });
+    const model = buildPrintModel(payload, BRANDING);
+    const paid = model.sections.find(
+      (section) => section.key === "paid_search",
+    );
+    expect(paid?.metricRows).toEqual([]);
+    expect(paid?.items).toEqual([]);
+    expect(paid?.unavailableNote).toContain("Not connected");
+  });
+
+  it("renders the covered-empty paid note without rows", () => {
+    const payload = payloadFixture({
+      paidSearch: {
+        status: { available: true, reason: null },
+        currencyCode: "USD",
+        metricDateBasis: "month",
+        totals: null,
+        previousTotals: null,
+        deltas: [],
+        campaigns: [],
+        searchTerms: [],
+      },
+    });
+    const model = buildPrintModel(payload, BRANDING);
+    const paid = model.sections.find(
+      (section) => section.key === "paid_search",
+    );
+    expect(paid?.metricRows).toEqual([]);
+    expect(paid?.emptyNote).toBe("No paid search data in this period.");
+  });
+
+  it("omits the paid section entirely for stored payloads without paidSearch", () => {
+    const model = buildPrintModel(payloadFixture(), BRANDING);
+    expect(
+      model.sections.find((section) => section.key === "paid_search"),
+    ).toBeUndefined();
+  });
 });

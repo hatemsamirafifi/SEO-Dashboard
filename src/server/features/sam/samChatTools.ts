@@ -11,6 +11,7 @@ import { getBacklinksOverviewTool } from "@/server/mcp/tools/get-backlinks-overv
 import { getBacklinksProfileTool } from "@/server/mcp/tools/get-backlinks-profile";
 import { getDomainKeywordSuggestionsTool } from "@/server/mcp/tools/get-domain-keyword-suggestions";
 import { getDomainOverviewTool } from "@/server/mcp/tools/get-domain-overview";
+import { getGoogleAdsOverviewTool } from "@/server/mcp/tools/google-ads-tools";
 import { getRankTrackerTool } from "@/server/mcp/tools/get-rank-tracker";
 import { getSerpResultsTool } from "@/server/mcp/tools/get-serp-results";
 import { listSavedKeywordsTool } from "@/server/mcp/tools/list-saved-keywords";
@@ -323,6 +324,12 @@ export function buildSamMcpTools(
       description:
         "Query the connected Search Console property's Search Analytics: clicks, impressions, CTR, and average position by query/page/country/device/date. First-party data — use it for what already ranks, near-ranking queries, and pages with real demand. ctr is a 0-1 fraction; position is a 1-based average. Read-only; uses no credits. Agent results are bounded to the top rows by clicks — the output note says how to fetch more (startRow / narrower filters).",
       postProcess: boundAgentGscOutput,
+    }),
+    get_google_ads_overview: adapt(getGoogleAdsOverviewTool, {
+      // SAM guidance: the sync may lag; the agent should report staleness
+      // instead of guessing.
+      description:
+        "Summarize the project's connected Google Ads account from synced stored analytics: spend, clicks, impressions, conversions (with currency), plus top campaigns and search terms by cost, and an equal-length preceding-window comparison when both windows are fully covered. Read-only; uses no credits. If it reports the account is not connected, do not invent numbers — tell the user to connect Google Ads in settings.",
     }),
     inspect_urls: adapt(inspectUrlsTool),
     run_site_audit: adapt(runSiteAuditTool, {
