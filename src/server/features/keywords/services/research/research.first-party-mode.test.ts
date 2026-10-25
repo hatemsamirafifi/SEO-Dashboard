@@ -4,21 +4,37 @@
 // keyword_ideas fallback is declared as a fallback, and first-party rows
 // must not run through the legacy DataForSEO persistence path.
 import type { SEODataRequest } from "@/server/lib/seo-data";
+import type { KeywordMetricRow } from "@/server/lib/dataforseo/keyword-metrics";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  seoDataRouter: {
-    route: vi.fn<(req: SEODataRequest) => Promise<unknown>>(),
-  },
-  repository: {
-    upsertKeywordMetric: vi.fn(async () => {}),
-    listSavedKeywordsByProject: vi.fn(async () => ({
-      rows: [],
-      totalCount: 0,
-      tags: [],
-    })),
-  },
-}));
+const mocks = vi.hoisted(() => {
+  // refresh-metrics only reads keyword/location/language off saved rows.
+  type SavedKeywordRowFixture = {
+    row: { keyword: string; locationCode: number; languageCode: string };
+  };
+  return {
+    seoDataRouter: {
+      route: vi.fn<(req: SEODataRequest) => Promise<unknown>>(),
+    },
+    repository: {
+      upsertKeywordMetric: vi.fn(async () => {}),
+      listSavedKeywordsByProject: vi.fn<
+        () => Promise<{
+          rows: SavedKeywordRowFixture[];
+          totalCount: number;
+          tags: never[];
+        }>
+      >(async () => ({ rows: [], totalCount: 0, tags: [] })),
+    },
+    plannerAccess: {
+      getPlannerConnectionForBilling: vi.fn(),
+      GOOGLE_ADS_PLANNER_CACHE_CONTRACT: "v26-planner",
+    },
+    plannerRepo: {
+      recordGroupObservation: vi.fn(async () => {}),
+    },
+  };
+});
 
 vi.mock("cloudflare:workers", () => ({
   waitUntil: vi.fn(),
@@ -27,6 +43,18 @@ vi.mock("cloudflare:workers", () => ({
 vi.mock("@/server/lib/seo-data", () => ({
   getSeoDataRouter: () => mocks.seoDataRouter,
 }));
+
+vi.mock(
+  "@/server/lib/seo-data/providers/google-ads-planner-access",
+  () => mocks.plannerAccess,
+);
+
+vi.mock(
+  "@/server/features/google-ads/repositories/GoogleAdsPlannerKeywordRepository",
+  () => ({
+    GoogleAdsPlannerKeywordRepository: mocks.plannerRepo,
+  }),
+);
 
 vi.mock(
   "@/server/features/keywords/repositories/KeywordResearchRepository",
@@ -183,5 +211,130 @@ describe("research — Google-Ads-served markets", () => {
     await flushMicrotasks();
 
     expect(mocks.repository.upsertKeywordMetric).toHaveBeenCalled();
+  });
+});
+
+function routerResponse(dataType: string, data: unknown) {
+  return {
+    dataType,
+    provider: "dataforseo" as const,
+    fromCache: false,
+    durationMs: 100,
+    data,
+  };
+}
+
+function metricRow(keyword: string, searchVolume: number): KeywordMetricRow {
+  return {
+    keyword,
+    searchVolume,
+    cpc: null,
+    competition: null,
+    competitionLevel: null,
+    keywordDifficulty: null,
+    intent: null,
+    monthlySearches: [{ year: 2026, month: 5, searchVolume }],
+  };
+}
+
+describe("refreshSavedKeywordMetrics", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    mocks.seoDataRouter.route.mockReset();
+    mocks.repository.upsertKeywordMetric.mockClear();
+    mocks.repository.listSavedKeywordsByProject.mockReset();
+    mocks.repository.listSavedKeywordsByProject.mockResolvedValue({
+      rows: [],
+      totalCount: 0,
+      tags: [],
+    });
+    mocks.plannerRepo.recordGroupObservation.mockReset();
+    mocks.plannerRepo.recordGroupObservation.mockResolvedValue(undefined);
+  });
+
+  it("routes metrics through the router and persists rows for the internal provider", async () => {
+    mocks.repository.listSavedKeywordsByProject.mockResolvedValue({
+      rows: [
+        {
+          row: {
+            keyword: "seo tools",
+            locationCode: 2840,
+            languageCode: "en",
+          },
+        },
+        {
+          row: {
+            keyword: "rank tracker",
+            locationCode: 2840,
+            languageCode: "en",
+          },
+        },
+      ],
+      totalCount: 2,
+      tags: [],
+    });
+    mocks.seoDataRouter.route.mockResolvedValue(
+      routerResponse("keyword_metrics", [
+        metricRow("seo tools", 2400),
+        metricRow("rank tracker", 1200),
+      ]),
+    );
+    const { refreshSavedKeywordMetrics } = await import("./refresh-metrics");
+
+    const result = await refreshSavedKeywordMetrics(
+      { projectId: "project_1" },
+      billingCustomer,
+    );
+
+    expect(mocks.seoDataRouter.route).toHaveBeenCalledWith({
+      dataType: "keyword_metrics",
+      keywords: ["seo tools", "rank tracker"],
+      locationCode: 2840,
+      languageCode: "en",
+      billingCustomer,
+      creditFeature: "keyword_research",
+      constraints: { projectId: "project_1" },
+    });
+    expect(result).toEqual({ updated: 2 });
+    expect(mocks.repository.upsertKeywordMetric).toHaveBeenCalledTimes(2);
+    expect(mocks.repository.upsertKeywordMetric).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "project_1",
+        keyword: "seo tools",
+        searchVolume: 2400,
+        intent: "unknown",
+      }),
+    );
+  });
+
+  it("groups saved keywords by location/language into homogeneous router calls", async () => {
+    mocks.repository.listSavedKeywordsByProject.mockResolvedValue({
+      rows: [
+        {
+          row: { keyword: "seo tools", locationCode: 2840, languageCode: "en" },
+        },
+        {
+          row: { keyword: "seo tools", locationCode: 2826, languageCode: "en" },
+        },
+      ],
+      totalCount: 2,
+      tags: [],
+    });
+    mocks.seoDataRouter.route.mockResolvedValue(
+      routerResponse("keyword_metrics", [metricRow("seo tools", 2400)]),
+    );
+    const { refreshSavedKeywordMetrics } = await import("./refresh-metrics");
+
+    await refreshSavedKeywordMetrics(
+      { projectId: "project_1" },
+      billingCustomer,
+    );
+
+    const locations = mocks.seoDataRouter.route.mock.calls.map(
+      ([req]) => req.locationCode,
+    );
+    expect(locations.toSorted((a, b) => (a ?? 0) - (b ?? 0))).toEqual([
+      2826, 2840,
+    ]);
   });
 });

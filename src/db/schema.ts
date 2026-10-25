@@ -9,6 +9,7 @@ import * as sqliteGa4 from "./ga4.schema";
 import * as sqliteGoogleAds from "./google-ads.schema";
 import * as sqliteGoogleAdsAnalytics from "./google-ads-analytics.schema";
 import * as sqliteGoogleAdsSync from "./google-ads-sync.schema";
+import * as sqliteGoogleAdsPlanner from "./google-ads-planner.schema";
 import * as sqliteIntelligence from "./intelligence.schema";
 import * as sqliteInsights from "./insights.schema";
 import * as sqliteOpportunities from "./opportunities.schema";
@@ -27,6 +28,7 @@ import * as pgGa4 from "./pg/ga4.schema";
 import * as pgGoogleAds from "./pg/google-ads.schema";
 import * as pgGoogleAdsAnalytics from "./pg/google-ads-analytics.schema";
 import * as pgGoogleAdsSync from "./pg/google-ads-sync.schema";
+import * as pgGoogleAdsPlanner from "./pg/google-ads-planner.schema";
 import * as pgIntelligence from "./pg/intelligence.schema";
 import * as pgInsights from "./pg/insights.schema";
 import * as pgOpportunities from "./pg/opportunities.schema";
@@ -56,6 +58,7 @@ type AppSchema = typeof sqliteApp &
   typeof sqliteGoogleAds &
   typeof sqliteGoogleAdsAnalytics &
   typeof sqliteGoogleAdsSync &
+  typeof sqliteGoogleAdsPlanner &
   typeof sqliteIntelligence &
   typeof sqliteInsights &
   typeof sqliteOpportunities &
@@ -78,6 +81,7 @@ const runtimeSchema =
         ...pgGoogleAds,
         ...pgGoogleAdsAnalytics,
         ...pgGoogleAdsSync,
+        ...pgGoogleAdsPlanner,
         ...pgIntelligence,
         ...pgInsights,
         ...pgOpportunities,
@@ -98,6 +102,7 @@ const runtimeSchema =
         ...sqliteGoogleAds,
         ...sqliteGoogleAdsAnalytics,
         ...sqliteGoogleAdsSync,
+        ...sqliteGoogleAdsPlanner,
         ...sqliteIntelligence,
         ...sqliteInsights,
         ...sqliteOpportunities,
@@ -171,6 +176,10 @@ export const {
   googleAdsAnalyticsUnits,
   googleAdsSyncRuns,
   googleAdsSyncUnits,
+  googleAdsPlannerObservations,
+  googleAdsPlannerGroups,
+  googleAdsPlannerGroupVariants,
+  googleAdsPlannerGroupMonths,
   intelligenceRuns,
   intelligenceRunDetectors,
   dashboardInsights,

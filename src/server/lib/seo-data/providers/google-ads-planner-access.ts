@@ -4,8 +4,8 @@
  *  the provider: identity comes ONLY from the per-project Ads connection row,
  *  resolved through the request's billing context (projectId +
  *  organizationId). Every fetch runs through the typed Phase 1 client, and
- *  targeting (geo/language) is resolved through Google's own lookups — never
- *  defaulted to US/English — so an unsupported market fails into a
+ *  targeting (geo/language) is resolved through Google's own lookups â€” never
+ *  defaulted to US/English â€” so an unsupported market fails into a
  *  DataForSEO fallback instead of a wrong first-party answer.
  *
  *  This module never throws unclassified errors forward: everything leaving
@@ -58,7 +58,7 @@ type PlannerClient = ReturnType<typeof createGoogleAdsClient>;
 
 /** Connection lookup that can never throw: a billing context without a
  *  projectId and any repository failure resolve to "no planner identity".
- *  Callers distinguish only "connected" vs "not connected" — internal
+ *  Callers distinguish only "connected" vs "not connected" â€” internal
  *  connection errors must not break the first-party walk, they surface the
  *  DataForSEO fallback. */
 export async function getPlannerConnectionForBilling(
@@ -166,7 +166,7 @@ async function resolveGeoTarget(
     });
   } catch {
     // Ambiguous/unknown/absent geo resolution is a market this project's
-    // planner cannot serve — fail into a fallback with a clear reason
+    // planner cannot serve â€” fail into a fallback with a clear reason
     // instead of researching a silently substituted geo.
     throw new ProviderUnsupportedError(
       PROVIDER_NAME,
@@ -186,7 +186,7 @@ async function resolveGeoTarget(
 }
 
 /** The language constant for the requested language code. Unknown, missing
- *  or non-targetable codes reject — the planner never researches a language
+ *  or non-targetable codes reject â€” the planner never researches a language
  *  silently substituted with English. */
 async function resolveLanguage(
   client: PlannerClient,
@@ -236,6 +236,11 @@ export type GoogleAdsPlannerIdeaEnvelope = {
   fetchedAt: string;
   currencyCode: string | null;
   network: string;
+  // The Ads customer identity this payload was produced under, attached at
+  // fetch time so first-party persistence attributes the observation to the
+  // account that actually served it (also on router cache replays).
+  customerId: string;
+  loginCustomerId: string | null;
   ideas: Awaited<ReturnType<PlannerClient["generateKeywordIdeas"]>>["ideas"];
   keywords: [];
   missingKeywords: [];
@@ -250,14 +255,16 @@ export type GoogleAdsPlannerMetricsEnvelope = {
   fetchedAt: string;
   currencyCode: string | null;
   network: string;
+  // See the ideas envelope: the Ads identity this payload was produced under.
+  customerId: string;
+  loginCustomerId: string | null;
   keywords: Awaited<
     ReturnType<PlannerClient["generateKeywordHistoricalMetrics"]>
   >["keywords"];
   missingKeywords: string[];
   malformedKeywords: number;
   duplicateKeywords: number;
-  // The historical-metrics endpoint has no paging contract; the typed
-  // client never reports truncation for it, so the envelope stays a
+  // The historical-metrics endpoint has no paging contract, so the envelope stays a
   // literal-false field rather than a boolean that invites `true`.
   truncated: false;
   partial: boolean;
@@ -265,7 +272,7 @@ export type GoogleAdsPlannerMetricsEnvelope = {
 
 /** Attaches sanitized first-party provenance to any error leaving the
  *  planner access layer. The classification is always built from our own
- *  error taxonomy — never from upstream response bodies. Exported so the
+ *  error taxonomy â€” never from upstream response bodies. Exported so the
  *  provider's own pre-flight gates (feature flag) can leave provenance
  *  without duplicating the taxonomy. */
 export function attachFirstPartyMeta(error: unknown): unknown {
@@ -298,7 +305,7 @@ export function attachFirstPartyMeta(error: unknown): unknown {
     return error;
   }
   const wrapped = new Error("Google Ads planner request failed.");
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion — first-party provenance is attached dynamically (the provider contract)
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion â€” first-party provenance is attached dynamically (the provider contract)
   (wrapped as { firstPartyError?: SEOFirstPartyError }).firstPartyError =
     classification;
   return wrapped;
@@ -373,6 +380,8 @@ export async function fetchPlannerKeywordIdeas(
       fetchedAt: result.fetchedAt,
       currencyCode: result.currencyCode ?? connection.currencyCode,
       network: result.network,
+      customerId: connection.customerId,
+      loginCustomerId: connection.loginCustomerId,
       ideas: result.ideas,
       keywords: [],
       missingKeywords: [],
@@ -442,6 +451,8 @@ export async function fetchPlannerHistoricalMetrics(
       fetchedAt: result.fetchedAt,
       currencyCode: result.currencyCode ?? connection.currencyCode,
       network: result.network,
+      customerId: connection.customerId,
+      loginCustomerId: connection.loginCustomerId,
       keywords: result.keywords,
       missingKeywords: result.missingKeywords,
       malformedKeywords: result.malformedKeywords,

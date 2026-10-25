@@ -172,11 +172,14 @@ export class DataRouter {
       firstPartyFailure: SEOFirstPartyError | null;
     } = { provider: null, fetchedAt: undefined, firstPartyFailure: null };
 
+    // Keyword flows honor the caller's maxAgeSeconds against the cached
+    // envelope's fetch timestamp (0 = always fresh; undefined falls back to
+    // the data-type TTL). Non-keyword flows pass undefined and keep the
+    // configured TTL behavior.
     const cacheResult = await SeoCacheService.getOrFetch<T>(
       request,
       schema,
       async (cacheKey) => {
-        // 2. Try providers in priority order
         const priority = PROVIDER_PRIORITY[request.dataType] ?? [];
         let lastError: unknown = null;
         // The FIRST provider's real failure (402/429/5xx/network) must survive
@@ -266,6 +269,10 @@ export class DataRouter {
           `No provider available for ${request.dataType}`,
         );
       },
+      // The planner flows declare their own freshness; an envelope older
+      // than the caller's max age reads as a cache miss on the envelope
+      // layer and the walk below picks a provider instead.
+      isKeywordFlow ? request.maxAgeSeconds : undefined,
     );
 
     if (cacheResult.fromCache) {

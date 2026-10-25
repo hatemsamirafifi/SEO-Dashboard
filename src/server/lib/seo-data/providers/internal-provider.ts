@@ -5,15 +5,18 @@ import type { SEODataProvider, SEODataRequest } from "../types";
 import { ProviderUnavailableError, ProviderUnsupportedError } from "../errors";
 import { getLatestCompetitorSnapshot } from "../competitor-snapshot-repository";
 import { DomainOverviewSnapshotRepository } from "../domain-overview-snapshot-repository";
+import { getInternalPlannerMetricsEnvelope } from "./keyword-planner-serving";
 
 /**
  * Internal data provider — reads from OpenSEO's own database (keyword_metrics
- * table, backlink_snapshots, rank_snapshots). This data was previously fetched
- * from DataForSEO and persisted, so it serves as a free source that avoids
- * re-fetching the same data.
+ * table, planner observation tables, backlink_snapshots, rank_snapshots).
+ * This data was previously fetched and persisted, so it serves as a free
+ * source that avoids re-fetching the same data.
  *
  * Serves:
- *   - keyword_metrics: from the keyword_metrics table (latest per keyword)
+ *   - keyword_metrics: from fresh Google Ads planner observations first (the
+ *     normalized first-party storage), then from the legacy keyword_metrics
+ *     table (DataForSEO-shaped, latest per keyword)
  *   - backlinks: from backlink_snapshots (latest summary per project) — the
  *     summary operation only; paginated/history calls fall through to
  *     DataForSEO because the snapshot only stores the summary shape
@@ -149,6 +152,31 @@ async function getInternalKeywordMetrics(
   const locationCode = request.locationCode ?? 2840;
   const languageCode = request.languageCode ?? "en";
 
+  // First-party planner storage first: a fresh keyword_metrics observation
+  // serves the stored Google-native envelope with provenance and honesty
+  // flags, free, before the legacy DFS table is consulted. The planner read
+  // is a best-effort FREE layer: any failure at this layer degrades to the
+  // legacy DFS read instead of breaking the serving path, so it is logged
+  // but never rethrown.
+  let plannerEnvelope: unknown = null;
+  if (projectId) {
+    try {
+      plannerEnvelope = await getInternalPlannerMetricsEnvelope(
+        request,
+        projectId,
+        keywords,
+        locationCode,
+        languageCode,
+      );
+    } catch (error) {
+      console.error(
+        "internal.keyword_metrics.planner-serving.fallback-to-legacy:",
+        error,
+      );
+    }
+  }
+  if (plannerEnvelope !== null) return plannerEnvelope;
+
   const conditions = [
     eq(keywordMetrics.locationCode, locationCode),
     eq(keywordMetrics.languageCode, languageCode),
@@ -200,6 +228,10 @@ async function getInternalKeywordMetrics(
  * - NULL / empty column = absent trend data → `[]`. This is the established
  *   absent-data mapping (mirrors `parseMonthlySearches` in saved-keywords);
  *   absence is not malformation.
+ * - Entries missing a numeric year/month are malformed and DROPPED — a
+ *   fabricated `{year: 0, month: 0}` trend point would tell downstream
+ *   charts "volume zero in month zero" instead of "this month is absent".
+ *   A REAL stored volume of 0 stays 0.
  * - Valid JSON that is not an array, or JSON that fails to parse = MALFORMED
  *   stored payload → `ProviderUnavailableError`. The router falls through to
  *   a fresh DataForSEO fetch (which also refreshes the corrupt row). Malformed
@@ -207,6 +239,14 @@ async function getInternalKeywordMetrics(
  *   and never passed through as a string (that crashed
  *   `toMcpKeywordMetricRow` with "row.monthlySearches.map is not a function").
  */
+function isMonthlySearchArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function isStoredSearchEntry(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function parseStoredMonthlySearches(
   stored: string | null | undefined,
   keyword: string,
@@ -221,26 +261,31 @@ function parseStoredMonthlySearches(
       `Stored keyword_metrics monthly_searches is not valid JSON for keyword "${keyword}"`,
     );
   }
-  if (!Array.isArray(parsed)) {
+  if (!isMonthlySearchArray(parsed)) {
     throw new ProviderUnavailableError(
       "internal",
       `Stored keyword_metrics monthly_searches is not an array for keyword "${keyword}" (received ${typeof parsed})`,
     );
   }
-  return parsed.map((entry: unknown) => {
-    if (entry === null || typeof entry !== "object") {
-      return { year: 0, month: 0, searchVolume: 0 };
-    }
+  const result: Array<{ year: number; month: number; searchVolume: number }> =
+    [];
+  for (const entry of parsed) {
+    if (!isStoredSearchEntry(entry)) continue;
     const year =
-      "year" in entry && typeof entry.year === "number" ? entry.year : 0;
+      "year" in entry && typeof entry.year === "number" ? entry.year : null;
     const month =
-      "month" in entry && typeof entry.month === "number" ? entry.month : 0;
+      "month" in entry && typeof entry.month === "number" ? entry.month : null;
     const searchVolume =
       "search_volume" in entry && typeof entry.search_volume === "number"
         ? entry.search_volume
-        : 0;
-    return { year, month, searchVolume };
-  });
+        : null;
+    // Entries without a year/month identity are malformed: drop them
+    // instead of fabricating a month-0 volume-zero trend point. A REAL
+    // stored volume of 0 stays 0.
+    if (year === null || month === null) continue;
+    result.push({ year, month, searchVolume: searchVolume ?? 0 });
+  }
+  return result;
 }
 
 /**

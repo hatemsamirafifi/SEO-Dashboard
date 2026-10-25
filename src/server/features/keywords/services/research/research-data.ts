@@ -5,6 +5,10 @@ import {
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import type { CreditFeature } from "@/shared/billing-credit-features";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
+import {
+  parseStoredPlannerEnvelope,
+  type ParsedPlannerEnvelope,
+} from "@/server/lib/seo-data/providers/planner-envelope";
 import type { KeywordIdeasSource } from "@/server/lib/seo-data/providers/dataforseo-provider";
 import {
   normalizeIntent,
@@ -125,18 +129,35 @@ function asRecordRows(value: unknown): GoogleAdsKeywordRecord[] {
     : [];
 }
 
-function mapResearchIdeasPayload(data: unknown): EnrichedKeyword[] {
-  if (Array.isArray(data)) {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the array branch is the DFS keywords_for_keywords item shape routed by this call
-    return mapAdsKeywordItems(data as AdsKeywordIdeaItem[]);
+/** Splits a keyword_ideas payload into its two shapes:
+ *  - legacy `AdsKeywordIdeaItem[]` / `LabsKeywordDataItem[]` arrays
+ *    (DataForSEO), and
+ *  - the first-party Google Ads planner envelope (an object with
+ *    `source: "google_ads"` plus `ideas` / `keywords` record arrays).
+ *  Discriminate structurally — never by trusting the typed response body
+ *  against the runtime reality. */
+function isAdsKeywordIdeaItems(value: unknown): value is AdsKeywordIdeaItem[] {
+  return Array.isArray(value);
+}
+
+function mapResearchIdeasPayload(data: unknown): {
+  rows: EnrichedKeyword[];
+  records: GoogleAdsKeywordRecord[];
+} {
+  if (isAdsKeywordIdeaItems(data)) {
+    return {
+      rows: mapAdsKeywordItems(data),
+      records: [],
+    };
   }
   if (typeof data === "object" && data !== null) {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- envelope handling: data is only known to be an object here
     const envelope = data as { ideas?: unknown; keywords?: unknown };
-    return mapGoogleResearchRecords([
+    const records = [
       ...asRecordRows(envelope.ideas),
       ...asRecordRows(envelope.keywords),
-    ]);
+    ];
+    return { rows: mapGoogleResearchRecords(records), records };
   }
   // Neither shape — surface an explicit shape error instead of crashing
   // downstream with "items is not iterable".
@@ -144,12 +165,19 @@ function mapResearchIdeasPayload(data: unknown): EnrichedKeyword[] {
 }
 
 /** Research rows for countries DataForSEO Labs doesn't support, plus the
- *  provenance signal the consumer needs to route persistence honestly:
+ *  provenance signals the consumer needs to route persistence honestly:
  *  `servedFirstParty` is true only when the payload was the first-party
- *  planner envelope (an object), never for the legacy DFS item array. */
+ *  planner envelope (an object), never for the legacy DFS item array, and
+ *  `rawPlannerRecords` carries the unflattened canonical keyword-group
+ *  records the persistence hook needs (the rows array alone has already
+ *  flattened close variants). */
 export type GoogleAdsResearchRows = {
   rows: EnrichedKeyword[];
   servedFirstParty: boolean;
+  rawPlannerRecords: GoogleAdsKeywordRecord[];
+  /** The R2-validated first-party envelope for the persistence hook; null
+   *  for DFS-served payloads and for envelopes that fail cache re-parse. */
+  plannerEnvelope: ParsedPlannerEnvelope | null;
 };
 
 export async function fetchGoogleAdsResearchRows(
@@ -173,10 +201,16 @@ export async function fetchGoogleAdsResearchRows(
       limit: params.resultLimit,
     },
   });
+  const payload = mapResearchIdeasPayload(data);
+  const servedFirstParty =
+    typeof data === "object" && data !== null && !Array.isArray(data);
   return {
-    rows: mapResearchIdeasPayload(data),
-    servedFirstParty:
-      typeof data === "object" && data !== null && !Array.isArray(data),
+    rows: payload.rows,
+    rawPlannerRecords: payload.records,
+    servedFirstParty,
+    // The cache-validated envelope; null when the payload is not a planner
+    // envelope or its re-parse fails (the row mapping above still holds).
+    plannerEnvelope: parseStoredPlannerEnvelope(data),
   };
 }
 
@@ -223,5 +257,5 @@ export async function fetchResearchRowsBySource(
   // The "ideas" mode is the only one the first-party provider claims, so the
   // payload may legitimately arrive in either shape here.
   const { data } = await getSeoDataRouter().route(request);
-  return mapResearchIdeasPayload(data);
+  return mapResearchIdeasPayload(data).rows;
 }

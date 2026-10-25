@@ -50,15 +50,18 @@ export const listSavedKeywordsTool = {
   handler: withMcpProjectAuth(
     async (args: z.infer<z.ZodObject<typeof inputSchema>>, context) => {
       const { rows, totalCount, tags } =
-        await KeywordResearchService.getSavedKeywords({
-          projectId: args.projectId,
-          search: args.search,
-          tagNames: args.tags,
-          page: 1,
-          pageSize: args.limit ?? 100,
-          sort: "createdAt",
-          order: "desc",
-        });
+        await KeywordResearchService.getSavedKeywords(
+          {
+            projectId: args.projectId,
+            search: args.search,
+            tagNames: args.tags,
+            page: 1,
+            pageSize: args.limit ?? 100,
+            sort: "createdAt",
+            order: "desc",
+          },
+          { organizationId: context.billing.organizationId },
+        );
       const text =
         rows.length === 0
           ? "No saved keywords yet."
