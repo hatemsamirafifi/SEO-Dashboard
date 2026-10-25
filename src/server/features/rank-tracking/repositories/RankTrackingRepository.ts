@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, lte, max } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lte } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -331,47 +331,28 @@ async function getConfigSummaries(projectId: string) {
 
   const kwCountMap = new Map(kwCounts.map((r) => [r.configId, r.value]));
 
-  // Subquery: latest startedAt per config
-  const latestStarted = db
-    .select({
-      configId: rankCheckRuns.configId,
-      maxStartedAt: max(rankCheckRuns.startedAt).as("maxStartedAt"),
-    })
-    .from(rankCheckRuns)
-    .where(
-      inArray(
-        rankCheckRuns.configId,
-        configs.map((c) => c.id),
-      ),
-    )
-    .groupBy(rankCheckRuns.configId)
-    .as("latestStarted");
-
-  // Join back to get status + completedAt for each config's latest run
-  const latestRuns = await db
+  const configIds = configs.map((c) => c.id);
+  const runs = await db
     .select({
       configId: rankCheckRuns.configId,
       status: rankCheckRuns.status,
       completedAt: rankCheckRuns.completedAt,
     })
     .from(rankCheckRuns)
-    .innerJoin(
-      latestStarted,
-      and(
-        eq(rankCheckRuns.configId, latestStarted.configId),
-        eq(rankCheckRuns.startedAt, latestStarted.maxStartedAt),
-      ),
-    );
+    .where(inArray(rankCheckRuns.configId, configIds))
+    .orderBy(desc(rankCheckRuns.startedAt));
 
   const latestRunMap = new Map<
     string,
     { status: string; completedAt: string | null }
   >();
-  for (const run of latestRuns) {
-    latestRunMap.set(run.configId, {
-      status: run.status,
-      completedAt: run.completedAt,
-    });
+  for (const run of runs) {
+    if (!latestRunMap.has(run.configId)) {
+      latestRunMap.set(run.configId, {
+        status: run.status,
+        completedAt: run.completedAt,
+      });
+    }
   }
 
   return configs.map((config) => ({
