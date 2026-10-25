@@ -11,7 +11,10 @@ import type { EnsuredUserContext } from "./types";
 export async function resolveUserContextFromHeaders(
   headers: Headers,
 ): Promise<EnsuredUserContext> {
-  const authMode = getAuthMode(env.AUTH_MODE);
+  const authModeValue =
+    env.AUTH_MODE ??
+    (typeof process !== "undefined" ? process.env?.AUTH_MODE : undefined);
+  const authMode = getAuthMode(authModeValue);
   if (authMode === "local_noauth") {
     return resolveLocalNoAuthContext();
   }

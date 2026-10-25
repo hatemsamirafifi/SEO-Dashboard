@@ -21,8 +21,8 @@ export const researchKeywordsSchema = z.object({
   locationCode: z.number().int().positive().optional(),
   languageCode: z.string().min(2).max(8).optional(),
   resultLimit: z
-    .union([z.literal(150), z.literal(300), z.literal(500)])
-    .default(150),
+    .union([z.literal(150), z.literal(300), z.literal(500), z.literal(1000)])
+    .default(300),
   mode: z
     .enum(["auto", "related", "suggestions", "ideas"])
     .optional()

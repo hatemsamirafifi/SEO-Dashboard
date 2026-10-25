@@ -48,6 +48,8 @@ export default defineConfig(({ mode }) => {
           "**/badseo/**",
           "**/web/**",
           "**/.pnpm-store/**",
+          "**/*.test.*",
+          "**/*.spec.*",
         ],
       },
     },

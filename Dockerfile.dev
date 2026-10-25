@@ -38,9 +38,12 @@ RUN pnpm install --frozen-lockfile --workspace-root
 # entrypoint expects before sources are mounted (none beyond node_modules)
 # materialise above.
 
+COPY docker-entrypoint.dev.sh /app/
+RUN chmod +x /app/docker-entrypoint.dev.sh
+
 EXPOSE 3001
 
 # `docker-entrypoint.dev.sh` owns startup: it prints a short orientation,
 # applies D1 migrations to the local `.wrangler` state if/when the schema is
 # already present, then execs `pnpm dev` so Vite + wrangler take over.
-CMD ["sh", "docker-entrypoint.dev.sh"]
+CMD ["sh", "/app/docker-entrypoint.dev.sh"]
