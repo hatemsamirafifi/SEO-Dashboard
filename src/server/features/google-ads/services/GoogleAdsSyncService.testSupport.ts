@@ -13,6 +13,8 @@ import type {
   GoogleAdsDailyAdGroupRow,
   GoogleAdsDailyCampaignRow,
   GoogleAdsDailyDeviceRow,
+  GoogleAdsDailyFactsInput,
+  GoogleAdsDailyFactsResult,
   GoogleAdsDailyKeywordRow,
   GoogleAdsDailyLandingPageRow,
   GoogleAdsDailySearchTermRow,
@@ -177,7 +179,7 @@ export class TestAdsClient {
   private throws = new Map<Grain, unknown>();
 
   behavior<G extends Grain>(grain: G, behavior: GrainBehavior<G>): void {
-    this.behaviors[grain] = behavior;
+    Reflect.set(this.behaviors, grain, behavior);
   }
 
   /** Fails the first `times` fetches for the grain with `error`, then serves
@@ -201,13 +203,8 @@ export class TestAdsClient {
 
   private async outcome<G extends Grain>(
     grain: G,
-    input: { startDate: string; endDate: string },
-  ): Promise<{
-    rows: GrainRows[G][];
-    truncated: boolean;
-    malformedRows: number;
-    fetchedAt: string;
-  }> {
+    input: GoogleAdsDailyFactsInput,
+  ): Promise<GoogleAdsDailyFactsResult<GrainRows[G]>> {
     this.fetchCalls.push({ grain, date: input.startDate });
     const budget = this.failures.get(grain);
     if (budget !== undefined) {
@@ -222,10 +219,17 @@ export class TestAdsClient {
     const behavior = this.behaviors[grain];
     if (behavior?.throw !== undefined) throw behavior.throw;
     return {
+      grain,
+      customerId: input.customerId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      metricDateBasis: "interaction_date",
+      source: "google_ads",
+      fetchedAt: FETCHED_AT,
       rows: behavior?.rows ?? [],
       truncated: behavior?.truncated ?? false,
       malformedRows: behavior?.malformedRows ?? 0,
-      fetchedAt: FETCHED_AT,
+      partial: false,
     };
   }
 }
@@ -239,7 +243,16 @@ const METRICS = {
 };
 
 const STUB_ROWS: { [G in Grain]: (date: string) => GrainRows[G][] } = {
-  account: (date) => [{ date, metrics: METRICS }],
+  account: (date) => [
+    {
+      date,
+      metrics: METRICS,
+      resourceName: `customers/${CUSTOMER_ID}`,
+      displayName: "Ads Account",
+      currencyCode: "USD",
+      timeZone: "Etc/GMT",
+    },
+  ],
   campaign: (date) => [
     {
       date,
@@ -258,6 +271,7 @@ const STUB_ROWS: { [G in Grain]: (date: string) => GrainRows[G][] } = {
       metrics: METRICS,
       campaignResourceId: "campaign-1",
       adGroupResourceId: "adgroup-1",
+      adGroupId: "1",
       adGroupName: "Shoes",
       adGroupStatus: "ENABLED",
     },
@@ -269,6 +283,7 @@ const STUB_ROWS: { [G in Grain]: (date: string) => GrainRows[G][] } = {
       campaignResourceId: "campaign-1",
       adGroupResourceId: "adgroup-1",
       keywordResourceId: "keyword-1",
+      criterionId: "1",
       keywordText: "red shoes",
       keywordMatchType: "EXACT",
     },
@@ -279,9 +294,10 @@ const STUB_ROWS: { [G in Grain]: (date: string) => GrainRows[G][] } = {
       metrics: METRICS,
       campaignResourceId: "campaign-1",
       adGroupResourceId: "adgroup-1",
+      searchTermResourceId: "searchterm-1",
       searchText: "red shoes",
-      keywordText: "red shoes",
-      keywordMatchType: "EXACT",
+      keywordText: null,
+      keywordMatchType: null,
     },
   ],
   device: (date) => [
@@ -297,6 +313,7 @@ const STUB_ROWS: { [G in Grain]: (date: string) => GrainRows[G][] } = {
       date,
       metrics: METRICS,
       campaignResourceId: "campaign-1",
+      landingPageResourceId: "landingpage-1",
       landingPageUrl: "https://example.test/landing",
     },
   ],

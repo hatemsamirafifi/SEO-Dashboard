@@ -7,6 +7,7 @@ import {
   Globe,
   LayoutDashboard,
   Link2,
+  Megaphone,
   MessageSquare,
   Search,
   Sparkles,
@@ -49,6 +50,11 @@ const projectNavItems = [
     to: "/p/$projectId/analytics" as const,
     label: "Analytics",
     icon: ChartNoAxesColumn,
+  },
+  {
+    to: "/p/$projectId/google-ads" as const,
+    label: "Google Ads",
+    icon: Megaphone,
   },
   {
     to: "/p/$projectId/opportunities" as const,
@@ -136,6 +142,7 @@ export function getProjectNavGroups(projectId: string) {
       items: [
         byPath("/p/$projectId/search-performance"),
         byPath("/p/$projectId/analytics"),
+        byPath("/p/$projectId/google-ads"),
         byPath("/p/$projectId/opportunities"),
         byPath("/p/$projectId/reports"),
         byPath("/p/$projectId/rank-tracking"),

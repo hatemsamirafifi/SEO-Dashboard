@@ -1,6 +1,22 @@
+/* eslint-disable max-lines */
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { eq } from "drizzle-orm";
+
+/** Deterministic browser-E2E responses: enabled by a build-time env flag or
+ *  a request header, mirroring the GA4 analytics fixtures. */
+function shouldUseGoogleAdsE2eFixtures() {
+  if (import.meta.env.VITE_E2E_GOOGLE_ADS_FIXTURES === "1") return true;
+  try {
+    return getRequest().headers.get("x-e2e-google-ads-fixture") === "1";
+  } catch {
+    return false;
+  }
+}
+
+async function getGoogleAdsE2eFixtures() {
+  return import("../../e2e/fixtures/google-ads-fixtures");
+}
 import { db } from "@/db";
 import { user } from "@/db/schema";
 import { GoogleAdsService } from "@/server/features/google-ads/services/GoogleAdsService";
@@ -76,6 +92,11 @@ export const getGoogleAdsConnectionStatus = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(googleAdsProjectSchema)
   .handler(async ({ context }) => {
+    if (shouldUseGoogleAdsE2eFixtures()) {
+      const fixtures = await getGoogleAdsE2eFixtures();
+      return fixtures.getFixtureGoogleAdsConnectionStatus();
+    }
+
     const scope = googleAdsProjectScope(context);
     const [connection, currentUserHasGrant, hosted, configured] =
       await Promise.all([
@@ -247,6 +268,11 @@ export const getGoogleAdsSyncStatus = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(googleAdsProjectSchema)
   .handler(async ({ context }) => {
+    if (shouldUseGoogleAdsE2eFixtures()) {
+      const fixtures = await getGoogleAdsE2eFixtures();
+      return fixtures.getFixtureGoogleAdsSyncStatus();
+    }
+
     const connection = await GoogleAdsService.getConnection(
       context.projectId,
       context.organizationId,
@@ -268,6 +294,10 @@ export const getGoogleAdsOverview = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(googleAdsAnalyticsWindowSchema)
   .handler(async ({ data, context }) => {
+    if (shouldUseGoogleAdsE2eFixtures()) {
+      const fixtures = await getGoogleAdsE2eFixtures();
+      return fixtures.getFixtureGoogleAdsOverview();
+    }
     const connection = await GoogleAdsService.getConnection(
       context.projectId,
       context.organizationId,
@@ -281,9 +311,12 @@ export const getGoogleAdsOverview = createServerFn({ method: "POST" })
         : defaultGoogleAdsWindow();
     return {
       connected: true as const,
+      // The preceding equal-length comparison is always computed: the UI
+      // overview surfaces either the deltas or an explicit gate reason.
       overview: await getOverview({
         scope: googleAdsAnalyticsScope(context, connection.customerId),
         window,
+        compare: true,
       }),
     };
   });
@@ -292,6 +325,10 @@ export const getGoogleAdsCampaigns = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(googleAdsCampaignBreakdownSchema)
   .handler(async ({ data, context }) => {
+    if (shouldUseGoogleAdsE2eFixtures()) {
+      const fixtures = await getGoogleAdsE2eFixtures();
+      return fixtures.getFixtureGoogleAdsCampaigns();
+    }
     const [connection, window] = await Promise.all([
       GoogleAdsService.getConnection(context.projectId, context.organizationId),
       googleAdsBreakdownWindow(data.startDate, data.endDate),
@@ -312,6 +349,10 @@ export const getGoogleAdsAdGroups = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(googleAdsAdGroupBreakdownSchema)
   .handler(async ({ data, context }) => {
+    if (shouldUseGoogleAdsE2eFixtures()) {
+      const fixtures = await getGoogleAdsE2eFixtures();
+      return fixtures.getFixtureGoogleAdsAdGroups();
+    }
     const [connection, window] = await Promise.all([
       GoogleAdsService.getConnection(context.projectId, context.organizationId),
       googleAdsBreakdownWindow(data.startDate, data.endDate),
@@ -332,6 +373,10 @@ export const getGoogleAdsKeywords = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(googleAdsKeywordBreakdownSchema)
   .handler(async ({ data, context }) => {
+    if (shouldUseGoogleAdsE2eFixtures()) {
+      const fixtures = await getGoogleAdsE2eFixtures();
+      return fixtures.getFixtureGoogleAdsKeywords();
+    }
     const [connection, window] = await Promise.all([
       GoogleAdsService.getConnection(context.projectId, context.organizationId),
       googleAdsBreakdownWindow(data.startDate, data.endDate),
@@ -352,6 +397,10 @@ export const getGoogleAdsSearchTerms = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(googleAdsSearchTermBreakdownSchema)
   .handler(async ({ data, context }) => {
+    if (shouldUseGoogleAdsE2eFixtures()) {
+      const fixtures = await getGoogleAdsE2eFixtures();
+      return fixtures.getFixtureGoogleAdsSearchTerms();
+    }
     const [connection, window] = await Promise.all([
       GoogleAdsService.getConnection(context.projectId, context.organizationId),
       googleAdsBreakdownWindow(data.startDate, data.endDate),
@@ -380,6 +429,10 @@ export const getGoogleAdsDevices = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(googleAdsDeviceBreakdownSchema)
   .handler(async ({ data, context }) => {
+    if (shouldUseGoogleAdsE2eFixtures()) {
+      const fixtures = await getGoogleAdsE2eFixtures();
+      return fixtures.getFixtureGoogleAdsDevices();
+    }
     const [connection, window] = await Promise.all([
       GoogleAdsService.getConnection(context.projectId, context.organizationId),
       googleAdsBreakdownWindow(data.startDate, data.endDate),
@@ -405,6 +458,10 @@ export const getGoogleAdsLandingPages = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(googleAdsLandingPageBreakdownSchema)
   .handler(async ({ data, context }) => {
+    if (shouldUseGoogleAdsE2eFixtures()) {
+      const fixtures = await getGoogleAdsE2eFixtures();
+      return fixtures.getFixtureGoogleAdsLandingPages();
+    }
     const [connection, window] = await Promise.all([
       GoogleAdsService.getConnection(context.projectId, context.organizationId),
       googleAdsBreakdownWindow(data.startDate, data.endDate),

@@ -5,6 +5,7 @@ import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { SearchConsoleConnectionCard } from "@/client/features/gsc/SearchConsoleConnectionCard";
 import { AnalyticsConnectionCard } from "@/client/features/ga4/AnalyticsConnectionCard";
+import { GoogleAdsConnectionCard } from "@/client/features/google-ads/GoogleAdsConnectionCard";
 import { ProjectMarketFields } from "@/client/features/projects/ProjectMarketFields";
 import { ProjectAiSettingsSection } from "@/client/features/ai/ProjectAiSettingsSection";
 import { GlobalDebugTraceSettingsSection } from "@/client/features/tracing/GlobalDebugTraceSettingsSection";
@@ -94,6 +95,11 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           Google Analytics 4
         </h2>
         <AnalyticsConnectionCard projectId={projectId} />
+      </section>
+
+      <section id="google-ads" className="space-y-3 scroll-mt-6">
+        <h2 className="text-sm font-medium text-base-content/50">Google Ads</h2>
+        <GoogleAdsConnectionCard projectId={projectId} />
       </section>
 
       <section id="ai-agent" className="space-y-3 scroll-mt-6">
