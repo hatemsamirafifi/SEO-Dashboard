@@ -13,6 +13,7 @@ import { fetchConversionDropInput } from "./conversionDrop";
 import { fetchEngagementDropInput } from "./engagementDrop";
 import { fetchCompetitorGapInput } from "./competitorGap";
 import { fetchSerpClusterNewPageInput } from "./serpClusterNewPage";
+import { fetchAiCitationGapInput } from "./aiCitationGap";
 
 /**
  * Explicit per-detector input dispatcher (final-plan §4: detectors run over
@@ -56,6 +57,8 @@ export async function fetchDetectorInput(
       return fetchCompetitorGapInput(projectId, ctx);
     case "serp_cluster_new_page":
       return fetchSerpClusterNewPageInput(projectId, ctx);
+    case "ai_citation_gap":
+      return fetchAiCitationGapInput(projectId, ctx);
     default:
       return null;
   }

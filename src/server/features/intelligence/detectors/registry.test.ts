@@ -57,6 +57,7 @@ describe("detector registry", () => {
       .map((detector) => detector.detectorKey)
       .toSorted();
     expect(keys).toEqual([
+      "ai_citation_gap",
       "backlink_change",
       "cannibalization",
       "competitor_gap",

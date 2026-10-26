@@ -172,6 +172,20 @@ function normalizeHostContext(
   }
 }
 
+/**
+ * Canonical first-party domain identity for cross-source comparison (spec
+ * 020): the project host value normalized to a bare host (leading `www.`
+ * folded away), null when no usable host exists. Accepts every stored
+ * `projects.domain` form (bare domain, `sc-domain:` prefix, or full URL).
+ */
+export function canonicalProjectDomain(
+  value: string | null | undefined,
+): string | null {
+  const host = normalizeHostContext(value);
+  if (!host) return null;
+  return host.replace(/^www\./, "");
+}
+
 /** Fold one parsed absolute URL to its canonical identity string. */
 function canonicalAbsoluteIdentity(parsed: URL): string {
   const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
@@ -415,6 +429,7 @@ const sourceNameSchema = z.enum([
   "backlinks",
   "keywords",
   "competitors",
+  "ai_search",
 ]);
 
 const sourceRefsSchema = z
@@ -423,6 +438,7 @@ const sourceRefsSchema = z
     rankSnapshotIds: z.array(z.union([z.string(), z.number()])).optional(),
     auditIssueIds: z.array(z.string()).optional(),
     ga4Keys: z.array(z.string()).optional(),
+    aiSearchRunIds: z.array(z.string()).optional(),
   })
   .strict();
 

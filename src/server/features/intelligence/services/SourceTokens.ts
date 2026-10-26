@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  aiSearchRuns,
   audits,
   backlinkSnapshots,
   ga4Connections,
@@ -29,6 +30,7 @@ export const INTELLIGENCE_SOURCES = [
   "rank",
   "audit",
   "backlinks",
+  "ai_search",
 ] as const;
 export type IntelligenceSource = (typeof INTELLIGENCE_SOURCES)[number];
 
@@ -201,6 +203,19 @@ async function selectBacklinksVersion(
   return snapshot ? `backlinks:${snapshot.id}` : null;
 }
 
+/** AI search (spec 020): latest recorded observation (observed_at DESC,
+ *  id DESC tiebreak) — the newest committed consumable mutation. */
+async function selectAiSearchVersion(projectId: string): Promise<string | null> {
+  const rows = await db
+    .select({ id: aiSearchRuns.id, observedAt: aiSearchRuns.observedAt })
+    .from(aiSearchRuns)
+    .where(eq(aiSearchRuns.projectId, projectId))
+    .orderBy(desc(aiSearchRuns.observedAt), desc(aiSearchRuns.id))
+    .limit(1);
+  const run = rows[0];
+  return run ? `ai_search:${run.id}` : null;
+}
+
 async function selectActiveMutations(
   projectId: string,
   auditActiveRunIds: string[],
@@ -245,21 +260,24 @@ async function selectActiveMutations(
       isMutating: auditActiveRunIds.length > 0,
       activeRunIds: auditActiveRunIds,
     },
-    // Backlink snapshots are synchronous writes with no in-flight marker;
-    // the before/after version comparison is the mutation signal.
+    // Backlink snapshots and AI-search observations are synchronous writes
+    // with no in-flight marker; the before/after version comparison is the
+    // mutation signal.
     backlinks: { isMutating: false, activeRunIds: [] },
+    ai_search: { isMutating: false, activeRunIds: [] },
   };
 }
 
 export async function assembleDetectionSourceState(
   projectId: string,
 ): Promise<DetectionSourceState> {
-  const [gsc, ga4, rank, audit, backlinks] = await Promise.all([
+  const [gsc, ga4, rank, audit, backlinks, aiSearch] = await Promise.all([
     selectGscVersion(projectId),
     selectGa4Version(projectId),
     selectRankVersion(projectId),
     selectAuditVersion(projectId),
     selectBacklinksVersion(projectId),
+    selectAiSearchVersion(projectId),
   ]);
   const versions: SourceVersions = {
     gsc,
@@ -267,6 +285,7 @@ export async function assembleDetectionSourceState(
     rank,
     audit: audit.version,
     backlinks,
+    ai_search: aiSearch,
   };
   // Canonical order (sorted): connect/disconnect flips change identity via
   // the hashed sourceSet, never via insertion order.
@@ -329,6 +348,7 @@ export const SourceTokens = {
   selectRankVersion,
   selectAuditVersion,
   selectBacklinksVersion,
+  selectAiSearchVersion,
 };
 
 export type { DetectionSourceState as SourceState };

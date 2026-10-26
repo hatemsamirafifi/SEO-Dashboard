@@ -84,6 +84,12 @@ function formatInt(value: number): string {
   return Math.round(value).toLocaleString("en-US");
 }
 
+/**
+ * Spec 020: the opportunity `type` of the AI citation gap family. Shared by
+ * the materializer template and the MCP read tool so the two cannot drift.
+ */
+export const AI_CITATION_GAP_TYPE = "ai_citation_gap";
+
 export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
   ga4_organic_change: {
     type: "ga4_traffic",
@@ -625,6 +631,101 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
           firstPartyPos !== null
             ? proximityOf(firstPartyPos)
             : proximityOf(compPos),
+        decline: null,
+        businessIntent: null,
+        conversionSignal: null,
+      };
+    },
+  },
+  // Spec 020: AI citation gaps from recorded Prompt Explorer observations.
+  // Impact scales with the observed citation activity per family (log scale);
+  // a first-position citation makes the lost prominence concrete.
+  ai_citation_gap: {
+    type: AI_CITATION_GAP_TYPE,
+    title: (finding) => {
+      const family = finding.entity.family;
+      if (family === "frequent_third_party") {
+        const runs = metricNumber(finding.evidence.metrics, "runsCitingDomain");
+        const domain =
+          typeof finding.entity.domain === "string"
+            ? finding.entity.domain
+            : finding.entityKey;
+        return runs !== null
+          ? `AI answers repeatedly cite ${domain} (${runs} answers)`
+          : `AI answers repeatedly cite ${domain}`;
+      }
+      if (family === "no_cited_sources") {
+        const model =
+          typeof finding.entity.model === "string"
+            ? finding.entity.model
+            : "AI";
+        return `AI answer cited no sources (${model})`;
+      }
+      const citationCount =
+        metricNumber(finding.evidence.metrics, "citationCount") ?? 0;
+      const domain =
+        typeof finding.entity.firstCitedDomain === "string"
+          ? ` (first: ${finding.entity.firstCitedDomain})`
+          : "";
+      return `AI answer cites ${citationCount} pages, none from this site${domain}`;
+    },
+    recommendation: (finding) => {
+      const family = finding.entity.family;
+      if (family === "frequent_third_party") {
+        const domain =
+          typeof finding.entity.domain === "string"
+            ? finding.entity.domain
+            : "the cited domain";
+        return (
+          `Study what ${domain} publishes on these questions and cover the ` +
+          `same subtopics with original, clearly structured answers; keep the ` +
+          `project pages crawlable and well linked so AI answers can cite them.`
+        );
+      }
+      if (family === "no_cited_sources") {
+        return (
+          `Re-ask this question periodically to keep observing it, and pair ` +
+          `the project content with a concise, quotable answer block so models ` +
+          `can reference it directly.`
+        );
+      }
+      return (
+        `Create or strengthen a page that directly answers this question with ` +
+        `clear structure and fresh data, and link it from related pages so AI ` +
+        `answers can cite it instead of the third-party pages.`
+      );
+    },
+    keywordOf: () => null,
+    pageOf: () => null,
+    factorsOf: (finding) => {
+      const family = finding.entity.family;
+      if (family === "frequent_third_party") {
+        const runs =
+          metricNumber(finding.evidence.metrics, "runsCitingDomain") ?? 0;
+        return {
+          trafficPotential: logScaleVolume(runs),
+          proximity: null,
+          decline: null,
+          businessIntent: null,
+          conversionSignal: null,
+        };
+      }
+      if (family === "no_cited_sources") {
+        return {
+          trafficPotential: logScaleVolume(1),
+          proximity: null,
+          decline: null,
+          businessIntent: null,
+          conversionSignal: null,
+        };
+      }
+      const citationCount =
+        metricNumber(finding.evidence.metrics, "citationCount") ?? 1;
+      const firstPosition =
+        metricNumber(finding.evidence.metrics, "firstPosition") ?? 1;
+      return {
+        trafficPotential: logScaleVolume(citationCount),
+        proximity: proximityOf(firstPosition),
         decline: null,
         businessIntent: null,
         conversionSignal: null,

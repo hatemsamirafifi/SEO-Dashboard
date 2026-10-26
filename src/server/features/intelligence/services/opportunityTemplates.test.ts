@@ -70,6 +70,7 @@ const TEMPLATE_DETECTOR_KEYS = [
   "engagement_drop",
   "competitor_gap",
   "serp_cluster_new_page",
+  "ai_citation_gap",
 ];
 
 describe("impact normalizers", () => {
@@ -311,6 +312,31 @@ describe("opportunity templates", () => {
             changeRatio: -0.33,
           },
           sources: ["ga4"],
+          thresholdsApplied: {},
+          correlations: [],
+          evidenceType: "observational",
+          partialData: [],
+          confidenceInputs: {},
+        },
+      }),
+      ai_citation_gap: finding("ai_citation_gap", {
+        entityKey: "cited_without_us:run-1",
+        entity: {
+          family: "cited_without_us",
+          runId: "run-1",
+          model: "chat_gpt",
+          citationCount: 2,
+          firstCitedDomain: "competitor1.com",
+        },
+        evidence: {
+          metrics: {
+            observationCount: 8,
+            citationCount: 2,
+            distinctDomainCount: 2,
+            firstPartyCited: false,
+            firstPosition: 1,
+          },
+          sources: ["ai_search"],
           thresholdsApplied: {},
           correlations: [],
           evidenceType: "observational",

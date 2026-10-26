@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- DB-backed integration suite: fixtures plus the
+   spec-020 ai_search source-token fields pushed it over the default limit. */
 import type { Client } from "@libsql/client";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -85,6 +87,7 @@ function sourceState(): DetectionSourceState {
       rank: null,
       audit: null,
       backlinks: null,
+      ai_search: null,
     },
     sourceSet: [],
     detectorVersions: {},
@@ -95,6 +98,7 @@ function sourceState(): DetectionSourceState {
       rank: { isMutating: false, activeRunIds: [] },
       audit: { isMutating: false, activeRunIds: [] },
       backlinks: { isMutating: false, activeRunIds: [] },
+      ai_search: { isMutating: false, activeRunIds: [] },
     },
   };
 }

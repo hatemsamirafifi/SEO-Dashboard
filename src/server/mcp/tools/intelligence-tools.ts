@@ -1,5 +1,7 @@
 import { z } from "zod";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AppError } from "@/server/lib/errors";
+import { instrumentMcpToolHandler } from "@/server/mcp/instrumentation";
 import { buildProjectMeta } from "@/server/mcp/context";
 import { mcpResponse } from "@/server/mcp/formatters";
 import {
@@ -15,6 +17,7 @@ import {
   type OpportunityWithBreakdown,
 } from "@/server/features/intelligence/services/OpportunityService";
 import { InsightService } from "@/server/features/intelligence/services/InsightService";
+import { AI_CITATION_GAP_TYPE } from "@/server/features/intelligence/services/opportunityTemplates";
 
 // Engine-backed intelligence reads (final-plan §16). Same services as the
 // dashboard/opportunities server fns — no detector logic in handlers.
@@ -219,6 +222,102 @@ export const updateOpportunityStatusTool = {
     });
   }),
 };
+
+// ─── get_ai_citation_gaps ──────────────────────────────────────────────────
+
+// Spec 020 (FR-011): read-only view of the recorded AI citation gaps. Reads
+// the engine-backed opportunity rows of the ai_citation_gap family — detection
+// and scoring stay in the engine (never recomputed here).
+export const getAiCitationGapsTool = {
+  name: "get_ai_citation_gaps",
+  config: {
+    title: "Get AI citation gaps",
+    description:
+      "Read the recorded AI citation gaps for a project: answers that cited other sites and not this one, third-party domains repeatedly cited, and answers with no cited sources. Reads stored opportunities only — run a scan to refresh.",
+    inputSchema: { projectId: projectIdSchema } as const,
+    outputSchema: opportunityRowsOutput,
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  handler: withMcpProjectAuth(async (args: { projectId: string }, context) => {
+    const rows = await OpportunityService.listOpportunities({
+      projectId: args.projectId,
+      type: AI_CITATION_GAP_TYPE,
+    });
+    const shown = rows.slice(0, MCP_ROW_LIMIT);
+    const text =
+      rows.length === 0
+        ? "No recorded AI citation gaps yet. Run the Prompt Explorer, then an intelligence scan, and try again."
+        : [
+            `${rows.length} AI citation gap${rows.length === 1 ? "" : "s"} (showing ${shown.length}):`,
+            formatMcpTable(shown, OPPORTUNITY_COLUMNS),
+          ].join("\n");
+    return mcpResponse({
+      text,
+      meta: buildProjectMeta(
+        context,
+        args.projectId,
+        `/p/${args.projectId}/opportunities`,
+      ),
+      structuredContent: {
+        opportunities: shown,
+        totalCount: rows.length,
+        hasMore: rows.length > shown.length,
+      },
+    });
+  }),
+};
+
+// ─── registration ──────────────────────────────────────────────────────────
+
+// Grouped registration (mirrors registerGetPageSchemaTool): every intelligence
+// read/write handler is wrapped with instrumentMcpToolHandler here.
+export function registerIntelligenceTools(server: McpServer) {
+  server.registerTool(
+    listOpportunitiesTool.name,
+    listOpportunitiesTool.config,
+    instrumentMcpToolHandler(
+      listOpportunitiesTool.name,
+      listOpportunitiesTool.config.outputSchema,
+      listOpportunitiesTool.handler,
+    ),
+  );
+  server.registerTool(
+    getOpportunityTool.name,
+    getOpportunityTool.config,
+    instrumentMcpToolHandler(
+      getOpportunityTool.name,
+      getOpportunityTool.config.outputSchema,
+      getOpportunityTool.handler,
+    ),
+  );
+  server.registerTool(
+    updateOpportunityStatusTool.name,
+    updateOpportunityStatusTool.config,
+    instrumentMcpToolHandler(
+      updateOpportunityStatusTool.name,
+      updateOpportunityStatusTool.config.outputSchema,
+      updateOpportunityStatusTool.handler,
+    ),
+  );
+  server.registerTool(
+    getAiCitationGapsTool.name,
+    getAiCitationGapsTool.config,
+    instrumentMcpToolHandler(
+      getAiCitationGapsTool.name,
+      getAiCitationGapsTool.config.outputSchema,
+      getAiCitationGapsTool.handler,
+    ),
+  );
+  server.registerTool(
+    getDashboardInsightsTool.name,
+    getDashboardInsightsTool.config,
+    instrumentMcpToolHandler(
+      getDashboardInsightsTool.name,
+      getDashboardInsightsTool.config.outputSchema,
+      getDashboardInsightsTool.handler,
+    ),
+  );
+}
 
 // ─── get_dashboard_insights ────────────────────────────────────────────────
 

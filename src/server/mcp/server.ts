@@ -41,10 +41,7 @@ import {
   getAnalyticsEventsTool,
 } from "@/server/mcp/tools/analytics-reads-tools";
 import {
-  getDashboardInsightsTool,
-  getOpportunityTool,
-  listOpportunitiesTool,
-  updateOpportunityStatusTool,
+  registerIntelligenceTools,
 } from "@/server/mcp/tools/intelligence-tools";
 import {
   generateReportTool,
@@ -285,42 +282,7 @@ export function registerOpenSeoMcpTools(server: McpServer) {
     ),
   );
   registerGetPageSchemaTool(server);
-  server.registerTool(
-    listOpportunitiesTool.name,
-    listOpportunitiesTool.config,
-    instrumentMcpToolHandler(
-      listOpportunitiesTool.name,
-      listOpportunitiesTool.config.outputSchema,
-      listOpportunitiesTool.handler,
-    ),
-  );
-  server.registerTool(
-    getOpportunityTool.name,
-    getOpportunityTool.config,
-    instrumentMcpToolHandler(
-      getOpportunityTool.name,
-      getOpportunityTool.config.outputSchema,
-      getOpportunityTool.handler,
-    ),
-  );
-  server.registerTool(
-    updateOpportunityStatusTool.name,
-    updateOpportunityStatusTool.config,
-    instrumentMcpToolHandler(
-      updateOpportunityStatusTool.name,
-      updateOpportunityStatusTool.config.outputSchema,
-      updateOpportunityStatusTool.handler,
-    ),
-  );
-  server.registerTool(
-    getDashboardInsightsTool.name,
-    getDashboardInsightsTool.config,
-    instrumentMcpToolHandler(
-      getDashboardInsightsTool.name,
-      getDashboardInsightsTool.config.outputSchema,
-      getDashboardInsightsTool.handler,
-    ),
-  );
+  registerIntelligenceTools(server);
   server.registerTool(
     getAnalyticsOverviewTool.name,
     getAnalyticsOverviewTool.config,

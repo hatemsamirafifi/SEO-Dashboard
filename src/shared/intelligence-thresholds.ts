@@ -13,7 +13,8 @@
 // Bumped 4 → 5 in spec 018: cannibalization classification tiers
 // (dominant share, intent overlap, evidence row cap).
 // Bumped 5 → 6 in spec 019: SERP cluster detection thresholds.
-export const THRESHOLD_VERSION = 6;
+// Bumped 6 → 7 in spec 020: AI citation gap detector.
+export const THRESHOLD_VERSION = 7;
 
 import {
   STRIKING_DISTANCE_MAX_POSITION,
@@ -138,6 +139,18 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     minCoverageRatio: 0.8,
     minClusterPages: 2,
     freshnessDays: 30,
+  },
+  // Spec 020: AI citation gaps from recorded Prompt Explorer observations.
+  // freshnessDays: how old an observation may be. maxRunsRead: analysis
+  // bound (NFR-002). smallSampleFloor: observations below this floor label
+  // every finding small-sample with lowered confidence (FR-009).
+  // frequentlyCitedMinRuns: runs a third-party domain must appear in before
+  // a "frequently cited" finding emits (counted once per run).
+  ai_citation_gap: {
+    freshnessDays: 30,
+    maxRunsRead: 200,
+    smallSampleFloor: 5,
+    frequentlyCitedMinRuns: 3,
   },
 };
 
