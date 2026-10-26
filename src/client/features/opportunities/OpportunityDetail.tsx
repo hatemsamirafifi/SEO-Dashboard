@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   keepPreviousData,
@@ -13,6 +13,7 @@ import {
   getOpportunity,
   listOpportunities,
   updateOpportunityStatus,
+  updateOpportunityTriage,
 } from "@/serverFunctions/opportunities";
 import {
   formatDateTime,
@@ -159,6 +160,11 @@ export function OpportunityDetail({
       </div>
 
       <ScoreBreakdown row={row} />
+      <TriageSection
+        projectId={projectId}
+        opportunityId={opportunityId}
+        row={row}
+      />
       <EvidenceSection row={row} />
       <HistorySection events={events} />
 
@@ -262,5 +268,105 @@ function BackLink({ projectId }: { projectId: string }) {
     >
       ← All opportunities
     </Link>
+  );
+}
+
+type TriageRow = NonNullable<
+  Awaited<ReturnType<typeof getOpportunity>>
+>["opportunity"];
+
+/**
+ * Spec 021: assignee/effort triage. Rides the existing update path — a save
+ * never moves status, scores, or identity; unchanged values send nothing.
+ */
+function TriageSection({
+  projectId,
+  opportunityId,
+  row,
+}: {
+  projectId: string;
+  opportunityId: string;
+  row: TriageRow;
+}) {
+  const queryClient = useQueryClient();
+  const [assignee, setAssignee] = useState(row.assignee ?? "");
+  const [effort, setEffort] = useState(row.effort ?? "");
+
+  useEffect(() => {
+    setAssignee(row.assignee ?? "");
+    setEffort(row.effort ?? "");
+  }, [row.assignee, row.effort]);
+
+  const effortValue =
+    effort === "small" || effort === "medium" || effort === "large"
+      ? effort
+      : null;
+  const nextAssignee = assignee.trim() === "" ? null : assignee.trim();
+  const dirty = nextAssignee !== row.assignee || effortValue !== row.effort;
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      updateOpportunityTriage({
+        data: {
+          projectId,
+          id: opportunityId,
+          ...(nextAssignee !== row.assignee ? { assignee: nextAssignee } : {}),
+          ...(effortValue !== row.effort ? { effort: effortValue } : {}),
+        },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["opportunity", projectId, opportunityId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["opportunities", projectId],
+      });
+      toast.success("Triage saved.");
+    },
+    onError: (error) => {
+      toast.error(getStandardErrorMessage(error, "Failed to save triage"));
+    },
+  });
+
+  return (
+    <section
+      aria-label="Triage"
+      className="rounded-xl border border-base-300 bg-base-100 p-4"
+    >
+      <h2 className="font-semibold">Triage</h2>
+      <div className="mt-2 flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-base-content/70">Assignee</span>
+          <input
+            className="input input-sm input-bordered w-48"
+            value={assignee}
+            onChange={(event) => setAssignee(event.target.value)}
+            placeholder="Unassigned"
+            maxLength={120}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-base-content/70">Effort</span>
+          <select
+            className="select select-sm select-bordered"
+            value={effort}
+            onChange={(event) => setEffort(event.target.value)}
+          >
+            <option value="">Not set</option>
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={!dirty || mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
+          Save triage
+        </button>
+      </div>
+    </section>
   );
 }

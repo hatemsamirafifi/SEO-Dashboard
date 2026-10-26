@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { opportunities, opportunityEvents } from "@/db/schema";
 
@@ -25,6 +25,10 @@ export const OPPORTUNITY_EVENT_TYPES = [
   "dismissed",
   "recurred",
   "superseded",
+  // Spec 021: user triage (assignee/effort) and autopilot completion
+  // evidence — both idempotent via eventKey, neither changes lifecycle.
+  "triage_changed",
+  "completion_evidence",
 ] as const;
 export type OpportunityEventType = (typeof OPPORTUNITY_EVENT_TYPES)[number];
 
@@ -94,6 +98,13 @@ export type OpportunityListFilters = {
   statuses?: OpportunityStatus[];
   types?: string[];
   priorities?: string[];
+  // Spec 021 (next actions): recency bounds are inclusive ISO lower bounds —
+  // `recentSince` on lastDetectedAt (a confirmed long-lived item stays
+  // visible), `detectedSince` on firstDetectedAt (newly detected rows).
+  // `reopened` narrows to occurrences with a stored recurrence chain.
+  recentSince?: string;
+  detectedSince?: string;
+  reopened?: boolean;
 };
 
 /** Escape LIKE wildcards in a filter value (KeywordResearchRepository precedent). */
@@ -135,6 +146,15 @@ async function listByProject(
     conditions.push(
       sql`${opportunities.sourcesJson} like ${`%"${escapeLike(filters.source)}"%`} escape '\\'`,
     );
+  }
+  if (filters?.recentSince) {
+    conditions.push(gte(opportunities.lastDetectedAt, filters.recentSince));
+  }
+  if (filters?.detectedSince) {
+    conditions.push(gte(opportunities.firstDetectedAt, filters.detectedSince));
+  }
+  if (filters?.reopened) {
+    conditions.push(isNotNull(opportunities.recurrenceOfId));
   }
   return db
     .select()
@@ -190,11 +210,17 @@ async function updateById(
 
 export type OpportunityEventInsert = typeof opportunityEvents.$inferInsert;
 
-/** Append-only with idempotency keys: resume/retry replays record once. */
+/** Append-only with idempotency keys: resume/retry replays record once.
+ *  Returns whether this call inserted a row (false = idempotent replay). */
 async function insertEventIgnoreConflict(
   event: OpportunityEventInsert,
-): Promise<void> {
-  await db.insert(opportunityEvents).values(event).onConflictDoNothing();
+): Promise<boolean> {
+  const inserted = await db
+    .insert(opportunityEvents)
+    .values(event)
+    .onConflictDoNothing()
+    .returning({ id: opportunityEvents.id });
+  return inserted.length > 0;
 }
 
 async function listEventsByOccurrence(

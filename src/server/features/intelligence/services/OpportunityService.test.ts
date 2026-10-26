@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- spec 021 added the triage, filter, and
+   next-actions suites to an already-full service contract file. */
 import type { Client } from "@libsql/client";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { readFileSync } from "node:fs";
@@ -48,6 +50,7 @@ import {
   InvalidStatusTransitionError,
   OpportunityService,
 } from "./OpportunityService";
+import { getNextActions } from "./nextActions";
 
 function occurrence(
   overrides: Partial<OpportunityInsert> = {},
@@ -89,15 +92,21 @@ async function seed(row: OpportunityInsert): Promise<string> {
 beforeAll(async () => {
   if (!database.client) throw new Error("Test database was not initialized");
   await database.client.execute("PRAGMA foreign_keys = OFF");
-  const migration = readFileSync(
-    resolve(process.cwd(), "drizzle/0054_mighty_mole_man.sql"),
-    "utf8",
-  );
-  for (const statement of migration
-    .split("--> statement-breakpoint")
-    .map((part) => part.trim())
-    .filter(Boolean)) {
-    await database.client.execute(statement);
+  for (const migrationFile of [
+    "drizzle/0054_mighty_mole_man.sql",
+    // Spec 021: assignee/effort triage columns.
+    "drizzle/0071_next_actions_triage.sql",
+  ]) {
+    const migration = readFileSync(
+      resolve(process.cwd(), migrationFile),
+      "utf8",
+    );
+    for (const statement of migration
+      .split("--> statement-breakpoint")
+      .map((part) => part.trim())
+      .filter(Boolean)) {
+      await database.client.execute(statement);
+    }
   }
   await database.client.execute(
     `CREATE TABLE IF NOT EXISTS projects (
@@ -295,5 +304,238 @@ describe("OpportunityService.updateOpportunityStatus", () => {
         status: "completed",
       }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("OpportunityService.listOpportunities recency + reopened (spec 021)", () => {
+  it("narrows by the recent-day window on lastDetectedAt", async () => {
+    const nowIso = new Date().toISOString();
+    await seed(
+      occurrence({
+        id: "occ-fresh",
+        logicalKey: "k:fresh",
+        firstDetectedAt: nowIso,
+        lastDetectedAt: nowIso,
+      }),
+    );
+    await seed(
+      occurrence({
+        id: "occ-old",
+        logicalKey: "k:old",
+        firstDetectedAt: "2026-01-01T00:00:00.000Z",
+        lastDetectedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    const recent = await OpportunityService.listOpportunities({
+      projectId: "project-1",
+      recentDays: 7,
+    });
+    expect(recent.map((row) => row.id)).toEqual(["occ-fresh"]);
+
+    // A window that spans both rows keeps the long-lived one visible.
+    const wide = await OpportunityService.listOpportunities({
+      projectId: "project-1",
+      recentDays: 365,
+    });
+    expect(wide.map((row) => row.id)).toHaveLength(2);
+  });
+
+  it("narrows reopened to the stored recurrence chain", async () => {
+    await seed(occurrence({ id: "occ-plain", logicalKey: "k:plain" }));
+    await seed(
+      occurrence({
+        id: "occ-back",
+        logicalKey: "k:back",
+        recurrenceOfId: "occ-plain",
+      }),
+    );
+
+    const reopened = await OpportunityService.listOpportunities({
+      projectId: "project-1",
+      reopened: true,
+    });
+    expect(reopened.map((row) => row.id)).toEqual(["occ-back"]);
+  });
+});
+
+describe("OpportunityService.updateOpportunityTriage (spec 021)", () => {
+  it("sets assignee and effort with one idempotent triage event", async () => {
+    const id = await seed(occurrence({ logicalKey: "k:triage-1" }));
+
+    const first = await OpportunityService.updateOpportunityTriage({
+      id,
+      projectId: "project-1",
+      organizationId: "org-1",
+      assignee: "alice",
+      effort: "medium",
+    });
+    expect(first.assignee).toBe("alice");
+    expect(first.effort).toBe("medium");
+    expect(first.status).toBe("open");
+
+    // Replaying the same values is a no-op: no second event.
+    await OpportunityService.updateOpportunityTriage({
+      id,
+      projectId: "project-1",
+      organizationId: "org-1",
+      assignee: "alice",
+      effort: "medium",
+    });
+    let events = await OpportunityRepository.listEventsByOccurrence(id);
+    const triageEvents = events.filter((e) => e.type === "triage_changed");
+    expect(triageEvents).toHaveLength(1);
+
+    // A changed value appends exactly one more event.
+    await OpportunityService.updateOpportunityTriage({
+      id,
+      projectId: "project-1",
+      organizationId: "org-1",
+      effort: "large",
+    });
+    events = await OpportunityRepository.listEventsByOccurrence(id);
+    const after = events.filter((e) => e.type === "triage_changed");
+    expect(after).toHaveLength(2);
+    const payload: unknown = JSON.parse(after[1]?.payloadJson ?? "{}");
+    expect(payload).toMatchObject({
+      to: { assignee: "alice", effort: "large" },
+    });
+  });
+
+  it("clears fields with null and never resurrects a terminal row", async () => {
+    const id = await seed(
+      occurrence({
+        logicalKey: "k:triage-2",
+        status: "completed",
+        assignee: "bob",
+        effort: "small",
+      }),
+    );
+
+    const cleared = await OpportunityService.updateOpportunityTriage({
+      id,
+      projectId: "project-1",
+      organizationId: "org-1",
+      assignee: null,
+      effort: null,
+    });
+    expect(cleared.assignee).toBeNull();
+    expect(cleared.effort).toBeNull();
+    // Triage never moves the lifecycle.
+    expect(cleared.status).toBe("completed");
+  });
+
+  it("throws NOT_FOUND across projects", async () => {
+    const id = await seed(occurrence({ logicalKey: "k:triage-3" }));
+    await expect(
+      OpportunityService.updateOpportunityTriage({
+        id,
+        projectId: "other-project",
+        organizationId: "org-1",
+        assignee: "alice",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("getNextActions (spec 021)", () => {
+  it("derives the four views with honest counts and deterministic order", async () => {
+    const now = Date.parse("2026-10-26T00:00:00.000Z");
+    await seed(
+      occurrence({
+        id: "occ-top",
+        logicalKey: "k:top",
+        priority: "Critical",
+        impactScore: 90,
+        firstDetectedAt: "2026-10-25T00:00:00.000Z",
+        lastDetectedAt: "2026-10-25T00:00:00.000Z",
+      }),
+    );
+    await seed(
+      occurrence({
+        id: "occ-low",
+        logicalKey: "k:low",
+        priority: "Medium",
+        impactScore: 40,
+        firstDetectedAt: "2026-01-01T00:00:00.000Z",
+        lastDetectedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    await seed(
+      occurrence({
+        id: "occ-done",
+        logicalKey: "k:done",
+        status: "completed",
+        priority: "High",
+        impactScore: 60,
+        firstDetectedAt: "2026-10-20T00:00:00.000Z",
+        lastDetectedAt: "2026-10-24T00:00:00.000Z",
+        completedAt: "2026-10-24T00:00:00.000Z",
+      }),
+    );
+    await seed(
+      occurrence({
+        id: "occ-back",
+        logicalKey: "k:back",
+        priority: "Low",
+        impactScore: 30,
+        recurrenceOfId: "occ-closed",
+        firstDetectedAt: "2026-10-22T00:00:00.000Z",
+        lastDetectedAt: "2026-10-23T00:00:00.000Z",
+      }),
+    );
+
+    const snapshot = await getNextActions({
+      projectId: "project-1",
+      now,
+    });
+
+    // Critical: open rows in the shared canonical order (Critical first).
+    expect(snapshot.critical.map((row) => row.id)).toEqual([
+      "occ-top",
+      "occ-low",
+      "occ-back",
+    ]);
+    // Recent: rows first detected inside the window, newest first.
+    expect(snapshot.recent.map((row) => row.id)).toEqual([
+      "occ-top",
+      "occ-back",
+      "occ-done",
+    ]);
+    // Completed: most recently completed first.
+    expect(snapshot.completed.map((row) => row.id)).toEqual(["occ-done"]);
+    // Reopened: only the stored recurrence chain.
+    expect(snapshot.reopened.map((row) => row.id)).toEqual(["occ-back"]);
+
+    expect(snapshot.counts).toEqual({
+      critical: 3,
+      recent: 3,
+      completed: 1,
+      reopened: 1,
+    });
+    expect(snapshot.recentSince).toBe(
+      new Date(now - 7 * 86_400_000).toISOString(),
+    );
+  });
+
+  it("caps each view at the limit while counts stay pre-cap", async () => {
+    for (const [index, impact] of [80, 60, 40].entries()) {
+      await seed(
+        occurrence({
+          id: `occ-rank-${index}`,
+          logicalKey: `k:rank-${index}`,
+          impactScore: impact,
+          firstDetectedAt: "2026-10-10T00:00:00.000Z",
+          lastDetectedAt: "2026-10-10T00:00:00.000Z",
+        }),
+      );
+    }
+
+    const snapshot = await getNextActions({
+      projectId: "project-1",
+      limit: 2,
+    });
+    expect(snapshot.critical).toHaveLength(2);
+    expect(snapshot.counts.critical).toBe(3);
   });
 });

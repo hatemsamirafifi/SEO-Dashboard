@@ -15,6 +15,7 @@ import {
   GscCard,
 } from "@/client/features/dashboard/DashboardCards";
 import { InsightSections } from "@/client/features/insights/InsightSections";
+import { NextActionsSection } from "@/client/features/dashboard/NextActionsSection";
 import { IntelligenceSections } from "@/client/features/dashboard/IntelligenceSections";
 import { McpConnectCard } from "@/client/features/dashboard/McpConnectCard";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
@@ -312,6 +313,9 @@ export function DashboardPage({ projectId }: { projectId: string }) {
         <OnboardingChecklist projectId={projectId} activation={activation} />
 
         <InsightSections projectId={projectId} />
+
+        {/* Spec 021: the unified action center over stored opportunities. */}
+        <NextActionsSection projectId={projectId} />
 
         {/* Every card is half width on large screens (only the checklist spans).
           Cards with data render before setup pitches and empty states. */}

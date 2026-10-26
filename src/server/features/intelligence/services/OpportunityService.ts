@@ -30,7 +30,7 @@ function isPriority(value: string): value is OpportunityPriority {
   return (PRIORITIES as readonly string[]).includes(value);
 }
 
-function toComparable(row: OpportunityRow): {
+export function toComparable(row: OpportunityRow): {
   priority: OpportunityPriority;
   impactScore: number;
   confidenceScore: number;
@@ -165,7 +165,7 @@ function withBreakdown(row: OpportunityRow): OpportunityWithBreakdown {
   };
 }
 
-export async function listOpportunities(input: {
+type OpportunityListInput = {
   projectId: string;
   status?: OpportunityStatus;
   type?: string;
@@ -176,7 +176,21 @@ export async function listOpportunities(input: {
   statuses?: OpportunityStatus[];
   types?: string[];
   priorities?: string[];
-}): Promise<OpportunityWithBreakdown[]> {
+  /** Spec 021: inclusive day window on lastDetectedAt. */
+  recentDays?: number;
+  /** Spec 021: only occurrences with a stored recurrence chain. */
+  reopened?: boolean;
+};
+
+/** Spec 021: the inclusive ISO lower bound a recency filter applies. */
+export const recentWindowSince = (
+  recentDays: number,
+  now = Date.now(),
+): string => new Date(now - recentDays * 86_400_000).toISOString();
+
+export async function listOpportunities(
+  input: OpportunityListInput,
+): Promise<OpportunityWithBreakdown[]> {
   const rows = await OpportunityRepository.listByProject(input.projectId, {
     status: input.status,
     type: input.type,
@@ -187,6 +201,10 @@ export async function listOpportunities(input: {
     statuses: input.statuses,
     types: input.types,
     priorities: input.priorities,
+    recentSince: input.recentDays
+      ? recentWindowSince(input.recentDays)
+      : undefined,
+    reopened: input.reopened,
   });
   return [...rows]
     .toSorted((a, b) => compareOpportunities(toComparable(a), toComparable(b)))
@@ -229,6 +247,70 @@ export class InvalidStatusTransitionError extends AppError {
     super("VALIDATION_ERROR", `Invalid opportunity transition ${from} → ${to}`);
   }
 }
+
+// Spec 021: triage changes assignee/effort without touching lifecycle, scores,
+// or identity. Unchanged values are a no-op (no event); the event key is
+// content-based, so a retried save replays once.
+async function updateOpportunityTriage(input: {
+  id: string;
+  projectId: string;
+  organizationId: string;
+  userId?: string;
+  assignee?: string | null;
+  effort?: NonNullable<OpportunityRow["effort"]> | null;
+}): Promise<OpportunityRow> {
+  const row = await OpportunityRepository.getByIdForProject(
+    input.id,
+    input.projectId,
+  );
+  if (!row) {
+    throw new AppError("NOT_FOUND", "Opportunity not found");
+  }
+  const assignee = input.assignee === undefined ? row.assignee : input.assignee;
+  const effort = input.effort === undefined ? row.effort : input.effort;
+  if (assignee === row.assignee && effort === row.effort) return row;
+
+  const updated = await OpportunityRepository.updateById(row.id, {
+    assignee,
+    effort,
+  });
+  if (!updated) throw new AppError("NOT_FOUND", "Opportunity not found");
+
+  await OpportunityRepository.insertEventIgnoreConflict({
+    id: crypto.randomUUID(),
+    occurrenceId: row.id,
+    type: "triage_changed",
+    eventKey: await stableHash(
+      `${row.id}|triage_changed|${assignee ?? ""}|${effort ?? ""}`,
+    ),
+    scanId: null,
+    payloadJson: JSON.stringify({
+      from: { assignee: row.assignee, effort: row.effort },
+      to: { assignee, effort },
+    }),
+  });
+  waitUntil(
+    captureServerEvent({
+      distinctId: input.userId ?? input.organizationId,
+      event: "opportunity:triage_change",
+      organizationId: input.organizationId,
+      properties: {
+        project_id: input.projectId,
+        opportunity_id: row.id,
+        assignee: assignee ?? null,
+        effort: effort ?? null,
+      },
+    }),
+  );
+  return updated;
+}
+
+export const OpportunityService = {
+  listOpportunities,
+  getOpportunity,
+  updateOpportunityStatus,
+  updateOpportunityTriage,
+};
 
 export async function updateOpportunityStatus(input: {
   id: string;
@@ -296,9 +378,3 @@ export async function updateOpportunityStatus(input: {
   );
   return updated;
 }
-
-export const OpportunityService = {
-  listOpportunities,
-  getOpportunity,
-  updateOpportunityStatus,
-};

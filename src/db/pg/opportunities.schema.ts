@@ -51,6 +51,10 @@ export const opportunities = pgTable(
     completedAt: text("completed_at"),
     dismissedAt: text("dismissed_at"),
     dismissalReason: text("dismissal_reason"),
+    // Spec 021 triage: free-form assignee label and a nullable effort tier.
+    // Absence stays null — never an "unknown" placeholder.
+    assignee: text("assignee"),
+    effort: text("effort", { enum: ["small", "medium", "large"] }),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(current_timestamp)`),

@@ -501,6 +501,13 @@
       "when": 1792794614147,
       "tag": "0070_serp_organic_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1793050311287,
+      "tag": "0071_next_actions_triage",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   listOpportunities: vi.fn(),
   getOpportunity: vi.fn(),
   updateOpportunityStatus: vi.fn(),
+  updateOpportunityTriage: vi.fn(),
+  getNextActions: vi.fn(),
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -34,20 +36,27 @@ vi.mock("@/server/features/intelligence/services/OpportunityService", () => ({
     listOpportunities: mocks.listOpportunities,
     getOpportunity: mocks.getOpportunity,
     updateOpportunityStatus: mocks.updateOpportunityStatus,
+    updateOpportunityTriage: mocks.updateOpportunityTriage,
   },
+}));
+
+vi.mock("@/server/features/intelligence/services/nextActions", () => ({
+  getNextActions: mocks.getNextActions,
 }));
 
 import {
   getOpportunity,
+  getNextActions,
   listOpportunities,
   updateOpportunityStatus,
+  updateOpportunityTriage,
 } from "./opportunities";
 import { globalServerFunctionMiddleware } from "./middleware";
 
 type ServerFunction = {
   __executeServer(input: {
     method: "POST";
-    data: Record<string, string | string[]>;
+    data: Record<string, string | number | boolean | string[]>;
     context: Record<string, never>;
   }): Promise<unknown>;
 };
@@ -63,7 +72,7 @@ type StartStorage = AsyncLocalStorage<{
 
 async function executeServerFunction(
   serverFunction: ServerFunction,
-  data: Record<string, string | string[]>,
+  data: Record<string, string | number | boolean | string[]>,
 ) {
   const storage = (
     globalThis as typeof globalThis & {
@@ -102,6 +111,8 @@ describe("opportunities server-function project authorization", () => {
     mocks.listOpportunities.mockReset();
     mocks.getOpportunity.mockReset();
     mocks.updateOpportunityStatus.mockReset();
+    mocks.updateOpportunityTriage.mockReset();
+    mocks.getNextActions.mockReset();
   });
 
   it.each([
@@ -123,6 +134,11 @@ describe("opportunities server-function project authorization", () => {
       },
     ],
     [
+      "listOpportunities with spec-021 recency and reopened filters",
+      listOpportunities,
+      { projectId: "other-project", recentDays: 7, reopened: true },
+    ],
+    [
       "getOpportunity",
       getOpportunity,
       { projectId: "other-project", id: "occ-1" },
@@ -132,6 +148,12 @@ describe("opportunities server-function project authorization", () => {
       updateOpportunityStatus,
       { projectId: "other-project", id: "occ-1", status: "completed" },
     ],
+    [
+      "updateOpportunityTriage",
+      updateOpportunityTriage,
+      { projectId: "other-project", id: "occ-1", assignee: "alice" },
+    ],
+    ["getNextActions", getNextActions, { projectId: "other-project" }],
   ])(
     "rejects wrong-organization access before %s runs",
     async (_name, fn, data) => {
@@ -141,6 +163,8 @@ describe("opportunities server-function project authorization", () => {
       expect(mocks.listOpportunities).not.toHaveBeenCalled();
       expect(mocks.getOpportunity).not.toHaveBeenCalled();
       expect(mocks.updateOpportunityStatus).not.toHaveBeenCalled();
+      expect(mocks.updateOpportunityTriage).not.toHaveBeenCalled();
+      expect(mocks.getNextActions).not.toHaveBeenCalled();
     },
   );
 });
