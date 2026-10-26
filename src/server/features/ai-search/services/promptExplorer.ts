@@ -8,6 +8,8 @@ import { assertDataforseoBudgetAvailable } from "@/server/lib/seo-data/cost-trac
 import { BudgetExceededError } from "@/server/lib/seo-data/errors";
 import { singleFlight } from "@/server/lib/seo-data/single-flight";
 import { safeHostname, safeHttpUrl } from "@/server/features/ai-search/safeUrl";
+import { AiSearchObservationRepository } from "@/server/features/ai-search/repositories/AiSearchObservationRepository";
+import { sha256HexFull } from "@/shared/intelligence";
 import {
   promptExplorerModelResultSchema,
   type PromptExplorerCitation,
@@ -141,12 +143,68 @@ async function fetchOrCacheModelResponse(
   const shaped = shapeSuccess(args.model, rawResponse);
 
   waitUntil(
-    setCached(cacheKey, shaped, PROMPT_RESPONSE_TTL_SECONDS).catch((err) => {
-      console.error("ai-search.prompt-response.cache-write failed:", err);
-    }),
+    Promise.all([
+      setCached(cacheKey, shaped, PROMPT_RESPONSE_TTL_SECONDS).catch((err) => {
+        console.error("ai-search.prompt-response.cache-write failed:", err);
+      }),
+      // Spec 020: record the observation (hashes and counts only). Isolated:
+      // a failed write never changes the answer the caller receives.
+      recordAiSearchObservation(args, shaped).catch((err) => {
+        console.error("ai-search.prompt-response.run-record failed:", err);
+      }),
+    ]),
   );
 
   return shaped;
+}
+
+/**
+ * Record one observed model answer for the citation-gap analysis (spec 020).
+ *
+ * Privacy: the prompt and the answer are hashed, never stored. The citations
+ * are the already-sanitized URLs from the existing extraction.
+ */
+async function recordAiSearchObservation(
+  args: RunModelArgs,
+  shaped: PromptExplorerModelResult,
+): Promise<void> {
+  if (shaped.status !== "success") return;
+  const prompt = normalizePromptForCache(args.input.prompt);
+  const eventKey = await sha256HexFull(shaped.text);
+  const promptHash = await sha256HexFull(prompt);
+  // A citation without a hostname cannot be compared across runs, so it is
+  // not stored (and not counted).
+  const citations = shaped.citations
+    .map((citation, index) => ({
+      url: citation.url,
+      domain: citation.domain,
+      title: citation.title,
+      position: index + 1,
+    }))
+    .filter(
+      (citation): citation is {
+        url: string;
+        domain: string;
+        title: string | null;
+        position: number;
+      } => citation.domain !== null,
+    );
+  await AiSearchObservationRepository.recordRun({
+    projectId: args.input.projectId,
+    provider: "dataforseo",
+    model: args.model,
+    modelName: shaped.modelName,
+    promptHash,
+    promptLength: args.input.prompt.length,
+    webSearch: args.input.webSearch,
+    countryCode: args.input.webSearchCountryCode ?? null,
+    outputTokens: shaped.outputTokens,
+    fanOutCount: shaped.fanOutQueries.length,
+    citationCount: citations.length,
+    eventKey,
+    observedAt: new Date().toISOString(),
+    citations,
+  });
 }
 
 // Each value must be a member of ACCEPTED_LLM_MODEL_NAMES in dataforseo/ai.ts,

@@ -1,32 +1,55 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LlmResponseResult } from "@/server/lib/dataforseoLlmSchemas";
 
-vi.mock("cloudflare:workers", () => ({ waitUntil: vi.fn() }));
+vi.mock("cloudflare:workers", () => ({
+  waitUntil: (promise: Promise<unknown>) => {
+    waitUntilCalls.push(promise);
+  },
+}));
 
-const { llmResponseMock, cacheMock, budgetMock, createClientMock } = vi.hoisted(
-  () => ({
-    llmResponseMock: vi.fn(),
-    cacheMock: {
-      buildCacheKey: vi.fn(async (_prefix: string, params: unknown) =>
-        JSON.stringify(params),
-      ),
-      getCached: vi.fn(async (_key: string) => null as unknown),
-      setCached: vi.fn(
-        async (_key: string, _data: unknown, _ttl: number) => undefined,
-      ),
-    },
-    budgetMock: {
-      assertDataforseoBudgetAvailable: vi.fn(async () => undefined),
-    },
-    createClientMock: vi.fn(),
-  }),
-);
+const {
+  llmResponseMock,
+  cacheMock,
+  budgetMock,
+  createClientMock,
+  recordMock,
+  waitUntilCalls,
+} = vi.hoisted(() => ({
+  llmResponseMock: vi.fn(),
+  cacheMock: {
+    buildCacheKey: vi.fn(async (_prefix: string, params: unknown) =>
+      JSON.stringify(params),
+    ),
+    getCached: vi.fn(async (_key: string) => null as unknown),
+    setCached: vi.fn(
+      async (_key: string, _data: unknown, _ttl: number) => undefined,
+    ),
+  },
+  budgetMock: {
+    assertDataforseoBudgetAvailable: vi.fn(async () => undefined),
+  },
+  createClientMock: vi.fn(),
+  recordMock: vi.fn(async (_row: AiSearchRunRow): Promise<string> => "run-id"),
+  // waitUntil schedules background work in the worker; the test flushes these
+  // promises directly to observe the recording.
+  waitUntilCalls: [] as Array<Promise<unknown>>,
+}));
 
 vi.mock("@/server/lib/dataforseo", () => ({
   createDataforseoClient: createClientMock,
 }));
 vi.mock("@/server/lib/r2-cache", () => cacheMock);
 vi.mock("@/server/lib/seo-data/cost-tracker", () => budgetMock);
+vi.mock(
+  "@/server/features/ai-search/repositories/AiSearchObservationRepository",
+  () => ({
+    AiSearchObservationRepository: {
+      recordRun: recordMock,
+      getRunsForProject: vi.fn(),
+      getCitationsForRuns: vi.fn(),
+    },
+  }),
+);
 // Real single-flight implementation — the coalescing tests exercise it.
 vi.mock("@/server/lib/seo-data/single-flight", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -41,6 +64,7 @@ import type {
   extractCitations as extractCitationsFn,
 } from "./promptExplorer";
 import type { PromptExplorerInput } from "@/types/schemas/ai-search";
+import type { AiSearchRunRow } from "@/server/features/ai-search/repositories/AiSearchObservationRepository";
 
 let extractCitations: typeof extractCitationsFn;
 let explorePrompt: typeof explorePromptFn;
@@ -103,6 +127,11 @@ async function flushMicrotasks() {
 }
 
 beforeEach(async () => {
+  // Observation writes from the previous test may still be in flight (they run
+  // via waitUntil, un-awaited by the test). Settle them here so their record
+  // calls never leak into this test's assertions.
+  await Promise.all(waitUntilCalls);
+  waitUntilCalls.length = 0;
   // vi.clearAllMocks clears every mock in this file, including the static
   // llmResponseMock default — the next line restores it before each test.
   vi.clearAllMocks();
@@ -283,5 +312,74 @@ describe("explorePrompt cost containment", () => {
     expect(prefixB).toBe("ai-search:prompt-response");
     expect(paramsA).toEqual(paramsB);
     expect(JSON.stringify(paramsA)).not.toContain("highlight");
+  });
+});
+
+describe("explorePrompt observation recording (spec 020)", () => {
+  it("records a fresh answer as hashes and counts, never as text", async () => {
+    llmResponseMock.mockResolvedValue(
+      response([{ title: "Example", url: "https://example.com/a" }]),
+    );
+
+    await explorePrompt(promptInput(), billingCustomer);
+    await Promise.all(waitUntilCalls);
+
+    expect(recordMock).toHaveBeenCalledTimes(1);
+    const row = recordMock.mock.calls[0]?.[0];
+    expect(row).toMatchObject({
+      projectId: "project_1",
+      provider: "dataforseo",
+      model: "chat_gpt",
+      modelName: "gpt-5",
+      webSearch: false,
+      countryCode: null,
+      promptLength: "What is the best pizza in New York?".length,
+      fanOutCount: 0,
+      citationCount: 1,
+    });
+    expect(row?.promptHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(row?.eventKey).toMatch(/^[0-9a-f]{64}$/);
+    expect(row?.promptHash).not.toBe(row?.eventKey);
+    expect(row?.citations).toEqual([
+      {
+        url: "https://example.com/a",
+        domain: "example.com",
+        title: "Example",
+        position: 1,
+      },
+    ]);
+    expect(Number.isNaN(Date.parse(row?.observedAt ?? ""))).toBe(false);
+    // Privacy: neither the prompt nor the answer text reaches the writer.
+    const persisted = JSON.stringify(recordMock.mock.calls[0]);
+    expect(persisted).not.toContain("pizza");
+    expect(persisted).not.toContain("answer");
+  });
+
+  it("does not re-record an answer served from cache", async () => {
+    await explorePrompt(promptInput(), billingCustomer);
+    const stored = cacheMock.setCached.mock.calls[0]?.[1];
+    cacheMock.getCached.mockResolvedValueOnce(stored);
+    await explorePrompt(promptInput(), billingCustomer);
+    await Promise.all(waitUntilCalls);
+
+    expect(recordMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the paid answer when the observation write fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    recordMock.mockRejectedValueOnce(new Error("db down"));
+
+    const result = await explorePrompt(promptInput(), billingCustomer);
+    await Promise.all(waitUntilCalls);
+
+    expect(result.results[0]?.status).toBe("success");
+    expect(recordMock).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      "ai-search.prompt-response.run-record failed:",
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
   });
 });

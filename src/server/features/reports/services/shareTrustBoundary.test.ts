@@ -82,6 +82,7 @@ function sourceState(): DetectionSourceState {
       rank: null,
       audit: null,
       backlinks: null,
+      ai_search: null,
     },
     sourceSet: [],
     detectorVersions: {},
@@ -92,6 +93,7 @@ function sourceState(): DetectionSourceState {
       rank: { isMutating: false, activeRunIds: [] },
       audit: { isMutating: false, activeRunIds: [] },
       backlinks: { isMutating: false, activeRunIds: [] },
+      ai_search: { isMutating: false, activeRunIds: [] },
     },
   };
 }

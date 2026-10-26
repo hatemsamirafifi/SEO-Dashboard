@@ -538,6 +538,7 @@ describe("full-scan integration over seeded sources", () => {
           rank: "run-2",
           audit: "audit-1",
           backlinks: "backlinks:2",
+          ai_search: null,
         },
         sourceSet: ["audit", "backlinks", "ga4", "gsc", "rank"],
         detectorVersions: {},
@@ -548,6 +549,7 @@ describe("full-scan integration over seeded sources", () => {
           rank: { isMutating: false, activeRunIds: [] },
           audit: { isMutating: false, activeRunIds: [] },
           backlinks: { isMutating: false, activeRunIds: [] },
+          ai_search: { isMutating: false, activeRunIds: [] },
         },
       },
       detectors: listDetectors(),
@@ -583,14 +585,20 @@ describe("full-scan integration over seeded sources", () => {
       expect(finding.confidenceScore).toBeGreaterThanOrEqual(40);
     }
     const outcomes = await ScanLedgerRepository.getDetectorOutcomes(run.id);
-    expect(outcomes).toHaveLength(14);
+    expect(outcomes).toHaveLength(15);
     const completed = outcomes.filter((o) => o.status === "completed");
     const skipped = outcomes.filter((o) => o.status === "skipped");
     expect(completed).toHaveLength(13);
-    expect(skipped).toHaveLength(1);
+    expect(skipped).toHaveLength(2);
     expect(
       skipped.find((o) => o.detectorKey === "competitor_gap")?.skipReason,
     ).toBe("G5_NO_READY_VERDICT");
+    // Spec 020: with no recorded AI search observations the source has no
+    // committed version, so the detector is skipped — never fed empty input
+    // as if it were data.
+    expect(
+      skipped.find((o) => o.detectorKey === "ai_citation_gap")?.skipReason,
+    ).toBe("required source has no committed version: ai_search");
     // Spec 019: the cluster detector ran and completed but emitted nothing -
     // the fixture stores no organic snapshots, so no cluster exists.
     // The lost-backlinks detector ran and completed but correctly emitted
@@ -606,6 +614,8 @@ describe("full-scan integration over seeded sources", () => {
     // Spec 019: the cluster detector emitted nothing without stored organic
     // snapshots.
     expect(byDetector.serp_cluster_new_page).toBeUndefined();
+    // Spec 020: skipped for the missing ai_search source version above.
+    expect(byDetector.ai_citation_gap).toBeUndefined();
   });
 });
 

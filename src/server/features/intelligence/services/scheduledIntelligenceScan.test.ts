@@ -56,6 +56,7 @@ function state(
       rank: null,
       audit: null,
       backlinks: null,
+      ai_search: null,
     },
     sourceSet: [],
     detectorVersions: {},
@@ -66,6 +67,7 @@ function state(
       rank: { isMutating: false, activeRunIds: [] },
       audit: { isMutating: false, activeRunIds: [] },
       backlinks: { isMutating: false, activeRunIds: [] },
+      ai_search: { isMutating: false, activeRunIds: [] },
     },
     ...overrides,
   };
@@ -166,6 +168,7 @@ describe("runScheduledIntelligenceScan", () => {
         rank: null,
         audit: null,
         backlinks: null,
+        ai_search: null,
       },
       sourceSet: ["gsc"],
     });
@@ -216,6 +219,7 @@ describe("runScheduledIntelligenceScan", () => {
           rank: null,
           audit: null,
           backlinks: null,
+          ai_search: null,
         },
         sourceSet: ["gsc"],
       }),
