@@ -179,6 +179,23 @@ describe("intelligence MCP tools", () => {
     expect(result.success).toBe(true);
   });
 
+  it("get_ai_citation_gaps reads the ai_citation_gap family only", async () => {
+    mocks.listOpportunities.mockResolvedValue([opportunityRow("run-1")]);
+    const { getAiCitationGapsTool } = await import("./intelligence-tools");
+
+    const result = await getAiCitationGapsTool.handler(
+      { projectId: "project_1" },
+      toolExtra,
+    );
+    const content = structuredRecord(result);
+    expect(field(content, "totalCount")).toBe(1);
+    expect(arrayField(content, "opportunities")).toHaveLength(1);
+    expect(mocks.listOpportunities).toHaveBeenCalledWith({
+      projectId: "project_1",
+      type: "ai_citation_gap",
+    });
+  });
+
   it("get_opportunity returns evidence plus bounded history", async () => {
     mocks.getOpportunity.mockResolvedValue({
       opportunity: opportunityRow("kw-1"),

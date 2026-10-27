@@ -66,6 +66,7 @@ function sourceState(version: string | null): DetectionSourceState {
       rank: null,
       audit: null,
       backlinks: null,
+      ai_search: null,
     },
     sourceSet: version === null ? [] : ["gsc"],
     detectorVersions: {},
@@ -76,6 +77,7 @@ function sourceState(version: string | null): DetectionSourceState {
       rank: { isMutating: false, activeRunIds: [] },
       audit: { isMutating: false, activeRunIds: [] },
       backlinks: { isMutating: false, activeRunIds: [] },
+      ai_search: { isMutating: false, activeRunIds: [] },
     },
   };
 }

@@ -1,6 +1,6 @@
-# Wave 3 Integration Log - Phases 1-7 Merged
+# Wave 3 Integration Log - Phases 1-8 Merged
 
-Date: 2026-10-24
+Date: 2026-10-27
 Integration branch: `feat/speckit-wave3-impl`
 Integration worktree: `F:\SEO-Dashboard-worktrees\wave3-integration` (clean, created for this merge)
 Baseline before the merge: `fb438c5c` (`fix(e2e): align Playwright webServer URL to 127.0.0.1 and trim auth mode env var`)
@@ -14,6 +14,7 @@ Baseline before the merge: `fb438c5c` (`fix(e2e): align Playwright webServer URL
 | 5 Internal Linking | `feat/p1-internal-linking` | 017 | `docs/plans/reports/2026-10-24-internal-linking-phase5-verification.md` | `5795fc22` |
 | 6 Cannibalization classification | `feat/p1-cannibalization` | 018 | `docs/plans/reports/2026-10-24-cannibalization-phase6-verification.md` | `12a308b0` |
 | 7 SERP clustering | `feat/p1-serp-clustering` | 019 | `docs/plans/reports/2026-10-24-serp-clustering-phase7-verification.md` | `8a52dd69` |
+| 8 AI Citation Gaps | `feat/p1-ai-citation-gaps` | 020 | `docs/plans/reports/2026-10-25-ai-citation-gaps-phase8-verification.md` | `ort merge` |
 
 Each phase branch was merged with `--no-ff` so the phase boundaries stay visible in
 the integration history. No history was rewritten and nothing was pushed; the
@@ -38,6 +39,7 @@ integration branch moved forward only.
 | 5 | green (3,297 passed, 3 skipped) | 2/2 `audit-internal-linking` | green | 0 errors | no new findings | green | Same pre-existing env-gated live-API failure. |
 | 6 | green (3,314 passed, 3 skipped) | not applicable (no new route; opportunity flow is seed-dependent) | green | 0 errors | no new findings | green | Same pre-existing env-gated live-API failure. |
 | 7 | green (3,340 passed, 3 skipped) | not applicable (no new route; the cluster section needs stored organic rows) | green | 0 errors | no new findings | green | Same pre-existing env-gated live-API failure. |
+| 8 | green (3,352 passed, 3 skipped) | not applicable (no new route; observations accumulate via Prompt Explorer) | green | 0 errors | no new findings | green | Same pre-existing env-gated live-API failure. |
 
 Repo-wide `prettier --check .` cannot pass on Windows checkouts
 (`core.autocrlf=true`); the formatting gate was run against changed files.
@@ -47,8 +49,7 @@ This is logged in `.agents/PAPERCUTS.md` with the `.gitattributes` fix.
 
 | Phase | Branch | Spec | Status |
 | ----- | ------ | ---- | ------ |
-| 8 AI Citation Gaps | `feat/p1-ai-citation-gaps` | 020 | not started |
-| 9 Next Actions | `feat/p1-next-actions` | 021 | not started |
+| 9 Next Actions | `feat/p1-next-actions` | 021 | ready for migration renumber and merge |
 
 The next phase branches from this integration baseline (per master plan 1.2:
 "Each dependent phase branches from the latest verified integration baseline").

@@ -134,6 +134,7 @@ describe("SourceTokens selectors", () => {
       rank: null,
       audit: null,
       backlinks: null,
+      ai_search: null,
     });
     expect(state.sourceSet).toEqual([]);
   });
@@ -315,6 +316,7 @@ describe("SourceTokens selectors", () => {
         rank: after.versions.rank,
         ga4: after.versions.ga4,
         gsc: after.versions.gsc,
+        ai_search: after.versions.ai_search,
       },
     };
     expect(await SourceTokens.hashSourceState(reordered)).toBe(
