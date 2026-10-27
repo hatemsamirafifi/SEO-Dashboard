@@ -95,7 +95,7 @@ beforeAll(async () => {
   for (const migrationFile of [
     "drizzle/0054_mighty_mole_man.sql",
     // Spec 021: assignee/effort triage columns.
-    "drizzle/0071_next_actions_triage.sql",
+    "drizzle/0072_next_actions_triage.sql",
   ]) {
     const migration = readFileSync(
       resolve(process.cwd(), migrationFile),
