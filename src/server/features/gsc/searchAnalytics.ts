@@ -88,18 +88,19 @@ function subtractUtcMonths(date: Date, months: number): Date {
   return d;
 }
 
+// GSC treats both startDate and endDate as inclusive, so an N-day window starts N-1 days before the end.
 function subtractRange(end: Date, range: GscDateRange): Date {
   const d = new Date(end);
   switch (range) {
     case "last_7_days":
-      d.setUTCDate(d.getUTCDate() - 7);
+      d.setUTCDate(d.getUTCDate() - 6);
       break;
     case "last_28_days":
     case "custom":
-      d.setUTCDate(d.getUTCDate() - 28);
+      d.setUTCDate(d.getUTCDate() - 27);
       break;
     case "last_30_days":
-      d.setUTCDate(d.getUTCDate() - 30);
+      d.setUTCDate(d.getUTCDate() - 29);
       break;
     case "last_90_days":
     case "last_3_months":

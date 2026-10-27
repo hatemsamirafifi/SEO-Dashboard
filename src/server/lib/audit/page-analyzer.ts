@@ -190,12 +190,45 @@ export function analyzeHtml(
     }
   });
 
+/**
+ * Elements a browser renders on their own line. Minified HTML has no
+ * whitespace between them, so `<p>one</p><p>two</p>` would read as "onetwo"
+ * without a separator at their boundaries.
+ */
+const BLOCK_TAGS_SELECTOR =
+  "address,article,aside,blockquote,br,caption,dd,details,dialog,div,dl,dt,fieldset,figcaption,figure,footer,form,h1,h2,h3,h4,h5,h6,header,hgroup,hr,li,main,nav,ol,p,pre,section,summary,table,td,th,tr,ul";
+
+// Chinese, Japanese, Thai, Lao, Khmer and Burmese are written without spaces
+// between words, so a whitespace split counts a whole paragraph as one word
+// and flags those pages as thin content. Tokens in those scripts get their
+// words from Intl.Segmenter; every other token still counts as one word, so
+// counts for space-separated languages are unchanged.
+const SPACELESS_SCRIPT =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+
+function countWords(text: string): number {
+  let count = 0;
+  for (const token of text.split(/\s+/)) {
+    if (!token) continue;
+    if (!SPACELESS_SCRIPT.test(token)) {
+      count += 1;
+      continue;
+    }
+    for (const segment of wordSegmenter.segment(token)) {
+      if (segment.isWordLike) count += 1;
+    }
+  }
+  return count;
+}
+
   // --- Word count (visible text in body) ---
   // Remove script/style/noscript tags, then count words in remaining text
   const bodyClone = $("body").clone();
   bodyClone.find("script, style, noscript, svg").remove();
+  bodyClone.find(BLOCK_TAGS_SELECTOR).before(" ").after(" ");
   const bodyText = bodyClone.text().replace(/\s+/g, " ").trim();
-  const wordCount = bodyText ? bodyText.split(/\s+/).length : 0;
+  const wordCount = countWords(bodyText);
 
   const images: Array<{ src: string | null; alt: string | null }> = [];
   $("img").each((_, el) => {
@@ -212,11 +245,15 @@ export function analyzeHtml(
     const href = $(el).attr("href");
     if (!href) return;
 
-    // Skip javascript:, mailto:, tel:, #anchors
+    // Skip javascript:, mailto:, tel:, #anchors, and Cloudflare cdn-cgi links
     if (/^(javascript:|mailto:|tel:|#)/.test(href)) return;
+    if (href.startsWith("/cdn-cgi/")) return;
 
     const resolved = normalizeUrl(href, pageUrl);
     if (!resolved) return;
+    try {
+      if (new URL(resolved).pathname.startsWith("/cdn-cgi/")) return;
+    } catch {}
     if (linksByTarget.has(resolved)) return;
 
     const anchor = $(el).text().replace(/\s+/g, " ").trim().slice(0, 200);

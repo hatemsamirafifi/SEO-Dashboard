@@ -4,6 +4,7 @@ import {
   crawlDedupKey,
   detectUrlTemplate,
   getOrigin,
+  isAuditablePageUrl,
   isSameOrigin,
   normalizeUrl,
 } from "@/server/lib/audit/url-utils";
@@ -136,3 +137,18 @@ describe("getOrigin", () => {
     );
   });
 });
+
+describe("isAuditablePageUrl", () => {
+  it.each([
+    ["https://example.com/", undefined, true],
+    ["https://example.com/about", undefined, true],
+    ["https://example.com/image.png", undefined, false],
+    ["https://example.com/cdn-cgi/l/email-protection", undefined, false],
+    ["https://example.com/discount/SAVE10?redirect=%2F", "shopify", false],
+    ["https://example.com/discount/SAVE10", undefined, true],
+    ["https://example.com/en/collections/all?page=2", "shopify", true],
+  ] as const)("isAuditablePageUrl(%s, %s) is %s", (url, platform, expected) => {
+    expect(isAuditablePageUrl(url, platform)).toBe(expected);
+  });
+});
+
