@@ -10,6 +10,7 @@ const accountSummariesSchema = z
         z
           .object({
             account: z.string().regex(/^accounts\/[^/]+$/),
+            displayName: z.string().optional(),
             propertySummaries: z
               .array(
                 z
@@ -32,6 +33,7 @@ export type Ga4Property = {
   propertyId: string;
   displayName: string;
   currencyCode: string | null;
+  accountDisplayName?: string;
 };
 
 export class Ga4TokenError extends Error {}
@@ -328,6 +330,21 @@ export function createGa4Client(options: {
   }
 
   return {
+    async getUserInfoEmail(): Promise<string | null> {
+      try {
+        const token = await getToken();
+        const response = await fetch(
+          "https://openidconnect.googleapis.com/v1/userinfo",
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!response.ok) return null;
+        const data = (await response.json()) as { email?: unknown };
+        return typeof data.email === "string" ? data.email : null;
+      } catch {
+        return null;
+      }
+    },
+
     async listProperties(): Promise<Ga4Property[]> {
       const token = await getToken();
       const properties: Ga4Property[] = [];
@@ -352,6 +369,7 @@ export function createGa4Client(options: {
               propertyId: property.property.slice("properties/".length),
               displayName: property.displayName,
               currencyCode: null,
+              accountDisplayName: account.displayName ?? account.account,
             });
           }
         }

@@ -38,6 +38,8 @@ type GscSiteListResult = {
     accountId: string;
     email: string | null;
     requiresReconnect: boolean;
+    propertiesUnavailable: boolean;
+    apiDisabled: boolean;
     sites: GscSite[];
   }>;
 };
@@ -116,10 +118,14 @@ async function listSitesForUserWithGrantStatus(
           accountId: grant.accountId,
           email,
           requiresReconnect: false,
+          propertiesUnavailable: false,
+          apiDisabled: false,
           sites,
         };
       } catch (error) {
-        if (!isExpectedGrantFailure(error)) {
+        const apiDisabled = error instanceof GscApiError && error.apiDisabled;
+        const requiresReconnect = isExpectedGrantFailure(error) && !apiDisabled;
+        if (!requiresReconnect) {
           console.error(
             "Failed to list Search Console sites for account",
             grant.accountId,
@@ -129,7 +135,9 @@ async function listSitesForUserWithGrantStatus(
         return {
           accountId: grant.accountId,
           email: null,
-          requiresReconnect: true,
+          requiresReconnect,
+          propertiesUnavailable: !requiresReconnect,
+          apiDisabled,
           sites: [],
         };
       }
