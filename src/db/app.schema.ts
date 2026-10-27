@@ -61,6 +61,9 @@ export const projects = sqliteTable(
     // Soft delete: archived projects are hidden everywhere but their data
     // (keywords, rank tracking, audits) is preserved.
     archivedAt: text("archived_at"),
+    // The IndexNow key the site hosts at /{key}.txt. Public by design, so it
+    // is stored as plain text. Null until IndexNow is first used.
+    indexnowKey: text("indexnow_key"),
   },
   (table) => [
     // Only the auto-created Default/null-domain project is a singleton. This

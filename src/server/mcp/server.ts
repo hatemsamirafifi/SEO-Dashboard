@@ -24,6 +24,7 @@ import {
   getSearchConsolePerformanceTool,
   inspectUrlsTool,
 } from "@/server/mcp/tools/search-console-tools";
+import { submitIndexNowUrlsTool } from "@/server/mcp/tools/submit-indexnow-urls";
 import {
   getAuditIssuesTool,
   getAuditPagesTool,
@@ -235,6 +236,15 @@ export function registerOpenSeoMcpTools(server: McpServer) {
       inspectUrlsTool.name,
       inspectUrlsTool.config.outputSchema,
       inspectUrlsTool.handler,
+    ),
+  );
+  server.registerTool(
+    submitIndexNowUrlsTool.name,
+    submitIndexNowUrlsTool.config,
+    instrumentMcpToolHandler(
+      submitIndexNowUrlsTool.name,
+      submitIndexNowUrlsTool.config.outputSchema,
+      submitIndexNowUrlsTool.handler,
     ),
   );
   server.registerTool(
