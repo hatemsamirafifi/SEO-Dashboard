@@ -14,6 +14,8 @@ import { fetchEngagementDropInput } from "./engagementDrop";
 import { fetchCompetitorGapInput } from "./competitorGap";
 import { fetchSerpClusterNewPageInput } from "./serpClusterNewPage";
 import { fetchAiCitationGapInput } from "./aiCitationGap";
+import { fetchPaidOrganicQueryGapInput } from "./paidOrganicQueryGap";
+import { fetchPaidLandingPageInput } from "./paidLandingPageTechnicalIssue";
 
 /**
  * Explicit per-detector input dispatcher (final-plan §4: detectors run over
@@ -59,6 +61,10 @@ export async function fetchDetectorInput(
       return fetchSerpClusterNewPageInput(projectId, ctx);
     case "ai_citation_gap":
       return fetchAiCitationGapInput(projectId, ctx);
+    case "paid_organic_query_gap":
+      return fetchPaidOrganicQueryGapInput(projectId, ctx);
+    case "paid_landing_page_technical_issue":
+      return fetchPaidLandingPageInput(projectId, ctx);
     default:
       return null;
   }

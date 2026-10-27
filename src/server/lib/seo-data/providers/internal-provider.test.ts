@@ -3,9 +3,20 @@ import { ProviderUnsupportedError } from "../errors";
 
 const mocks = vi.hoisted(() => ({
   db: { select: vi.fn(), insert: vi.fn() },
+  plannerRepo: {
+    getLatestMetricsObservation: vi.fn(),
+    getKeywordGroupMatches: vi.fn(),
+  },
 }));
 
 vi.mock("@/db", () => ({ db: mocks.db }));
+
+// Serving tests treat the first-party planner layer as a boundary; the
+// keyword-metrics suites own per-test behavior on this mock.
+vi.mock(
+  "@/server/features/google-ads/repositories/GoogleAdsPlannerKeywordRepository",
+  () => ({ GoogleAdsPlannerKeywordRepository: mocks.plannerRepo }),
+);
 
 vi.mock("cloudflare:workers", () => ({ env: {} }));
 
@@ -76,7 +87,7 @@ function makeCompetitorsRequest(
   };
 }
 
-describe("internal provider — competitors", () => {
+describe("internal provider â€” competitors", () => {
   const provider = createInternalProvider();
 
   beforeEach(() => {
@@ -174,7 +185,7 @@ describe("internal provider — competitors", () => {
   });
 });
 
-describe("internal provider — keyword metrics", () => {
+describe("internal provider â€” keyword metrics", () => {
   const provider = createInternalProvider();
   const request: SEODataRequest = {
     dataType: "keyword_metrics",
@@ -273,7 +284,7 @@ describe("internal provider — keyword metrics", () => {
     ).rejects.toThrow("Stored keyword metrics do not cover the full request");
   });
 
-  it("respects project isolation — does not serve another project's keywords", async () => {
+  it("respects project isolation â€” does not serve another project's keywords", async () => {
     // D1 returns rows for project-1; requesting with project-2 should
     // get no rows and fall through.
     fakeKeywordMetricsSelect([]);
@@ -295,8 +306,8 @@ describe("internal provider — keyword metrics", () => {
   });
 });
 
-describe("internal provider — backlinks provider contract", () => {
-  const provider = createInternalProvider();
+describe("internal provider â€” backlinks provider contract", () => {
+  const backlinksProvider = createInternalProvider();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -305,30 +316,38 @@ describe("internal provider — backlinks provider contract", () => {
   describe("supports()", () => {
     it("supports the summary operation", () => {
       expect(
-        provider.supports(makeBacklinksRequest({ backlinkCall: "summary" })),
+        backlinksProvider.supports(
+          makeBacklinksRequest({ backlinkCall: "summary" }),
+        ),
       ).toBe(true);
     });
 
     it("supports an unspecified backlinkCall (defaults to summary)", () => {
-      expect(provider.supports(makeBacklinksRequest(undefined))).toBe(true);
-      expect(provider.supports(makeBacklinksRequest({}))).toBe(true);
+      expect(backlinksProvider.supports(makeBacklinksRequest(undefined))).toBe(
+        true,
+      );
+      expect(backlinksProvider.supports(makeBacklinksRequest({}))).toBe(true);
     });
 
     it("does NOT support history", () => {
       expect(
-        provider.supports(makeBacklinksRequest({ backlinkCall: "history" })),
+        backlinksProvider.supports(
+          makeBacklinksRequest({ backlinkCall: "history" }),
+        ),
       ).toBe(false);
     });
 
     it("does NOT support rows", () => {
       expect(
-        provider.supports(makeBacklinksRequest({ backlinkCall: "rows" })),
+        backlinksProvider.supports(
+          makeBacklinksRequest({ backlinkCall: "rows" }),
+        ),
       ).toBe(false);
     });
 
     it("does NOT support referring_domains", () => {
       expect(
-        provider.supports(
+        backlinksProvider.supports(
           makeBacklinksRequest({ backlinkCall: "referring_domains" }),
         ),
       ).toBe(false);
@@ -336,7 +355,7 @@ describe("internal provider — backlinks provider contract", () => {
 
     it("does NOT support domain_pages", () => {
       expect(
-        provider.supports(
+        backlinksProvider.supports(
           makeBacklinksRequest({ backlinkCall: "domain_pages" }),
         ),
       ).toBe(false);
@@ -347,7 +366,7 @@ describe("internal provider — backlinks provider contract", () => {
     it("returns the snapshot for a summary request", async () => {
       fakeSelectChain([BACKLINK_SNAPSHOT_ROW]);
 
-      const result = await provider.get(
+      const result = await backlinksProvider.get(
         makeBacklinksRequest({ backlinkCall: "summary" }),
       );
 
@@ -363,7 +382,9 @@ describe("internal provider — backlinks provider contract", () => {
     it("returns the snapshot when backlinkCall is omitted (summary default)", async () => {
       fakeSelectChain([BACKLINK_SNAPSHOT_ROW]);
 
-      const result = await provider.get(makeBacklinksRequest(undefined));
+      const result = await backlinksProvider.get(
+        makeBacklinksRequest(undefined),
+      );
 
       expect(result).toMatchObject({ referring_domains: 38 });
     });
@@ -372,7 +393,9 @@ describe("internal provider — backlinks provider contract", () => {
       fakeSelectChain([BACKLINK_SNAPSHOT_ROW]);
 
       await expect(
-        provider.get(makeBacklinksRequest({ backlinkCall: "history" })),
+        backlinksProvider.get(
+          makeBacklinksRequest({ backlinkCall: "history" }),
+        ),
       ).rejects.toThrow(ProviderUnsupportedError);
       // Never queried: the guard rejects before touching the DB.
       expect(mocks.db.select).not.toHaveBeenCalled();
@@ -382,7 +405,7 @@ describe("internal provider — backlinks provider contract", () => {
       fakeSelectChain([BACKLINK_SNAPSHOT_ROW]);
 
       await expect(
-        provider.get(makeBacklinksRequest({ backlinkCall: "rows" })),
+        backlinksProvider.get(makeBacklinksRequest({ backlinkCall: "rows" })),
       ).rejects.toThrow(ProviderUnsupportedError);
       expect(mocks.db.select).not.toHaveBeenCalled();
     });
@@ -391,7 +414,7 @@ describe("internal provider — backlinks provider contract", () => {
       fakeSelectChain([BACKLINK_SNAPSHOT_ROW]);
 
       await expect(
-        provider.get(
+        backlinksProvider.get(
           makeBacklinksRequest({ backlinkCall: "referring_domains" }),
         ),
       ).rejects.toThrow(ProviderUnsupportedError);
@@ -402,7 +425,9 @@ describe("internal provider — backlinks provider contract", () => {
       fakeSelectChain([BACKLINK_SNAPSHOT_ROW]);
 
       await expect(
-        provider.get(makeBacklinksRequest({ backlinkCall: "domain_pages" })),
+        backlinksProvider.get(
+          makeBacklinksRequest({ backlinkCall: "domain_pages" }),
+        ),
       ).rejects.toThrow(ProviderUnsupportedError);
       expect(mocks.db.select).not.toHaveBeenCalled();
     });
@@ -417,7 +442,7 @@ describe("internal provider — backlinks provider contract", () => {
         "domain_pages",
       ]) {
         await expect(
-          provider.get(makeBacklinksRequest({ backlinkCall })),
+          backlinksProvider.get(makeBacklinksRequest({ backlinkCall })),
         ).rejects.toThrow(ProviderUnsupportedError);
       }
     });
@@ -425,7 +450,7 @@ describe("internal provider — backlinks provider contract", () => {
     it("returns a payload validating against the backlinks summary route schema", async () => {
       fakeSelectChain([BACKLINK_SNAPSHOT_ROW]);
 
-      const result = await provider.get(
+      const result = await backlinksProvider.get(
         makeBacklinksRequest({ backlinkCall: "summary" }),
       );
 
@@ -436,7 +461,9 @@ describe("internal provider — backlinks provider contract", () => {
       fakeSelectChain([]);
 
       await expect(
-        provider.get(makeBacklinksRequest({ backlinkCall: "summary" })),
+        backlinksProvider.get(
+          makeBacklinksRequest({ backlinkCall: "summary" }),
+        ),
       ).rejects.toThrow(ProviderUnsupportedError);
     });
 
@@ -444,7 +471,7 @@ describe("internal provider — backlinks provider contract", () => {
       fakeSelectChain([BACKLINK_SNAPSHOT_ROW]);
 
       await expect(
-        provider.get({
+        backlinksProvider.get({
           ...makeBacklinksRequest({ backlinkCall: "summary" }),
           domain: undefined,
         }),

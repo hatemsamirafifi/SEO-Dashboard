@@ -1,324 +1,119 @@
-import { getOptionalEnvValue } from "@/server/lib/runtime-env";
+/** Google Ads Keyword Planner provider — first-party keyword data through the
+ *  connected project's Google Ads account (Phase 2 master plan).
+ *
+ *  This module is intentionally thin:
+ *  - `supports()` is a synchronous market/claim gate (location-based, no
+ *    connection I/O).
+ *  - `get()` delegates to the per-project planner access layer, which owns
+ *    connection resolution, targeting and the typed v26 client, and attaches
+ *    `firstPartyError` provenance metadata to every error so the router can
+ *    document a successful DataForSEO fallback without importing client
+ *    internals.
+ *
+ *  Failure policy: no connection, a disabled flag or a market the planner
+ *  cannot serve resolve to `ProviderUnavailableError` / `ProviderUnsupportedError`
+ *  so the router keeps serving keyword flows through the fallback chain
+ *  instead of breaking research.
+ */
 import type { SEODataProvider, SEODataRequest } from "../types";
-import {
-  ProviderUnsupportedError,
-  ProviderUnavailableError,
-  AuthenticationError,
-  RateLimitError,
-} from "../errors";
 import { getProviderFeatureFlags } from "../config";
-import { getKeywordDataProvider } from "@/shared/keyword-locations";
+import { ProviderUnavailableError, ProviderUnsupportedError } from "../errors";
+import { LOCATION_OPTIONS } from "@/shared/keyword-locations";
+import {
+  fetchPlannerHistoricalMetrics,
+  fetchPlannerKeywordIdeas,
+  attachFirstPartyMeta,
+} from "./google-ads-planner-access";
+
+export type { GoogleAdsPlannerCacheIdentity } from "./google-ads-planner-access";
+export {
+  GOOGLE_ADS_PLANNER_CACHE_CONTRACT,
+  fetchPlannerHistoricalMetrics,
+  fetchPlannerKeywordIdeas,
+  getPlannerConnectionForBilling,
+  resolvePlannerCacheIdentity,
+  resetPlannerTargetMemoForTests,
+} from "./google-ads-planner-access";
+
+/** The country catalog is small and immutable; the claim gate runs on every
+ *  request, so hash it once. */
+const SUPPORTED_LOCATION_CODES = new Set(LOCATION_OPTIONS.map((o) => o.code));
+
+/** The DFS keyword_ideas sources that stay DFS-owned even in supported
+ *  markets: `related` and `suggestions` wrap keyword_data payloads the Ads
+ *  planner cannot produce, `google_ads` is the DFS keywords_for_keywords
+ *  contract for Google-Ads-only markets, and clickstream refinement is a
+ *  DFS-only volume normalization. */
+const DFS_KEYWORD_IDEAS_SOURCES = new Set([
+  "related",
+  "suggestions",
+  "clickstream",
+  "google_ads",
+]);
 
 /**
  * Google Ads Keyword Planner provider — free keyword research and historical
- * search volume via the official Google Ads API.
- *
- * Serves `keyword_ideas` and `keyword_metrics` data types. Uses the Google Ads
- * API's KeywordPlanningService for keyword idea generation and
- * historical_metrics for search volume data.
- *
- * Authentication uses a developer token + OAuth refresh token (service-account
- * compatible). Credentials are read from env and never logged.
- *
- * If credentials are unavailable, the provider returns a structured
- * `ProviderUnavailableError` and the router falls back to the next provider.
+ * search volume via the per-project Google Ads connection.
  */
-
-const GOOGLE_ADS_API_BASE = "https://googleads.googleapis.com";
-const GOOGLE_ADS_API_VERSION = "v18";
-
-type GoogleAdsConfig = {
-  developerToken: string;
-  clientId: string;
-  clientSecret: string;
-  refreshToken: string;
-  customerId: string;
-};
-
-let cachedConfig: GoogleAdsConfig | null | undefined;
-
-async function loadConfig(): Promise<GoogleAdsConfig | null> {
-  if (cachedConfig !== undefined) return cachedConfig;
-
-  const [developerToken, clientId, clientSecret, refreshToken, customerId] =
-    await Promise.all([
-      getOptionalEnvValue("GOOGLE_ADS_DEVELOPER_TOKEN"),
-      getOptionalEnvValue("GOOGLE_ADS_CLIENT_ID"),
-      getOptionalEnvValue("GOOGLE_ADS_CLIENT_SECRET"),
-      getOptionalEnvValue("GOOGLE_ADS_REFRESH_TOKEN"),
-      getOptionalEnvValue("GOOGLE_ADS_CUSTOMER_ID"),
-    ]);
-
-  cachedConfig =
-    developerToken && clientId && clientSecret && refreshToken && customerId
-      ? {
-          developerToken,
-          clientId,
-          clientSecret,
-          refreshToken,
-          customerId,
-        }
-      : null;
-  return cachedConfig;
-}
-
-async function getAccessToken(): Promise<string> {
-  const config = await loadConfig();
-  if (!config) {
-    throw new ProviderUnavailableError(
-      "google_ads",
-      "Google Ads credentials not configured",
-    );
-  }
-
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      refresh_token: config.refreshToken,
-      grant_type: "refresh_token",
-    }),
-  });
-
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw new AuthenticationError(
-        "google_ads",
-        "Invalid Google Ads credentials",
-      );
-    }
-    if (response.status === 429) {
-      throw new RateLimitError(
-        "google_ads",
-        "Google Ads token endpoint rate limited",
-      );
-    }
-    throw new ProviderUnavailableError(
-      "google_ads",
-      `Google Ads token request failed: ${response.status}`,
-    );
-  }
-
-  const data = (await response.json()) as { access_token?: string }; // oxlint-disable-line typescript/no-unnecessary-type-assertion -- response.json() returns unknown
-  if (!data.access_token) {
-    throw new AuthenticationError("google_ads", "No access token in response");
-  }
-  return data.access_token;
-}
-
-async function googleAdsRequest<T>(path: string, body: unknown): Promise<T> {
-  const config = await loadConfig();
-  if (!config) {
-    throw new ProviderUnavailableError(
-      "google_ads",
-      "Google Ads credentials not configured",
-    );
-  }
-
-  const token = await getAccessToken();
-  const url = `${GOOGLE_ADS_API_BASE}/${GOOGLE_ADS_API_VERSION}/customers/${config.customerId}/${path}`;
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      "developer-token": config.developerToken,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => "");
-    if (response.status === 401 || response.status === 403) {
-      throw new AuthenticationError(
-        "google_ads",
-        `Google Ads auth failed: ${response.status}`,
-      );
-    }
-    if (response.status === 429) {
-      throw new RateLimitError("google_ads", "Google Ads rate limit reached");
-    }
-    throw new ProviderUnavailableError(
-      "google_ads",
-      `Google Ads API error ${response.status}: ${errorBody.slice(0, 200)}`,
-    );
-  }
-
-  return (await response.json()) as T;
-}
-
-/**
- * Generate keyword ideas from a seed keyword using Google Ads
- * KeywordPlanningService.GenerateKeywordIdeas.
- */
-async function generateKeywordIdeas(request: SEODataRequest): Promise<unknown> {
-  const config = await loadConfig();
-  if (!config) throw new ProviderUnavailableError("google_ads");
-
-  if (!request.keyword) {
-    throw new ProviderUnsupportedError(
-      "google_ads",
-      request.dataType,
-      "keyword_ideas requires a seed keyword",
-    );
-  }
-
-  return googleAdsRequest("keywordPlanIdeas:generate", {
-    keywordSeed: { keywords: [request.keyword] },
-    geoTargetConstants: request.locationCode
-      ? [`geoTargetConstants/${request.locationCode}`]
-      : [],
-    language: request.languageCode ?? "languageConstants/1000", // 1000 = English
-    includeAdultKeywords: false,
-  });
-}
-
-/**
- * Get historical search volume for a list of keywords using Google Ads
- * KeywordPlanningService.GenerateHistoricalMetrics.
- */
-async function getHistoricalMetrics(request: SEODataRequest): Promise<unknown> {
-  const config = await loadConfig();
-  if (!config) throw new ProviderUnavailableError("google_ads");
-
-  const keywords =
-    request.keywords ?? (request.keyword ? [request.keyword] : []);
-  if (keywords.length === 0) {
-    throw new ProviderUnsupportedError(
-      "google_ads",
-      request.dataType,
-      "keyword_metrics requires keywords",
-    );
-  }
-
-  if (request.constraints?.locationName) {
-    throw new ProviderUnsupportedError(
-      "google_ads",
-      "keyword_metrics",
-      "Google Ads router provider does not support location-name targeting",
-    );
-  }
-
-  const response = await googleAdsRequest<{
-    results?: Array<{
-      text?: string;
-      keyword?: string;
-      keywordMetrics?: {
-        avgMonthlySearches?: string | number;
-        competition?: string;
-        competitionIndex?: string | number;
-        lowTopOfPageBidMicros?: string | number;
-        monthlySearchVolumes?: Array<{
-          year?: string | number;
-          month?: string;
-          monthlySearches?: string | number;
-        }>;
-      };
-    }>;
-  }>("keywordPlanKeywords:generateHistoricalMetrics", {
-    keywords: keywords.map((kw) => ({
-      text: kw,
-      matchType: "EXACT",
-    })),
-  });
-
-  return (response.results ?? []).flatMap((result) => {
-    if (!result.text) return [];
-    const metrics = result.keywordMetrics;
-    const competitionIndex = toNumber(metrics?.competitionIndex);
-    const lowBidMicros = toNumber(metrics?.lowTopOfPageBidMicros);
-    return [
-      {
-        keyword: result.keyword ?? result.text,
-        searchVolume: toNumber(metrics?.avgMonthlySearches),
-        cpc: lowBidMicros == null ? null : lowBidMicros / 1_000_000,
-        competition: competitionIndex == null ? null : competitionIndex / 100,
-        competitionLevel: metrics?.competition ?? null,
-        keywordDifficulty: null,
-        intent: null,
-        monthlySearches: (metrics?.monthlySearchVolumes ?? []).flatMap(
-          (month) => {
-            const year = toNumber(month.year);
-            const searchVolume = toNumber(month.monthlySearches);
-            const monthNumber = monthNumberFor(month.month);
-            if (year == null || monthNumber == null || searchVolume == null) {
-              return [];
-            }
-            return [{ year, month: monthNumber, searchVolume }];
-          },
-        ),
-      },
-    ];
-  });
-}
-
-function monthNumberFor(month: string | undefined): number | null {
-  if (!month) return null;
-  const numeric = Number(month);
-  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 12) {
-    return numeric;
-  }
-  const monthNames = [
-    "JANUARY",
-    "FEBRUARY",
-    "MARCH",
-    "APRIL",
-    "MAY",
-    "JUNE",
-    "JULY",
-    "AUGUST",
-    "SEPTEMBER",
-    "OCTOBER",
-    "NOVEMBER",
-    "DECEMBER",
-  ];
-  const index = monthNames.indexOf(month.toUpperCase());
-  return index === -1 ? null : index + 1;
-}
-
-function toNumber(value: string | number | undefined): number | null {
-  if (value === undefined) return null;
-  const number = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
 export function createGoogleAdsProvider(): SEODataProvider {
   return {
     name: "google_ads",
 
     supports(request: SEODataRequest): boolean {
-      return (
-        (request.dataType === "keyword_ideas" ||
-          request.dataType === "keyword_metrics") &&
-        getKeywordDataProvider(request.locationCode ?? 2840) === "google_ads"
-      );
+      const isKeywordType =
+        request.dataType === "keyword_ideas" ||
+        request.dataType === "keyword_metrics";
+      if (!isKeywordType) return false;
+
+      // The claim gate is location-based: an unknown or missing location
+      // code means the planner's geo target could never match the request's
+      // market, so the enabled-flag default is NOT claimed silently.
+      if (
+        request.locationCode === undefined ||
+        !SUPPORTED_LOCATION_CODES.has(request.locationCode)
+      ) {
+        return false;
+      }
+
+      const constraints = request.constraints ?? {};
+      if (request.dataType === "keyword_ideas") {
+        // The planner only serves seeded keyword ideas: DFS-owned sources and
+        // clickstream refinement stay DFS.
+        if (
+          typeof constraints.source === "string" &&
+          DFS_KEYWORD_IDEAS_SOURCES.has(constraints.source)
+        ) {
+          return false;
+        }
+        if (constraints.includeClickstreamData === true) return false;
+      }
+      if (
+        request.dataType === "keyword_metrics" &&
+        typeof constraints.locationName === "string"
+      ) {
+        // Location-name targeting is a DataForSEO capability; the planner
+        // answers exact geo target constants only.
+        return false;
+      }
+      return true;
     },
 
     async get(request: SEODataRequest): Promise<unknown> {
       const flags = await getProviderFeatureFlags();
       if (!flags.googleAdsEnabled) {
-        throw new ProviderUnavailableError(
-          "google_ads",
-          "Google Ads is not enabled (GOOGLE_ADS_ENABLED=false)",
-        );
-      }
-
-      const config = await loadConfig();
-      if (!config) {
-        throw new ProviderUnavailableError(
-          "google_ads",
-          "Google Ads credentials not configured",
+        throw attachFirstPartyMeta(
+          new ProviderUnavailableError(
+            "google_ads",
+            "Google Ads is not enabled (GOOGLE_ADS_ENABLED=false)",
+          ),
         );
       }
 
       switch (request.dataType) {
         case "keyword_ideas":
-          return generateKeywordIdeas(request);
+          return fetchPlannerKeywordIdeas(request);
         case "keyword_metrics":
-          return getHistoricalMetrics(request);
+          return fetchPlannerHistoricalMetrics(request);
         default:
           throw new ProviderUnsupportedError("google_ads", request.dataType);
       }

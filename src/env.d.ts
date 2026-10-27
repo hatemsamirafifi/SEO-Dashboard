@@ -96,6 +96,7 @@ interface ImportMetaEnv {
   readonly VITE_E2E_KEYWORD_FIXTURES?: string;
   readonly VITE_E2E_AUDIT_FIXTURES?: string;
   readonly VITE_E2E_GA4_FIXTURES?: string;
+  readonly VITE_E2E_GOOGLE_ADS_FIXTURES?: string;
   /** Developer-only: force the SAM Debug Trace panel on in production builds. */
   readonly VITE_SAM_DEBUG_TRACE?: string;
 }

@@ -7,6 +7,7 @@ import {
   collectInsights,
   collectOpportunities,
   collectOverviewParts,
+  collectPaidMonthlyEvidence,
   collectSearchVisibility,
   collectTrafficAndConversions,
 } from "@/server/features/reports/services/reportSections";
@@ -479,6 +480,8 @@ export async function collectMonthlyEvidence(input: {
   overviewParts: Awaited<ReturnType<typeof collectOverviewParts>>;
   opportunities: Awaited<ReturnType<typeof collectOpportunities>>;
   insights: Awaited<ReturnType<typeof collectInsights>>;
+  /** Stored Ads two-window evidence; null when Ads is not connected. */
+  ads: Awaited<ReturnType<typeof collectPaidMonthlyEvidence>>;
   collectedAt: string;
 }> {
   const windows = deriveMonthWindows(new Date());
@@ -495,6 +498,7 @@ export async function collectMonthlyEvidence(input: {
     overviewParts,
     insights,
     opportunities,
+    ads,
   ] = await Promise.all([
     collectSearchVisibility(
       input.projectId,
@@ -521,6 +525,12 @@ export async function collectMonthlyEvidence(input: {
     collectOverviewParts(input.projectId, domain),
     collectInsights(input.projectId),
     collectOpportunities(input.projectId),
+    collectPaidMonthlyEvidence(
+      input.projectId,
+      input.organizationId,
+      windows.month,
+      windows.prior,
+    ),
   ]);
   return {
     month: windows.month,
@@ -530,6 +540,7 @@ export async function collectMonthlyEvidence(input: {
     overviewParts,
     opportunities,
     insights,
+    ads,
     collectedAt: new Date().toISOString(),
   };
 }
@@ -558,6 +569,11 @@ function monthlyReviewDef(): AutopilotWorkflowDef {
           const { changed, ratios, unavailable } = buildChangedRows({
             searchVisibility: collect.searchVisibility,
             traffic: collect.traffic,
+            // Absent for old runs / not-connected projects (null) — no
+            // invented zero rows either way.
+            ...(collect.ads === undefined || collect.ads === null
+              ? {}
+              : { ads: collect.ads }),
           });
           return {
             evidence: {

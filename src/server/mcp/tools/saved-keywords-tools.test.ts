@@ -173,15 +173,18 @@ describe("saved keyword MCP tools", () => {
       toolExtra,
     );
 
-    expect(mocks.getSavedKeywords).toHaveBeenCalledWith({
-      projectId: "project_1",
-      search: "technical",
-      tagNames: ["Content"],
-      page: 1,
-      pageSize: 50,
-      sort: "createdAt",
-      order: "desc",
-    });
+    expect(mocks.getSavedKeywords).toHaveBeenCalledWith(
+      {
+        projectId: "project_1",
+        search: "technical",
+        tagNames: ["Content"],
+        page: 1,
+        pageSize: 50,
+        sort: "createdAt",
+        order: "desc",
+      },
+      { organizationId: "org_123" },
+    );
     expect(result.structuredContent).toMatchObject({
       totalCount: 1,
       rows: [{ keyword: "technical seo" }],

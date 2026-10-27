@@ -52,7 +52,7 @@ describe("detector registry", () => {
     }
   });
 
-  it("registers exactly the PR7 detectors plus the GA4 change detector", () => {
+  it("registers exactly the PR7 detectors plus the GA4 and Ads detectors", () => {
     const keys = listDetectors()
       .map((detector) => detector.detectorKey)
       .toSorted();
@@ -68,6 +68,8 @@ describe("detector registry", () => {
       "lost_backlinks",
       "low_ctr_query",
       "organic_traffic_change",
+      "paid_landing_page_technical_issue",
+      "paid_organic_query_gap",
       "ranking_drop",
       "serp_cluster_new_page",
       "striking_distance",
@@ -76,6 +78,18 @@ describe("detector registry", () => {
     // Stable snake_case keys (part of finding identity).
     for (const key of keys) {
       expect(key).toMatch(/^[a-z][a-z0-9_]*$/);
+    }
+  });
+
+  it("declares google_ads as a required source for the paid detectors", () => {
+    for (const key of [
+      "paid_organic_query_gap",
+      "paid_landing_page_technical_issue",
+    ]) {
+      const detector = getDetector(key);
+      if (!detector) throw new Error(`missing detector ${key}`);
+      expect(detector.requiredSources).toContain("google_ads");
+      expect(detector.optionalCorroborators).not.toContain("google_ads");
     }
   });
 

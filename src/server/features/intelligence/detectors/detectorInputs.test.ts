@@ -585,22 +585,22 @@ describe("full-scan integration over seeded sources", () => {
       expect(finding.confidenceScore).toBeGreaterThanOrEqual(40);
     }
     const outcomes = await ScanLedgerRepository.getDetectorOutcomes(run.id);
-    expect(outcomes).toHaveLength(15);
+    expect(outcomes).toHaveLength(17);
     const completed = outcomes.filter((o) => o.status === "completed");
     const skipped = outcomes.filter((o) => o.status === "skipped");
     expect(completed).toHaveLength(13);
-    expect(skipped).toHaveLength(2);
+    expect(skipped).toHaveLength(4);
     expect(
       skipped.find((o) => o.detectorKey === "competitor_gap")?.skipReason,
     ).toBe("G5_NO_READY_VERDICT");
-    // Spec 020: with no recorded AI search observations the source has no
-    // committed version, so the detector is skipped — never fed empty input
-    // as if it were data.
     expect(
       skipped.find((o) => o.detectorKey === "ai_citation_gap")?.skipReason,
     ).toBe("required source has no committed version: ai_search");
-    // Spec 019: the cluster detector ran and completed but emitted nothing -
-    // the fixture stores no organic snapshots, so no cluster exists.
+    for (const adsKey of ["paid_organic_query_gap", "paid_landing_page_technical_issue"]) {
+      expect(
+        skipped.find((o) => o.detectorKey === adsKey)?.skipReason,
+      ).toContain("google_ads");
+    }
     // The lost-backlinks detector ran and completed but correctly emitted
     // nothing: the fixture's single lost referring domain is below the floor.
     expect(byDetector.lost_backlinks).toBeUndefined();

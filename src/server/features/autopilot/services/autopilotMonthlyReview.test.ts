@@ -54,6 +54,8 @@ import {
   buildChangedRows,
   deriveMonthWindows,
   isRecord,
+  monthlyCollectOf,
+  type GoogleAdsMetricsEnvelope,
 } from "./autopilotWorkflowContent";
 import {
   containsBannedCausalVerb,
@@ -325,6 +327,112 @@ describe("monthly changed rows", () => {
       ),
     ).toBe(true);
   });
+
+  it("ads: differences stored paid metrics and keeps every row google_ads-sourced", () => {
+    const kpi = (
+      impressions: number,
+      clicks: number,
+      cost: number,
+      conversions: number,
+      conversionsValue: number,
+    ): GoogleAdsMetricsEnvelope => ({
+      status: ready,
+      totals: { impressions, clicks, cost, conversions, conversionsValue },
+    });
+    const out = buildChangedRows({
+      searchVisibility: {
+        month: searchVisibility(1000, 50000, 0.02, 8.5),
+        prior: searchVisibility(1200, 48000, 0.025, 9.2),
+      },
+      traffic: {
+        month: trafficTotals(5000, 12000, 300, 20),
+        prior: trafficTotals(5500, 11000, 350, 18),
+      },
+      ads: {
+        month: kpi(40000, 2000, 150, 30, 900),
+        prior: kpi(38000, 2100, 140, 28, 850),
+      },
+    });
+    const adsRows = out.changed.filter((row) => row.source === "google_ads");
+    expect(adsRows.map((row) => row.metric).toSorted()).toEqual([
+      "clicks",
+      "conversions",
+      "conversionsValue",
+      "cost",
+      "impressions",
+    ]);
+    const byMetric = new Map(adsRows.map((row) => [row.metric, row]));
+    expect(byMetric.get("impressions")).toMatchObject({
+      monthValue: 40000,
+      priorValue: 38000,
+      delta: 2000,
+    });
+    expect(byMetric.get("cost")).toMatchObject({ delta: 10 });
+    expect(byMetric.get("clicks")?.agreement).toBe("corroborated");
+    // Free-inventory metrics never claim the Ads direction's corroboration:
+    // sessions and impressions moved the same way this month.
+    expect(byMetric.get("impressions")?.agreement).toBe("corroborated");
+    expect(out.unavailable).toEqual([]);
+  });
+
+  it("ads: marks unavailable instead of inventing zero deltas", () => {
+    const out = buildChangedRows({
+      searchVisibility: {
+        month: searchVisibility(1000, 50000, 0.02, 8.5),
+        prior: searchVisibility(1200, 48000, 0.025, 9.2),
+      },
+      traffic: {
+        month: trafficTotals(5000, 12000, 300, 20),
+        prior: trafficTotals(5500, 11000, 350, 18),
+      },
+      ads: {
+        month: { status: down("no_coverage"), totals: null },
+        prior: { status: down("no_coverage"), totals: null },
+      },
+    });
+    expect(out.changed.some((row) => row.source === "google_ads")).toBe(false);
+    const adsUnavailable = out.unavailable.find(
+      (row) => row.source === "google_ads",
+    );
+    expect(adsUnavailable?.reason).toBe("no_coverage");
+  });
+
+  it("ads: absent envelopes stay absent for old replayed runs", () => {
+    const out = buildChangedRows({
+      searchVisibility: {
+        month: searchVisibility(1000, 50000, 0.02, 8.5),
+        prior: searchVisibility(1200, 48000, 0.025, 9.2),
+      },
+      traffic: {
+        month: trafficTotals(5000, 12000, 300, 20),
+        prior: trafficTotals(5500, 11000, 350, 18),
+      },
+    });
+    expect(out.changed.some((row) => row.source === "google_ads")).toBe(false);
+    expect(out.unavailable.some((row) => row.source === "google_ads")).toBe(
+      false,
+    );
+  });
+
+  it("monthlyCollectOf tolerates evidence payloads without Ads evidence", () => {
+    // A pre-Ads collect evidence must not throw and must not fabricate an ads key.
+    const legacy = JSON.stringify({
+      month: { from: "2026-09-01", to: "2026-09-30" },
+      prior: { from: "2026-08-01", to: "2026-08-31" },
+      searchVisibility: {
+        month: searchVisibility(1, 2, 0.1, 3),
+        prior: searchVisibility(1, 2, 0.1, 3),
+      },
+      trafficConversions: {
+        month: trafficTotals(1, 2, 3, 4),
+        prior: trafficTotals(1, 2, 3, 4),
+      },
+      opportunities: [],
+      insights: [],
+    });
+    const collect = monthlyCollectOf(JSON.parse(legacy));
+    expect(collect.ads).toBeUndefined();
+  });
 });
 
 // Spec 013 (US3 T017): end-to-end drives with mocked collectors.
@@ -398,6 +506,85 @@ describe("monthly_review workflow", () => {
     const text = JSON.stringify(parseJsonObject(evidence ?? "null"));
     expect(containsBannedCausalVerb(text)).toBe(false);
     expect(containsUpliftPattern(text)).toBe(false);
+  });
+
+  it("compares ready paid windows and marks the rows google_ads", async () => {
+    vi.spyOn(reportSections, "collectSearchVisibility").mockImplementation(
+      async () => searchVisibility(1000, 50000, 0.02, 8.5),
+    );
+    vi.spyOn(reportSections, "collectTrafficAndConversions").mockImplementation(
+      async () => trafficTotals(5000, 11000, 300, 20),
+    );
+    vi.spyOn(reportSections, "collectOverviewParts").mockImplementation(
+      async () => overviewReady(),
+    );
+    vi.spyOn(reportSections, "collectInsights").mockImplementation(
+      async () => [],
+    );
+    vi.spyOn(reportSections, "collectOpportunities").mockImplementation(
+      async () => [],
+    );
+    vi.spyOn(reportSections, "collectPaidMonthlyEvidence").mockImplementation(
+      async () => ({
+        month: {
+          status: ready,
+          totals: {
+            impressions: 40000,
+            clicks: 2000,
+            cost: 150,
+            conversions: 30,
+            conversionsValue: 900,
+            ctr: 0.05,
+            cpc: 0.075,
+            cpa: 5,
+            roas: 6,
+          },
+        },
+        prior: {
+          status: ready,
+          totals: {
+            impressions: 38000,
+            clicks: 2100,
+            cost: 140,
+            conversions: 28,
+            conversionsValue: 850,
+            ctr: 0.055,
+            cpc: 0.066,
+            cpa: 5,
+            roas: 6,
+          },
+        },
+        currencyCode: "USD",
+      }),
+    );
+    const runId = await seedRun();
+    const workflow = getAutopilotWorkflow("monthly_review");
+    if (!workflow) throw new Error("monthly_review was not registered");
+    const result = await driveRunToCompletion({
+      runId,
+      projectId: "project-1",
+      organizationId: "org-1",
+      workflow,
+      billingCustomer: BILLING,
+      stepRunner: fakeRunner(),
+    });
+    expect(result.status).toBe("completed");
+    const attempts = await AutopilotRepository.listAttemptsByRun(runId);
+    const steps = await AutopilotRepository.listStepsByAttempt(
+      attempts[0]?.id ?? "",
+    );
+    const evidence = steps.find((step) => step.seq === 2)?.evidenceJson ?? null;
+    const changed = summaryField(evidence, "changed");
+    const cost = changed.find(
+      (row) => row["source"] === "google_ads" && row["metric"] === "cost",
+    );
+    expect(cost ? fieldOf(cost, "delta") : null).toBe(10);
+    expect(cost ? fieldOf(cost, "agreement") : null).toBe("corroborated");
+    expect(
+      summaryField(evidence, "unavailable").some(
+        (row) => row["source"] === "google_ads",
+      ),
+    ).toBe(false);
   });
 
   it("completes honestly for a project with no stored data", async () => {

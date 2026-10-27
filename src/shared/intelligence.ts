@@ -430,6 +430,7 @@ const sourceNameSchema = z.enum([
   "keywords",
   "competitors",
   "ai_search",
+  "google_ads",
 ]);
 
 const sourceRefsSchema = z
@@ -439,6 +440,9 @@ const sourceRefsSchema = z
     auditIssueIds: z.array(z.string()).optional(),
     ga4Keys: z.array(z.string()).optional(),
     aiSearchRunIds: z.array(z.string()).optional(),
+    // Google Ads stored-evidence refs: unit keys surfaced for auditability
+    // (`customerId:date:grain`) — master plan phase 5.
+    googleAdsUnitIds: z.array(z.string()).optional(),
   })
   .strict();
 

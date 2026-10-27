@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "../**/*.{ts,tsx}";
+@source "../../routes/**/*.{ts,tsx}";
 
 @theme {
   --container-8xl: 88rem;

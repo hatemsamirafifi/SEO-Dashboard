@@ -31,6 +31,13 @@ const mocks = vi.hoisted(() => {
         }>
       >(async () => ({ rows: [], totalCount: 0, tags: [] })),
     },
+    plannerAccess: {
+      getPlannerConnectionForBilling: vi.fn(),
+      GOOGLE_ADS_PLANNER_CACHE_CONTRACT: "v26-planner",
+    },
+    plannerRepo: {
+      recordGroupObservation: vi.fn(async () => {}),
+    },
   };
 });
 
@@ -45,6 +52,18 @@ vi.mock("@/server/lib/seo-data", () => ({
 vi.mock("@/server/lib/dataforseo", () => ({
   createDataforseoClient: mocks.createDataforseoClient,
 }));
+
+vi.mock(
+  "@/server/lib/seo-data/providers/google-ads-planner-access",
+  () => mocks.plannerAccess,
+);
+
+vi.mock(
+  "@/server/features/google-ads/repositories/GoogleAdsPlannerKeywordRepository",
+  () => ({
+    GoogleAdsPlannerKeywordRepository: mocks.plannerRepo,
+  }),
+);
 
 vi.mock(
   "@/server/features/keywords/repositories/KeywordResearchRepository",
@@ -233,10 +252,12 @@ describe("research", () => {
 
     expect(mocks.seoDataRouter.route).toHaveBeenCalledWith(
       expect.objectContaining({
-        constraints: expect.objectContaining({
+        constraints: {
           source: "related",
           depth: 1,
-        }) as unknown,
+          limit: 150,
+          includeClickstreamData: false,
+        },
       }),
     );
     expect(result.source).toBe("related");
@@ -309,5 +330,71 @@ describe("research", () => {
     expect(providerFetches).toBe(1);
     expect(second.rows).toEqual(first.rows);
     expect(second.source).toBe(first.source);
+  });
+});
+
+describe("getSerpAnalysis", () => {
+  const serpItems = [
+    {
+      type: "organic",
+      rank_group: 1,
+      title: "SEO Tools",
+      url: "https://example.com/seo-tools",
+      domain: "example.com",
+      description: "A list of SEO tools",
+    },
+    { type: "paid", rank_group: 1, title: "Ad", url: "https://ad.example" },
+  ] as SerpLiveItem[];
+
+  it("routes serp data through the router and trims to organic items", async () => {
+    mocks.seoDataRouter.route.mockResolvedValue(
+      routerResponse("serp", serpItems),
+    );
+    const { getSerpAnalysis } = await import("./serp");
+
+    const result = await getSerpAnalysis(
+      {
+        projectId: "project_1",
+        keyword: " SEO Tools ",
+        locationCode: 2840,
+        languageCode: "en",
+      },
+      billingCustomer,
+    );
+
+    expect(mocks.seoDataRouter.route).toHaveBeenCalledWith({
+      dataType: "serp",
+      keyword: "seo tools",
+      locationCode: 2840,
+      languageCode: "en",
+      billingCustomer,
+    });
+    expect(result.requestedKeyword).toBe("seo tools");
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      rank: 1,
+      domain: "example.com",
+    });
+    expect(mocks.createDataforseoClient).not.toHaveBeenCalled();
+  });
+
+  it("flags results with no organic items", async () => {
+    mocks.seoDataRouter.route.mockResolvedValue(
+      routerResponse("serp", [serpItems[1]]),
+    );
+    const { getSerpAnalysis } = await import("./serp");
+
+    const result = await getSerpAnalysis(
+      {
+        projectId: "project_1",
+        keyword: "seo tools",
+        locationCode: 2840,
+        languageCode: "en",
+      },
+      billingCustomer,
+    );
+
+    expect(result.reason).toBe("no_organic_results");
+    expect(result.items).toHaveLength(0);
   });
 });

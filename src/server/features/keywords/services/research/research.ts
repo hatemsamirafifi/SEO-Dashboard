@@ -5,6 +5,12 @@ import { KeywordResearchRepository } from "@/server/features/keywords/repositori
 import type { KeywordResearchRow } from "@/types/keywords";
 import type { ResolvedResearchKeywordsInput } from "@/types/schemas/keywords";
 import { getKeywordDataProvider } from "@/shared/keyword-locations";
+import {
+  getPlannerConnectionForBilling,
+  GOOGLE_ADS_PLANNER_CACHE_CONTRACT,
+} from "@/server/lib/seo-data/providers/google-ads-planner-access";
+import type { ParsedPlannerEnvelope } from "@/server/lib/seo-data/providers/planner-envelope";
+import { GoogleAdsPlannerKeywordRepository } from "@/server/features/google-ads/repositories/GoogleAdsPlannerKeywordRepository";
 import { type EnrichedKeyword, normalizeKeyword } from "./helpers";
 import {
   fetchGoogleAdsResearchRows,
@@ -36,6 +42,12 @@ type ResearchResult = {
   rows: KeywordResearchRow[];
   source: ResearchSource;
   usedFallback: boolean;
+  // Set by the Google-Ads-served path: true when the payload was the
+  // first-party planner envelope, so persistence skips the legacy DFS
+  // upsert and the follow-up storage hook records the rows instead.
+  firstParty?: boolean;
+  // The R2-validated planner envelope (null for DFS-served research).
+  plannerEnvelope?: ParsedPlannerEnvelope | null;
   diagnostics: ResearchDiagnostics;
 };
 
@@ -128,23 +140,33 @@ async function fetchGoogleAdsRows(
   billingCustomer: BillingCustomerContext,
   creditFeature?: CreditFeature,
 ): Promise<ResearchResult> {
-  const rows = await fetchGoogleAdsResearchRows(
-    {
-      seedKeyword,
-      locationCode: input.locationCode,
-      languageCode: input.languageCode,
-      resultLimit: input.resultLimit,
-      creditFeature,
-    },
-    billingCustomer,
-  );
+  const { rows, servedFirstParty, plannerEnvelope } =
+    await fetchGoogleAdsResearchRows(
+      {
+        seedKeyword,
+        locationCode: input.locationCode,
+        languageCode: input.languageCode,
+        resultLimit: input.resultLimit,
+        creditFeature,
+      },
+      billingCustomer,
+    );
+  const requestedMode = input.mode ?? "auto";
 
   return {
     rows,
     source: "google_ads",
-    usedFallback: false,
+    firstParty: servedFirstParty,
+    plannerEnvelope,
+    // Honesty: the DataForSEO keywords_for_keywords endpoint IS a fallback
+    // for Google-Ads-served markets, but only relative to what the user
+    // asked for. A user who picked an explicit mode and got DFS rows
+    // "fell back"; the auto waterfall treats that endpoint as one of its
+    // normal steps, so an auto request that ends up there is not a
+    // fallback. First-party planner payloads are never a fallback.
+    usedFallback: !servedFirstParty && requestedMode !== "auto",
     diagnostics: {
-      requestedMode: "auto",
+      requestedMode,
       threshold: MIN_NON_SEED_FOR_AUTO,
       sourceAttempts: [
         {
@@ -213,6 +235,70 @@ function persistRows(
   });
 }
 
+/** First-party persistence hook: records the serving planner envelope as a
+ *  normalized group observation (observation ledger + canonical groups +
+ *  variant memberships + monthly histories) instead of shaping planner rows
+ *  into the DFS-shaped legacy `upsertKeywordMetric` path.
+ *
+ *  The observation is attributed to the Ads identity the payload was
+ *  produced under. The planner access layer attaches it to every fresh
+ *  envelope; a cache-replayed envelope without that identity falls back to
+ *  the project's CURRENT trusted connection (the router cache key is built
+ *  from that identity, so a replay only ever serves the producing account).
+ *  When no connection can be resolved, nothing is recorded — never a guess.
+ */
+export function recordFirstPartyResearchRows(
+  envelope: ParsedPlannerEnvelope | null,
+  seedKeyword: string,
+  input: ResolvedResearchKeywordsInput,
+  billingCustomer: BillingCustomerContext,
+): void {
+  if (!envelope) return;
+
+  void (async () => {
+    let customerId = envelope.customerId;
+    let loginCustomerId = envelope.loginCustomerId;
+    let currencyCode = envelope.currencyCode;
+    if (!customerId) {
+      const connection = await getPlannerConnectionForBilling({
+        projectId: input.projectId,
+        organizationId: billingCustomer.organizationId,
+      });
+      if (!connection) return;
+      customerId = connection.customerId;
+      loginCustomerId = connection.loginCustomerId;
+      currencyCode = envelope.currencyCode ?? connection.currencyCode;
+    }
+
+    await GoogleAdsPlannerKeywordRepository.recordGroupObservation({
+      scope: {
+        projectId: input.projectId,
+        organizationId: billingCustomer.organizationId,
+        customerId,
+        loginCustomerId,
+        currencyCode,
+        locationCode: input.locationCode,
+        languageCode: input.languageCode,
+        network: envelope.network,
+        contractVersion: GOOGLE_ADS_PLANNER_CACHE_CONTRACT,
+      },
+      dataType: envelope.dataType,
+      seedKeyword: envelope.dataType === "keyword_ideas" ? seedKeyword : "",
+      sourceFetchedAt: envelope.sourceFetchedAt,
+      stats: {
+        truncated: envelope.truncated,
+        partial: envelope.partial,
+        malformedKeywordCount: envelope.malformedKeywordCount,
+        duplicateKeywordCount: envelope.duplicateKeywordCount,
+        missingKeywordCount: envelope.missingKeywordCount,
+      },
+      records: envelope.records,
+    });
+  })().catch((error) => {
+    console.error("keywords.research.record-first-party-observation:", error);
+  });
+}
+
 export async function research(
   input: ResolvedResearchKeywordsInput,
   billingCustomer: BillingCustomerContext,
@@ -228,13 +314,14 @@ export async function research(
 
   const seedKeyword = uniqueKeywords[0];
   const provider = getKeywordDataProvider(input.locationCode);
-  // Labs source modes and clickstream refinement don't exist for
-  // Google-Ads-served countries; collapse both so equivalent requests share
-  // one cache entry.
+  // Clickstream refinement is a DataForSEO Labs capability and doesn't exist
+  // for Google-Ads-served countries; drop it so equivalent requests share one
+  // cache entry. The user's mode is PRESERVED (not collapsed to "auto"): the
+  // diagnostics must report the mode the user actually chose, and an explicit
+  // mode — unlike the auto waterfall — turns a DataForSEO-served response
+  // into an honest fallback.
   const effectiveInput: ResolvedResearchKeywordsInput =
-    provider === "google_ads"
-      ? { ...input, mode: "auto", clickstream: false }
-      : input;
+    provider === "google_ads" ? { ...input, clickstream: false } : input;
   const mode = effectiveInput.mode ?? "auto";
 
   // No outer kw:research cache: the DataRouter caches each per-source call
@@ -264,7 +351,16 @@ export async function research(
             creditFeature,
           );
 
-  persistRows(effectiveInput, result.rows);
+  if (result.firstParty) {
+    recordFirstPartyResearchRows(
+      result.plannerEnvelope ?? null,
+      seedKeyword,
+      effectiveInput,
+      billingCustomer,
+    );
+  } else {
+    persistRows(effectiveInput, result.rows);
+  }
 
   return result;
 }

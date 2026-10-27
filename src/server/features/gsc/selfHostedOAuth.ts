@@ -10,6 +10,10 @@ import { AppError } from "@/server/lib/errors";
 import { GSC_OAUTH_PROVIDER_ID, GSC_OAUTH_SCOPES } from "@/shared/gsc";
 import { GA4_OAUTH_PROVIDER_ID, GA4_OAUTH_SCOPES } from "@/shared/ga4";
 import {
+  GOOGLE_ADS_OAUTH_PROVIDER_ID,
+  GOOGLE_ADS_OAUTH_SCOPES,
+} from "@/shared/google-ads";
+import {
   getGscOAuthClientConfig,
   hasSelfHostedGscConfig,
 } from "./oauth-config";
@@ -24,6 +28,13 @@ type OAuthProviderDescriptor = {
   callbackPath: string;
   label: string;
   requireProjectState?: boolean;
+  /** Approved single-use state identifier in better-auth's verification
+   *  table. Providers without project-bound nonce rows never store there. */
+  stateIdentifier: string;
+  /** PKCE (S256) for providers whose Google scopes are sensitive. The
+   *  code_verifier lives only in the single-use state row — never in the
+   *  authorization URL — and is replayed once, at the token exchange. */
+  pkce?: boolean;
 };
 const GSC_PROVIDER: OAuthProviderDescriptor = {
   providerId: GSC_OAUTH_PROVIDER_ID,
@@ -31,6 +42,7 @@ const GSC_PROVIDER: OAuthProviderDescriptor = {
   scopes: GSC_OAUTH_SCOPES,
   callbackPath: "/api/gsc/oauth/callback",
   label: "Search Console",
+  stateIdentifier: "gsc-oauth-state",
 };
 const GA4_PROVIDER: OAuthProviderDescriptor = {
   providerId: GA4_OAUTH_PROVIDER_ID,
@@ -39,6 +51,17 @@ const GA4_PROVIDER: OAuthProviderDescriptor = {
   callbackPath: "/api/ga4/oauth/callback",
   label: "Google Analytics",
   requireProjectState: true,
+  stateIdentifier: "ga4-oauth-state",
+};
+const GOOGLE_ADS_PROVIDER: OAuthProviderDescriptor = {
+  providerId: GOOGLE_ADS_OAUTH_PROVIDER_ID,
+  stateKey: "google-ads",
+  scopes: GOOGLE_ADS_OAUTH_SCOPES,
+  callbackPath: "/api/google-ads/oauth/callback",
+  label: "Google Ads",
+  requireProjectState: true,
+  stateIdentifier: "google-ads-oauth-state",
+  pkce: true,
 };
 
 type SelfHostedGscUser = {
@@ -53,6 +76,17 @@ const oauthStateSchema = z.object({
   projectId: z.string().min(1).optional(),
   nonce: z.string().uuid().optional(),
 });
+
+type OAuthState = z.infer<typeof oauthStateSchema>;
+
+/** How long a signed state stays usable. */
+const STATE_TTL_MS = 10 * 60 * 1_000;
+
+/** Parses JSON text into an unknown value so a schema can narrow it. */
+function parseJson(text: string): unknown {
+  const parsed: unknown = JSON.parse(text);
+  return parsed;
+}
 
 const googleTokenResponseSchema = z.object({
   access_token: z.string().min(1),
@@ -131,20 +165,23 @@ async function createState(input: {
   provider: OAuthProviderDescriptor;
   projectId?: string;
 }) {
+  const callbackPath = getSafeCallbackPath(
+    input.callbackURL,
+    input.publicOrigin,
+  );
+  const exp = Date.now() + STATE_TTL_MS;
+  const nonce = input.provider.requireProjectState ? crypto.randomUUID() : null;
+  // Type the state before it is signed: the signed payload, the single-use
+  // row id, and the parked PKCE verifier all derive from these validated
+  // values, so nothing has to be re-parsed out of the encoded payload.
+  const stateData: OAuthState = oauthStateSchema.parse({
+    userId: input.userId,
+    callbackPath,
+    exp,
+    ...(nonce ? { projectId: input.projectId, nonce } : {}),
+  });
   const payload = bytesToBase64Url(
-    new TextEncoder().encode(
-      JSON.stringify({
-        userId: input.userId,
-        callbackPath: getSafeCallbackPath(
-          input.callbackURL,
-          input.publicOrigin,
-        ),
-        exp: Date.now() + 10 * 60 * 1_000,
-        ...(input.provider.requireProjectState
-          ? { projectId: input.projectId, nonce: crypto.randomUUID() }
-          : {}),
-      }),
-    ),
+    new TextEncoder().encode(JSON.stringify(stateData)),
   );
   const signature = await signState(
     payload,
@@ -152,21 +189,87 @@ async function createState(input: {
     input.provider.stateKey,
   );
   const state = `${payload}.${signature}`;
-  if (input.provider.requireProjectState) {
-    const { nonce } = oauthStateNonceSchema.parse(
-      JSON.parse(new TextDecoder().decode(base64UrlToBytes(payload))),
-    );
+  let codeVerifier: string | null = null;
+  if (nonce) {
+    // PKCE providers park the code_verifier in the same single-use row the
+    // nonce guards: it exists exactly once, expires with the state, and is
+    // consumed by the callback that proves possession of the signed state.
+    if (input.provider.pkce) {
+      codeVerifier = generateCodeVerifier();
+    }
+    const value = codeVerifier
+      ? JSON.stringify({ state, codeVerifier })
+      : state;
     await db.insert(verification).values({
       id: nonce,
-      identifier: "ga4-oauth-state",
-      value: state,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1_000),
+      identifier: input.provider.stateIdentifier,
+      value,
+      expiresAt: new Date(exp),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
   }
-  return state;
+  return { state, codeVerifier };
 }
+
+/** RFC 7636 §4.1 verifier: 43+ base64url chars from system entropy. */
+function generateCodeVerifier() {
+  const bytes = new Uint8Array(48);
+  crypto.getRandomValues(bytes);
+  return bytesToBase64Url(bytes);
+}
+
+function codeChallengeFor(verifier: string): Promise<string> {
+  return crypto.subtle
+    .digest("SHA-256", new TextEncoder().encode(verifier))
+    .then((digest) => bytesToBase64Url(new Uint8Array(digest)));
+}
+
+/** Single-use state row: deletes atomically and returns the parked PKCE
+ *  verifier (pkce providers only). */
+async function consumeProjectBoundState(
+  rawState: string,
+  state: { nonce?: string; projectId?: string },
+  provider: OAuthProviderDescriptor,
+  expectedProjectId?: string,
+): Promise<{ codeVerifier: string } | null> {
+  if (
+    !state.nonce ||
+    !state.projectId ||
+    (expectedProjectId && state.projectId !== expectedProjectId)
+  )
+    throw new AppError("VALIDATION_ERROR", `Invalid ${provider.label} state`);
+  const consumed = await db
+    .delete(verification)
+    .where(
+      and(
+        eq(verification.id, state.nonce),
+        eq(verification.identifier, provider.stateIdentifier),
+      ),
+    )
+    .returning({ id: verification.id, value: verification.value });
+  if (!consumed[0]) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `${provider.label} state was already used`,
+    );
+  }
+  if (!provider.pkce) return null;
+  const pkceValue = pkceValueSchema.parse(parseJson(consumed[0].value));
+  // The parked state must be the exact signed state that was presented here.
+  if (pkceValue.state !== rawState)
+    throw new AppError("VALIDATION_ERROR", `Invalid ${provider.label} state`);
+  return { codeVerifier: pkceValue.codeVerifier };
+}
+
+const pkceValueSchema = z.object({
+  state: z.string().min(1),
+  codeVerifier: z
+    .string()
+    .min(43)
+    .max(128)
+    .regex(/^[A-Za-z0-9_-]+$/),
+});
 
 async function verifyState(
   state: string,
@@ -175,7 +278,7 @@ async function verifyState(
 ) {
   const [payload, signature] = state.split(".");
   if (!payload || !signature) {
-    throw new AppError("VALIDATION_ERROR", "Invalid Search Console state");
+    throw new AppError("VALIDATION_ERROR", `Invalid ${provider.label} state`);
   }
 
   const ok = await crypto.subtle.verify(
@@ -185,43 +288,17 @@ async function verifyState(
     new TextEncoder().encode(payload),
   );
   if (!ok) {
-    throw new AppError("VALIDATION_ERROR", "Invalid Search Console state");
+    throw new AppError("VALIDATION_ERROR", `Invalid ${provider.label} state`);
   }
 
   const parsed = oauthStateSchema.parse(
-    JSON.parse(new TextDecoder().decode(base64UrlToBytes(payload))),
+    parseJson(new TextDecoder().decode(base64UrlToBytes(payload))),
   );
   if (parsed.exp < Date.now()) {
-    throw new AppError("VALIDATION_ERROR", "Expired Search Console state");
+    throw new AppError("VALIDATION_ERROR", `Expired ${provider.label} state`);
   }
 
   return parsed;
-}
-
-async function consumeGa4State(
-  state: { nonce?: string; projectId?: string },
-  expectedProjectId?: string,
-) {
-  if (
-    !state.nonce ||
-    !state.projectId ||
-    (expectedProjectId && state.projectId !== expectedProjectId)
-  )
-    throw new AppError("VALIDATION_ERROR", "Invalid Google Analytics state");
-  const consumed = await db
-    .delete(verification)
-    .where(
-      and(
-        eq(verification.id, state.nonce),
-        eq(verification.identifier, "ga4-oauth-state"),
-      ),
-    )
-    .returning({ id: verification.id });
-  if (!consumed[0])
-    throw new AppError(
-      "VALIDATION_ERROR",
-      "Google Analytics state was already used",
-    );
 }
 
 function projectIdFromCallbackPath(path: string): string | undefined {
@@ -248,11 +325,14 @@ function storedScope(
     : provider.scopes.join(",");
 }
 
-function getGoogleAccountId(tokens: GoogleTokenResponse) {
+function getGoogleAccountId(
+  tokens: GoogleTokenResponse,
+  provider: OAuthProviderDescriptor,
+) {
   if (!tokens.id_token) {
     throw new AppError(
       "VALIDATION_ERROR",
-      "Google did not return an ID token for Search Console.",
+      `Google did not return an ID token for ${provider.label}.`,
     );
   }
 
@@ -274,7 +354,7 @@ async function upsertGrant(input: {
     ctx.options.account?.encryptOAuthTokens
       ? symmetricEncrypt({ key: ctx.secretConfig, data: value })
       : value;
-  const googleAccountId = getGoogleAccountId(input.tokens);
+  const googleAccountId = getGoogleAccountId(input.tokens, input.provider);
 
   const existing = await db
     .select({ id: account.id, refreshToken: account.refreshToken })
@@ -328,6 +408,7 @@ async function exchangeCode(input: {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+  codeVerifier?: string;
 }) {
   const response = await fetch(GOOGLE_TOKEN_URL, {
     method: "POST",
@@ -338,13 +419,14 @@ async function exchangeCode(input: {
       client_secret: input.clientSecret,
       redirect_uri: input.redirectUri,
       grant_type: "authorization_code",
+      ...(input.codeVerifier ? { code_verifier: input.codeVerifier } : {}),
     }),
   });
 
   if (!response.ok) {
     throw new AppError(
       "VALIDATION_ERROR",
-      "Google rejected the Search Console authorization code.",
+      "Google rejected the authorization code.",
     );
   }
 
@@ -367,7 +449,7 @@ async function createSelfHostedAuthorizationUrl(input: {
   }
 
   const redirectUri = getRedirectUri(input.publicOrigin, input.provider);
-  const state = await createState({
+  const { state, codeVerifier } = await createState({
     clientSecret: config.clientSecret,
     userId: input.user.userId,
     callbackURL: input.callbackURL,
@@ -383,6 +465,15 @@ async function createSelfHostedAuthorizationUrl(input: {
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "select_account consent");
   url.searchParams.set("state", state);
+  if (input.provider.pkce && codeVerifier) {
+    // Only the challenge travels in the URL; the verifier stays parked in
+    // the single-use state row until its one callback consumes it.
+    url.searchParams.set(
+      "code_challenge",
+      await codeChallengeFor(codeVerifier),
+    );
+    url.searchParams.set("code_challenge_method", "S256");
+  }
 
   return url.toString();
 }
@@ -412,7 +503,7 @@ async function handleSelfHostedOAuthCallback(input: {
 }) {
   const config = await getGscOAuthClientConfig();
   if (!config) {
-    return new Response("Missing Google Search Console OAuth configuration", {
+    return new Response("Missing Google OAuth configuration", {
       status: 500,
     });
   }
@@ -420,7 +511,9 @@ async function handleSelfHostedOAuthCallback(input: {
   const url = new URL(input.request.url);
   const stateParam = url.searchParams.get("state");
   if (!stateParam) {
-    return new Response("Missing Search Console OAuth state", { status: 400 });
+    return new Response(`Missing ${input.provider.label} OAuth state`, {
+      status: 400,
+    });
   }
 
   const state = await verifyState(
@@ -429,10 +522,18 @@ async function handleSelfHostedOAuthCallback(input: {
     input.provider,
   );
   if (state.userId !== input.user.userId) {
-    return new Response("Search Console OAuth user mismatch", { status: 403 });
+    return new Response(`${input.provider.label} OAuth user mismatch`, {
+      status: 403,
+    });
   }
+  let pkce: { codeVerifier: string } | null = null;
   if (input.provider.requireProjectState) {
-    await consumeGa4State(state, projectIdFromCallbackPath(state.callbackPath));
+    pkce = await consumeProjectBoundState(
+      stateParam,
+      state,
+      input.provider,
+      projectIdFromCallbackPath(state.callbackPath),
+    );
   }
 
   // state.callbackPath is a validated same-origin relative path
@@ -451,7 +552,9 @@ async function handleSelfHostedOAuthCallback(input: {
 
   const code = url.searchParams.get("code");
   if (!code) {
-    return new Response("Missing Search Console OAuth code", { status: 400 });
+    return new Response(`Missing ${input.provider.label} OAuth code`, {
+      status: 400,
+    });
   }
 
   const tokens = await exchangeCode({
@@ -459,6 +562,7 @@ async function handleSelfHostedOAuthCallback(input: {
     clientId: config.clientId,
     clientSecret: config.clientSecret,
     redirectUri: getRedirectUri(input.publicOrigin, input.provider),
+    ...(pkce?.codeVerifier ? { codeVerifier: pkce.codeVerifier } : {}),
   });
   await upsertGrant({ user: input.user, tokens, provider: input.provider });
 
@@ -478,4 +582,26 @@ export function handleSelfHostedGa4OAuthCallback(input: {
   publicOrigin: string;
 }) {
   return handleSelfHostedOAuthCallback({ ...input, provider: GA4_PROVIDER });
+}
+
+export function createSelfHostedGoogleAdsAuthorizationUrl(input: {
+  user: SelfHostedGscUser;
+  callbackURL: string;
+  publicOrigin: string;
+  projectId: string;
+}) {
+  return createSelfHostedAuthorizationUrl({
+    ...input,
+    provider: GOOGLE_ADS_PROVIDER,
+  });
+}
+export function handleSelfHostedGoogleAdsOAuthCallback(input: {
+  request: Request;
+  user: SelfHostedGscUser;
+  publicOrigin: string;
+}) {
+  return handleSelfHostedOAuthCallback({
+    ...input,
+    provider: GOOGLE_ADS_PROVIDER,
+  });
 }

@@ -7,6 +7,10 @@ import * as sqliteBilling from "./billing.schema";
 import * as sqliteGsc from "./gsc.schema";
 import * as sqliteSalla from "./salla.schema";
 import * as sqliteGa4 from "./ga4.schema";
+import * as sqliteGoogleAds from "./google-ads.schema";
+import * as sqliteGoogleAdsAnalytics from "./google-ads-analytics.schema";
+import * as sqliteGoogleAdsSync from "./google-ads-sync.schema";
+import * as sqliteGoogleAdsPlanner from "./google-ads-planner.schema";
 import * as sqliteIntelligence from "./intelligence.schema";
 import * as sqliteInsights from "./insights.schema";
 import * as sqliteOpportunities from "./opportunities.schema";
@@ -25,6 +29,10 @@ import * as pgBilling from "./pg/billing.schema";
 import * as pgGsc from "./pg/gsc.schema";
 import * as pgSalla from "./pg/salla.schema";
 import * as pgGa4 from "./pg/ga4.schema";
+import * as pgGoogleAds from "./pg/google-ads.schema";
+import * as pgGoogleAdsAnalytics from "./pg/google-ads-analytics.schema";
+import * as pgGoogleAdsSync from "./pg/google-ads-sync.schema";
+import * as pgGoogleAdsPlanner from "./pg/google-ads-planner.schema";
 import * as pgIntelligence from "./pg/intelligence.schema";
 import * as pgInsights from "./pg/insights.schema";
 import * as pgOpportunities from "./pg/opportunities.schema";
@@ -54,6 +62,10 @@ type AppSchema = typeof sqliteApp &
   typeof sqliteGsc &
   typeof sqliteSalla &
   typeof sqliteGa4 &
+  typeof sqliteGoogleAds &
+  typeof sqliteGoogleAdsAnalytics &
+  typeof sqliteGoogleAdsSync &
+  typeof sqliteGoogleAdsPlanner &
   typeof sqliteIntelligence &
   typeof sqliteInsights &
   typeof sqliteOpportunities &
@@ -76,6 +88,10 @@ const runtimeSchema =
         ...pgGsc,
         ...pgSalla,
         ...pgGa4,
+        ...pgGoogleAds,
+        ...pgGoogleAdsAnalytics,
+        ...pgGoogleAdsSync,
+        ...pgGoogleAdsPlanner,
         ...pgIntelligence,
         ...pgInsights,
         ...pgOpportunities,
@@ -96,6 +112,10 @@ const runtimeSchema =
         ...sqliteGsc,
         ...sqliteSalla,
         ...sqliteGa4,
+        ...sqliteGoogleAds,
+        ...sqliteGoogleAdsAnalytics,
+        ...sqliteGoogleAdsSync,
+        ...sqliteGoogleAdsPlanner,
         ...sqliteIntelligence,
         ...sqliteInsights,
         ...sqliteOpportunities,
@@ -157,6 +177,25 @@ export const {
   ga4SyncCoverage,
   ga4Syncs,
   ga4ProjectGoals,
+  googleAdsConnections,
+  googleAdsAccounts,
+  googleAdsCampaigns,
+  googleAdsAdGroups,
+  googleAdsKeywords,
+  googleAdsDailyAccount,
+  googleAdsDailyCampaign,
+  googleAdsDailyAdGroup,
+  googleAdsDailyKeyword,
+  googleAdsDailySearchTerm,
+  googleAdsDailyDevice,
+  googleAdsDailyLandingPage,
+  googleAdsAnalyticsUnits,
+  googleAdsSyncRuns,
+  googleAdsSyncUnits,
+  googleAdsPlannerObservations,
+  googleAdsPlannerGroups,
+  googleAdsPlannerGroupVariants,
+  googleAdsPlannerGroupMonths,
   intelligenceRuns,
   intelligenceRunDetectors,
   dashboardInsights,

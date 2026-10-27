@@ -11,6 +11,10 @@ import * as sqliteAuth from "./better-auth-schema";
 import * as sqliteBilling from "./billing.schema";
 import * as sqliteGsc from "./gsc.schema";
 import * as sqliteGa4 from "./ga4.schema";
+import * as sqliteGoogleAds from "./google-ads.schema";
+import * as sqliteGoogleAdsAnalytics from "./google-ads-analytics.schema";
+import * as sqliteGoogleAdsSync from "./google-ads-sync.schema";
+import * as sqliteGoogleAdsPlanner from "./google-ads-planner.schema";
 import * as sqliteIntelligence from "./intelligence.schema";
 import * as sqliteInsights from "./insights.schema";
 import * as sqliteOpportunities from "./opportunities.schema";
@@ -26,6 +30,10 @@ import * as pgAuth from "./pg/better-auth-schema";
 import * as pgBilling from "./pg/billing.schema";
 import * as pgGsc from "./pg/gsc.schema";
 import * as pgGa4 from "./pg/ga4.schema";
+import * as pgGoogleAds from "./pg/google-ads.schema";
+import * as pgGoogleAdsAnalytics from "./pg/google-ads-analytics.schema";
+import * as pgGoogleAdsSync from "./pg/google-ads-sync.schema";
+import * as pgGoogleAdsPlanner from "./pg/google-ads-planner.schema";
 import * as pgIntelligence from "./pg/intelligence.schema";
 import * as pgInsights from "./pg/insights.schema";
 import * as pgOpportunities from "./pg/opportunities.schema";
@@ -156,6 +164,10 @@ const sqliteAppTables = tablesFrom(
   sqliteBilling,
   sqliteGsc,
   sqliteGa4,
+  sqliteGoogleAds,
+  sqliteGoogleAdsAnalytics,
+  sqliteGoogleAdsSync,
+  sqliteGoogleAdsPlanner,
   sqliteIntelligence,
   sqliteInsights,
   sqliteOpportunities,
@@ -171,6 +183,10 @@ const pgAppTables = tablesFrom(
   pgBilling,
   pgGsc,
   pgGa4,
+  pgGoogleAds,
+  pgGoogleAdsAnalytics,
+  pgGoogleAdsSync,
+  pgGoogleAdsPlanner,
   pgIntelligence,
   pgInsights,
   pgOpportunities,
@@ -321,59 +337,51 @@ describe("spec 012: scheduled report tables (D2b)", () => {
     }
   });
 
-  it("matches the spec'd report_schedules columns", () => {
-    const table = sqliteByName.get("report_schedules");
-    expect(table).toBeDefined();
-    if (!table) return;
-    expect(
-      columnsOf(table)
-        .map((c) => c.name)
-        .toSorted(),
-    ).toEqual(
-      [
-        "id",
-        "project_id",
-        "organization_id",
-        "report_type",
-        "cadence",
-        "recipients",
-        "share_id",
-        "active",
-        "paused_at",
-        "next_due_at",
-        "last_run_at",
-        "created_by_user_id",
-        "created_at",
-        "updated_at",
-      ].toSorted(),
-    );
-  });
+  // Spec'd column sets, quoted from data-model.md so drift (added, renamed,
+  // or dropped spec columns) fails loudly here AND in the generic suite above.
+  const SPECIFIED_COLUMNS: Record<string, string[]> = {
+    report_schedules: [
+      "id",
+      "project_id",
+      "organization_id",
+      "report_type",
+      "cadence",
+      "recipients",
+      "share_id",
+      "active",
+      "paused_at",
+      "next_due_at",
+      "last_run_at",
+      "created_by_user_id",
+      "created_at",
+      "updated_at",
+    ],
+    report_schedule_runs: [
+      "id",
+      "schedule_id",
+      "scheduled_for",
+      "report_id",
+      "state",
+      "failure_class",
+      "skip_reason",
+      "recipient_outcomes",
+      "claimed_at",
+      "completed_at",
+      "created_at",
+      "updated_at",
+    ],
+  };
 
-  it("matches the spec'd report_schedule_runs columns", () => {
-    const table = sqliteByName.get("report_schedule_runs");
-    expect(table).toBeDefined();
-    if (!table) return;
-    expect(
-      columnsOf(table)
-        .map((c) => c.name)
-        .toSorted(),
-    ).toEqual(
-      [
-        "id",
-        "schedule_id",
-        "scheduled_for",
-        "report_id",
-        "state",
-        "failure_class",
-        "skip_reason",
-        "recipient_outcomes",
-        "claimed_at",
-        "completed_at",
-        "created_at",
-        "updated_at",
-      ].toSorted(),
-    );
-  });
+  for (const [name, expectedColumns] of Object.entries(SPECIFIED_COLUMNS)) {
+    it(`defines ${name} with the spec'd columns on SQLite`, () => {
+      const table = sqliteByName.get(name);
+      expect(table, `sqlite missing ${name}`).toBeDefined();
+      if (!table) return;
+      expect(sortStrings(columnsOf(table).map((c) => c.name))).toEqual(
+        sortStrings(expectedColumns),
+      );
+    });
+  }
 
   it("enforces UNIQUE(schedule_id, scheduled_for) on both backends (P33)", () => {
     for (const [dialect, table] of [
@@ -393,20 +401,51 @@ describe("spec 012: scheduled report tables (D2b)", () => {
   });
 
   it("cascades schedule and run rows with their project (FK parity)", () => {
-    const schedules = sqliteByName.get("report_schedules");
-    const runs = sqliteByName.get("report_schedule_runs");
-    expect(schedules).toBeDefined();
-    expect(runs).toBeDefined();
-    if (!schedules || !runs) return;
-    expect(foreignKeys(schedules, "sqlite")).toContain(
+    const sqliteFk = (tableName: string) => {
+      const table = sqliteByName.get(tableName);
+      expect(table, `sqlite missing ${tableName}`).toBeDefined();
+      return table ? foreignKeys(table, "sqlite") : [];
+    };
+    expect(sqliteFk("report_schedules")).toContain(
       "project_id->projects.id onDelete=cascade",
     );
-    expect(foreignKeys(runs, "sqlite")).toContain(
+    expect(sqliteFk("report_schedule_runs")).toContain(
       "schedule_id->report_schedules.id onDelete=cascade",
     );
-    expect(foreignKeys(runs, "sqlite")).toContain(
+    expect(sqliteFk("report_schedule_runs")).toContain(
       "report_id->reports.id onDelete=cascade",
     );
+  });
+});
+
+describe("Google Ads connections table (registered for parity)", () => {
+  // The Google Ads schema modules are registered above, so the generic suite
+  // compares them field by field. This assertion fails if the feature is
+  // silently dropped from the compared set.
+  it("is part of the compared table set on both backends", () => {
+    expect(sqliteAppTables.get("google_ads_connections")).toBeDefined();
+    expect(pgAppTables.get("google_ads_connections")).toBeDefined();
+  });
+});
+
+describe("Google Ads planner tables (registered for parity)", () => {
+  // The planner schema module is registered above so the generic suite
+  // compares it field by field. This assertion fails if the Keyword Planner
+  // first-party storage is silently dropped from the compared set.
+  const PLANNER_TABLES = [
+    "google_ads_planner_observations",
+    "google_ads_planner_groups",
+    "google_ads_planner_group_variants",
+    "google_ads_planner_group_months",
+  ];
+  it("is part of the compared table set on both backends", () => {
+    for (const table of PLANNER_TABLES) {
+      expect(
+        sqliteAppTables.get(table),
+        `sqlite missing ${table}`,
+      ).toBeDefined();
+      expect(pgAppTables.get(table), `pg missing ${table}`).toBeDefined();
+    }
   });
 });
 

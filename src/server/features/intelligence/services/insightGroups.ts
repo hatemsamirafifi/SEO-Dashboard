@@ -108,6 +108,10 @@ const GROUP_RECOMMENDATIONS: Record<string, string> = {
     "Compare the window against deployments, campaigns, and consent changes.",
   backlink_change:
     "Monitor for further movement before acting (two-snapshot heuristic).",
+  paid_organic_query_gap:
+    "Build or expand organic coverage for the paid queries; align content with the queries' landing experiences.",
+  paid_landing_page_technical_issue:
+    "Resolve the flagged issues on the paid landing pages and re-run the audit before adjusting budgets.",
 };
 
 function groupTitle(detectorKey: string, count: number): string {
@@ -118,6 +122,12 @@ function groupTitle(detectorKey: string, count: number): string {
     if (detectorKey === "cannibalization") {
       return "1 query shows potential cannibalization";
     }
+    if (detectorKey === "paid_organic_query_gap") {
+      return "1 paid query lacks organic visibility";
+    }
+    if (detectorKey === "paid_landing_page_technical_issue") {
+      return "1 paid landing page carries a critical issue";
+    }
   }
   if (detectorKey === "ranking_drop") {
     return `${count} important keywords lost rankings`;
@@ -127,6 +137,12 @@ function groupTitle(detectorKey: string, count: number): string {
   }
   if (detectorKey === "cannibalization") {
     return `${count} queries show potential cannibalization`;
+  }
+  if (detectorKey === "paid_organic_query_gap") {
+    return `${count} paid queries lack organic visibility`;
+  }
+  if (detectorKey === "paid_landing_page_technical_issue") {
+    return `${count} paid landing pages carry critical issues`;
   }
   return `${count} findings need attention`;
 }

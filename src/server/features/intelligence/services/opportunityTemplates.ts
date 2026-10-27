@@ -730,7 +730,107 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
         businessIntent: null,
         conversionSignal: null,
       };
+    },,
+  // Master plan phase 5: paid terms with stored cost/conversions whose
+  // organic visibility is weak — a proven-demand organic content gap. Paid
+  // clicks anchor the volume proxy; paid intent anchors businessIntent; the
+  // stored conversion surface is the first Ads-backed conversionSignal.
+  paid_organic_query_gap: {
+    type: "paid_query_gap",
+    title: (finding) => {
+      const query =
+        typeof finding.entity.query === "string"
+          ? finding.entity.query
+          : finding.entityKey;
+      const cost = metricNumber(finding.evidence.metrics, "paidCostMicros");
+      const conversions = metricNumber(
+        finding.evidence.metrics,
+        "paidConversions",
+      );
+      const paid =
+        conversions !== null
+          ? `${conversions.toLocaleString("en-US")} paid conversions`
+          : `${formatInt(metricNumber(finding.evidence.metrics, "paidClicks") ?? 0)} paid clicks`;
+      const spend =
+        cost !== null
+          ? ` (${Math.round(cost / 1_000_000).toLocaleString("en-US")} base micros spend)`
+          : "";
+      return `Paid query gap for "${query}" with ${paid}${spend}`;
     },
+    recommendation: (finding) => {
+      const query =
+        typeof finding.entity.query === "string"
+          ? finding.entity.query
+          : finding.entityKey;
+      return (
+        `Build organic coverage for "${query}": evaluate the paid landing ` +
+        `experience, create or expand a page matching the query intent, ` +
+        `and verify impressions and position in search console after publication.`
+      );
+    },
+    keywordOf: (finding) => {
+      const query = finding.entity.query;
+      return typeof query === "string" ? query : finding.entityKey;
+    },
+    pageOf: () => null,
+    factorsOf: (finding) => ({
+      trafficPotential: logScaleVolume(
+        metricNumber(finding.evidence.metrics, "paidClicks") ?? 0,
+      ),
+      proximity: null,
+      decline: null,
+      businessIntent: null,
+      conversionSignal: logScaleVolume(
+        metricNumber(finding.evidence.metrics, "paidConversions") ?? 0,
+      ),
+    }),
+  },
+  // Master plan phase 5: paid landing pages with spend/click volume carrying
+  // a critical audit issue (or weak GA4 engagement under coverage) on the
+  // same canonical page identity.
+  paid_landing_page_technical_issue: {
+    type: "paid_landing_page",
+    title: (finding) => {
+      const page = finding.entity.page;
+      const issueType =
+        typeof finding.entity.issueType === "string"
+          ? finding.entity.issueType
+          : "";
+      return (
+        `Paid traffic lands on ${typeof page === "string" ? page : finding.entityKey} ` +
+        `with ${issueType || "a weak-engagement signal"}`
+      );
+    },
+    recommendation: (finding) => {
+      const page = finding.entity.page;
+      const issueType =
+        typeof finding.entity.issueType === "string"
+          ? finding.entity.issueType
+          : "";
+      const fix =
+        issueType === "weak_engagement"
+          ? "Compare the page flow against the paid ad promise and recent deployments"
+          : `Resolve the ${issueType} issue on the page`;
+      return (
+        `${fix}; re-run the audit to confirm ` +
+        `${typeof page === "string" ? page : finding.entityKey} before ` +
+        `raising bids or budgets on the affected campaigns.`
+      );
+    },
+    keywordOf: () => null,
+    pageOf: (finding) => {
+      const page = finding.entity.page;
+      return typeof page === "string" ? page : null;
+    },
+    factorsOf: (finding) => ({
+      trafficPotential: logScaleVolume(
+        metricNumber(finding.evidence.metrics, "paidClicks") ?? 0,
+      ),
+      proximity: null,
+      decline: null,
+      businessIntent: null,
+      conversionSignal: null,
+    }),
   },
 };
 

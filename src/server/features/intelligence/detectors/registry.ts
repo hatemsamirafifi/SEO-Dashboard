@@ -14,13 +14,17 @@ import { engagementDropDetector } from "./engagementDrop";
 import { competitorGapDetector } from "./competitorGap";
 import { serpClusterNewPageDetector } from "./serpClusterNewPage";
 import { aiCitationGapDetector } from "./aiCitationGap";
+import { paidOrganicQueryGapDetector } from "./paidOrganicQueryGap";
+import { paidLandingPageTechnicalIssueDetector } from "./paidLandingPageTechnicalIssue";
 
 /**
  * Explicit versioned detector list — no auto-glob (mirrors the explicitness
  * of `getSeoDataRouter`). Each SEO condition has exactly one detector;
  * `striking_distance` (spec 004) owns the 11–20 quick-win band;
  * `conversion_drop` + `engagement_drop` (spec 010) own the GA4-backed
- * conversion/engagement conditions.
+ * conversion/engagement conditions; `paid_organic_query_gap` +
+ * `paid_landing_page_technical_issue` (master plan phase 5) own the Google
+ * Ads stored-evidence conditions.
  */
 const DETECTORS: DetectorDef[] = [
   ga4OrganicChangeDetector,
@@ -38,6 +42,9 @@ const DETECTORS: DetectorDef[] = [
   competitorGapDetector,
   serpClusterNewPageDetector,
   aiCitationGapDetector,
+  // Google Ads stored-evidence detectors (phase 5).
+  paidOrganicQueryGapDetector,
+  paidLandingPageTechnicalIssueDetector,
 ];
 
 export function listDetectors(): DetectorDef[] {

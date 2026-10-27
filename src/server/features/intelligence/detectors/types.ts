@@ -12,7 +12,8 @@ export type DetectionSource =
   | "rank"
   | "audit"
   | "backlinks"
-  | "ai_search";
+  | "ai_search"
+  | "google_ads";
 
 /**
  * Coverage requirement for one source: the grain(s) that must hold
@@ -54,6 +55,8 @@ export type FindingDraft = {
       auditIssueIds?: string[];
       ga4Keys?: string[];
       aiSearchRunIds?: string[];
+      /** Google Ads stored-evidence unit keys (`customerId:date:grain`). */
+      googleAdsUnitIds?: string[];
     };
     thresholdsApplied: Record<string, string | number | boolean>;
     correlations: Array<{

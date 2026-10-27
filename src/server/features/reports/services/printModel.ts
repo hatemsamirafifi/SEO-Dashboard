@@ -1,6 +1,7 @@
 import {
   consistencyBanner,
   containsArabicText,
+  PAID_SEARCH_SECTION_TITLE,
   REPORT_SECTION_TITLES,
   REPORT_TYPE_LABELS,
   unavailableSectionNote,
@@ -13,11 +14,17 @@ import {
 // from the frozen payload, consumed by the PDF emitter and the print-CSS
 // HTML emitter. Renderers add layout only — never data.
 
+export const PAID_SEARCH_SECTION_KEY = "paid_search";
+
 export type PrintMetricRow = { label: string; value: string };
 export type PrintListItem = { lead: string; title: string; body: string };
 
+type PaidListTotals = NonNullable<
+  NonNullable<ReportPayload["paidSearch"]>["campaigns"][number]["totals"]
+>;
+
 export type PrintSection = {
-  key: ReportSectionKey;
+  key: ReportSectionKey | typeof PAID_SEARCH_SECTION_KEY;
   title: string;
   metricRows: PrintMetricRow[];
   items: PrintListItem[];
@@ -38,8 +45,12 @@ function formatCount(value: number | null): string {
   return value === null ? "—" : String(value);
 }
 
-function formatPercent(ratio: number | null): string {
-  return ratio === null ? "—" : `${(ratio * 100).toFixed(1)}%`;
+function formatPrintPercent(value: number | null): string {
+  return value === null ? "—" : `${(value * 100).toFixed(1)}%`;
+}
+
+function formatPrintMultiple(value: number | null): string {
+  return value === null ? "—" : `${value.toFixed(2)}x`;
 }
 
 function formatPosition(value: number | null): string {
@@ -78,6 +89,121 @@ function listSection(
   };
 }
 
+function formatNumber(value: number | null): string {
+  if (value === null) return "—";
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function formatMoney(value: number | null, code: string | null): string {
+  if (value === null) return "—";
+  return `${value.toFixed(2)}${code ? ` ${code}` : ""}`;
+}
+
+function buildPaidSearchSection(payload: ReportPayload): PrintSection[] {
+  const paid = payload.paidSearch;
+  if (!paid) return [];
+  const currency = paid.currencyCode;
+  const prev = paid.previousTotals;
+  const totals = paid.totals;
+  const money = (value: number | null) => formatMoney(value, currency);
+  // (prev: …) suffixes mirror the other sections: only when the equal-length
+  // preceding window was actually compared (previousTotals non-null).
+  const withPrev = (current: string, previous: string | null) =>
+    prev && previous !== null ? `${current} (prev: ${previous})` : current;
+  const metricRows: PrintMetricRow[] = totals
+    ? [
+        {
+          label: "Impressions",
+          value: withPrev(
+            formatNumber(totals.impressions),
+            formatNumber(prev?.impressions ?? null),
+          ),
+        },
+        {
+          label: "Clicks",
+          value: withPrev(
+            formatNumber(totals.clicks),
+            formatNumber(prev?.clicks ?? null),
+          ),
+        },
+        {
+          label: "Cost",
+          value: withPrev(money(totals.cost), money(prev?.cost ?? null)),
+        },
+        {
+          label: "Conversions",
+          value: withPrev(
+            formatNumber(totals.conversions),
+            formatNumber(prev?.conversions ?? null),
+          ),
+        },
+        {
+          label: "Conversions value",
+          value: withPrev(
+            money(totals.conversionsValue),
+            money(prev?.conversionsValue ?? null),
+          ),
+        },
+        {
+          label: "CTR",
+          value: withPrev(
+            formatPrintPercent(totals.ctr),
+            formatPrintPercent(prev?.ctr ?? null),
+          ),
+        },
+        {
+          label: "CPC",
+          value: money(totals.cpc),
+        },
+        {
+          label: "CPA",
+          value: money(totals.cpa),
+        },
+        {
+          label: "ROAS",
+          value: formatPrintMultiple(totals.roas),
+        },
+        ...(paid.metricDateBasis
+          ? [{ label: "Metric date basis", value: paid.metricDateBasis }]
+          : []),
+      ]
+    : [];
+  const items: PrintListItem[] = [
+    ...paid.campaigns.map((campaign) => ({
+      lead: campaign.status ?? "campaign",
+      title: campaign.name ?? campaign.campaignResourceId,
+      body: paidRowBody(campaign.totals, currency),
+    })),
+    ...paid.searchTerms.map((term) => ({
+      lead: "Search term",
+      title: term.searchText,
+      body: paidRowBody(term.totals, currency),
+    })),
+  ];
+  return [
+    {
+      key: PAID_SEARCH_SECTION_KEY,
+      title: PAID_SEARCH_SECTION_TITLE,
+      metricRows: paid.status.available ? metricRows : [],
+      items,
+      emptyNote: paid.status.available
+        ? totals === null
+          ? "No paid search data in this period."
+          : items.length === 0
+            ? "No campaign or search-term data in this period."
+            : null
+        : null,
+      unavailableNote: paid.status.available
+        ? null
+        : (unavailableSectionNote(paid.status.reason) ?? "Unavailable."),
+    },
+  ];
+}
+
+function paidRowBody(totals: PaidListTotals, currency: string | null): string {
+  return `impressions ${formatNumber(totals.impressions)} · clicks ${formatNumber(totals.clicks)} · cost ${formatMoney(totals.cost, currency)}`;
+}
+
 function buildVisibilitySection(payload: ReportPayload): PrintSection {
   const totals = payload.searchVisibility.totals;
   const prev = payload.searchVisibility.previousTotals;
@@ -97,8 +223,8 @@ function buildVisibilitySection(payload: ReportPayload): PrintSection {
     {
       label: "CTR",
       value: prev
-        ? `${formatPercent(totals?.ctr ?? null)} (prev: ${formatPercent(prev.ctr)})`
-        : formatPercent(totals?.ctr ?? null),
+        ? `${formatPrintPercent(totals?.ctr ?? null)} (prev: ${formatPrintPercent(prev.ctr)})`
+        : formatPrintPercent(totals?.ctr ?? null),
     },
     {
       label: "Avg. position",
@@ -141,20 +267,15 @@ function buildTrafficSection(payload: ReportPayload): PrintSection {
 }
 
 function buildTechnicalSection(payload: ReportPayload): PrintSection {
-  const topIssues = payload.technical.topIssues ?? [];
+  const tech = payload.technical;
+  const topIssues = tech.topIssues ?? [];
   return {
     key: "technical",
     title: REPORT_SECTION_TITLES.technical,
-    metricRows: payload.technical.status.available
+    metricRows: tech.status.available
       ? [
-          {
-            label: "Audit status",
-            value: payload.technical.auditStatus ?? "—",
-          },
-          {
-            label: "Pages crawled",
-            value: formatCount(payload.technical.pagesCrawled),
-          },
+          { label: "Audit status", value: tech.auditStatus ?? "—" },
+          { label: "Pages crawled", value: formatCount(tech.pagesCrawled) },
         ]
       : [],
     items: topIssues.map((issue) => ({
@@ -163,13 +284,12 @@ function buildTechnicalSection(payload: ReportPayload): PrintSection {
       body: `${issue.count} pages`,
     })),
     emptyNote:
-      payload.technical.status.available && topIssues.length === 0
+      tech.status.available && topIssues.length === 0
         ? "No issues recorded."
         : null,
-    unavailableNote: payload.technical.status.available
+    unavailableNote: tech.status.available
       ? null
-      : (unavailableSectionNote(payload.technical.status.reason) ??
-        "Unavailable."),
+      : (unavailableSectionNote(tech.status.reason) ?? "Unavailable."),
   };
 }
 
@@ -182,44 +302,41 @@ function buildSectionByKey(
       return buildVisibilitySection(payload);
     case "traffic":
       return buildTrafficSection(payload);
-    case "conversions":
-      return metricSection(key, payload.conversions.status, [
-        {
-          label: "Key events",
-          value: formatCount(payload.conversions.keyEvents),
-        },
+    case "conversions": {
+      const conversions = payload.conversions;
+      return metricSection(key, conversions.status, [
+        { label: "Key events", value: formatCount(conversions.keyEvents) },
         {
           label: "Transactions",
-          value: formatCount(payload.conversions.transactions),
+          value: formatCount(conversions.transactions),
         },
       ]);
-    case "rankings":
-      return metricSection(key, payload.rankings.status, [
+    }
+    case "rankings": {
+      const rank = payload.rankings;
+      return metricSection(key, rank.status, [
         {
           label: "Tracked keywords",
-          value: formatCount(payload.rankings.trackedKeywords),
+          value: formatCount(rank.trackedKeywords),
         },
-        { label: "Improved", value: formatCount(payload.rankings.improved) },
-        { label: "Declined", value: formatCount(payload.rankings.declined) },
-        { label: "Top 10", value: formatCount(payload.rankings.top10) },
-        {
-          label: "Last checked",
-          value: payload.rankings.lastCheckedAt ?? "—",
-        },
+        { label: "Improved", value: formatCount(rank.improved) },
+        { label: "Declined", value: formatCount(rank.declined) },
+        { label: "Top 10", value: formatCount(rank.top10) },
+        { label: "Last checked", value: rank.lastCheckedAt ?? "—" },
       ]);
+    }
     case "technical":
       return buildTechnicalSection(payload);
-    case "backlinks":
-      return metricSection(key, payload.backlinks.status, [
+    case "backlinks": {
+      const backlinks = payload.backlinks;
+      return metricSection(key, backlinks.status, [
         {
           label: "Referring domains",
-          value: formatCount(payload.backlinks.referringDomains),
+          value: formatCount(backlinks.referringDomains),
         },
-        {
-          label: "Captured",
-          value: payload.backlinks.capturedAt ?? "—",
-        },
+        { label: "Captured", value: backlinks.capturedAt ?? "—" },
       ]);
+    }
     case "opportunities":
       return listSection(
         key,
@@ -259,9 +376,10 @@ export function buildPrintModel(
       : "No successful intelligence scan at generation time.",
   ];
 
-  const sections = payload.sections.map((key) =>
-    buildSectionByKey(key, payload),
-  );
+  const sections = [
+    ...payload.sections.map((key) => buildSectionByKey(key, payload)),
+    ...buildPaidSearchSection(payload),
+  ];
   return {
     title,
     subtitle: `${agencyName}${clientName ? ` for ${clientName}` : ""} · ${payload.period.from} → ${payload.period.to}`,
@@ -282,24 +400,18 @@ export function hasUnsupportedArabicText(model: PrintModel): boolean {
     if (containsArabicText(line)) return true;
   }
   for (const section of model.sections) {
-    if (containsArabicText(section.title)) return true;
     if (
-      containsArabicText(section.emptyNote) ||
-      containsArabicText(section.unavailableNote)
+      [section.title, section.emptyNote, section.unavailableNote].some(
+        containsArabicText,
+      )
     ) {
       return true;
     }
     for (const row of section.metricRows) {
-      if (containsArabicText(row.label) || containsArabicText(row.value)) {
-        return true;
-      }
+      if ([row.label, row.value].some(containsArabicText)) return true;
     }
     for (const item of section.items) {
-      if (
-        containsArabicText(item.lead) ||
-        containsArabicText(item.title) ||
-        containsArabicText(item.body)
-      ) {
+      if ([item.lead, item.title, item.body].some(containsArabicText)) {
         return true;
       }
     }

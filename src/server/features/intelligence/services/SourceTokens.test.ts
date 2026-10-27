@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import type { Client } from "@libsql/client";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 import { readFileSync } from "node:fs";
@@ -35,12 +36,36 @@ import {
   backlinkSnapshots,
   ga4Connections,
   ga4Syncs,
+  googleAdsConnections,
+  googleAdsSyncRuns,
   gscSearchPerformanceSyncs,
   rankCheckRuns,
   rankSnapshots,
   rankTrackingConfigs,
 } from "@/db/schema";
 import { SourceTokens } from "./SourceTokens";
+
+/** Required non-default columns of the Ads sync run ledger. */
+function adsRunSeed(
+  id: string,
+  overrides: Partial<typeof googleAdsSyncRuns.$inferInsert> = {},
+): typeof googleAdsSyncRuns.$inferInsert {
+  return {
+    id,
+    projectId: "project-1",
+    organizationId: "org-1",
+    customerId: "1234567890",
+    runKey: `key-${id}`,
+    mode: "manual",
+    windowStartDate: "2026-01-01",
+    windowEndDate: "2026-01-28",
+    fingerprintGrantAccountId: "grant-1",
+    fingerprintConnectionId: "ads-conn-1",
+    fingerprintConnectionUpdatedAt: "2026-01-01T00:00:00.000Z",
+    leaseExpiresAt: "2026-01-02T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 // Full real migration chain: the §7 selectors use the production Drizzle
 // query builders (all columns), so the test database applies every drizzle
@@ -93,6 +118,8 @@ async function resetTables() {
     "gsc_search_performance_syncs",
     "ga4_connections",
     "ga4_syncs",
+    "google_ads_connections",
+    "google_ads_sync_runs",
     "rank_tracking_configs",
     "rank_check_runs",
     "rank_snapshots",
@@ -135,6 +162,7 @@ describe("SourceTokens selectors", () => {
       audit: null,
       backlinks: null,
       ai_search: null,
+      google_ads: null,
     });
     expect(state.sourceSet).toEqual([]);
   });
@@ -209,7 +237,8 @@ describe("SourceTokens selectors", () => {
         id: "run-a",
         configId: "cfg-a",
         projectId: "project-1",
-        status: "partial",
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion, typescript/no-unsafe-assignment, typescript/no-explicit-any -- test simulation of a partial rank check run
+        status: "partial" as any,
         completedAt: "2026-01-03T00:00:00.000Z",
       },
     ]);
@@ -243,7 +272,12 @@ describe("SourceTokens selectors", () => {
       id: "run-empty",
       configId: "cfg-1",
       projectId: "project-1",
+<<<<<<< HEAD
       status: "partial",
+=======
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion, typescript/no-unsafe-assignment, typescript/no-explicit-any -- test simulation of a partial rank check run
+      status: "partial" as any,
+>>>>>>> codex/google-ads-integration
       completedAt: "2026-01-02T00:00:00.000Z",
     });
     expect(await SourceTokens.selectRankVersion("project-1")).toBeNull();
@@ -317,6 +351,7 @@ describe("SourceTokens selectors", () => {
         ga4: after.versions.ga4,
         gsc: after.versions.gsc,
         ai_search: after.versions.ai_search,
+        google_ads: after.versions.google_ads,
       },
     };
     expect(await SourceTokens.hashSourceState(reordered)).toBe(
@@ -338,6 +373,141 @@ describe("SourceTokens selectors", () => {
     expect(SourceTokens.hasActiveMutations(state)).toBe(true);
     expect(SourceTokens.describeActiveMutations(state)).toEqual([
       "gsc:gsc-active",
+    ]);
+  });
+});
+
+describe("SourceTokens Google Ads selectors (phase 5)", () => {
+  async function connectAds() {
+    await db.insert(googleAdsConnections).values({
+      id: "ads-conn-1",
+      projectId: "project-1",
+      organizationId: "org-1",
+      customerId: "1234567890",
+      grantAccountId: "grant-1",
+      connectedByUserId: "u1",
+    });
+  }
+
+  it("returns no token without a connection row", async () => {
+    expect(await SourceTokens.selectGoogleAdsVersion("project-1")).toBeNull();
+    expect(await SourceTokens.selectGoogleAdsMutation("project-1")).toEqual({
+      isMutating: false,
+      activeRunIds: [],
+    });
+  });
+
+  it("advances only on runs with succeeded units for the selected customer", async () => {
+    await connectAds();
+    await db.insert(googleAdsSyncRuns).values([
+      adsRunSeed("ads-old", {
+        status: "success",
+        completedAt: "2026-01-02T00:00:00.000Z",
+        unitsSucceeded: 3,
+      }),
+      // Zero-success completed run: newer but never advances the token.
+      adsRunSeed("ads-zero", {
+        status: "failed",
+        completedAt: "2026-01-03T00:00:00.000Z",
+        unitsSucceeded: 0,
+      }),
+      // Unfinalized run: ignored entirely.
+      adsRunSeed("ads-pending", { status: "running" }),
+      // Different customer id: not the project's selected source.
+      adsRunSeed("ads-other-customer", {
+        customerId: "9999999999",
+        fingerprintConnectionId: "ads-conn-x",
+        status: "success",
+        completedAt: "2026-01-04T00:00:00.000Z",
+        unitsSucceeded: 9,
+      }),
+    ]);
+    expect(await SourceTokens.selectGoogleAdsVersion("project-1")).toBe(
+      "ads-old",
+    );
+  });
+
+  it("prefers the newest succeeded run deterministically", async () => {
+    await connectAds();
+    await db.insert(googleAdsSyncRuns).values([
+      adsRunSeed("ads-early", {
+        status: "success",
+        completedAt: "2026-01-02T00:00:00.000Z",
+        unitsSucceeded: 3,
+      }),
+      adsRunSeed("ads-late", {
+        status: "partial",
+        completedAt: "2026-01-05T00:00:00.000Z",
+        unitsSucceeded: 1,
+      }),
+    ]);
+    expect(await SourceTokens.selectGoogleAdsVersion("project-1")).toBe(
+      "ads-late",
+    );
+  });
+
+  it("flags pending/running Ads runs as active mutations, scoped to the selected customer", async () => {
+    await connectAds();
+    await db.insert(googleAdsSyncRuns).values([
+      adsRunSeed("ads-active", { status: "running" }),
+      // Stale run for a deselected customer must not gate the detect stage.
+      adsRunSeed("ads-stale-run", {
+        customerId: "9999999999",
+        fingerprintConnectionId: "ads-conn-x",
+        status: "pending",
+      }),
+    ]);
+    expect(await SourceTokens.selectGoogleAdsMutation("project-1")).toEqual({
+      isMutating: true,
+      activeRunIds: ["ads-active"],
+    });
+  });
+
+  it("assembles the google_ads token into state and hashes it", async () => {
+    await connectAds();
+    await db.insert(googleAdsSyncRuns).values(
+      adsRunSeed("ads-run", {
+        status: "success",
+        completedAt: "2026-01-02T00:00:00.000Z",
+        unitsSucceeded: 5,
+      }),
+    );
+    const state = await SourceTokens.assembleDetectionSourceState("project-1");
+    expect(state.versions.google_ads).toBe("ads-run");
+    expect(state.sourceSet).toEqual(["google_ads"]);
+    const detached = {
+      ...state,
+      versions: { ...state.versions },
+    };
+    expect(await SourceTokens.hashSourceState(detached)).toBe(
+      await SourceTokens.hashSourceState(state),
+    );
+    await db.insert(googleAdsSyncRuns).values(
+      adsRunSeed("ads-run-2", {
+        status: "success",
+        completedAt: "2026-01-06T00:00:00.000Z",
+        unitsSucceeded: 2,
+      }),
+    );
+    const next = await SourceTokens.assembleDetectionSourceState("project-1");
+    expect(next.versions.google_ads).toBe("ads-run-2");
+    expect(await SourceTokens.hashSourceState(next)).not.toBe(
+      await SourceTokens.hashSourceState(state),
+    );
+  });
+
+  it("surfaces active Ads runs in the mutation description", async () => {
+    await connectAds();
+    await db
+      .insert(googleAdsSyncRuns)
+      .values([
+        adsRunSeed("ads-run-a", { status: "pending" }),
+        adsRunSeed("ads-run-b", { status: "running" }),
+      ]);
+    const state = await SourceTokens.assembleDetectionSourceState("project-1");
+    expect(SourceTokens.hasActiveMutations(state)).toBe(true);
+    expect(SourceTokens.describeActiveMutations(state)).toEqual([
+      "google_ads:ads-run-a,ads-run-b",
     ]);
   });
 });
