@@ -12,13 +12,13 @@
 
 services:
   open-seo-dev:
+    container_name: openseo-dev-app
     build:
       context: .
       dockerfile: Dockerfile.dev
     image: open-seo-dev:local
     init: true
     dns:
-      - ${DOCKER_DNS:-192.168.1.1}
       - 8.8.8.8
       - 1.1.1.1
     # Expose every variable defined in .env.docker (if present) plus the safe
@@ -67,10 +67,8 @@ services:
       # Keep the container's Linux node_modules isolated from the host's
       # (potentially Windows/macOS) install.
       - open_seo_dev_node_modules:/app/node_modules
-      # Wrangler/miniflare state for the local D1, R2, KV, and Durable Object
-      # instances. Persisted across restarts; delete this volume to reset the
-      # entire local Cloudflare environment.
-      - open_seo_dev_wrangler:/app/.wrangler
+      # Wrangler/miniflare state: bind-mounted from host so projects and local database persist.
+      - ./.wrangler:/app/.wrangler
       # pnpm store cache: faster cold installs/rebuilds.
       - open_seo_dev_pnpm_store:/pnpm/store
     # Allow services to keep the container running for interactive shells:

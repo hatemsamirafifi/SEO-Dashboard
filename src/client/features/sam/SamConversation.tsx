@@ -134,31 +134,63 @@ export function SamConversation({
   // per chunk — faster than the main thread can commit, which React 19 aborts
   // as "Maximum update depth exceeded". 100ms coalesces chunk bursts to ≤10
   // renders/s; the final message still renders in full when the stream settles.
-  const { messages, sendMessage, setMessages, clearHistory, status, error } =
-    useAgentChat({ agent, experimental_throttle: 100 });
+  const {
+    messages,
+    sendMessage,
+    setMessages,
+    clearHistory,
+    status,
+    error,
+    isStreaming,
+  } = useAgentChat({ agent, experimental_throttle: 100 });
 
-  const isBusy = status === "submitted" || status === "streaming";
+  const isBusy =
+    status === "submitted" || status === "streaming" || Boolean(isStreaming);
   const sendText = (text: string) => void sendMessage({ text });
 
-  // Debug Trace (Phase DT): conversation-scoped trace frame. Always ingests
-  // `sam_trace` WebSocket frames whether the panel is currently open or not,
-  // and hydrates via HTTP GET /trace and socket replay on mount/reconnect.
-  // This guarantees opening the trace panel before, during, or after a turn
-  // immediately hydrates the authoritative current/completed turn state.
+  // Debug Trace (Phase DT): conversation-scoped trace frame. Always tracks
+  // `sam_trace` WebSocket frames in a ref, but only dispatches React state
+  // updates when the trace panel is actually open (throttled to 200ms) to prevent
+  // trace broadcasts from competing with message streaming and causing React
+  // nested update depth loops.
   const [traceFrame, setTraceFrame] = useState<SamTraceFrame | null>(null);
   const [tracePanelOpen, setTracePanelOpen] = useState(false);
+  const traceFrameRef = useRef<SamTraceFrame | null>(null);
+  const tracePanelOpenRef = useRef(tracePanelOpen);
+  tracePanelOpenRef.current = tracePanelOpen;
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let pendingFrame: SamTraceFrame | null = null;
+
+    const flushThrottled = () => {
+      timer = null;
+      if (pendingFrame && tracePanelOpenRef.current) {
+        setTraceFrame(pendingFrame);
+        pendingFrame = null;
+      }
+    };
+
     const onMessage = (event: MessageEvent) => {
       if (typeof event.data === "string") {
         const parsed = parseTraceFrame(event.data);
         if (parsed) {
-          setTraceFrame(parsed);
+          traceFrameRef.current = parsed;
+          if (tracePanelOpenRef.current) {
+            pendingFrame = parsed;
+            if (!timer) {
+              setTraceFrame(parsed);
+              timer = setTimeout(flushThrottled, 200);
+            }
+          }
         }
       }
     };
     agent.addEventListener("message", onMessage);
-    return () => agent.removeEventListener("message", onMessage);
+    return () => {
+      agent.removeEventListener("message", onMessage);
+      if (timer) clearTimeout(timer);
+    };
   }, [agent]);
 
   useEffect(() => {
@@ -171,11 +203,13 @@ export function SamConversation({
       })
       .then((data) => {
         if (active && data) {
-          setTraceFrame((prev) => {
-            if (!prev) return data;
-            if (data.turnId && prev.turnId === data.turnId) return data;
-            return prev;
-          });
+          const prev = traceFrameRef.current;
+          const next =
+            !prev || (data.turnId && prev.turnId === data.turnId) ? data : prev;
+          traceFrameRef.current = next;
+          if (tracePanelOpenRef.current) {
+            setTraceFrame(next);
+          }
         }
       })
       .catch(() => {
@@ -236,11 +270,16 @@ export function SamConversation({
     }
   }, [isBusy, projectId]);
 
-  // Pin to the bottom while the user follows along.
+  // Pin to the bottom while the user follows along. Decoupled via rAF to prevent
+  // layout thrashing during high-frequency assistant streams.
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
   }, [messages, status]);
 
   const lastMessage = messages[messages.length - 1];
@@ -260,7 +299,10 @@ export function SamConversation({
             type="button"
             className="btn btn-ghost btn-xs gap-1 text-base-content/40"
             title="Show SAM Debug Trace"
-            onClick={() => setTracePanelOpen(true)}
+            onClick={() => {
+              setTracePanelOpen(true);
+              if (traceFrameRef.current) setTraceFrame(traceFrameRef.current);
+            }}
           >
             <Radio className="size-3" />
             Trace
@@ -285,7 +327,10 @@ export function SamConversation({
             frame={traceFrame}
             live={isBusy}
             onClose={() => setTracePanelOpen(false)}
-            onClear={() => setTraceFrame(null)}
+            onClear={() => {
+              traceFrameRef.current = null;
+              setTraceFrame(null);
+            }}
           />
         </div>
       ) : null}

@@ -61,6 +61,8 @@ export default defineConfig(({ mode }) => {
           "**/*.md",
           "**/*.mdx",
           "**/*.log",
+          "**/*.test.*",
+          "**/*.spec.*",
         ],
       },
     },
@@ -78,16 +80,18 @@ export default defineConfig(({ mode }) => {
       showDevtools
         ? devtools({
             consolePiping: {
-              enabled: true,
-              levels: ["log", "warn", "error", "info", "debug"],
+              server: false,
             },
           })
         : null,
-      cloudflare({ inspectorPort: false, viteEnvironment: { name: "ssr" } }),
-      tsConfigPaths(),
+      cloudflare({
+        persistState: false,
+        configPath: "./wrangler.jsonc",
+      }),
       tanstackStart(),
-      viteReact(),
       tailwindcss(),
+      viteReact(),
+      tsConfigPaths(),
     ],
   };
 });

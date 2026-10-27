@@ -16,30 +16,86 @@ import {
   projectIdSchema,
 } from "@/server/mcp/schemas";
 
-const seedSchema = z.object({
-  seed: z.string().min(1).describe("Seed keyword to research."),
-  locationCode: locationCodeSchema.optional(),
-  languageCode: languageCodeSchema.optional(),
-});
+const seedItemSchema = z
+  .union([
+    z.string().min(1).describe("Seed keyword as a plain string."),
+    z
+      .object({
+        seed: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Seed keyword to research."),
+        keyword: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Alternative key for seed keyword."),
+        query: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Alternative key for seed keyword."),
+        term: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Alternative key for seed keyword."),
+        locationCode: locationCodeSchema.optional(),
+        languageCode: languageCodeSchema.optional(),
+      })
+      .refine(
+        (val) =>
+          Boolean(
+            (val.seed && val.seed.trim().length > 0) ||
+            (val.keyword && val.keyword.trim().length > 0) ||
+            (val.query && val.query.trim().length > 0) ||
+            (val.term && val.term.trim().length > 0),
+          ),
+        { message: "Seed keyword is required" },
+      ),
+  ])
+  .transform((val) => {
+    if (typeof val === "string") {
+      return { seed: val.trim() };
+    }
+    const raw = (val.seed ?? val.keyword ?? val.query ?? val.term)!.trim();
+    return {
+      seed: raw,
+      locationCode: val.locationCode,
+      languageCode: val.languageCode,
+    };
+  });
+
+const seedsSchema = z
+  .union([
+    z.array(seedItemSchema).min(1),
+    seedItemSchema.transform((single) => [single]),
+  ])
+  .transform((items) => items.slice(0, 20))
+  .describe(
+    "1-20 seed keywords (either plain strings or objects with seed/keyword). Each seed is researched independently and returns related keywords with volume/difficulty/CPC. Bulk-friendly.",
+  );
+
+const resultLimitSchema = z.coerce
+  .number()
+  .int()
+  .positive()
+  .max(1000)
+  .optional()
+  .describe(
+    "Max keywords returned per seed (e.g. 50, 150, 300, 500, 1000). Defaults to 300.",
+  );
 
 const inputSchema = {
   projectId: projectIdSchema,
-  seeds: z
-    .array(seedSchema)
-    .min(1)
-    .max(5)
-    .describe(
-      "1-5 seed keywords. Each seed is researched independently and returns related keywords with volume/difficulty/CPC. Bulk-friendly — prefer this over multiple single-seed calls.",
-    ),
-  resultLimit: z
-    .union([z.literal(150), z.literal(300), z.literal(500)])
-    .optional()
-    .describe("Max keywords returned per seed. Defaults to 150."),
+  seeds: seedsSchema,
+  resultLimit: resultLimitSchema,
   includeClickstreamData: z
     .boolean()
     .optional()
     .describe(
-      "Refine search volumes with clickstream data, which disaggregates Google Ads' grouped close-variant volumes (plurals/misspellings). DOUBLES the credit cost of each seed. Default false (standard Google-Ads-derived volumes). No effect for countries served from Google Ads data.",
+      "Refine search volumes with clickstream data, which disaggregates Google Ads' grouped close-variant volumes (plurals/misspellings). Default false (standard Google-Ads-derived volumes).",
     ),
 } as const;
 
@@ -66,12 +122,20 @@ const RESEARCH_COLUMNS: McpTableColumn<ResearchRow>[] = [
   { header: "intent", value: (row) => row.intent },
 ];
 
+function snapResultLimit(limit?: number): 150 | 300 | 500 | 1000 {
+  if (!limit) return 300;
+  if (limit <= 150) return 150;
+  if (limit <= 300) return 300;
+  if (limit <= 500) return 500;
+  return 1000;
+}
+
 export const researchKeywordsTool = {
   name: "research_keywords",
   config: {
     title: "Research keywords (bulk)",
     description:
-      "Research keyword data (search volume, difficulty, CPC, related ideas) for 1-5 seed keywords in one call. Charges credits per seed (~30-100 credits each, varies by source; flat ~96 for countries served from Google Ads data, where difficulty/intent are unavailable). Returns per-seed results — a single bad seed won't fail the batch.",
+      "Research keyword data (search volume, difficulty, CPC, related ideas) for up to 20 seed keywords in one call. Returns per-seed results with related keywords, volume, difficulty, and intent.",
     inputSchema,
     outputSchema: {
       results: z.array(
@@ -118,7 +182,7 @@ export const researchKeywordsTool = {
               keywords: [item.seed],
               locationCode,
               languageCode,
-              resultLimit: args.resultLimit ?? 150,
+              resultLimit: snapResultLimit(args.resultLimit),
               mode: "auto",
               clickstream: args.includeClickstreamData ?? false,
             },

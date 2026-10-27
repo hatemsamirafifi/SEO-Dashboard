@@ -143,7 +143,7 @@ function MessageActions({
 // Collapsible "thinking" block for the model's reasoning stream. Collapsed by
 // default so the chain-of-thought doesn't bury the answer; while it's still
 // streaming it doubles as the progress indicator ("Thinking…" + spinner).
-function ReasoningBlock({
+const ReasoningBlock = memo(function ReasoningBlock({
   part,
   live,
 }: {
@@ -172,13 +172,13 @@ function ReasoningBlock({
         <span>{isStreaming ? "Thinking…" : "Thought process"}</span>
       </button>
       {expanded ? (
-        <div className="mt-1.5 whitespace-pre-wrap border-l-2 border-base-300 pl-3 text-xs text-base-content/50">
+        <div className="mt-1.5 max-h-96 overflow-y-auto whitespace-pre-wrap border-l-2 border-base-300 pl-3 text-xs text-base-content/50">
           {part.text}
         </div>
       ) : null}
     </div>
   );
-}
+});
 
 // A small inline badge for one run of same-type tool calls, rendered in
 // document order inside the assistant bubble so the sequence of work stays
@@ -344,9 +344,17 @@ function ChatMessageImpl({
       <div className="min-w-0 space-y-2 text-sm">
         {buildRenderPlan(message.parts).map((entry, index) => {
           if (entry.kind === "tools") {
+            const toolCallId =
+              entry.group.parts[0] && "toolCallId" in entry.group.parts[0]
+                ? entry.group.parts[0].toolCallId
+                : undefined;
             return (
               <ToolBadge
-                key={`tool-${index}`}
+                key={
+                  toolCallId
+                    ? `tool-${toolCallId}`
+                    : `tool-${entry.group.type}-${index}`
+                }
                 group={entry.group}
                 live={Boolean(streaming)}
                 resolveToolLabel={resolveToolLabel}
@@ -357,7 +365,7 @@ function ChatMessageImpl({
           if (part.type === "reasoning") {
             return part.text.trim() ? (
               <ReasoningBlock
-                key={index}
+                key={`reasoning-${index}`}
                 part={part}
                 live={Boolean(streaming)}
               />
@@ -365,7 +373,7 @@ function ChatMessageImpl({
           }
           if (part.type === "text") {
             return part.text.trim() ? (
-              <Markdown key={index}>{part.text}</Markdown>
+              <Markdown key={`text-${index}`}>{part.text}</Markdown>
             ) : null;
           }
           return null;
