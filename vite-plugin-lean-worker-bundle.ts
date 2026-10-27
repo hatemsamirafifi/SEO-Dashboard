@@ -148,15 +148,40 @@ export function leanWorkerBundle(): Plugin {
       }
     },
     generateBundle(_options, bundle) {
-      // Only the worker build matters for isolate memory; the client bundle
-      // never contains these packages (and the zod swap applies everywhere).
-      if (this.environment.name !== "ssr") return;
+      // EAGER_DENYLIST only matters for the worker builds' isolate memory; the
+      // client bundle never contains these packages (and the zod swap applies
+      // everywhere). "ssr" is the main worker; "open_seo_audit" is the
+      // site-audit aux worker, which must stay lean for the same reason it
+      // exists.
+      const environment = this.environment.name;
+      let denylist: typeof EAGER_DENYLIST;
+      if (environment === "client") {
+        denylist = CLIENT_ENTRY_DENYLIST;
+      } else if (["ssr", "open_seo_audit"].includes(environment)) {
+        denylist = EAGER_DENYLIST;
+      } else {
+        return;
+      }
 
       // Bundle keys are chunk fileNames already.
       const chunkAt = (fileName: string) => {
         const output = bundle[fileName];
         return output?.type === "chunk" ? output : undefined;
       };
+
+      if (environment !== "client") {
+        for (const output of Object.values(bundle)) {
+          if (output.type !== "chunk") continue;
+          // Code is already escaped by esbuild; only comment text remains, and
+          // a \uXXXX sequence reads the same there (and stays valid in a
+          // string should one slip through). Per UTF-16 unit on purpose, so an
+          // astral character becomes its surrogate pair.
+          output.code = output.code.replace(
+            /[\u0080-\uffff]/g,
+            (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`,
+          );
+        }
+      }
 
       // Static-import closure from the entry chunks: everything here is
       // evaluated at isolate startup. Dynamic imports are excluded — landing

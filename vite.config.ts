@@ -75,6 +75,13 @@ export default defineConfig(({ mode }) => {
       sourcemap: emitSourcemaps,
       outDir: emitSourcemaps ? "dist-sourcemaps" : "dist",
     },
+    esbuild: {
+      // Emit every chunk as pure ASCII: esbuild rewrites each non-ASCII
+      // character in string, regex, and identifier tokens as a \uXXXX escape.
+      // V8 stores files containing characters outside Latin-1 at 2 bytes per char,
+      // which doubles the worker chunk memory from 7.8MB to 15.5MB in the 128MB isolate heap.
+      charset: "ascii",
+    },
     plugins: [
       leanWorkerBundle(),
       showDevtools
