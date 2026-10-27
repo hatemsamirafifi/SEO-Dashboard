@@ -1,4 +1,4 @@
-CREATE TABLE `google_ads_accounts` (
+CREATE TABLE IF NOT EXISTS `google_ads_accounts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -14,9 +14,9 @@ CREATE TABLE `google_ads_accounts` (
 	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_accounts_project_customer_idx` ON `google_ads_accounts` (`project_id`,`customer_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_accounts_organization_idx` ON `google_ads_accounts` (`organization_id`);--> statement-breakpoint
-CREATE TABLE `google_ads_ad_groups` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_accounts_project_customer_idx` ON `google_ads_accounts` (`project_id`,`customer_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_accounts_organization_idx` ON `google_ads_accounts` (`organization_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_ad_groups` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -32,9 +32,9 @@ CREATE TABLE `google_ads_ad_groups` (
 	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_ad_groups_resource_idx` ON `google_ads_ad_groups` (`project_id`,`customer_id`,`ad_group_resource_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_ad_groups_campaign_idx` ON `google_ads_ad_groups` (`project_id`,`customer_id`,`campaign_resource_id`);--> statement-breakpoint
-CREATE TABLE `google_ads_analytics_units` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_ad_groups_resource_idx` ON `google_ads_ad_groups` (`project_id`,`customer_id`,`ad_group_resource_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_ad_groups_campaign_idx` ON `google_ads_ad_groups` (`project_id`,`customer_id`,`campaign_resource_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_analytics_units` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -56,9 +56,9 @@ CREATE TABLE `google_ads_analytics_units` (
 	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_analytics_units_unit_idx` ON `google_ads_analytics_units` (`project_id`,`customer_id`,`date`,`grain`);--> statement-breakpoint
-CREATE INDEX `google_ads_analytics_units_grain_status_date_idx` ON `google_ads_analytics_units` (`project_id`,`grain`,`status`,`date`);--> statement-breakpoint
-CREATE TABLE `google_ads_campaigns` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_analytics_units_unit_idx` ON `google_ads_analytics_units` (`project_id`,`customer_id`,`date`,`grain`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_analytics_units_grain_status_date_idx` ON `google_ads_analytics_units` (`project_id`,`grain`,`status`,`date`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_campaigns` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -76,9 +76,9 @@ CREATE TABLE `google_ads_campaigns` (
 	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_campaigns_resource_idx` ON `google_ads_campaigns` (`project_id`,`customer_id`,`campaign_resource_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_campaigns_organization_idx` ON `google_ads_campaigns` (`organization_id`);--> statement-breakpoint
-CREATE TABLE `google_ads_daily_account` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_campaigns_resource_idx` ON `google_ads_campaigns` (`project_id`,`customer_id`,`campaign_resource_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_campaigns_organization_idx` ON `google_ads_campaigns` (`organization_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_daily_account` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`customer_id` text NOT NULL,
@@ -94,9 +94,9 @@ CREATE TABLE `google_ads_daily_account` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_daily_account_generation_idx` ON `google_ads_daily_account` (`project_id`,`customer_id`,`date`,`generation_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_daily_account_date_idx` ON `google_ads_daily_account` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
-CREATE TABLE `google_ads_daily_ad_group` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_daily_account_generation_idx` ON `google_ads_daily_account` (`project_id`,`customer_id`,`date`,`generation_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_daily_account_date_idx` ON `google_ads_daily_account` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_daily_ad_group` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`customer_id` text NOT NULL,
@@ -114,9 +114,9 @@ CREATE TABLE `google_ads_daily_ad_group` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_daily_ad_group_generation_idx` ON `google_ads_daily_ad_group` (`project_id`,`customer_id`,`date`,`ad_group_resource_id`,`generation_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_daily_ad_group_date_idx` ON `google_ads_daily_ad_group` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
-CREATE TABLE `google_ads_daily_campaign` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_daily_ad_group_generation_idx` ON `google_ads_daily_ad_group` (`project_id`,`customer_id`,`date`,`ad_group_resource_id`,`generation_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_daily_ad_group_date_idx` ON `google_ads_daily_ad_group` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_daily_campaign` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`customer_id` text NOT NULL,
@@ -133,10 +133,10 @@ CREATE TABLE `google_ads_daily_campaign` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_daily_campaign_generation_idx` ON `google_ads_daily_campaign` (`project_id`,`customer_id`,`date`,`campaign_resource_id`,`generation_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_daily_campaign_date_idx` ON `google_ads_daily_campaign` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
-CREATE INDEX `google_ads_daily_campaign_resource_date_idx` ON `google_ads_daily_campaign` (`project_id`,`customer_id`,`campaign_resource_id`,`date`);--> statement-breakpoint
-CREATE TABLE `google_ads_daily_device` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_daily_campaign_generation_idx` ON `google_ads_daily_campaign` (`project_id`,`customer_id`,`date`,`campaign_resource_id`,`generation_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_daily_campaign_date_idx` ON `google_ads_daily_campaign` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_daily_campaign_resource_date_idx` ON `google_ads_daily_campaign` (`project_id`,`customer_id`,`campaign_resource_id`,`date`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_daily_device` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`customer_id` text NOT NULL,
@@ -154,9 +154,9 @@ CREATE TABLE `google_ads_daily_device` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_daily_device_generation_idx` ON `google_ads_daily_device` (`project_id`,`customer_id`,`date`,`campaign_resource_id`,`device`,`generation_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_daily_device_date_idx` ON `google_ads_daily_device` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
-CREATE TABLE `google_ads_daily_keyword` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_daily_device_generation_idx` ON `google_ads_daily_device` (`project_id`,`customer_id`,`date`,`campaign_resource_id`,`device`,`generation_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_daily_device_date_idx` ON `google_ads_daily_device` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_daily_keyword` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`customer_id` text NOT NULL,
@@ -175,9 +175,9 @@ CREATE TABLE `google_ads_daily_keyword` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_daily_keyword_generation_idx` ON `google_ads_daily_keyword` (`project_id`,`customer_id`,`date`,`keyword_resource_id`,`generation_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_daily_keyword_date_idx` ON `google_ads_daily_keyword` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
-CREATE TABLE `google_ads_daily_landing_page` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_daily_keyword_generation_idx` ON `google_ads_daily_keyword` (`project_id`,`customer_id`,`date`,`keyword_resource_id`,`generation_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_daily_keyword_date_idx` ON `google_ads_daily_keyword` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_daily_landing_page` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`customer_id` text NOT NULL,
@@ -195,9 +195,9 @@ CREATE TABLE `google_ads_daily_landing_page` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_daily_landing_page_generation_idx` ON `google_ads_daily_landing_page` (`project_id`,`customer_id`,`date`,`campaign_resource_id`,`landing_page_url`,`generation_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_daily_landing_page_date_idx` ON `google_ads_daily_landing_page` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
-CREATE TABLE `google_ads_daily_search_term` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_daily_landing_page_generation_idx` ON `google_ads_daily_landing_page` (`project_id`,`customer_id`,`date`,`campaign_resource_id`,`landing_page_url`,`generation_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_daily_landing_page_date_idx` ON `google_ads_daily_landing_page` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_daily_search_term` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`customer_id` text NOT NULL,
@@ -218,9 +218,9 @@ CREATE TABLE `google_ads_daily_search_term` (
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_daily_search_term_generation_idx` ON `google_ads_daily_search_term` (`project_id`,`customer_id`,`date`,`campaign_resource_id`,`ad_group_resource_id`,`search_text`,`generation_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_daily_search_term_date_idx` ON `google_ads_daily_search_term` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
-CREATE TABLE `google_ads_keywords` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_daily_search_term_generation_idx` ON `google_ads_daily_search_term` (`project_id`,`customer_id`,`date`,`campaign_resource_id`,`ad_group_resource_id`,`search_text`,`generation_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_daily_search_term_date_idx` ON `google_ads_daily_search_term` (`project_id`,`customer_id`,`date`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_keywords` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -237,9 +237,9 @@ CREATE TABLE `google_ads_keywords` (
 	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_keywords_resource_idx` ON `google_ads_keywords` (`project_id`,`customer_id`,`keyword_resource_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_keywords_ad_group_idx` ON `google_ads_keywords` (`project_id`,`customer_id`,`ad_group_resource_id`);--> statement-breakpoint
-CREATE TABLE `google_ads_sync_runs` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_keywords_resource_idx` ON `google_ads_keywords` (`project_id`,`customer_id`,`keyword_resource_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_keywords_ad_group_idx` ON `google_ads_keywords` (`project_id`,`customer_id`,`ad_group_resource_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_sync_runs` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -270,10 +270,10 @@ CREATE TABLE `google_ads_sync_runs` (
 	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_sync_runs_active_claim_idx` ON `google_ads_sync_runs` (`project_id`,`customer_id`,`run_key`) WHERE "google_ads_sync_runs"."status" IN ('pending', 'running');--> statement-breakpoint
-CREATE INDEX `google_ads_sync_runs_project_created_idx` ON `google_ads_sync_runs` (`project_id`,`created_at`);--> statement-breakpoint
-CREATE INDEX `google_ads_sync_runs_scope_status_idx` ON `google_ads_sync_runs` (`project_id`,`customer_id`,`status`);--> statement-breakpoint
-CREATE TABLE `google_ads_sync_units` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_sync_runs_active_claim_idx` ON `google_ads_sync_runs` (`project_id`,`customer_id`,`run_key`) WHERE "google_ads_sync_runs"."status" IN ('pending', 'running');--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_sync_runs_project_created_idx` ON `google_ads_sync_runs` (`project_id`,`created_at`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_sync_runs_scope_status_idx` ON `google_ads_sync_runs` (`project_id`,`customer_id`,`status`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_sync_units` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -292,6 +292,6 @@ CREATE TABLE `google_ads_sync_units` (
 	FOREIGN KEY (`run_id`) REFERENCES `google_ads_sync_runs`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_sync_units_unique_idx` ON `google_ads_sync_units` (`run_id`,`date`,`grain`);--> statement-breakpoint
-CREATE INDEX `google_ads_sync_units_replay_idx` ON `google_ads_sync_units` (`project_id`,`customer_id`,`grain`,`status`);--> statement-breakpoint
-CREATE INDEX `google_ads_sync_units_run_status_idx` ON `google_ads_sync_units` (`run_id`,`status`);
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_sync_units_unique_idx` ON `google_ads_sync_units` (`run_id`,`date`,`grain`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_sync_units_replay_idx` ON `google_ads_sync_units` (`project_id`,`customer_id`,`grain`,`status`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_sync_units_run_status_idx` ON `google_ads_sync_units` (`run_id`,`status`);
