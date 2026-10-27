@@ -1,4 +1,4 @@
-# Wave 3 Integration Log - Phases 1-8 Merged
+# Wave 3 Integration Log - All P1 Phases 1-9 Merged
 
 Date: 2026-10-27
 Integration branch: `feat/speckit-wave3-impl`
@@ -14,7 +14,8 @@ Baseline before the merge: `fb438c5c` (`fix(e2e): align Playwright webServer URL
 | 5 Internal Linking | `feat/p1-internal-linking` | 017 | `docs/plans/reports/2026-10-24-internal-linking-phase5-verification.md` | `5795fc22` |
 | 6 Cannibalization classification | `feat/p1-cannibalization` | 018 | `docs/plans/reports/2026-10-24-cannibalization-phase6-verification.md` | `12a308b0` |
 | 7 SERP clustering | `feat/p1-serp-clustering` | 019 | `docs/plans/reports/2026-10-24-serp-clustering-phase7-verification.md` | `8a52dd69` |
-| 8 AI Citation Gaps | `feat/p1-ai-citation-gaps` | 020 | `docs/plans/reports/2026-10-25-ai-citation-gaps-phase8-verification.md` | `ort merge` |
+| 8 AI Citation Gaps | `feat/p1-ai-citation-gaps` | 020 | `docs/plans/reports/2026-10-25-ai-citation-gaps-phase8-verification.md` | `3f8d6191` (merged) |
+| 9 Next Actions | `feat/p1-next-actions` | 021 | `docs/plans/reports/2026-10-26-next-actions-phase9-verification.md` | `52caf58e` (merged) |
 
 Each phase branch was merged with `--no-ff` so the phase boundaries stay visible in
 the integration history. No history was rewritten and nothing was pushed; the
@@ -22,9 +23,8 @@ integration branch moved forward only.
 
 ## Merge invariants
 
-- The integration tree after the merges is byte-identical to the verified phase
-  head: `git diff 09b237c3 HEAD` is empty. The gates that were run on the phase
-  branches therefore describe the merged tree.
+- All 9 P1 phases are fully integrated into `feat/speckit-wave3-impl`.
+- Migrations cleanly sequenced: 0071 (ai_search) and 0072 (next_actions_triage) on SQLite; 0049 and 0050 on PostgreSQL.
 - The merge ran in a dedicated clean worktree; the primary worktree
   (`F:\SEO-Dashboard`, branch `feat/ga4-settings-and-gsc-performance-fixes`) was
   not touched and keeps its uncommitted work.
@@ -40,6 +40,7 @@ integration branch moved forward only.
 | 6 | green (3,314 passed, 3 skipped) | not applicable (no new route; opportunity flow is seed-dependent) | green | 0 errors | no new findings | green | Same pre-existing env-gated live-API failure. |
 | 7 | green (3,340 passed, 3 skipped) | not applicable (no new route; the cluster section needs stored organic rows) | green | 0 errors | no new findings | green | Same pre-existing env-gated live-API failure. |
 | 8 | green (3,352 passed, 3 skipped) | not applicable (no new route; observations accumulate via Prompt Explorer) | green | 0 errors | no new findings | green | Same pre-existing env-gated live-API failure. |
+| 9 | green (3,353 passed, 3 skipped) | not applicable (reuses existing dashboard pattern, unit-covered) | green | 0 errors | no new findings | green | Same pre-existing env-gated live-API failure. |
 
 Repo-wide `prettier --check .` cannot pass on Windows checkouts
 (`core.autocrlf=true`); the formatting gate was run against changed files.
@@ -47,9 +48,4 @@ This is logged in `.agents/PAPERCUTS.md` with the `.gitattributes` fix.
 
 ## Remaining wave phases
 
-| Phase | Branch | Spec | Status |
-| ----- | ------ | ---- | ------ |
-| 9 Next Actions | `feat/p1-next-actions` | 021 | ready for migration renumber and merge |
-
-The next phase branches from this integration baseline (per master plan 1.2:
-"Each dependent phase branches from the latest verified integration baseline").
+All P1 phases (Phases 1 through 9) are 100% completed and merged into `feat/speckit-wave3-impl`.
