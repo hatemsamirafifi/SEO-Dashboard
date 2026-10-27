@@ -1,4 +1,4 @@
-/* eslint-disable max-lines */
+/* eslint-disable max-lines, max-params */
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { gscSearchPerformance, gscSearchPerformanceSyncs } from "@/db/schema";
@@ -502,25 +502,40 @@ async function getStrikingDistance({
 
   if (prevStartDate && prevEndDate && topStriking.length > 0) {
     const queryList = topStriking.map((r) => r.query);
-    const prevRows = await db
-      .select({
-        query: sql<string>`${gscSearchPerformance.query}`,
-        page: sql<string>`${gscSearchPerformance.page}`,
-        clicks: sql<number>`coalesce(sum(${gscSearchPerformance.clicks}), 0)`,
-        impressions: sql<number>`coalesce(sum(${gscSearchPerformance.impressions}), 0)`,
-        weightedPosition: sql<number>`coalesce(sum(${gscSearchPerformance.position} * ${gscSearchPerformance.impressions}), 0)`,
-      })
-      .from(gscSearchPerformance)
-      .where(
-        and(
-          eq(gscSearchPerformance.projectId, projectId),
-          eq(gscSearchPerformance.grain, "query_page"),
-          inArray(gscSearchPerformance.query, queryList),
-          gte(gscSearchPerformance.date, prevStartDate),
-          lte(gscSearchPerformance.date, prevEndDate),
-        ),
-      )
-      .groupBy(gscSearchPerformance.query, gscSearchPerformance.page);
+    // D1 caps bound parameters at 100 per statement.
+    // Chunking queryList by 40 keeps total parameters well within the 100 limit.
+    const CHUNK_SIZE = 40;
+    const prevRows: Array<{
+      query: string;
+      page: string;
+      clicks: number;
+      impressions: number;
+      weightedPosition: number;
+    }> = [];
+
+    for (let i = 0; i < queryList.length; i += CHUNK_SIZE) {
+      const chunk = queryList.slice(i, i + CHUNK_SIZE);
+      const chunkRows = await db
+        .select({
+          query: sql<string>`${gscSearchPerformance.query}`,
+          page: sql<string>`${gscSearchPerformance.page}`,
+          clicks: sql<number>`coalesce(sum(${gscSearchPerformance.clicks}), 0)`,
+          impressions: sql<number>`coalesce(sum(${gscSearchPerformance.impressions}), 0)`,
+          weightedPosition: sql<number>`coalesce(sum(${gscSearchPerformance.position} * ${gscSearchPerformance.impressions}), 0)`,
+        })
+        .from(gscSearchPerformance)
+        .where(
+          and(
+            eq(gscSearchPerformance.projectId, projectId),
+            eq(gscSearchPerformance.grain, "query_page"),
+            inArray(gscSearchPerformance.query, chunk),
+            gte(gscSearchPerformance.date, prevStartDate),
+            lte(gscSearchPerformance.date, prevEndDate),
+          ),
+        )
+        .groupBy(gscSearchPerformance.query, gscSearchPerformance.page);
+      prevRows.push(...chunkRows);
+    }
 
     const prevMap = new Map<
       string,
@@ -647,24 +662,38 @@ async function getTableRows({
 
   if (prevStartDate && prevEndDate && results.length > 0) {
     const keyList = results.map((r) => r.key);
-    const prevRows = await db
-      .select({
-        key: sql<string>`${column}`,
-        clicks: sql<number>`coalesce(sum(${gscSearchPerformance.clicks}), 0)`,
-        impressions: sql<number>`coalesce(sum(${gscSearchPerformance.impressions}), 0)`,
-        weightedPosition: sql<number>`coalesce(sum(${gscSearchPerformance.position} * ${gscSearchPerformance.impressions}), 0)`,
-      })
-      .from(gscSearchPerformance)
-      .where(
-        and(
-          eq(gscSearchPerformance.projectId, projectId),
-          eq(gscSearchPerformance.grain, dimension),
-          inArray(column, keyList),
-          gte(gscSearchPerformance.date, prevStartDate),
-          lte(gscSearchPerformance.date, prevEndDate),
-        ),
-      )
-      .groupBy(column);
+    // D1 caps bound parameters at 100 per statement.
+    // Chunking keyList by 40 keeps total parameters well within the 100 limit.
+    const CHUNK_SIZE = 40;
+    const prevRows: Array<{
+      key: string;
+      clicks: number;
+      impressions: number;
+      weightedPosition: number;
+    }> = [];
+
+    for (let i = 0; i < keyList.length; i += CHUNK_SIZE) {
+      const chunk = keyList.slice(i, i + CHUNK_SIZE);
+      const chunkRows = await db
+        .select({
+          key: sql<string>`${column}`,
+          clicks: sql<number>`coalesce(sum(${gscSearchPerformance.clicks}), 0)`,
+          impressions: sql<number>`coalesce(sum(${gscSearchPerformance.impressions}), 0)`,
+          weightedPosition: sql<number>`coalesce(sum(${gscSearchPerformance.position} * ${gscSearchPerformance.impressions}), 0)`,
+        })
+        .from(gscSearchPerformance)
+        .where(
+          and(
+            eq(gscSearchPerformance.projectId, projectId),
+            eq(gscSearchPerformance.grain, dimension),
+            inArray(column, chunk),
+            gte(gscSearchPerformance.date, prevStartDate),
+            lte(gscSearchPerformance.date, prevEndDate),
+          ),
+        )
+        .groupBy(column);
+      prevRows.push(...chunkRows);
+    }
 
     const prevMap = new Map<
       string,

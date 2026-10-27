@@ -152,7 +152,7 @@ A hosted version operates at [openseo.so](https://openseo.so) for users seeking 
 
 - **Real-Time DataForSEO Health Diagnostics**: In-dashboard health status card checking endpoint availability, response latency, and account balance.
 - **Scoped Provider Settings (`seo_provider_settings`)**: Project and Organization overrides for DataForSEO credentials, encrypted via AES-GCM.
-- **Budget Guardrails**: `DATAFORSEO_DAILY_BUDGET` and `DATAFORSEO_MONTHLY_BUDGET` prevent runaway spending with structured over-budget responses.
+- **Budget Guardrails**: `DATAFORSEO_MONTHLY_BUDGET` prevents runaway spending with structured over-budget responses (daily cap removed).
 - Request coalescing to deduplicate concurrent identical queries.
 
 ### 3.12 Observability & Global Trace

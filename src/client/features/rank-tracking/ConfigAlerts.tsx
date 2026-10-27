@@ -14,9 +14,13 @@ type LatestRunForAlerts =
 export function ConfigAlerts({
   config,
   latestRun,
+  onDismissStale,
+  isDismissing,
 }: {
   config: RankTrackingConfig;
   latestRun: LatestRunForAlerts;
+  onDismissStale?: () => void;
+  isDismissing?: boolean;
 }) {
   return (
     <>
@@ -31,11 +35,23 @@ export function ConfigAlerts({
       )}
 
       {latestRun?.maybeStale && (
-        <div className="alert alert-warning text-sm py-2">
-          <AlertTriangle className="size-4" />
-          <span>
-            This run may be unresponsive and will be cleaned up automatically.
-          </span>
+        <div className="alert alert-warning text-sm py-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="size-4 shrink-0" />
+            <span>
+              This run may be unresponsive and will be cleaned up automatically.
+            </span>
+          </div>
+          {onDismissStale && (
+            <button
+              type="button"
+              className="btn btn-xs btn-outline btn-warning shrink-0"
+              onClick={onDismissStale}
+              disabled={isDismissing}
+            >
+              Clear now
+            </button>
+          )}
         </div>
       )}
 

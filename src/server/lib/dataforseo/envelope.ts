@@ -71,6 +71,7 @@ interface DataforseoResponseLike<T extends DataforseoTaskLike> {
   status_code?: number;
   status_message?: string;
   tasks?: T[];
+  task?: T;
   [key: string]: unknown;
 }
 
@@ -240,6 +241,12 @@ export function defaultClassifyDataforseoTask(
   statusCode: number | undefined,
   message: string,
 ): ErrorCode | null {
+  if (
+    statusCode === 40100 ||
+    (typeof statusCode === "number" && statusCode >= 40100 && statusCode < 40200)
+  ) {
+    return "DATAFORSEO_AUTH_FAILED";
+  }
   if (statusCode === 40201) return "DATAFORSEO_ACCESS_PAUSED";
   if (statusCode === 40200) return "CREDITS_UNAVAILABLE";
   if (statusCode === 40210) return "INSUFFICIENT_FUNDS";

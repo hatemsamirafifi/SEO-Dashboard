@@ -1,5 +1,9 @@
+/* eslint-disable max-lines */
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { user } from "@/db/schema";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { getPublicOrigin } from "@/server/mcp/public-origin";
 import { Ga4Service } from "@/server/features/ga4/services/Ga4Service";
@@ -71,6 +75,20 @@ export const getGa4Connection = createServerFn({ method: "POST" })
         isHostedServerAuthMode(),
         hasSelfHostedGscConfig(),
       ]);
+    let connectedByEmail: string | null = null;
+    if (connection?.connectedByUserId) {
+      if (connection.connectedByUserId === context.userId) {
+        connectedByEmail = context.userEmail;
+      } else {
+        const [u] = await db
+          .select({ email: user.email })
+          .from(user)
+          .where(eq(user.id, connection.connectedByUserId))
+          .limit(1);
+        connectedByEmail = u?.email ?? null;
+      }
+    }
+
     return {
       connected: Boolean(connection),
       currentUserHasGrant,
@@ -78,6 +96,7 @@ export const getGa4Connection = createServerFn({ method: "POST" })
       propertyId: connection?.propertyId ?? null,
       propertyDisplayName: connection?.propertyDisplayName ?? null,
       connectedAt: connection?.createdAt ?? null,
+      connectedByEmail,
     };
   });
 export const listGa4Properties = createServerFn({ method: "POST" })

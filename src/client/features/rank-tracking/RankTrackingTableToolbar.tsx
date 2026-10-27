@@ -6,6 +6,7 @@ import {
   Loader2,
   SlidersHorizontal,
   Table,
+  X,
 } from "lucide-react";
 import { SegmentedToggle } from "@/client/components/SegmentedToggle";
 import { ExportMenu, MoreMenu } from "./ToolbarMenus";
@@ -32,6 +33,9 @@ export function RankTrackingTableToolbar({
   checkBusy,
   checkDisabled,
   hasData,
+  onCancelRun,
+  isCancelling,
+  onRetryFailed,
 }: {
   showFilters: boolean;
   onToggleFilters: () => void;
@@ -63,6 +67,9 @@ export function RankTrackingTableToolbar({
   checkBusy: boolean;
   checkDisabled: boolean;
   hasData: boolean;
+  onCancelRun?: () => void;
+  isCancelling?: boolean;
+  onRetryFailed?: () => void;
 }) {
   const lastRunIdRef = useRef<string | null>(null);
   const maxCheckedRef = useRef<number>(0);
@@ -99,7 +106,7 @@ export function RankTrackingTableToolbar({
       const runChecked =
         latestRun.status === "completed"
           ? runTotal
-          : Math.max(latestRun.keywordsChecked ?? 0, maxCheckedRef.current);
+          : latestRun.keywordsChecked ?? 0;
 
       if (runTotal > 0) {
         setCompletedBanner({
@@ -195,6 +202,22 @@ export function RankTrackingTableToolbar({
               />
             </div>
           )}
+          {onCancelRun && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs text-error gap-1 hover:bg-error/10 ml-1"
+              onClick={onCancelRun}
+              disabled={isCancelling}
+              title="Cancel rank check"
+            >
+              {isCancelling ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <X className="size-3" />
+              )}
+              <span>Cancel</span>
+            </button>
+          )}
         </div>
       ) : completedBanner && completedBanner.status === "completed" ? (
         <div className="flex items-center gap-2 text-sm text-success animate-in fade-in duration-200">
@@ -225,8 +248,17 @@ export function RankTrackingTableToolbar({
             <span className="tabular-nums font-semibold">
               {completedBanner.checked}/{completedBanner.total}
             </span>{" "}
-            keywords checked
+            keywords succeeded
           </span>
+          {onRetryFailed && (
+            <button
+              type="button"
+              className="btn btn-xs btn-outline btn-warning ml-1"
+              onClick={onRetryFailed}
+            >
+              Retry failed
+            </button>
+          )}
         </div>
       ) : (
         <span className="text-sm text-base-content/60">

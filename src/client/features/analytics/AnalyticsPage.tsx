@@ -199,12 +199,19 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
   return (
     <div className="overflow-auto px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
       <div className="mx-auto max-w-7xl space-y-4">
-        <div>
-          <h1 className="text-xl font-semibold">Analytics</h1>
-          <p className="text-sm text-base-content/60">
-            Google Analytics 4 traffic, read from synced data. DB-first with a
-            freshness badge; provider failure is shown, never silently zeroed.
-          </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-xl font-semibold">Analytics</h1>
+            <p className="text-sm text-base-content/60">
+              Google Analytics 4 traffic, read from synced data. DB-first with a
+              freshness badge; provider failure is shown, never silently zeroed.
+            </p>
+          </div>
+          {connected && view.kind !== "not-connected" ? (
+            <div className="shrink-0 sm:mt-1">
+              <Ga4SyncStatus projectId={projectId} variant="header" />
+            </div>
+          ) : null}
         </div>
 
         {view.kind === "loading" ? (
@@ -282,7 +289,6 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
                 setTechDimension={setTechDimension}
               />
             </div>
-            <Ga4SyncStatus projectId={projectId} />
           </>
         )}
       </div>

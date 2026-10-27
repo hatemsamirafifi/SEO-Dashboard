@@ -12,7 +12,10 @@ import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
 import { registerCancellation } from "@/client/features/tracing/cancellationRegistry";
 import type { GlobalTraceOperation } from "@/shared/globalTraceTypes";
 import type { RankTrackingRow } from "@/types/schemas/rank-tracking";
-import { buildRankCompletionPatch } from "./rankTraceCompletion";
+import {
+  buildInFlightRankPatch,
+  buildRankCompletionPatch,
+} from "./rankTraceCompletion";
 
 type LatestRun = Awaited<ReturnType<typeof getLatestRankRun>>;
 
@@ -38,8 +41,8 @@ function findActiveTraces(
  * when a run transitions from "running" to "completed".
  * Also feeds the Global Debug Trace with real-time run progress and honest
  * completion: per-keyword children are derived from snapshot evidence only
- * (fresh snapshot + position ΓåÆ success, fresh snapshot + no position ΓåÆ
- * no_result, no snapshot ΓåÆ failed). Nothing is fabricated.
+ * (fresh snapshot + position → success, fresh snapshot + no position →
+ * no_result, no snapshot → failed). Nothing is fabricated.
  */
 export function useRankRunPolling(projectId: string, configId: string) {
   const queryClient = useQueryClient();
@@ -73,28 +76,32 @@ export function useRankRunPolling(projectId: string, configId: string) {
             }
           });
 
-          globalTraceStore.updateOperation(activeOp.operationId, {
-            supportsCancellation: true,
-            rankCheckRunId: run.id,
-            rankChecksStarted: run.keywordsChecked,
-            providerCalls: run.providerCalls.length,
-            rankChecksSucceeded: run.keywordsChecked,
-            counters: {
-              checked: run.keywordsChecked,
-              total: run.keywordsTotal,
+          const inFlightPatch = buildInFlightRankPatch({
+            run: {
+              id: run.id,
+              status: run.status,
+              keywordsChecked: run.keywordsChecked,
+              keywordsTotal: run.keywordsTotal,
+              errorMessage: run.errorMessage,
+              startedAt: run.startedAt,
+              providerCalls: run.providerCalls,
             },
+            activeOp,
           });
+
+          globalTraceStore.updateOperation(activeOp.operationId, inFlightPatch);
         }
       }
 
       // When a run reaches a terminal state, invalidate results & finalize
-      // the correlated trace. Finalization is keyed by run id (idempotent ΓÇö
+      // the correlated trace. Finalization is keyed by run id (idempotent —
       // a second call finds no RUNNING op), so this also covers the
       // mount-after-terminal case: a page opened while/after the run
       // finished still completes its trace instead of leaving it RUNNING
       // forever.
       const isTerminal =
         run?.status === "completed" ||
+        run?.status === "partial" ||
         run?.status === "failed" ||
         run?.status === "cancelled";
       if (run && isTerminal && !finalizedRunIdsRef.current.has(run.id)) {
@@ -145,7 +152,7 @@ async function finalizeTraceForRun(
     // Refresh the table's own results queries (prefix-matched, so every
     // compare-period variant) and await them: children must be built from
     // fresh snapshots, not the pre-run cache. This reuses the table's
-    // queries ΓÇö no divergent cache keys, no extra provider calls.
+    // queries — no divergent cache keys, no extra provider calls.
     const resultsPrefix = ["rankTrackingResults", projectId, configId];
     try {
       await queryClient.refetchQueries({
@@ -153,7 +160,7 @@ async function finalizeTraceForRun(
         type: "active",
       });
     } catch {
-      // Best effort ΓÇö fall through to whatever the cache holds.
+      // Best effort — fall through to whatever the cache holds.
     }
     void queryClient.invalidateQueries({ queryKey: resultsPrefix });
     void queryClient.invalidateQueries({
@@ -194,6 +201,10 @@ async function finalizeTraceForRun(
     // Correlate the client trace with the server run for the operation card.
     globalTraceStore.completeOperation(activeOp.operationId, {
       ...patch,
+      counters: {
+        ...activeOp.counters,
+        ...patch.counters,
+      },
       metadata: {
         ...activeOp.metadata,
         runId: run.id,
@@ -209,7 +220,7 @@ async function finalizeTraceForRun(
         status:
           run.status === "cancelled"
             ? "cancelled"
-            : run.status === "failed"
+            : run.status === "failed" || run.status === "partial"
               ? "failed"
               : "success",
         errorMessage: run.errorMessage || undefined,

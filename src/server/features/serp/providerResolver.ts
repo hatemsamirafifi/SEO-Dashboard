@@ -5,8 +5,11 @@ import {
   DEFAULT_SERP_PRIORITIES,
   resolveEffectiveSerpProviderConfig,
 } from "@/server/features/settings/services/SerpProviderSettingsService";
-import { AppError } from "@/server/lib/errors";
-import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
+import { AppError, asAppError } from "@/server/lib/errors";
+import {
+  BudgetExceededError,
+  ProviderUnavailableError,
+} from "@/server/lib/seo-data/errors";
 import { createHttpSerpProvider } from "./httpProviders";
 import {
   SerpProviderError,
@@ -23,7 +26,7 @@ type DataforseoClient = ReturnType<typeof createDataforseoClient>;
 
 /**
  * Normalize a raw DataForSEO SDK error into the central provider failure
- * vocabulary. Deterministic failures (auth, paused account, credits) are
+ * vocabulary. Deterministic failures (auth, paused account, credits, budget) are
  * marked so the central retry policy never repeats them; everything else —
  * transport, 5xx, timeouts, malformed responses — stays retryable.
  */
@@ -31,19 +34,25 @@ function classifyDataforseoFailure(error: unknown): {
   code: string;
   deterministic: boolean;
 } {
-  // Structured AppError codes carry the provider's own classification.
-  if (error instanceof AppError) {
-    switch (error.code) {
+  const appErr = error instanceof AppError ? error : asAppError(error);
+  if (appErr) {
+    switch (appErr.code) {
       case "DATAFORSEO_ACCOUNT_PAUSED":
+      case "DATAFORSEO_ACCESS_PAUSED":
         return { code: "DATAFORSEO_ACCOUNT_PAUSED", deterministic: true };
       case "DATAFORSEO_AUTH_FAILED":
       case "UNAUTHENTICATED":
         return { code: "AUTH_FAILED", deterministic: true };
       case "PAYMENT_REQUIRED":
+      case "CREDITS_UNAVAILABLE":
+      case "INSUFFICIENT_FUNDS":
+      case "COST_LIMIT_EXCEEDED":
         return { code: "CREDITS_UNAVAILABLE", deterministic: true };
       case "RATE_LIMITED":
+      case "TOO_MANY_SIMULTANEOUS_QUERIES":
         return { code: "RATE_LIMITED", deterministic: false };
       case "UPSTREAM_UNAVAILABLE":
+      case "TRANSIENT_UPSTREAM":
         return { code: "PROVIDER_UNAVAILABLE", deterministic: false };
       default:
         break;
@@ -52,15 +61,24 @@ function classifyDataforseoFailure(error: unknown): {
   if (error instanceof ProviderUnavailableError) {
     return { code: "PROVIDER_DISABLED", deterministic: true };
   }
+  if (error instanceof BudgetExceededError) {
+    if (error.period === "monthly") {
+      return { code: "BUDGET_EXCEEDED", deterministic: true };
+    }
+    return { code: "OPERATION_FAILED", deterministic: true };
+  }
   // Fallback for unstructured SDK/network errors: inspect the message.
   const message = error instanceof Error ? error.message : String(error);
   if (/40201|paused/i.test(message)) {
     return { code: "DATAFORSEO_ACCOUNT_PAUSED", deterministic: true };
   }
-  if (/401|auth|credential|invalid api key/i.test(message)) {
+  if (/40100|401|auth|credential|invalid api key/i.test(message)) {
     return { code: "AUTH_FAILED", deterministic: true };
   }
-  if (/40200|402|credit|quota exhausted/i.test(message)) {
+  if (/(?:monthly|per-run)\s+budget exceeded/i.test(message)) {
+    return { code: "BUDGET_EXCEEDED", deterministic: true };
+  }
+  if (/40200|402|credit|quota exhausted|insufficient funds/i.test(message)) {
     return { code: "CREDITS_UNAVAILABLE", deterministic: true };
   }
   // Ordinary transport/upstream failures remain retryable.

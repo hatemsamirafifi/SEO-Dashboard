@@ -2,7 +2,7 @@ import { passthroughSchema } from "./cache-service";
 import { SeoCacheService } from "./cache-service";
 import { singleFlight } from "./single-flight";
 import {
-  isDataforseoBudgetAvailable,
+  assertDataforseoBudgetAvailable,
   recordCacheHit,
   recordCacheMiss,
   recordDataforseoCall,
@@ -251,10 +251,7 @@ function isProviderEnabled(
  * implementation to enforce daily/monthly budget limits before making a call.
  */
 export async function withBudgetGuard<T>(fn: () => Promise<T>): Promise<T> {
-  const available = await isDataforseoBudgetAvailable();
-  if (!available) {
-    throw new BudgetExceededError("daily", 0, 0);
-  }
+  await assertDataforseoBudgetAvailable();
   return fn();
 }
 

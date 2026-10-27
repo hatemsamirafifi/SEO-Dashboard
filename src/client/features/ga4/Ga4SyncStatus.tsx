@@ -1,11 +1,20 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { getGa4SyncStatus, triggerGa4Sync } from "@/serverFunctions/ga4";
 import { syncStatusCopy, toSyncStatusView } from "./syncStatusCopy";
 
-export function Ga4SyncStatus({ projectId }: { projectId: string }) {
+export function Ga4SyncStatus({
+  projectId,
+  className,
+  variant = "default",
+}: {
+  projectId: string;
+  className?: string;
+  variant?: "default" | "header";
+}) {
   const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: ["ga4SyncStatus", projectId],
@@ -48,8 +57,53 @@ export function Ga4SyncStatus({ projectId }: { projectId: string }) {
           }),
         );
 
+  const isSyncing = trigger.isPending || (status.data?.isRunning ?? false);
+
+  if (variant === "header") {
+    return (
+      <div className={`flex flex-wrap items-center gap-3 ${className ?? ""}`}>
+        {status.isLoading ? (
+          <span className="loading loading-spinner loading-sm" />
+        ) : (
+          <>
+            {copy.headline ? (
+              <span className="text-xs sm:text-sm text-base-content/70">
+                {copy.headline}
+              </span>
+            ) : null}
+            {copy.showRetry ? (
+              <button
+                className="btn btn-outline btn-sm"
+                type="button"
+                onClick={() => void status.refetch()}
+              >
+                Retry
+              </button>
+            ) : null}
+            {copy.showTrigger ? (
+              <button
+                className="btn btn-outline btn-sm gap-1.5"
+                type="button"
+                disabled={copy.triggerDisabled || isSyncing}
+                onClick={() => trigger.mutate()}
+                title="Synchronize Google Analytics 4 data to database"
+              >
+                <RefreshCw
+                  className={`size-3.5 ${isSyncing ? "animate-spin" : ""}`}
+                />
+                {isSyncing ? "Syncing…" : "Sync now"}
+              </button>
+            ) : null}
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-2 border-t border-base-300 pt-4">
+    <div
+      className={`space-y-2 border-t border-base-300 pt-4 ${className ?? ""}`}
+    >
       <h3 className="text-sm font-semibold">Data sync</h3>
       {status.isLoading ? (
         <span className="loading loading-spinner loading-sm" />
@@ -70,12 +124,15 @@ export function Ga4SyncStatus({ projectId }: { projectId: string }) {
             ) : null}
             {copy.showTrigger ? (
               <button
-                className="btn btn-outline btn-sm"
+                className="btn btn-outline btn-sm gap-1.5"
                 type="button"
-                disabled={copy.triggerDisabled || trigger.isPending}
+                disabled={copy.triggerDisabled || isSyncing}
                 onClick={() => trigger.mutate()}
               >
-                {trigger.isPending ? "Syncing…" : "Sync now"}
+                <RefreshCw
+                  className={`size-3.5 ${isSyncing ? "animate-spin" : ""}`}
+                />
+                {isSyncing ? "Syncing…" : "Sync now"}
               </button>
             ) : null}
           </div>

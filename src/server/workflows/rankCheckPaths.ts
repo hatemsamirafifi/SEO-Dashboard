@@ -474,6 +474,8 @@ async function checkBatchLive(
         }
         firstError ??= reason;
         const statusCode = parseDataforseoStatusCode(outcome.reason);
+        const lastDispatchedCall =
+          calls.filter((c) => c.dispatched).at(-1) ?? calls.at(-1);
         chunkSnapshotRows.push({
           runId: ctx.runId,
           projectId: ctx.projectId,
@@ -491,9 +493,9 @@ async function checkBatchLive(
           rankingStatus: "CHECK_FAILED",
           url: null,
           serpFeatures: null,
-          provider: calls.at(-1)?.provider ?? "dataforseo",
+          provider: lastDispatchedCall?.provider ?? "dataforseo",
           providerStatus: reason,
-          providerStatusCode: calls.at(-1)?.httpStatus ?? statusCode,
+          providerStatusCode: lastDispatchedCall?.httpStatus ?? statusCode,
           errorMessage: reason,
         });
       }

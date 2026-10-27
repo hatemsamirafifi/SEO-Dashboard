@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 /**
  * GA4 Analytics E2E test fixtures.
  *
@@ -19,6 +20,7 @@ export function getFixtureGa4Connection() {
     propertyId: FIXTURE_PROPERTY_ID,
     propertyDisplayName: "OpenSEO Production Store",
     connectedAt: "2026-09-01 00:00:00",
+    connectedByEmail: "fixture-user@example.com",
   };
 }
 

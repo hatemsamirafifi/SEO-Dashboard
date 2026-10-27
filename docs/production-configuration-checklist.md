@@ -85,8 +85,7 @@ shown above.
 ```env
 DATAFORSEO_API_KEY=           # base64 of login:password — see docs/DATAFORSEO_API_KEY.md
 DATAFORSEO_ENABLED=           # default true outside compose.dev; local dev defaults false
-DATAFORSEO_DAILY_BUDGET=      # USD; blocks calls with a structured budget-exceeded result
-DATAFORSEO_MONTHLY_BUDGET=    # USD
+DATAFORSEO_MONTHLY_BUDGET=    # USD; blocks calls with structured budget-exceeded result (daily cap removed)
 ```
 
 - **Cache-first**: the DataRouter serves from R2/D1 caches before any paid
