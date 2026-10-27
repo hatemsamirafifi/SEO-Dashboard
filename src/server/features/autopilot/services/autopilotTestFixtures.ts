@@ -78,6 +78,9 @@ export function makeOpportunity(
     completedAt: null,
     dismissedAt: null,
     dismissalReason: null,
+    // Spec 021 triage columns.
+    assignee: null,
+    effort: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,

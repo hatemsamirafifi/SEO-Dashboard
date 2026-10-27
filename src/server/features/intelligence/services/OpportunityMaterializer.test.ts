@@ -74,6 +74,7 @@ beforeAll(async () => {
   for (const file of [
     "drizzle/0053_minor_korath.sql",
     "drizzle/0054_mighty_mole_man.sql",
+    "drizzle/0071_next_actions_triage.sql",
   ]) {
     const migration = readFileSync(resolve(process.cwd(), file), "utf8");
     for (const statement of migration

@@ -214,6 +214,9 @@ describe("startAutopilotRun", () => {
       state: "READY",
       latestVerdict: null,
     });
+    // Fresh relative to the wall clock: the service gates on a 28-day
+    // freshness window against Date.now(), so a fixed date goes stale.
+    const freshIso = new Date().toISOString();
     await OpportunityRepository.insertIgnoreConflict({
       id: "op-gap-1",
       projectId: BASE.projectId,
@@ -231,8 +234,8 @@ describe("startAutopilotRun", () => {
       explanationFact: "Competitor ranks at position 2",
       recommendation: "Create content",
       evidenceJson: "{}",
-      firstDetectedAt: "2026-09-28T00:00:00.000Z",
-      lastDetectedAt: "2026-09-28T00:00:00.000Z",
+      firstDetectedAt: freshIso,
+      lastDetectedAt: freshIso,
     });
     const { runId } = await AutopilotService.startAutopilotRun({
       ...BASE,

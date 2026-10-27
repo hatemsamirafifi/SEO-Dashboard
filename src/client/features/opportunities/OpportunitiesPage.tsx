@@ -104,6 +104,10 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
   const [pageFilter, setPageFilter] = useState("");
   const [keywordFilter, setKeywordFilter] = useState("");
   const [search, setSearch] = useState("");
+  // Spec 021: recency + reopened dimensions ride the same server-side
+  // contract; "reopened" is the stored recurrence chain, never a guess.
+  const [recentDaysFilter, setRecentDaysFilter] = useState<string>("all");
+  const [reopenedOnly, setReopenedOnly] = useState(false);
 
   const priorityParam = toPriorityParam(priorityFilter);
   const serverFilters = {
@@ -113,6 +117,10 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
     ...(sourceFilter === "all" ? {} : { source: sourceFilter }),
     ...(pageFilter.trim() ? { page: pageFilter.trim() } : {}),
     ...(keywordFilter.trim() ? { keyword: keywordFilter.trim() } : {}),
+    ...(recentDaysFilter === "all"
+      ? {}
+      : { recentDays: Number(recentDaysFilter) }),
+    ...(reopenedOnly ? { reopened: true } : {}),
   };
   const listQuery = useQuery({
     queryKey: ["opportunities", projectId, serverFilters],
@@ -132,7 +140,9 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
     sourceFilter !== "all" ||
     pageFilter.trim() !== "" ||
     keywordFilter.trim() !== "" ||
-    search.trim() !== "";
+    search.trim() !== "" ||
+    recentDaysFilter !== "all" ||
+    reopenedOnly;
   const view = toOpportunitiesPageView({
     isPending: listQuery.isPending,
     isError: listQuery.isError,
@@ -150,6 +160,8 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
     setPageFilter("");
     setKeywordFilter("");
     setSearch("");
+    setRecentDaysFilter("all");
+    setReopenedOnly(false);
   };
   return (
     <div className="overflow-auto px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
@@ -265,6 +277,26 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              <select
+                aria-label="Filter by recency"
+                className="select select-bordered select-sm"
+                value={recentDaysFilter}
+                onChange={(e) => setRecentDaysFilter(e.target.value)}
+              >
+                <option value="all">Any time</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+              </select>
+              <label className="label cursor-pointer gap-2 text-sm">
+                <span>Reopened only</span>
+                <input
+                  type="checkbox"
+                  className="checkbox checkbox-sm"
+                  checked={reopenedOnly}
+                  onChange={(e) => setReopenedOnly(e.target.checked)}
+                />
+              </label>
               {isFiltering ? (
                 <button
                   type="button"

@@ -33,6 +33,7 @@ import {
   type StepRunner,
 } from "./stepSupport";
 import { parseStoredPin } from "./synthesisFirewall";
+import { appendCompletionEvidence } from "./opportunityEvidenceLoop";
 
 export type { AttemptOutcome, StepRunner } from "./stepSupport";
 
@@ -319,6 +320,24 @@ export async function driveRunToCompletion(
         { workflow_type: input.workflow.type, attempts: attemptNumber },
         input.projectId,
       );
+      // Spec 021 (FR-007): close the loop — every occurrence a step
+      // referenced gets one completion-evidence event. Isolated: a failing
+      // append never changes the (already persisted) run outcome.
+      try {
+        const steps = await AutopilotRepository.listStepsByAttempt(attemptId);
+        await appendCompletionEvidence({
+          runId: input.runId,
+          attemptId,
+          projectId: input.projectId,
+          workflowType: input.workflow.type,
+          steps,
+        });
+      } catch (error) {
+        console.error(
+          `[autopilot:${input.runId}] completion evidence loop failed:`,
+          error,
+        );
+      }
       return { status: "completed", evidenceHash: outcome.evidenceHash };
     }
     if (outcome.outcome === "cancelled") return { status: "cancelled" };

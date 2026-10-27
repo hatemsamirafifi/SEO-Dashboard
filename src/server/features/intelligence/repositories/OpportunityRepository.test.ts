@@ -71,15 +71,17 @@ function occurrence(
 beforeAll(async () => {
   if (!database.client) throw new Error("Test database was not initialized");
   await database.client.execute("PRAGMA foreign_keys = OFF");
-  const migration = readFileSync(
-    resolve(process.cwd(), "drizzle/0054_mighty_mole_man.sql"),
-    "utf8",
-  );
-  for (const statement of migration
-    .split("--> statement-breakpoint")
-    .map((part) => part.trim())
-    .filter(Boolean)) {
-    await database.client.execute(statement);
+  for (const file of [
+    "drizzle/0054_mighty_mole_man.sql",
+    "drizzle/0071_next_actions_triage.sql",
+  ]) {
+    const migration = readFileSync(resolve(process.cwd(), file), "utf8");
+    for (const statement of migration
+      .split("--> statement-breakpoint")
+      .map((part) => part.trim())
+      .filter(Boolean)) {
+      await database.client.execute(statement);
+    }
   }
   await database.client.execute(
     `CREATE TABLE IF NOT EXISTS projects (
