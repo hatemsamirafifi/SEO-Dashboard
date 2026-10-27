@@ -137,8 +137,19 @@ export async function discoverAccessibleCustomers(input: {
       try {
         customer = await client.getCustomer(customerId);
       } catch (error) {
-        failure = googleAdsFailure(error);
-        break;
+        const classified = googleAdsFailure(error);
+        if (
+          classified.errorClass === "OAUTH_TOKEN_FAILURE" ||
+          classified.errorClass === "OAUTH_TOKEN_INVALID" ||
+          classified.errorClass === "API_ACCESS_RESTRICTED"
+        ) {
+          failure = classified;
+          break;
+        }
+        // An individual root customer that is deactivated, not enabled, or
+        // inaccessible is skipped so remaining active accounts can be found.
+        skippedCustomers += 1;
+        continue;
       }
       if (!customer) {
         skippedCustomers += 1;

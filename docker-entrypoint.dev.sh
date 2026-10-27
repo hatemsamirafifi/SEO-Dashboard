@@ -28,7 +28,7 @@ fi
 # skipped. `yes` auto-confirms wrangler's interactive "apply N migrations?"
 # prompt so the container doesn't hang on stdin.
 echo "[dev] Applying local D1 migrations (wrangler d1 migrations apply DB --local)..."
-yes | pnpm run db:migrate:local || {
+timeout 15 pnpm run db:migrate:local </dev/null || {
   echo "[dev] D1 migration check skipped (database may not exist on first boot; it will be created by Wrangler)."
 }
 

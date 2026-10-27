@@ -359,6 +359,7 @@ async function readErrorBody(response: Response): Promise<unknown> {
 
 async function parseApiError(response: Response): Promise<never> {
   const body = await readErrorBody(response);
+  console.error("[GoogleAdsApiError]", response.status, JSON.stringify(body, null, 2));
   const parsed = googleErrorBodySchema.safeParse(body);
   const upstreamErrorCode = parsed.success
     ? parsed.data.error?.details?.[0]?.errors?.[0]?.errorCode
@@ -1036,6 +1037,14 @@ export function classifyGoogleAdsError(
         errorClass: "QUOTA_EXHAUSTED",
         message:
           "Google Ads API quota exhausted. The quota window must reset before another attempt can succeed.",
+        retryable: false,
+      };
+    }
+    if (code === "AuthorizationError.CUSTOMER_NOT_ENABLED") {
+      return {
+        errorClass: "CUSTOMER_NOT_ENABLED",
+        message:
+          "This Google Ads customer account is deactivated, cancelled or not yet enabled.",
         retryable: false,
       };
     }

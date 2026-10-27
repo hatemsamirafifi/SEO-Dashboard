@@ -284,7 +284,7 @@ function buildDailyQuery(
   );
   const value = [
     "SELECT",
-    ...fields.map((field) => `  ${field}`),
+    fields.map((field) => `  ${field}`).join(",\n"),
     `FROM ${fromResource}`,
     ...where,
   ].join("\n");

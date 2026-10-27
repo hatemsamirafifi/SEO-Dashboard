@@ -96,6 +96,34 @@ describe("Google Ads direct account discovery", () => {
     expect(result.partial).toBe(false);
   });
 
+  it("skips deactivated or inaccessible root customers and discovers the active ones", async () => {
+    mocks.listForUser.mockResolvedValue([
+      { accountId: "google-sub-1", scope: ADWORDS_SCOPE },
+    ]);
+    setGoogleAdsScenario({
+      accessible: { "google-sub-1": ["deactivated-1", CUSTOMER_ID] },
+      customers: {
+        [CUSTOMER_ID]: { customerId: CUSTOMER_ID, displayName: "Active store" },
+      },
+      customerErrors: {
+        "deactivated-1": new GoogleAdsApiError(
+          403,
+          "Google Ads API error (403).",
+          "AuthorizationError.CUSTOMER_NOT_ENABLED",
+        ),
+      },
+    });
+
+    const result = await discoverAccessibleCustomers({ userId: "user-1" });
+
+    expect(result.grants).toHaveLength(1);
+    expect(result.grants[0]?.customers).toHaveLength(1);
+    expect(result.grants[0]?.customers[0]?.customerId).toBe(CUSTOMER_ID);
+    expect(result.grants[0]?.failure).toBeNull();
+    expect(result.skippedCustomers).toBe(1);
+    expect(result.partial).toBe(true);
+  });
+
   it("never probes a grant without Ads consent", async () => {
     mocks.listForUser.mockResolvedValue([
       { accountId: "google-sub-1", scope: "openid email" },

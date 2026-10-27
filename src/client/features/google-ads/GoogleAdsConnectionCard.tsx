@@ -61,6 +61,7 @@ export function GoogleAdsConnectionCard({ projectId }: { projectId: string }) {
     queryKey: ["googleAdsDiscovery", projectId],
     queryFn: () => discoverGoogleAdsCustomers({ data: { projectId } }),
     enabled: Boolean(showPicker || (connected && picking)),
+    staleTime: 0,
   });
 
   const invalidate = (message: string) => {
@@ -243,12 +244,29 @@ function AccountPicker({
                 Grant {formatGoogleAdsCustomerId(grant.grantAccountId)}
               </p>
               {grant.failure ? (
-                <div className="alert alert-warning items-start py-2 text-xs">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                  <span>
-                    This Google account could not be probed:{" "}
-                    {grant.failure.errorClass}
-                  </span>
+                <div className="alert alert-warning items-start justify-between py-2 text-xs">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                    <div>
+                      <p className="font-semibold">
+                        This Google account could not be probed:{" "}
+                        {grant.failure.errorClass}
+                      </p>
+                      {grant.failure.message ? (
+                        <p className="mt-0.5 text-base-content/70">
+                          {grant.failure.message}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-outline btn-xs shrink-0"
+                    type="button"
+                    onClick={() => void discovery.refetch()}
+                    disabled={discovery.isFetching}
+                  >
+                    {discovery.isFetching ? "Retrying…" : "Retry"}
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-1.5">

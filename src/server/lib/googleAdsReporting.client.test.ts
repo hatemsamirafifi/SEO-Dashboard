@@ -506,7 +506,7 @@ describe("Google Ads v26 daily reporting client", () => {
       { startDate: "2026-13-01", endDate: "2026-09-30" },
       { startDate: "2026-02-30", endDate: "2026-09-30" },
       { startDate: "2022-09-01", endDate: "2026-09-30" },
-      { endDate: "2026-10-27" },
+      { endDate: "2099-01-01" },
       { loginCustomerId: "123" },
     ];
     for (const override of badWindows) {

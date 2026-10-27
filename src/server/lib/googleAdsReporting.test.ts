@@ -224,6 +224,14 @@ describe("fixed daily report queries", () => {
       expect(built.value).toContain(
         `WHERE segments.date BETWEEN '${OK_START}' AND '${OK_END}'`,
       );
+    
+      // GAQL SELECT clause fields must be comma-separated without a trailing comma before FROM.
+      const [selectPart] = built.value.split(/\nFROM\s+/);
+      const selectLines = selectPart.split("\n").slice(1);
+      for (let i = 0; i < selectLines.length - 1; i++) {
+        expect(selectLines[i].trim().endsWith(",")).toBe(true);
+      }
+      expect(selectLines[selectLines.length - 1].trim().endsWith(",")).toBe(false);
     },
   );
 
