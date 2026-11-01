@@ -1,3 +1,25 @@
+
+/**
+ * Safely decodes percent-encoded URLs and embedded URL slugs in arbitrary
+ * text (e.g. Arabic or non-ASCII slugs), while gracefully handling non-hex
+ * '%' characters (like "15% drop") without throwing URIError.
+ */
+export function safeDecodeUrlText(text: string | null | undefined): string {
+  if (!text) return "";
+  if (!text.includes("%")) return text;
+  try {
+    return decodeURI(text);
+  } catch {
+    return text.replace(/(?:%[0-9a-fA-F]{2})+/g, (match) => {
+      try {
+        return decodeURIComponent(match);
+      } catch {
+        return match;
+      }
+    });
+  }
+}
+
 import { ExternalLink } from "lucide-react";
 
 export function formatUrlForDisplay(value: string): string {

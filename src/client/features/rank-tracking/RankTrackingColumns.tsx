@@ -11,6 +11,8 @@ import {
   DifficultyCell,
   SerpFeatureTags,
   VolumeCell,
+  UpdatedCell,
+  getLatestCheckedAt,
 } from "./RankTrackingTableParts";
 import type { SelectionAnchor } from "@/client/components/table/tableSelection";
 
@@ -25,6 +27,7 @@ const HEADER_TOOLTIPS: Record<string, string> = {
     "Current Google ranking position, showing change from the comparison period",
   url: "The page on your site that ranks for this keyword",
   serp: "Special result features appearing on the search results page (e.g. AI Overview, People Also Ask)",
+  updated: "When this keyword's ranking position was last checked",
 };
 
 export function SortableHeader({
@@ -224,6 +227,27 @@ function makeSerpColumn(
   };
 }
 
+function makeUpdatedColumn(
+  showDesktop: boolean,
+  showMobile: boolean,
+): ColumnDef<RankTrackingRow> {
+  return {
+    id: "updated",
+    accessorFn: (row) =>
+      getLatestCheckedAt(row, showDesktop, showMobile) ?? undefined,
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Updated" id="updated" />
+    ),
+    size: 110,
+    minSize: 90,
+    maxSize: 160,
+    cell: ({ getValue }) => (
+      <UpdatedCell value={getValue<string | undefined>() ?? null} />
+    ),
+    sortUndefined: "last",
+  };
+}
+
 export function useRankTrackingColumns(options: {
   showDesktop: boolean;
   showMobile: boolean;
@@ -267,6 +291,7 @@ export function useRankTrackingColumns(options: {
     if (showMobile) {
       cols.push(makeSerpColumn("mobile"));
     }
+    cols.push(makeUpdatedColumn(showDesktop, showMobile));
     return cols;
   }, [
     showDesktop,

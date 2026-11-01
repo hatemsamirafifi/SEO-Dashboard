@@ -34,6 +34,9 @@ export default defineConfig(({ mode }) => {
       allowedHosts,
       host: true,
       port,
+      hmr: {
+        overlay: false,
+      },
       watch: {
         ignored: [
           "**/.git/**",
@@ -87,13 +90,13 @@ export default defineConfig(({ mode }) => {
       showDevtools
         ? devtools({
             consolePiping: {
-              server: false,
+              enabled: false,
             },
           })
         : null,
       cloudflare({
-        persistState: false,
         configPath: "./wrangler.jsonc",
+        viteEnvironment: { name: "ssr" },
       }),
       tanstackStart(),
       tailwindcss(),

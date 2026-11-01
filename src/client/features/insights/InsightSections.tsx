@@ -15,6 +15,7 @@ import {
   getDashboardInsights,
 } from "@/serverFunctions/dashboard";
 import { listOpportunities } from "@/serverFunctions/opportunities";
+import { safeDecodeUrlText } from "@/client/features/opportunities/opportunitiesCopy";
 import {
   groupInsightsBySection,
   SECTION_META,
@@ -248,7 +249,7 @@ export function InsightSections({ projectId }: { projectId: string }) {
                         params={{ projectId, opportunityId: opp.id }}
                         className="block rounded-xl border border-base-300 bg-base-100 px-4 py-2 text-sm hover:border-primary/50"
                       >
-                        <span className="font-medium">{opp.title}</span>
+                        <span className="font-medium">{safeDecodeUrlText(opp.title)}</span>
                         <span className="ml-2 text-base-content/60">
                           {opp.priority} · impact {opp.impactScore}
                         </span>

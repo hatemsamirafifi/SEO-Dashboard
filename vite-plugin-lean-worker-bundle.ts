@@ -90,6 +90,20 @@ const EAGER_DENYLIST: Array<{ pattern: RegExp; expected: string }> = [
 ];
 
 /**
+ * Dependencies that must stay out of the browser's entry chunk. The whole app
+ * renders inside <ClientOnly>, so every page waits for that chunk to load.
+ */
+const CLIENT_ENTRY_DENYLIST: Array<{ pattern: RegExp; expected: string }> = [
+  {
+    pattern: /node_modules\/recharts\//,
+    expected:
+      "imported only from route components, which are code-split. Route " +
+      "options like loader and validateSearch are not, so they must import " +
+      "from chart-free modules",
+  },
+];
+
+/**
  * Keeps the worker's eager server bundle lean, in three parts:
  *
  * 1. `resolve.alias` stubs for packages that are pure dead weight (dead code
@@ -198,7 +212,7 @@ export function leanWorkerBundle(): Plugin {
       }
 
       const violations: string[] = [];
-      for (const rule of EAGER_DENYLIST) {
+      for (const rule of denylist) {
         for (const fileName of eager) {
           const hits =
             chunkAt(fileName)?.moduleIds.filter((id) =>

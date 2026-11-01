@@ -20,6 +20,7 @@ import {
   formatMissInfo,
   priorityBadgeClass,
   priorityLabel,
+  safeDecodeUrlText,
   statusBadgeClass,
   statusLabel,
   typeLabel,
@@ -141,13 +142,25 @@ export function OpportunityDetail({
             Occurrence #{row.occurrenceNumber}
           </span>
         </div>
-        <h1 className="mt-2 text-xl font-semibold">{row.title}</h1>
+        <h1 className="mt-2 text-xl font-semibold">{safeDecodeUrlText(row.title)}</h1>
         <p className="mt-1 text-sm text-base-content/70">
-          {row.explanationFact}
+          {safeDecodeUrlText(row.explanationFact)}
         </p>
         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-base-content/60">
-          {row.keyword ? <span>Keyword: {row.keyword}</span> : null}
-          {row.page ? <span className="truncate">Page: {row.page}</span> : null}
+          {row.keyword ? <span>Keyword: {safeDecodeUrlText(row.keyword)}</span> : null}
+          {row.page ? (
+            <span className="truncate">
+              Page:{' '}
+              <a
+                href={row.page}
+                target="_blank"
+                rel="noreferrer"
+                className="link link-hover"
+              >
+                {safeDecodeUrlText(row.page)}
+              </a>
+            </span>
+          ) : null}
           <span>Last seen {formatDateTime(row.lastDetectedAt)}</span>
           {missInfo ? <span className="text-warning">{missInfo}</span> : null}
           {row.recurrenceOfId ? (
@@ -171,7 +184,7 @@ export function OpportunityDetail({
       <section aria-label="Recommendation">
         <h2 className="mb-2 font-semibold">Recommendation</h2>
         <div className="rounded-xl border border-base-300 bg-base-100 p-4 text-sm">
-          {row.recommendation}
+          {safeDecodeUrlText(row.recommendation)}
         </div>
       </section>
 
@@ -186,7 +199,7 @@ export function OpportunityDetail({
                   params={{ projectId, opportunityId: candidate.id }}
                   className="block rounded-xl border border-base-300 bg-base-100 px-4 py-2 text-sm hover:border-primary/50"
                 >
-                  <span className="font-medium">{candidate.title}</span>
+                  <span className="font-medium">{safeDecodeUrlText(candidate.title)}</span>
                   <span className="ml-2 text-base-content/60">
                     {candidate.status} · occurrence #
                     {candidate.occurrenceNumber}

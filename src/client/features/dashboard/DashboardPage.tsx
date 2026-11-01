@@ -310,13 +310,6 @@ export function DashboardPage({ projectId }: { projectId: string }) {
       <div className="mx-auto flex max-w-5xl flex-col gap-5">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
 
-        <OnboardingChecklist projectId={projectId} activation={activation} />
-
-        <InsightSections projectId={projectId} />
-
-        {/* Spec 021: the unified action center over stored opportunities. */}
-        <NextActionsSection projectId={projectId} />
-
         {/* Every card is half width on large screens (only the checklist spans).
           Cards with data render before setup pitches and empty states. */}
         <div className="grid items-start gap-5 lg:grid-cols-2">
@@ -337,11 +330,20 @@ export function DashboardPage({ projectId }: { projectId: string }) {
                     ),
                   },
                 ]),
-            {
-              key: "gsc",
-              hasData: gscConnected,
-              node: <GscCard projectId={projectId} connected={gscConnected} />,
-            },
+            ...(!gscConnected
+              ? [
+                  {
+                    key: "gsc",
+                    hasData: false,
+                    node: (
+                      <GscCard
+                        projectId={projectId}
+                        connected={false}
+                      />
+                    ),
+                  },
+                ]
+              : []),
             {
               key: "audit",
               hasData: overview?.audit != null,
@@ -397,6 +399,13 @@ export function DashboardPage({ projectId }: { projectId: string }) {
             </div>
           </section>
         ) : null}
+
+        <InsightSections projectId={projectId} />
+
+        {/* Spec 021: the unified action center over stored opportunities. */}
+        <NextActionsSection projectId={projectId} />
+
+        <OnboardingChecklist projectId={projectId} activation={activation} />
       </div>
     </div>
   );

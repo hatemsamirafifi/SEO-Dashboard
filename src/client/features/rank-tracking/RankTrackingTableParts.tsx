@@ -260,6 +260,67 @@ export function CpcCell({ value }: { value: number | null }) {
   return <span className="font-mono text-sm">${value.toFixed(2)}</span>;
 }
 
+export function getLatestCheckedAt(
+  row: RankTrackingRow,
+  showDesktop: boolean,
+  showMobile: boolean,
+): string | null {
+  const d = row.desktop?.checkedAt ?? null;
+  const m = row.mobile?.checkedAt ?? null;
+  if (showDesktop && showMobile) {
+    if (!d) return m;
+    if (!m) return d;
+    return d > m ? d : m;
+  }
+  if (showDesktop) return d;
+  if (showMobile) return m;
+  return d ?? m;
+}
+
+export function formatUpdatedDate(dateStr: string): {
+  display: string;
+  full: string;
+} {
+  const isoStr =
+    dateStr.includes(" ") && !dateStr.includes("T")
+      ? dateStr.replace(" ", "T") + "Z"
+      : dateStr;
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) {
+    return { display: dateStr, full: dateStr };
+  }
+
+  const display = d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  const full = d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  return { display, full };
+}
+
+export function UpdatedCell({ value }: { value: string | null | undefined }) {
+  if (!value) return <span className="text-base-content/40">-</span>;
+  const { display, full } = formatUpdatedDate(value);
+  return (
+    <span
+      className="text-xs text-base-content/70 whitespace-nowrap cursor-help font-mono"
+      title={full}
+    >
+      {display}
+    </span>
+  );
+}
+
 /** Numeric change for CSV export — numbers bypass the CSV formula-injection sanitizer */
 export function csvChange(
   current: number | null,
