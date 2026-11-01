@@ -359,7 +359,7 @@ export async function resumeScan(
   });
 }
 
-/** Manual refresh bypasses `changed` but honors 1 per 15 min per project. */
+/** Manual refresh bypasses `changed` but honors 1 per 15 min per project (bypassed in dev/local mode). */
 export async function triggerManualScan(input: {
   projectId: string;
   organizationId: string;
@@ -367,7 +367,11 @@ export async function triggerManualScan(input: {
   fetchInput?: DetectorInputFetcher;
 }): Promise<ManualScanOutcome> {
   const latest = await ScanLedgerRepository.getLatestRun(input.projectId);
+  const isDevOrLocal =
+    process.env.NODE_ENV === "development" ||
+    process.env.AUTH_MODE === "local_noauth";
   if (
+    !isDevOrLocal &&
     latest &&
     latest.triggeredBy === "manual" &&
     Date.parse(latest.startedAt) > Date.now() - MANUAL_SCAN_LIMIT_MS

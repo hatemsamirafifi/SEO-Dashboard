@@ -10,6 +10,7 @@ import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4C
 import { Ga4SyncRepository } from "@/server/features/ga4/repositories/Ga4SyncRepository";
 import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
 import { GscSearchPerformanceRepository } from "@/server/features/gsc/repositories/GscSearchPerformanceRepository";
+import { resolveDateRange } from "@/server/features/gsc/searchAnalytics";
 import { previousPeriod } from "@/server/features/gsc/searchPerformanceReport";
 import { getDashboardInsights } from "@/server/features/intelligence/services/InsightService";
 import { listOpportunities } from "@/server/features/intelligence/services/OpportunityService";
@@ -161,6 +162,20 @@ async function getIntelligenceOverview(input: {
     to: prevPeriod.endDate,
   };
 
+  // GSC data has a 2-day finalization lag (GSC_DATA_LAG_DAYS = 2).
+  // Use resolveDateRange so GSC totals reflect the true 28-day finalized window,
+  // matching getSearchPerformanceReport and the Search performance card.
+  const gscRange = resolveDateRange({ dateRange: "last_28_days" });
+  const gscPrev = previousPeriod(gscRange.startDate, gscRange.endDate);
+  const gscCurrent: OverviewWindow = {
+    from: gscRange.startDate,
+    to: gscRange.endDate,
+  };
+  const gscPrevious: OverviewWindow = {
+    from: gscPrev.startDate,
+    to: gscPrev.endDate,
+  };
+
   const [
     seoPerformance,
     searchVisibility,
@@ -172,7 +187,7 @@ async function getIntelligenceOverview(input: {
     recentChanges,
   ] = await Promise.all([
     safeSection("gsc", () =>
-      getSeoPerformanceSection(input.projectId, current, previous),
+      getSeoPerformanceSection(input.projectId, gscCurrent, gscPrevious),
     ),
     safeSection("rank", () => getSearchVisibilitySection(input.projectId)),
     safeSection("ga4", () =>

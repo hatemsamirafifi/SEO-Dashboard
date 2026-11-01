@@ -52,6 +52,7 @@ const authContext: McpToolAuthContext = {
   userId: "user-1",
   userEmail: "user@example.com",
   organizationId: "org-1",
+  role: "owner",
   clientId: "client-1",
   scopes: ["mcp"],
   audience: "https://app.openseo.so/mcp",

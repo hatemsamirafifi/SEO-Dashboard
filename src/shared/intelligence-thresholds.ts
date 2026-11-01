@@ -131,7 +131,6 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     maxFirstPartyPosition: 20,
     minVolume: 50,
   },
-<<<<<<< HEAD
   // Spec 019: SERP pages observed together on the tracked keywords.
   // minKeywordThreshold: shared keywords before two pages form a cluster
   // (the bridge guard keeps weakly linked groups apart). minClusterPages:
@@ -153,7 +152,7 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     maxRunsRead: 200,
     smallSampleFloor: 5,
     frequentlyCitedMinRuns: 3,
-=======
+  },
   // Master plan phase 5 (google-ads): paid search terms/keywords whose spend
   // (base micros, account currency) or stored conversions meet a floor while
   // organic GSC visibility is weak or absent (striking-distance band or
@@ -177,7 +176,6 @@ export const DEFAULT_DETECTOR_THRESHOLDS: Record<string, DetectorThresholds> = {
     minPaidClicks: 25,
     severity: "critical",
     weakEngagementRate: 0.4,
->>>>>>> codex/google-ads-integration
   },
 };
 

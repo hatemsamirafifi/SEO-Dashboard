@@ -74,10 +74,13 @@ describe("Google connection MCP tools", () => {
       toolContext,
     );
 
+    const structured = result.structuredContent as {
+      accounts: Array<{
+        sites: Array<{ isSelected: boolean }>;
+      }>;
+    };
     expect(
-      result.structuredContent.accounts.map(
-        (account) => account.sites[0]?.isSelected,
-      ),
+      structured.accounts.map((account) => account.sites[0]?.isSelected),
     ).toEqual([false, true]);
   });
 

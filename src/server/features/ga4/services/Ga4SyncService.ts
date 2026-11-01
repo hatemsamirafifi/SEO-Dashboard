@@ -92,10 +92,12 @@ async function resolveSyncWindow(
   syncType: "initial" | "incremental" | "manual";
 }> {
   const todayUtc = today.toISOString().slice(0, 10);
-  if (options.startDate && options.endDate) {
-    const clampedEnd = options.endDate > todayUtc ? todayUtc : options.endDate;
+  if (options.startDate || options.endDate) {
+    const resolvedEnd = options.endDate ?? todayUtc;
+    const clampedEnd = resolvedEnd > todayUtc ? todayUtc : resolvedEnd;
+    const resolvedStart = options.startDate ?? clampedEnd;
     const clampedStart =
-      options.startDate > clampedEnd ? clampedEnd : options.startDate;
+      resolvedStart > clampedEnd ? clampedEnd : resolvedStart;
     return {
       startDate: clampedStart,
       endDate: clampedEnd,

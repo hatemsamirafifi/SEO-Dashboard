@@ -58,6 +58,7 @@ vi.mock("@/server/features/ga4/repositories/Ga4SyncRepository", () => ({
     getLatestSyncRun: vi.fn(),
     getActiveSyncRun: vi.fn(),
     getLastFullyCoveredDate: vi.fn(),
+    getStoredCoverageRange: vi.fn(),
   },
 }));
 

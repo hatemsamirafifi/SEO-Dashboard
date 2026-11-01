@@ -123,7 +123,9 @@ async function listSitesForUserWithGrantStatus(
           sites,
         };
       } catch (error) {
-        const apiDisabled = error instanceof GscApiError && error.apiDisabled;
+        const apiDisabled = Boolean(
+          error instanceof GscApiError && error.apiDisabled,
+        );
         const requiresReconnect = isExpectedGrantFailure(error) && !apiDisabled;
         if (!requiresReconnect) {
           console.error(

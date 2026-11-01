@@ -272,12 +272,7 @@ describe("SourceTokens selectors", () => {
       id: "run-empty",
       configId: "cfg-1",
       projectId: "project-1",
-<<<<<<< HEAD
       status: "partial",
-=======
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion, typescript/no-unsafe-assignment, typescript/no-explicit-any -- test simulation of a partial rank check run
-      status: "partial" as any,
->>>>>>> codex/google-ads-integration
       completedAt: "2026-01-02T00:00:00.000Z",
     });
     expect(await SourceTokens.selectRankVersion("project-1")).toBeNull();

@@ -1,13 +1,11 @@
+import type { ToolExtra } from "@/server/mcp/context";
 import {
   MCP_AUTH_CONTEXT_PROP,
   type McpToolAuthContext,
 } from "@/server/mcp/context";
 
-export interface ToolContext {
+export interface ToolContext extends ToolExtra {
   auth: McpToolAuthContext;
-  authInfo: {
-    extra: Record<string, unknown>;
-  };
 }
 
 export function makeToolContext(
@@ -28,7 +26,15 @@ export function makeToolContext(
 
   return {
     auth,
+    signal: new AbortController().signal,
+    requestId: 1,
+    sendNotification: async () => {},
+    sendRequest: async () => ({}) as never,
     authInfo: {
+      token: "token",
+      clientId: auth.clientId ?? "client_123",
+      scopes: [...auth.scopes],
+      resource: new URL(auth.baseUrl),
       extra: {
         [MCP_AUTH_CONTEXT_PROP]: auth,
       },

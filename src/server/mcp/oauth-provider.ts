@@ -349,6 +349,7 @@ async function handleOAuthConsentResponse(
     userId: context.userId,
     userEmail: context.userEmail,
     organizationId: context.organizationId,
+    role: (context as { role?: string }).role ?? "owner",
     clientId: authRequest.clientId,
     scopes,
     audience,
@@ -360,7 +361,8 @@ async function handleOAuthConsentResponse(
     request: authRequest,
     userId: context.userId,
     metadata: {
-      clientId: authRequest.clientId,
+      role: (context as { role?: string }).role ?? "owner",
+    clientId: authRequest.clientId,
       organizationId: context.organizationId,
     },
     scope: scopes,

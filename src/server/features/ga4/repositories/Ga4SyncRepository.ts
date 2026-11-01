@@ -1397,6 +1397,96 @@ async function getGoalConversions(input: {
   };
 }
 
+export interface Ga4StoredCoverageRange {
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+}
+
+async function getStoredCoverageRange(
+  projectId: string,
+  propertyId: string,
+): Promise<Ga4StoredCoverageRange | null> {
+  const [syncRuns, coverageRows, summaryRows] = await Promise.all([
+    db
+      .select({
+        status: ga4Syncs.status,
+        requestedStartDate: ga4Syncs.requestedStartDate,
+        requestedEndDate: ga4Syncs.requestedEndDate,
+      })
+      .from(ga4Syncs)
+      .where(
+        and(
+          eq(ga4Syncs.projectId, projectId),
+          eq(ga4Syncs.propertyId, propertyId),
+          inArray(ga4Syncs.status, ["completed", "partial"]),
+        ),
+      ),
+    db
+      .select({
+        minDate: sql<string | null>`min(${ga4SyncCoverage.date})`,
+        maxDate: sql<string | null>`max(${ga4SyncCoverage.date})`,
+        totalDays: sql<number>`count(distinct ${ga4SyncCoverage.date})`,
+      })
+      .from(ga4SyncCoverage)
+      .where(
+        and(
+          eq(ga4SyncCoverage.projectId, projectId),
+          eq(ga4SyncCoverage.propertyId, propertyId),
+          inArray(ga4SyncCoverage.status, [
+            "success_with_data",
+            "success_zero_rows",
+            "SUCCESS_WITH_DATA",
+            "SUCCESS_ZERO_ROWS",
+          ]),
+        ),
+      ),
+    db
+      .select({
+        minDate: sql<string | null>`min(${ga4DailySummary.date})`,
+        maxDate: sql<string | null>`max(${ga4DailySummary.date})`,
+      })
+      .from(ga4DailySummary)
+      .where(
+        and(
+          eq(ga4DailySummary.projectId, projectId),
+          eq(ga4DailySummary.propertyId, propertyId),
+        ),
+      ),
+  ]);
+
+  const minCandidates: string[] = [];
+  const maxCandidates: string[] = [];
+
+  for (const run of syncRuns) {
+    if (
+      run.status === "completed" &&
+      run.requestedStartDate &&
+      run.requestedEndDate
+    ) {
+      minCandidates.push(run.requestedStartDate);
+      maxCandidates.push(run.requestedEndDate);
+    }
+  }
+  if (coverageRows[0]?.minDate) minCandidates.push(coverageRows[0].minDate);
+  if (coverageRows[0]?.maxDate) maxCandidates.push(coverageRows[0].maxDate);
+  if (summaryRows[0]?.minDate) minCandidates.push(summaryRows[0].minDate);
+  if (summaryRows[0]?.maxDate) maxCandidates.push(summaryRows[0].maxDate);
+
+  if (minCandidates.length === 0 || maxCandidates.length === 0) {
+    return null;
+  }
+
+  minCandidates.sort();
+  maxCandidates.sort();
+
+  return {
+    startDate: minCandidates[0],
+    endDate: maxCandidates[maxCandidates.length - 1],
+    totalDays: Number(coverageRows[0]?.totalDays ?? 0),
+  };
+}
+
 export const Ga4SyncRepository = {
   getActiveSyncRun,
   getLatestSyncRun,
@@ -1408,6 +1498,7 @@ export const Ga4SyncRepository = {
   markUnits,
   getCoverageMap,
   getLastFullyCoveredDate,
+  getStoredCoverageRange,
   upsertSummaryRows,
   upsertAcquisitionRows,
   upsertLandingRows,

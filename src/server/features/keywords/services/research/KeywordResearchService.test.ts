@@ -4,6 +4,7 @@
 import type {
   AdsKeywordIdeaItem,
   LabsKeywordDataItem,
+  SerpLiveItem,
 } from "@/server/lib/dataforseo";
 import type { SEODataRequest } from "@/server/lib/seo-data";
 import { beforeEach, describe, expect, it, vi } from "vitest";

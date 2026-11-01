@@ -13,6 +13,7 @@ type McpAuth = {
   userId: string;
   userEmail: string;
   organizationId: string;
+  role?: string;
   scopes: string[];
   clientId: string | null;
   audience: string;
@@ -54,6 +55,7 @@ export function buildFirstPartyMcpAuthContext(input: {
   userId: string;
   userEmail: string;
   organizationId: string;
+  role?: string;
   baseUrl: string;
   scopes?: string[];
 }): McpToolAuthContext {
@@ -61,6 +63,7 @@ export function buildFirstPartyMcpAuthContext(input: {
     userId: input.userId,
     userEmail: input.userEmail,
     organizationId: input.organizationId,
+    role: input.role ?? "owner",
     clientId: null,
     scopes: input.scopes ?? [],
     audience: getMcpResource(input.baseUrl),

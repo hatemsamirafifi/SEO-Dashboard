@@ -5,7 +5,8 @@
 // gracefully (less text); a Browser Rendering upgrade can slot in behind this
 // same interface later.
 
-export { normalizeAndValidateStartUrl } from "@/server/lib/audit/url-policy";
+import { normalizeAndValidateStartUrl } from "@/server/lib/audit/url-policy";
+export { normalizeAndValidateStartUrl };
 
 export const MAX_PAGES = 5;
 const PER_PAGE_CHAR_LIMIT = 4000;

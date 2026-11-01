@@ -1,4 +1,56 @@
 const LOOPS_CONTACT_UPDATE_URL = "https://app.loops.so/api/v1/contacts/update";
+const LOOPS_EVENT_SEND_URL = "https://app.loops.so/api/v1/events/send";
+
+type LoopsEventPayload = {
+  email?: string;
+  userId?: string;
+  eventName: string;
+  eventProperties?: Record<string, unknown>;
+  mailingLists?: Record<string, boolean>;
+};
+
+export async function sendLoopsEvent({
+  apiKey,
+  payload,
+  idempotencyKey,
+  logContext,
+}: {
+  apiKey: string;
+  payload: LoopsEventPayload;
+  idempotencyKey?: string;
+  logContext?: Record<string, unknown>;
+}) {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+
+  if (idempotencyKey) {
+    headers["Idempotency-Key"] = idempotencyKey;
+  }
+
+  const response = await fetch(LOOPS_EVENT_SEND_URL, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (response.ok) {
+    return;
+  }
+
+  const errorPayload = await response.json().catch(() => null);
+  console.error("Loops send event error:", {
+    status: response.status,
+    email: payload.email,
+    userId: payload.userId,
+    eventName: payload.eventName,
+    ...logContext,
+    errorPayload,
+  });
+
+  throw new Error(`Failed to send Loops event (${response.status})`);
+}
 
 type LoopsContactProperty =
   | string
