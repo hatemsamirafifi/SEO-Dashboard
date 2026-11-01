@@ -69,8 +69,8 @@ export async function executeInBatches(
 }
 
 const MIGRATIONS = [
-  "drizzle/0064_google_ads_connections.sql",
-  "drizzle/0065_great_stature.sql",
+  "drizzle/0073_google_ads_connections.sql",
+  "drizzle/0074_great_stature.sql",
 ];
 
 const SYNC_TABLES = [

@@ -385,6 +385,13 @@
       "when": 1792862091005,
       "tag": "0053_futuristic_captain_cross",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792862091006,
+      "tag": "0054_indexnow_key",
+      "breakpoints": true
     }
   ]
 }

@@ -18,10 +18,10 @@ import {
   googleAdsPlannerObservations,
 } from "./google-ads-planner.schema";
 
-const SQLITE_MIGRATION = "drizzle/0066_broken_spot.sql";
-const PG_MIGRATION = "drizzle-pg/0044_futuristic_captain_cross.sql";
-const SQLITE_SNAPSHOT = "drizzle/meta/0066_snapshot.json";
-const PG_SNAPSHOT = "drizzle-pg/meta/0044_snapshot.json";
+const SQLITE_MIGRATION = "drizzle/0075_broken_spot.sql";
+const PG_MIGRATION = "drizzle-pg/0053_futuristic_captain_cross.sql";
+const SQLITE_SNAPSHOT = "drizzle/meta/0075_snapshot.json";
+const PG_SNAPSHOT = "drizzle-pg/meta/0053_snapshot.json";
 
 const NEW_TABLES = [
   "google_ads_planner_observations",
@@ -214,22 +214,22 @@ describe("Google Ads planner migration", () => {
 
   it("registers the migration in both dialect journals", () => {
     const sqliteEntry = journalEntries("drizzle/meta/_journal.json").find(
-      (entry) => entry.tag === "0066_broken_spot",
+      (entry) => entry.tag === "0075_broken_spot",
     );
     const pgEntry = journalEntries("drizzle-pg/meta/_journal.json").find(
-      (entry) => entry.tag === "0044_futuristic_captain_cross",
+      (entry) => entry.tag === "0053_futuristic_captain_cross",
     );
 
-    expect(sqliteEntry?.idx).toBe(66);
-    expect(pgEntry?.idx).toBe(44);
+    expect(sqliteEntry?.idx).toBe(75);
+    expect(pgEntry?.idx).toBe(53);
   });
 
   it("chains the new snapshots onto the analytics migration", () => {
     expect(snapshotString(SQLITE_SNAPSHOT, "prevId")).toBe(
-      snapshotString("drizzle/meta/0065_snapshot.json", "id"),
+      snapshotString("drizzle/meta/0074_snapshot.json", "id"),
     );
     expect(snapshotString(PG_SNAPSHOT, "prevId")).toBe(
-      snapshotString("drizzle-pg/meta/0043_snapshot.json", "id"),
+      snapshotString("drizzle-pg/meta/0052_snapshot.json", "id"),
     );
     for (const table of NEW_TABLES) {
       expect(snapshotTables(SQLITE_SNAPSHOT)).toContain(table);

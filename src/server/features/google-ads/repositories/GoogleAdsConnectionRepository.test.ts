@@ -36,7 +36,7 @@ import {
   type GoogleAdsConnectionInput,
 } from "./GoogleAdsConnectionRepository";
 
-const MIGRATION = "drizzle/0064_google_ads_connections.sql";
+const MIGRATION = "drizzle/0073_google_ads_connections.sql";
 
 function connection(
   overrides: Partial<GoogleAdsConnectionInput> = {},

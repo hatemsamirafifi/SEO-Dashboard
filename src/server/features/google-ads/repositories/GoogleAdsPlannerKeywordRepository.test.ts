@@ -57,7 +57,7 @@ vi.mock("@/db/runBatch", () => ({
   },
 }));
 
-const MIGRATIONS = ["drizzle/0066_broken_spot.sql"];
+const MIGRATIONS = ["drizzle/0075_broken_spot.sql"];
 
 const SCOPE: GoogleAdsPlannerScope = {
   projectId: "project-1",
