@@ -1,4 +1,4 @@
-CREATE TABLE `google_ads_connections` (
+CREATE TABLE IF NOT EXISTS `google_ads_connections` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -16,6 +16,6 @@ CREATE TABLE `google_ads_connections` (
 	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_connections_project_idx` ON `google_ads_connections` (`project_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_connections_organization_idx` ON `google_ads_connections` (`organization_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_connections_user_grant_idx` ON `google_ads_connections` (`connected_by_user_id`,`grant_account_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_connections_project_idx` ON `google_ads_connections` (`project_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_connections_organization_idx` ON `google_ads_connections` (`organization_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_connections_user_grant_idx` ON `google_ads_connections` (`connected_by_user_id`,`grant_account_id`);

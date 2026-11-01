@@ -26,7 +26,7 @@ interface CrawlWindowLimits {
 }
 
 export const CRAWL_WINDOW: CrawlWindowLimits = {
-  initial: 8,
+  initial: 4,
   min: 2,
   max: 25,
   budgetBytes: 48 * 1024 * 1024,

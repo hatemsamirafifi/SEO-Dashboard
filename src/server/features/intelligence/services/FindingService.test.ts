@@ -131,7 +131,7 @@ beforeAll(async () => {
        location_code INTEGER NOT NULL DEFAULT 2840,
        language_code TEXT NOT NULL DEFAULT 'en',
        created_at TEXT NOT NULL DEFAULT (current_timestamp),
-       archived_at TEXT
+       archived_at TEXT, indexnow_key TEXT
      )`,
   );
 });

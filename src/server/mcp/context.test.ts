@@ -10,6 +10,7 @@ const mcpContext = {
   userId: "user_123",
   userEmail: "alice@example.com",
   organizationId: "org_123",
+  role: "owner",
   clientId: "client_123",
   scopes: ["offline_access", "mcp"],
   audience: "https://open-seo.test/mcp",

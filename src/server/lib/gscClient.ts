@@ -14,6 +14,16 @@ export class GscApiError extends Error {
     super(message);
     this.name = "GscApiError";
   }
+
+  get apiDisabled(): boolean {
+    return Boolean(
+      this.status === 403 &&
+        this.body &&
+        (this.body.includes("SERVICE_DISABLED") ||
+          this.body.includes("has not been used in project") ||
+          this.body.includes("it is disabled")),
+    );
+  }
 }
 
 /** No fresh access token could be minted — the user revoked the grant, or the

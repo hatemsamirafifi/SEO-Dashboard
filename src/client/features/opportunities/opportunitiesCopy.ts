@@ -228,6 +228,28 @@ export function eventLabel(type: string): string {
   return EVENT_META[type]?.label ?? type;
 }
 
+/**
+ * Safely decodes percent-encoded URLs and embedded URL slugs in arbitrary
+ * text (e.g. Arabic or non-ASCII slugs), while gracefully handling non-hex
+ * '%' characters (like "15% drop") without throwing URIError.
+ */
+export function safeDecodeUrlText(text: string | null | undefined): string {
+  if (!text) return "";
+  if (!text.includes("%")) return text;
+  try {
+    return decodeURI(text);
+  } catch {
+    return text.replace(/(?:%[0-9a-fA-F]{2})+/g, (match) => {
+      try {
+        return decodeURIComponent(match);
+      } catch {
+        return match;
+      }
+    });
+  }
+}
+
+
 export type OpportunitiesPageView =
   | { kind: "loading" }
   | { kind: "error" }
@@ -273,7 +295,16 @@ export function applyClientFilters<Row extends OpportunityFilterRow>(
   const search = filters.search.trim().toLowerCase();
   return rows.filter((row) => {
     if (search) {
-      const haystack = [row.keyword, row.page, row.title, row.logicalKey]
+      const decodedTitle = safeDecodeUrlText(row.title);
+      const decodedPage = safeDecodeUrlText(row.page);
+      const haystack = [
+        row.keyword,
+        row.page,
+        decodedPage !== row.page ? decodedPage : null,
+        row.title,
+        decodedTitle !== row.title ? decodedTitle : null,
+        row.logicalKey,
+      ]
         .filter((part): part is string => typeof part === "string")
         .join(" ")
         .toLowerCase();

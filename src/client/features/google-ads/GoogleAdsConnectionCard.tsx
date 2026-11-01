@@ -31,6 +31,7 @@ import type {
 type DiscoveryQuery = {
   data?: GoogleAdsDiscoveryResponse;
   isLoading: boolean;
+  isFetching: boolean;
   isError: boolean;
   refetch: () => void;
 };

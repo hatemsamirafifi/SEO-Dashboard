@@ -4,16 +4,18 @@ import { ga4Connections } from "@/db/schema";
 
 export type Ga4Connection = typeof ga4Connections.$inferSelect;
 
-async function getByProjectId(projectId: string, organizationId: string) {
+async function getByProjectId(
+  projectId: string,
+  organizationId?: string,
+): Promise<Ga4Connection | null> {
+  const conditions = [eq(ga4Connections.projectId, projectId)];
+  if (organizationId) {
+    conditions.push(eq(ga4Connections.organizationId, organizationId));
+  }
   const rows = await db
     .select()
     .from(ga4Connections)
-    .where(
-      and(
-        eq(ga4Connections.projectId, projectId),
-        eq(ga4Connections.organizationId, organizationId),
-      ),
-    )
+    .where(and(...conditions))
     .limit(1);
   return rows[0] ?? null;
 }

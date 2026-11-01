@@ -3,6 +3,8 @@ import { AppError } from "@/server/lib/errors";
 import {
   createGa4Client,
   ga4ReportResultSchema,
+  Ga4ApiError,
+  Ga4TokenError,
   type Ga4Property,
   type Ga4ReportRequest,
   type Ga4ReportResult,
@@ -101,7 +103,7 @@ async function userHasGrant(userId: string) {
 }
 async function getConnection(
   projectId: string,
-  organizationId: string,
+  organizationId?: string,
 ): Promise<Ga4Connection | null> {
   return Ga4ConnectionRepository.getByProjectId(projectId, organizationId);
 }
@@ -121,6 +123,60 @@ async function listPropertiesForUser(
       })),
   );
 }
+
+async function listPropertiesForUserWithGrantStatus(userId: string) {
+  const userGrants = await grants(userId);
+  const accounts = await Promise.all(
+    userGrants.map(async (grant) => {
+      const client = createGa4Client({
+        userId,
+        ga4AccountId: grant.accountId,
+      });
+      try {
+        const properties = await client.listProperties();
+        let email: string | null = null;
+        if ("getUserInfoEmail" in client && typeof (client as any).getUserInfoEmail === "function") {
+          try {
+            email = await (client as any).getUserInfoEmail();
+          } catch {
+            email = null;
+          }
+        }
+        return {
+          accountId: grant.accountId,
+          email,
+          requiresReconnect: false,
+          propertiesUnavailable: false,
+          properties: properties.map((property) => ({
+            propertyId: property.propertyId,
+            displayName: property.displayName,
+            accountDisplayName: property.accountDisplayName ?? property.displayName,
+          })),
+        };
+      } catch (error) {
+        const reconnect =
+          error instanceof Ga4TokenError ||
+          (error instanceof Ga4ApiError && error.status === 401);
+        if (!reconnect) {
+          console.error("ga4.property_discovery_failed", {
+            accountId: grant.accountId,
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            status: error instanceof Ga4ApiError ? error.status : undefined,
+          });
+        }
+        return {
+          accountId: grant.accountId,
+          email: null,
+          requiresReconnect: reconnect,
+          propertiesUnavailable: !reconnect,
+          properties: [],
+        };
+      }
+    }),
+  );
+  return { accounts };
+}
+
 async function setProperty(input: {
   projectId: string;
   organizationId: string;
@@ -138,15 +194,18 @@ async function setProperty(input: {
     userId: input.userId,
     ga4AccountId: input.accountId,
   }).listProperties();
+  const normalizedInputId = input.propertyId.replace(/^properties\//, "");
   const property = properties.find(
-    (entry) => entry.propertyId === input.propertyId,
+    (entry) =>
+      entry.propertyId === normalizedInputId ||
+      entry.propertyId === input.propertyId,
   );
   if (!property)
     throw new AppError(
       "NOT_FOUND",
       "That Google Analytics property isn't available on your connected Google account.",
     );
-  return Ga4ConnectionRepository.upsert({
+  const row = await Ga4ConnectionRepository.upsert({
     projectId: input.projectId,
     organizationId: input.organizationId,
     connectedByUserId: input.userId,
@@ -156,6 +215,10 @@ async function setProperty(input: {
     currencyCode: property.currencyCode,
     hasEcommerce: false,
   });
+  return {
+    ...row,
+    connectedAccountEmail: null,
+  };
 }
 async function disconnect(input: {
   projectId: string;
@@ -184,6 +247,7 @@ export const Ga4Service = {
   userHasGrant,
   getConnection,
   listPropertiesForUser,
+  listPropertiesForUserWithGrantStatus,
   setProperty,
   disconnect,
   runReportForConnection,

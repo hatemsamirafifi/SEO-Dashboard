@@ -643,4 +643,63 @@ describe("Ga4SyncRepository readers and aggregation guards", () => {
     expect(stored).toHaveLength(1);
     expect(stored[0]).toMatchObject({ eventCount: 5, isKeyEvent: true });
   });
+
+  describe("Ga4SyncRepository.getStoredCoverageRange", () => {
+    it("returns null when no runs or coverage exist", async () => {
+      const result = await Ga4SyncRepository.getStoredCoverageRange(
+        PROJECT,
+        PROPERTY,
+      );
+      expect(result).toBeNull();
+    });
+
+    it("returns bounds from completed sync run and coverage rows", async () => {
+      const created = await Ga4SyncRepository.createSyncRun({
+        projectId: PROJECT,
+        propertyId: PROPERTY,
+        syncType: "manual",
+        requestedStartDate: "2025-01-01",
+        requestedEndDate: "2025-01-31",
+      });
+      if (!created.ok) throw new Error("Failed to create run");
+      await Ga4SyncRepository.updateSyncRun(created.sync.id, {
+        status: "completed",
+        successfulUnits: 31,
+      });
+
+      await Ga4SyncRepository.seedPendingUnits({
+        projectId: PROJECT,
+        propertyId: PROPERTY,
+        dates: ["2025-01-05", "2025-01-10"],
+        grains: ["summary"],
+      });
+
+      await Ga4SyncRepository.markUnits([
+        {
+          projectId: PROJECT,
+          propertyId: PROPERTY,
+          date: "2025-01-05",
+          grain: "summary",
+          status: "SUCCESS_WITH_DATA",
+        },
+        {
+          projectId: PROJECT,
+          propertyId: PROPERTY,
+          date: "2025-01-10",
+          grain: "summary",
+          status: "SUCCESS_ZERO_ROWS",
+        },
+      ]);
+
+      const result = await Ga4SyncRepository.getStoredCoverageRange(
+        PROJECT,
+        PROPERTY,
+      );
+      expect(result).toEqual({
+        startDate: "2025-01-01",
+        endDate: "2025-01-31",
+        totalDays: 2,
+      });
+    });
+  });
 });

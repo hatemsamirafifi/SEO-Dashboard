@@ -159,12 +159,14 @@ export const startSelfHostedGa4Link = createServerFn({ method: "POST" })
 export const triggerGa4Sync = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(triggerGa4SyncSchema)
-  .handler(async ({ context }) =>
+  .handler(async ({ data, context }) =>
     Ga4SyncService.runSync({
       projectId: context.projectId,
       organizationId: context.organizationId,
-      syncType: "manual",
-      force: true,
+      syncType: data.syncType ?? "manual",
+      force: data.force,
+      startDate: data.startDate,
+      endDate: data.endDate,
     }),
   );
 export const getGa4SyncStatus = createServerFn({ method: "POST" })
@@ -187,30 +189,73 @@ export const getGa4SyncStatus = createServerFn({ method: "POST" })
         activeSync: null,
         isRunning: false,
         lastFullyCoveredDate: null,
+        syncCoverage: null,
+        lastSyncedAt: null,
+        source: "database" as const,
       };
     }
-    const [latest, active, lastFullyCoveredDate] = await Promise.all([
-      Ga4SyncRepository.getLatestSyncRun(
-        context.projectId,
-        connection.propertyId,
-      ),
-      Ga4SyncRepository.getActiveSyncRun(
-        context.projectId,
-        connection.propertyId,
-      ),
-      Ga4SyncRepository.getLastFullyCoveredDate(
-        context.projectId,
-        connection.propertyId,
-        [...GA4_GRAINS],
-        new Date().toISOString().slice(0, 10),
-      ),
-    ]);
+    const [latest, active, lastFullyCoveredDate, storedCoverage] =
+      await Promise.all([
+        Ga4SyncRepository.getLatestSyncRun(
+          context.projectId,
+          connection.propertyId,
+        ),
+        Ga4SyncRepository.getActiveSyncRun(
+          context.projectId,
+          connection.propertyId,
+        ),
+        Ga4SyncRepository.getLastFullyCoveredDate(
+          context.projectId,
+          connection.propertyId,
+          [...GA4_GRAINS],
+          new Date().toISOString().slice(0, 10),
+        ),
+        Ga4SyncRepository.getStoredCoverageRange(
+          context.projectId,
+          connection.propertyId,
+        ),
+      ]);
+
+    const syncCoverage = (() => {
+      if (!latest && !storedCoverage) return null;
+
+      const covStartDate =
+        storedCoverage?.startDate ??
+        (latest?.status === "completed" ? latest.requestedStartDate : null);
+      const covEndDate =
+        storedCoverage?.endDate ??
+        lastFullyCoveredDate ??
+        (latest?.status === "completed" ? latest.requestedEndDate : null);
+
+      let status: "completed" | "partial" | "failed" | "running" = "completed";
+      if (active !== null) {
+        status = "running";
+      } else if (latest?.status === "failed") {
+        status = "failed";
+      } else if (latest?.status === "partial") {
+        status = "partial";
+      } else if (latest?.status === "completed") {
+        status = "completed";
+      }
+
+      return {
+        status,
+        startDate: covStartDate,
+        endDate: covEndDate,
+        rowsFetched: latest?.rowsFetched ?? 0,
+        rowsInserted: latest?.rowsInserted ?? 0,
+      };
+    })();
+
     return {
       connected: true as const,
       latestSync: latest,
       activeSync: active,
       isRunning: active !== null,
       lastFullyCoveredDate,
+      syncCoverage,
+      lastSyncedAt: latest?.completedAt ?? latest?.startedAt ?? null,
+      source: "database" as const,
     };
   });
 export const getPeriodUsers = createServerFn({ method: "POST" })

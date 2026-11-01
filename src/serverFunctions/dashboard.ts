@@ -1,32 +1,83 @@
 import { createServerFn } from "@tanstack/react-start";
 import { ActivationRepository } from "@/server/features/activation/repositories/ActivationRepository";
-import { DashboardService } from "@/server/features/dashboard/services/DashboardService";
+import { GscConnectionRepository } from "@/server/features/gsc/repositories/GscConnectionRepository";
 import { Ga4ConnectionRepository } from "@/server/features/ga4/repositories/Ga4ConnectionRepository";
-import { InsightService } from "@/server/features/intelligence/services/InsightService";
-import { requireProjectContext } from "@/serverFunctions/middleware";
+import {
+  InsightRepository,
+  type InsightRow,
+} from "@/server/features/intelligence/repositories/InsightRepository";
+import { ScanLedgerRepository } from "@/server/features/intelligence/repositories/ScanLedgerRepository";
+import { requireProjectContext } from "./middleware";
 import {
   dashboardProjectInputSchema,
   dismissInsightSchema,
 } from "@/types/schemas/dashboard";
 
+const INSIGHT_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+function parseStringList(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === "string");
+  } catch {
+    return [];
+  }
+}
+
+function isSnoozed(snoozedUntil: string | null, now: number): boolean {
+  if (!snoozedUntil) return false;
+  const ms = Date.parse(snoozedUntil);
+  return Number.isFinite(ms) && ms > now;
+}
+
+export type DashboardInsightView = InsightRow & {
+  updatedSinceDismiss: boolean;
+  findingKeys: string[];
+  opportunityIds: string[];
+  entityRefs: string[];
+  sources: string[];
+};
+
+export type DashboardBanner = {
+  skipped: Array<{ detectorKey: string; reason: string | null }>;
+  failed: Array<{ detectorKey: string; error: string | null }>;
+  lastCompletedAt: string | null;
+  hasSuccessfulScan: boolean;
+  stale: boolean;
+  ga4Connected: boolean;
+};
+
 export const getDashboardActivation = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
-  .handler(({ context }) =>
-    DashboardService.getActivation({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
+  .handler(async ({ context }) => {
+    const [gsc, orgActivation, projectActivation] = await Promise.all([
+      GscConnectionRepository.getByProjectId(context.projectId),
+      ActivationRepository.getOrganizationActivation(context.organizationId),
+      ActivationRepository.getProjectActivation(context.projectId),
+    ]);
+
+    return {
       domain: context.project.domain,
-    }),
-  );
+      gsc: { connected: gsc !== null, siteUrl: gsc?.siteUrl ?? null },
+      mcp: {
+        authorizedAt: orgActivation?.firstMcpAuthorizedAt ?? null,
+        firstToolCallAt: orgActivation?.firstMcpToolCallAt ?? null,
+        cardDismissedAt: projectActivation?.mcpCardDismissedAt ?? null,
+      },
+      competitorClickedAt: projectActivation?.competitorStepClickedAt ?? null,
+    };
+  });
 
 export const getDashboardOverview = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
   .handler(async ({ context }) => {
-    // Legacy overview (rank/audit/backlinks for existing cards and report
-    // snapshots) merged additively with the A0 intelligence rollup. The merge
-    // re-reads stored summaries; a later package consolidates the two paths.
+    const { DashboardService } = await import(
+      "@/server/features/dashboard/services/DashboardService"
+    );
     const [legacy, intelligence] = await Promise.all([
       DashboardService.getOverview({
         projectId: context.projectId,
@@ -50,13 +101,16 @@ export const refreshDashboardBacklinkSnapshot = createServerFn({
 })
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
-  .handler(({ context }) =>
-    DashboardService.ensureBacklinkSnapshot({
+  .handler(async ({ context }) => {
+    const { DashboardService } = await import(
+      "@/server/features/dashboard/services/DashboardService"
+    );
+    return DashboardService.ensureBacklinkSnapshot({
       projectId: context.projectId,
       domain: context.project.domain,
       billingCustomer: context,
-    }),
-  );
+    });
+  });
 
 export const markDashboardCompetitorClicked = createServerFn({
   method: "POST",
@@ -88,27 +142,78 @@ export const getDashboardInsights = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
   .handler(async ({ context }) => {
-    const connection = await Ga4ConnectionRepository.getByProjectId(
-      context.projectId,
-      context.organizationId,
-    );
-    return InsightService.getDashboardInsights({
-      projectId: context.projectId,
-      organizationId: context.organizationId,
-      userId: context.userId,
-      ga4Connected: connection !== null,
-    });
+    const now = Date.now();
+    const [connection, rows, prefs, latest, lastSuccess] = await Promise.all([
+      Ga4ConnectionRepository.getByProjectId(
+        context.projectId,
+        context.organizationId,
+      ),
+      InsightRepository.listVisibleByProject(context.projectId),
+      InsightRepository.listPreferencesByProject(context.userId, context.projectId),
+      ScanLedgerRepository.getLatestRun(context.projectId),
+      ScanLedgerRepository.getLatestSuccessfulRun(context.projectId),
+    ]);
+
+    const prefByKey = new Map(prefs.map((pref) => [pref.insightKey, pref]));
+    const insights: DashboardInsightView[] = [];
+    let dismissedCount = 0;
+
+    for (const row of rows) {
+      const pref = prefByKey.get(row.insightKey);
+      const dismissedVersion = pref?.dismissedContentVersion ?? 0;
+      const snoozed = isSnoozed(pref?.snoozedUntil ?? null, now);
+      if (dismissedVersion >= row.contentVersion || snoozed) {
+        dismissedCount += 1;
+        continue;
+      }
+      insights.push({
+        ...row,
+        updatedSinceDismiss:
+          dismissedVersion > 0 && dismissedVersion < row.contentVersion,
+        findingKeys: parseStringList(row.findingKeysJson),
+        opportunityIds: parseStringList(row.opportunityIdsJson),
+        entityRefs: parseStringList(row.entityRefsJson),
+        sources: parseStringList(row.sourcesJson),
+      });
+    }
+
+    const outcomes = latest
+      ? await ScanLedgerRepository.getDetectorOutcomes(latest.id)
+      : [];
+    const lastCompletedAt = lastSuccess?.completedAt ?? null;
+
+    return {
+      insights,
+      dismissedCount,
+      banner: {
+        skipped: outcomes
+          .filter((o) => o.status === "skipped")
+          .map((o) => ({ detectorKey: o.detectorKey, reason: o.skipReason })),
+        failed: outcomes
+          .filter((o) => o.status === "failed")
+          .map((o) => ({ detectorKey: o.detectorKey, error: o.error })),
+        lastCompletedAt,
+        hasSuccessfulScan: lastCompletedAt !== null,
+        stale:
+          !lastCompletedAt ||
+          now - Date.parse(lastCompletedAt) > INSIGHT_STALE_AFTER_MS,
+        ga4Connected: connection !== null,
+      },
+    };
   });
 
 export const dismissInsight = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(dismissInsightSchema)
-  .handler(async ({ context, data }) =>
-    InsightService.dismissInsight({
+  .handler(async ({ context, data }) => {
+    const { InsightService } = await import(
+      "@/server/features/intelligence/services/InsightService"
+    );
+    return InsightService.dismissInsight({
       projectId: context.projectId,
       organizationId: context.organizationId,
       userId: context.userId,
       insightKey: data.insightKey,
       snoozedUntil: data.snoozedUntil,
-    }),
-  );
+    });
+  });

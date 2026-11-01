@@ -2,6 +2,7 @@ import { consistencyBanner, type ReportPayload } from "@/shared/reports";
 import {
   priorityBadgeClass,
   priorityLabel,
+  safeDecodeUrlText,
   statusBadgeClass,
   statusLabel,
 } from "@/client/features/opportunities/opportunitiesCopy";
@@ -302,9 +303,9 @@ function OpportunitiesSection({ payload }: { payload: ReportPayload }) {
                   {statusLabel(opportunity.status)}
                 </span>
               </div>
-              <p className="mt-1 font-medium">{opportunity.title}</p>
+              <p className="mt-1 font-medium">{safeDecodeUrlText(opportunity.title)}</p>
               <p className="text-sm text-base-content/70">
-                {opportunity.explanationFact}
+                {safeDecodeUrlText(opportunity.explanationFact)}
               </p>
             </li>
           ))}

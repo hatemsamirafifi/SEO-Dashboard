@@ -148,7 +148,7 @@ export type GscSyncResult = {
   lastSuccessfulDate?: string | null;
 };
 
-export const GSC_DATA_LAG_DAYS = 3;
+export const GSC_DATA_LAG_DAYS = 2;
 export const GSC_EXTENDED_LAG_SAFETY_DAYS = 7;
 const DEFAULT_CHUNK_DAYS = 7;
 const GSC_SYNC_FETCH_LIMIT = 5000;
@@ -349,14 +349,15 @@ async function runSync(options: GscSyncOptions): Promise<GscSyncResult> {
   if (options.resume && sync.checkpoint) {
     try {
       const parsed: unknown = JSON.parse(sync.checkpoint);
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        "lastCompletedDate" in parsed
-      ) {
+      if (typeof parsed === "object" && parsed !== null) {
         const record = parsed as Record<string, unknown>;
-        if (typeof record.lastCompletedDate === "string") {
-          const lastDate = record.lastCompletedDate;
+        const lastDate = (record.lastCompletedChunk ??
+          record.lastCompletedDate ??
+          record.lastSuccessfulDate) as string | undefined;
+        if (
+          typeof lastDate === "string" &&
+          /^\d{4}-\d{2}-\d{2}$/.test(lastDate)
+        ) {
           chunks = chunks.filter((c) => c.startDate > lastDate);
         }
       }
@@ -388,15 +389,19 @@ async function runSync(options: GscSyncOptions): Promise<GscSyncResult> {
     const isSafeHistoricalChunk = chunk.endDate < safeFinalizedThreshold;
 
     try {
-      for (const grainConfig of GSC_GRAIN_CONFIGS) {
-        const res = await syncGrainForChunk({
-          client,
-          connection,
-          grainConfig,
-          chunk,
-          projectId: options.projectId,
-          searchType,
-        });
+      const grainResults = await Promise.all(
+        GSC_GRAIN_CONFIGS.map((grainConfig) =>
+          syncGrainForChunk({
+            client,
+            connection,
+            grainConfig,
+            chunk,
+            projectId: options.projectId,
+            searchType,
+          }),
+        ),
+      );
+      for (const res of grainResults) {
         chunkFacts.push(...res.facts);
         rowsFetched += res.fetched;
         rowsFailed += res.failed;

@@ -450,6 +450,8 @@ describe("monthly_review workflow", () => {
   });
 
   it("summarizes a two-window month with honest envelopes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-15T00:00:00.000Z"));
     vi.spyOn(reportSections, "collectSearchVisibility").mockImplementation(
       async (_projectId, from) =>
         from.startsWith("2026-09")

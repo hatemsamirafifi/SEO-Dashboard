@@ -49,8 +49,8 @@ describe("GA4 Admin client", () => {
         ga4AccountId: "google-sub",
       }).listProperties(),
     ).resolves.toEqual([
-      { propertyId: "42", displayName: "Main property", currencyCode: null },
-      { propertyId: "84", displayName: "Second property", currencyCode: null },
+      { propertyId: "42", displayName: "Main property", currencyCode: null, accountDisplayName: "accounts/1" },
+      { propertyId: "84", displayName: "Second property", currencyCode: null, accountDisplayName: "accounts/2" },
     ]);
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,

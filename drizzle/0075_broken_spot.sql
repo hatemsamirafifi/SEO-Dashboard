@@ -1,4 +1,4 @@
-CREATE TABLE `google_ads_planner_group_months` (
+CREATE TABLE IF NOT EXISTS `google_ads_planner_group_months` (
 	`id` text PRIMARY KEY NOT NULL,
 	`group_id` text NOT NULL,
 	`year` integer NOT NULL,
@@ -9,9 +9,9 @@ CREATE TABLE `google_ads_planner_group_months` (
 	FOREIGN KEY (`group_id`) REFERENCES `google_ads_planner_groups`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_planner_group_months_group_month_idx` ON `google_ads_planner_group_months` (`group_id`,`year`,`month`);--> statement-breakpoint
-CREATE INDEX `google_ads_planner_group_months_group_idx` ON `google_ads_planner_group_months` (`group_id`);--> statement-breakpoint
-CREATE TABLE `google_ads_planner_group_variants` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_planner_group_months_group_month_idx` ON `google_ads_planner_group_months` (`group_id`,`year`,`month`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_planner_group_months_group_idx` ON `google_ads_planner_group_months` (`group_id`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_planner_group_variants` (
 	`id` text PRIMARY KEY NOT NULL,
 	`group_id` text NOT NULL,
 	`variant_keyword` text NOT NULL,
@@ -21,9 +21,9 @@ CREATE TABLE `google_ads_planner_group_variants` (
 	FOREIGN KEY (`group_id`) REFERENCES `google_ads_planner_groups`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_planner_group_variants_group_variant_idx` ON `google_ads_planner_group_variants` (`group_id`,`variant_keyword`);--> statement-breakpoint
-CREATE INDEX `google_ads_planner_group_variants_variant_idx` ON `google_ads_planner_group_variants` (`variant_keyword`);--> statement-breakpoint
-CREATE TABLE `google_ads_planner_groups` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_planner_group_variants_group_variant_idx` ON `google_ads_planner_group_variants` (`group_id`,`variant_keyword`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_planner_group_variants_variant_idx` ON `google_ads_planner_group_variants` (`variant_keyword`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_planner_groups` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -48,10 +48,10 @@ CREATE TABLE `google_ads_planner_groups` (
 	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_planner_groups_scope_keyword_idx` ON `google_ads_planner_groups` (`project_id`,`customer_id`,`location_code`,`language_code`,`network`,`contract_version`,`keyword`);--> statement-breakpoint
-CREATE INDEX `google_ads_planner_groups_organization_idx` ON `google_ads_planner_groups` (`organization_id`);--> statement-breakpoint
-CREATE INDEX `google_ads_planner_groups_keyword_idx` ON `google_ads_planner_groups` (`project_id`,`customer_id`,`keyword`);--> statement-breakpoint
-CREATE TABLE `google_ads_planner_observations` (
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_planner_groups_scope_keyword_idx` ON `google_ads_planner_groups` (`project_id`,`customer_id`,`location_code`,`language_code`,`network`,`contract_version`,`keyword`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_planner_groups_organization_idx` ON `google_ads_planner_groups` (`organization_id`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_planner_groups_keyword_idx` ON `google_ads_planner_groups` (`project_id`,`customer_id`,`keyword`);--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS `google_ads_planner_observations` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
 	`organization_id` text NOT NULL,
@@ -76,5 +76,5 @@ CREATE TABLE `google_ads_planner_observations` (
 	FOREIGN KEY (`organization_id`) REFERENCES `organization`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `google_ads_planner_observations_scope_idx` ON `google_ads_planner_observations` (`project_id`,`customer_id`,`data_type`,`seed_keyword`,`location_code`,`language_code`,`network`,`contract_version`);--> statement-breakpoint
-CREATE INDEX `google_ads_planner_observations_organization_idx` ON `google_ads_planner_observations` (`organization_id`);
+CREATE UNIQUE INDEX IF NOT EXISTS `google_ads_planner_observations_scope_idx` ON `google_ads_planner_observations` (`project_id`,`customer_id`,`data_type`,`seed_keyword`,`location_code`,`language_code`,`network`,`contract_version`);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS `google_ads_planner_observations_organization_idx` ON `google_ads_planner_observations` (`organization_id`);

@@ -40,6 +40,15 @@ export function getFixtureGa4SyncStatus() {
     activeSync: null,
     isRunning: false,
     lastFullyCoveredDate: "2026-10-15",
+    syncCoverage: {
+      status: "completed" as const,
+      startDate: "2026-07-15",
+      endDate: "2026-10-15",
+      rowsFetched: 120,
+      rowsInserted: 120,
+    },
+    lastSyncedAt: "2026-10-15T00:05:00Z",
+    source: "database" as const,
   };
 }
 

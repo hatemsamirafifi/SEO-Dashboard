@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { listOpportunities } from "@/serverFunctions/opportunities";
+import { triggerIntelligenceScan } from "@/serverFunctions/intelligence";
 import {
   applyClientFilters,
   OPPORTUNITY_PRIORITIES,
@@ -13,6 +15,7 @@ import {
   PRIORITY_META,
   priorityBadgeClass,
   priorityLabel,
+  safeDecodeUrlText,
   sourceLabel,
   STATUS_META,
   statusBadgeClass,
@@ -71,9 +74,9 @@ function OpportunityRowCard({
           <span className="badge badge-error badge-sm">Stale</span>
         ) : null}
       </div>
-      <h2 className="mt-2 font-semibold">{row.title}</h2>
+      <h2 className="mt-2 font-semibold">{safeDecodeUrlText(row.title)}</h2>
       <p className="mt-1 line-clamp-2 text-sm text-base-content/70">
-        {row.explanationFact}
+        {safeDecodeUrlText(row.explanationFact)}
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-base-content/60">
         <span>
@@ -84,8 +87,8 @@ function OpportunityRowCard({
           Confidence{" "}
           <strong className="text-base-content">{row.confidenceScore}</strong>
         </span>
-        {row.keyword ? <span>Keyword: {row.keyword}</span> : null}
-        {row.page ? <span className="truncate">Page: {row.page}</span> : null}
+        {row.keyword ? <span>Keyword: {safeDecodeUrlText(row.keyword)}</span> : null}
+        {row.page ? <span className="truncate">Page: {safeDecodeUrlText(row.page)}</span> : null}
         <span>Seen {formatDateTime(row.lastDetectedAt)}</span>
         {missInfo ? <span className="text-warning">{missInfo}</span> : null}
       </div>
@@ -163,15 +166,55 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
     setRecentDaysFilter("all");
     setReopenedOnly(false);
   };
+  const queryClient = useQueryClient();
+  const scanMutation = useMutation({
+    mutationFn: () => triggerIntelligenceScan({ data: { projectId } }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["opportunities", projectId] });
+      if (res.ok) {
+        toast.success(`Scan completed! Discovered ${res.findingsCount} findings.`);
+      } else if ("rateLimited" in res && res.rateLimited) {
+        toast.info("A scan was already run recently. Please wait a few minutes.");
+      } else if ("deferred" in res && res.deferred) {
+        toast.info("Scan deferred: active background mutations in progress.");
+      } else {
+        toast.error("Scan could not complete.");
+      }
+    },
+    onError: (err) => {
+      toast.error(getStandardErrorMessage(err, "Failed to run scan"));
+    },
+  });
+
   return (
     <div className="overflow-auto px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
       <div className="mx-auto max-w-7xl space-y-4">
-        <div>
-          <h1 className="text-xl font-semibold">Opportunities</h1>
-          <p className="text-sm text-base-content/60">
-            Actionable findings from intelligence scans, scored by impact and
-            confidence. Detections refresh automatically on schedule.
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold">Opportunities</h1>
+            <p className="text-sm text-base-content/60">
+              Actionable findings from intelligence scans, scored by impact and
+              confidence. Detections refresh automatically on schedule.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm gap-2"
+            disabled={scanMutation.isPending}
+            onClick={() => scanMutation.mutate()}
+          >
+            {scanMutation.isPending ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Scanning…
+              </>
+            ) : (
+              <>
+                <Sparkles className="size-4" />
+                Run Scan
+              </>
+            )}
+          </button>
         </div>
 
         {typeFilter === "competitor_gap" ? (
@@ -325,12 +368,31 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
                 </span>
               </div>
             ) : view.kind === "empty" ? (
-              <div className="rounded-xl border border-base-300 bg-base-100 p-6">
-                <h2 className="font-semibold">No opportunities yet</h2>
-                <p className="mt-1 text-sm text-base-content/60">
-                  Intelligence scans run automatically on schedule. New findings
-                  appear here once detectors observe them.
-                </p>
+              <div className="flex flex-col items-start gap-4 rounded-xl border border-base-300 bg-base-100 p-6">
+                <div>
+                  <h2 className="font-semibold">No opportunities yet</h2>
+                  <p className="mt-1 text-sm text-base-content/60">
+                    Intelligence scans run automatically on schedule. You can also run an instant scan now to analyze your site and discover actionable opportunities.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm gap-2"
+                  disabled={scanMutation.isPending}
+                  onClick={() => scanMutation.mutate()}
+                >
+                  {scanMutation.isPending ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Scanning…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="size-4" />
+                      Run Intelligence Scan Now
+                    </>
+                  )}
+                </button>
               </div>
             ) : view.kind === "filtered-empty" ? (
               <div className="rounded-xl border border-base-300 bg-base-100 p-6">

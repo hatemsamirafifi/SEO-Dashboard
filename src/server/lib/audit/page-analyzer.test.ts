@@ -395,3 +395,25 @@ describe("classifyExtractionState", () => {
     );
   });
 });
+
+describe("analyzeHtml word count", () => {
+  const analyzeBody = (body: string) =>
+    analyzeHtml(`<body>${body}</body>`, PAGE_URL, 200, 0);
+
+  it.each([
+    ["paragraphs", "<p>one</p><p>two</p>"],
+    ["table cells", "<table><tr><td>one</td><td>two</td></tr></table>"],
+    ["line breaks", "one<br>two"],
+  ])("keeps word boundaries between %s in minified HTML", (_label, body) => {
+    expect(analyzeBody(body).bodyText).toBe("one two");
+  });
+
+  it("counts words in scripts written without spaces", () => {
+    expect(
+      analyzeBody("<p>吉隆坡市中心永久地契公寓投资指南</p>").wordCount,
+    ).toBe(8);
+    expect(analyzeBody("<p>東京の不動産投資ガイド</p>").wordCount).toBe(5);
+    expect(analyzeBody("<p>KLCC 公寓指南 2026</p>").wordCount).toBe(4);
+  });
+});
+

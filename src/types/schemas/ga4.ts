@@ -19,6 +19,7 @@ export const triggerGa4SyncSchema = ga4ProjectSchema
     syncType: z.enum(["initial", "incremental", "manual"]).default("manual"),
     startDate: ga4DateSchema.optional(),
     endDate: ga4DateSchema.optional(),
+    force: z.boolean().optional(),
   })
   .strict();
 export const ga4SyncStatusSchema = ga4ProjectSchema;

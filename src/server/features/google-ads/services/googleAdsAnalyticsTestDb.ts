@@ -43,8 +43,8 @@ import { GoogleAdsConnectionRepository } from "../repositories/GoogleAdsConnecti
 import { GoogleAdsAnalyticsRepository } from "../repositories/GoogleAdsAnalyticsRepository";
 
 const MIGRATIONS = [
-  "drizzle/0064_google_ads_connections.sql",
-  "drizzle/0065_great_stature.sql",
+  "drizzle/0073_google_ads_connections.sql",
+  "drizzle/0074_great_stature.sql",
 ];
 
 export const SCOPE = {

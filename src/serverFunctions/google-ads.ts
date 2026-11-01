@@ -3,20 +3,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { eq } from "drizzle-orm";
 
-/** Deterministic browser-E2E responses: enabled by a build-time env flag or
- *  a request header, mirroring the GA4 analytics fixtures. */
-function shouldUseGoogleAdsE2eFixtures() {
-  if (import.meta.env.VITE_E2E_GOOGLE_ADS_FIXTURES === "1") return true;
-  try {
-    return getRequest().headers.get("x-e2e-google-ads-fixture") === "1";
-  } catch {
-    return false;
-  }
-}
-
-async function getGoogleAdsE2eFixtures() {
-  return import("../../e2e/fixtures/google-ads-fixtures");
-}
 import { db } from "@/db";
 import { user } from "@/db/schema";
 import { GoogleAdsService } from "@/server/features/google-ads/services/GoogleAdsService";
@@ -70,6 +56,21 @@ import {
 /** The scope a Google Ads action runs in. The project, the organization and
  *  the user always come from the authenticated context; a payload can never
  *  widen or move that scope. */
+/** Deterministic browser-E2E responses: enabled by a build-time env flag or
+ *  a request header, mirroring the GA4 analytics fixtures. */
+function shouldUseGoogleAdsE2eFixtures() {
+  if (import.meta.env.VITE_E2E_GOOGLE_ADS_FIXTURES === "1") return true;
+  try {
+    return getRequest().headers.get("x-e2e-google-ads-fixture") === "1";
+  } catch {
+    return false;
+  }
+}
+
+async function getGoogleAdsE2eFixtures() {
+  return import("../../e2e/fixtures/google-ads-fixtures");
+}
+
 export function googleAdsProjectScope(context: {
   projectId: string;
   organizationId: string;

@@ -730,7 +730,8 @@ export const OPPORTUNITY_TEMPLATES: Record<string, OpportunityTemplate> = {
         businessIntent: null,
         conversionSignal: null,
       };
-    },,
+    },
+  },
   // Master plan phase 5: paid terms with stored cost/conversions whose
   // organic visibility is weak — a proven-demand organic content gap. Paid
   // clicks anchor the volume proxy; paid intent anchors businessIntent; the

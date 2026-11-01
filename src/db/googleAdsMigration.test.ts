@@ -6,10 +6,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { googleAdsConnections as pgGoogleAdsConnections } from "./pg/google-ads.schema";
 import { googleAdsConnections as sqliteGoogleAdsConnections } from "./google-ads.schema";
 
-const SQLITE_MIGRATION = "drizzle/0064_google_ads_connections.sql";
-const PG_MIGRATION = "drizzle-pg/0042_google_ads_connections.sql";
-const SQLITE_SNAPSHOT = "drizzle/meta/0064_snapshot.json";
-const PG_SNAPSHOT = "drizzle-pg/meta/0042_snapshot.json";
+const SQLITE_MIGRATION = "drizzle/0073_google_ads_connections.sql";
+const PG_MIGRATION = "drizzle-pg/0051_google_ads_connections.sql";
+const SQLITE_SNAPSHOT = "drizzle/meta/0073_snapshot.json";
+const PG_SNAPSHOT = "drizzle-pg/meta/0051_snapshot.json";
 
 /** The column contract of `google_ads_connections`, in SQL column names. */
 const EXPECTED_COLUMNS = [
@@ -186,14 +186,14 @@ describe("Google Ads storage migration", () => {
 
   it("registers the migration in both dialect journals", () => {
     const sqliteEntry = journalEntries("drizzle/meta/_journal.json").find(
-      (entry) => entry.tag.includes("0064_google_ads_connections"),
+      (entry) => entry.tag.includes("0073_google_ads_connections"),
     );
     const pgEntry = journalEntries("drizzle-pg/meta/_journal.json").find(
-      (entry) => entry.tag.includes("0042_google_ads_connections"),
+      (entry) => entry.tag.includes("0051_google_ads_connections"),
     );
 
-    expect(sqliteEntry?.idx).toBe(64);
-    expect(pgEntry?.idx).toBe(42);
+    expect(sqliteEntry?.idx).toBe(73);
+    expect(pgEntry?.idx).toBe(51);
   });
 
   it("chains the new snapshots onto the previous ones", () => {

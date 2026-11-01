@@ -1,15 +1,19 @@
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Loader2, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import type { AnalyticsRange } from "@/types/schemas/ga4";
 import type { CompareMode } from "@/types/schemas/date-range-compare";
 import type { DateRangeCompareValues } from "@/client/components/DateRangeCompareModal";
+import { triggerGa4Sync } from "@/serverFunctions/ga4";
 import { AnalyticsConnectionCard } from "@/client/features/ga4/AnalyticsConnectionCard";
 import { Ga4SyncStatus } from "@/client/features/ga4/Ga4SyncStatus";
 import {
   ALL,
   AnalyticsFilterToolbar,
 } from "@/client/features/analytics/AnalyticsFilterToolbar";
+import { AnalyticsHeader } from "./AnalyticsHeader";
 import { AnalyticsContentSections } from "./AnalyticsContentSections";
 import {
   toAnalyticsPageView,
@@ -17,7 +21,29 @@ import {
 } from "@/client/features/analytics/analyticsCopy";
 import { useAnalyticsQueries } from "./useAnalyticsQueries";
 
-function AnalyticsBanner({ view }: { view: AnalyticsPageView }) {
+import type { AnalyticsOverviewResult } from "@/server/features/ga4/services/AnalyticsService";
+
+type ConnectedAnalyticsOverview = Extract<
+  AnalyticsOverviewResult,
+  { connected: true }
+>;
+
+function AnalyticsBanner({
+  view,
+  storedCoverage,
+  currentWindow,
+  isSyncing,
+  onSyncRange,
+}: {
+  view: AnalyticsPageView;
+  storedCoverage?: {
+    startDate?: string | null;
+    endDate?: string | null;
+  } | null;
+  currentWindow?: { from: string; to: string } | null;
+  isSyncing?: boolean;
+  onSyncRange?: () => void;
+}) {
   if (view.kind === "syncing") {
     return (
       <div className="alert alert-info">
@@ -58,13 +84,32 @@ function AnalyticsBanner({ view }: { view: AnalyticsPageView }) {
     );
   }
   if (view.kind === "partial") {
+    const isMissingHistorical = Boolean(
+      storedCoverage?.startDate &&
+      currentWindow?.from &&
+      currentWindow.from < storedCoverage.startDate,
+    );
+
     return (
-      <div className="alert alert-warning">
+      <div className="alert alert-warning flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-2.5">
         <span className="text-sm">
-          Partial Analytics data
-          {view.coveredThrough ? ` through ${view.coveredThrough}` : ""}.
-          Missing dates are excluded, never zeroed.
+          {isMissingHistorical
+            ? `Partial Analytics data: Stored data begins from ${storedCoverage?.startDate}. Earlier dates in this range (${currentWindow?.from} → ${storedCoverage?.startDate}) are not synchronized yet.`
+            : `Partial Analytics data${view.coveredThrough ? ` through ${view.coveredThrough}` : ""}. Missing dates are excluded, never zeroed.`}
         </span>
+        {onSyncRange ? (
+          <button
+            type="button"
+            className="btn btn-xs btn-primary gap-1 shrink-0 self-start sm:self-auto"
+            disabled={isSyncing}
+            onClick={onSyncRange}
+          >
+            <RefreshCw
+              className={`size-3 ${isSyncing ? "animate-spin" : ""}`}
+            />
+            Sync this range
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -170,17 +215,57 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
     techDimension,
   );
 
+  const queryClient = useQueryClient();
+  const syncMutation = useMutation({
+    mutationFn: (variables?: {
+      startDate?: string;
+      endDate?: string;
+      force?: boolean;
+    }) =>
+      triggerGa4Sync({
+        data: {
+          projectId,
+          syncType: "manual",
+          startDate: variables?.startDate,
+          endDate: variables?.endDate,
+          force: variables?.force,
+        },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["ga4SyncStatus", projectId],
+      });
+      void queryClient.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) &&
+          query.queryKey[1] === projectId &&
+          typeof query.queryKey[0] === "string" &&
+          (query.queryKey[0].startsWith("analytics") ||
+            query.queryKey[0].startsWith("ga4")),
+      });
+      toast.success("Analytics data synced successfully.");
+    },
+    onError: (error) => toast.error(getStandardErrorMessage(error)),
+  });
+
+  const isSyncing =
+    syncMutation.isPending || (syncQuery.data?.isRunning ?? false);
+
   const overview = overviewQuery.data;
+  const connectedOverview: ConnectedAnalyticsOverview | null =
+    overview?.connected ? (overview as ConnectedAnalyticsOverview) : null;
+  const currentWindow = connectedOverview?.windows.current;
   const hasRows =
-    overview?.connected === true &&
-    (overview.totals.sessions.current > 0 || overview.trends.length > 0);
+    connectedOverview !== null &&
+    (connectedOverview.totals.sessions.current > 0 ||
+      connectedOverview.trends.length > 0);
   const view = toAnalyticsPageView({
     connectionLoading:
       connectionQuery.isPending ||
       (connectionQuery.data?.connected === true && syncQuery.isPending),
     syncLoading: false,
-    connectionError: connectionQuery.isError,
-    syncError: syncQuery.isError,
+    connectionError: connectionQuery.error !== null,
+    syncError: syncQuery.error !== null,
     connected,
     isRunning: syncQuery.data?.connected
       ? (syncQuery.data.isRunning ?? false)
@@ -189,30 +274,49 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
       syncQuery.data?.connected && syncQuery.data.latestSync
         ? (syncQuery.data.latestSync.error ?? null)
         : null,
-    coverageStatus:
-      overview?.connected === true ? overview.coverage.status : "none",
+    coverageStatus: connectedOverview
+      ? connectedOverview.coverage.status
+      : "none",
     hasRows,
-    coveredThrough:
-      overview?.connected === true ? overview.coverage.coveredThrough : null,
+    coveredThrough: connectedOverview
+      ? connectedOverview.coverage.coveredThrough
+      : null,
   });
+
+  const handleSyncRange = () => {
+    if (!currentWindow) {
+      syncMutation.mutate(undefined);
+      return;
+    }
+    toast.info(
+      `Starting synchronization for ${currentWindow.from} → ${currentWindow.to}…`,
+    );
+    syncMutation.mutate({
+      startDate: currentWindow.from,
+      endDate: currentWindow.to,
+      force: false,
+    });
+  };
+
+  const handleSyncNow = () => {
+    if (view.kind === "partial" && currentWindow) {
+      handleSyncRange();
+    } else {
+      toast.info("Starting Analytics synchronization…");
+      syncMutation.mutate(undefined);
+    }
+  };
 
   return (
     <div className="overflow-auto px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
       <div className="mx-auto max-w-7xl space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
-            <h1 className="text-xl font-semibold">Analytics</h1>
-            <p className="text-sm text-base-content/60">
-              Google Analytics 4 traffic, read from synced data. DB-first with a
-              freshness badge; provider failure is shown, never silently zeroed.
-            </p>
-          </div>
-          {connected && view.kind !== "not-connected" ? (
-            <div className="shrink-0 sm:mt-1">
-              <Ga4SyncStatus projectId={projectId} variant="header" />
-            </div>
-          ) : null}
-        </div>
+        <AnalyticsHeader
+          projectId={projectId}
+          connected={connected}
+          syncStatus={syncQuery.data}
+          isSyncing={isSyncing}
+          onSyncNow={handleSyncNow}
+        />
 
         {view.kind === "loading" ? (
           <div className="flex items-center gap-2 p-8 text-sm text-base-content/60">
@@ -249,7 +353,13 @@ export function AnalyticsPage({ projectId }: { projectId: string }) {
           </div>
         ) : (
           <>
-            <AnalyticsBanner view={view} />
+            <AnalyticsBanner
+              view={view}
+              storedCoverage={syncQuery.data?.syncCoverage}
+              currentWindow={currentWindow}
+              isSyncing={isSyncing}
+              onSyncRange={handleSyncRange}
+            />
             <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100">
               <AnalyticsFilterToolbar
                 range={range}

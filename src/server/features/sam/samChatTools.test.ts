@@ -94,6 +94,7 @@ const authContext: McpToolAuthContext = {
   userId: "u1",
   userEmail: "u@example.com",
   organizationId: "org1",
+  role: "owner",
   clientId: null,
   audience: "openseo",
   subject: "u1",

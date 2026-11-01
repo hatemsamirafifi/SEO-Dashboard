@@ -13,12 +13,17 @@ import { normalizeUrl } from "@/server/lib/audit/url-utils";
 
 const CRAWL_USER_AGENT = "OpenSEO-Audit/1.0";
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
-const FETCH_TIMEOUT_MS = 15_000;
 const MAX_H1_TEXT_CHARS = 500;
+const FETCH_TIMEOUT_MS = 30_000;
 
 function firstH1Text(h1s: string[]): string | null {
   const first = h1s.find((h1) => h1.trim().length > 0);
   return first ? first.trim().slice(0, MAX_H1_TEXT_CHARS) : null;
+}
+
+export interface CrawlPageOptions {
+  maxRetries?: number;
+  retryDelayMs?: number;
 }
 
 /**
@@ -30,223 +35,247 @@ function firstH1Text(h1s: string[]): string | null {
  * rows and non-HTML/4xx/5xx documents NOT_EXTRACTED, analyzed HTML pages
  * STATIC_COMPLETE / STATIC_PARTIAL / RENDERING_REQUIRED per page-analyzer.
  */
-export async function crawlPage(url: string): Promise<CrawledPageResult> {
-  const startTime = Date.now();
+export async function crawlPage(
+  url: string,
+  options?: CrawlPageOptions,
+): Promise<CrawledPageResult> {
+  const maxRetries =
+    options?.maxRetries ?? (process.env.NODE_ENV === "test" ? 0 : 2);
+  const baseDelayMs =
+    options?.retryDelayMs ?? (process.env.NODE_ENV === "test" ? 0 : 1_000);
+  let attempt = 0;
+  for (; ;) {
+    const startTime = Date.now();
 
-  try {
-    // Manual redirect handling: each hop is recorded as its own page row and
-    // its target is enqueued by the frontier, so redirect chains and loops are
-    // detectable from the recorded rows. Trailing-slash redirects (/docs ->
-    // /docs/) need no special handling: normalizeUrl preserves trailing
-    // slashes, so /docs and /docs/ are distinct URLs and the redirect resolves
-    // to its canonical target instead of cycling back to its own source.
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": CRAWL_USER_AGENT,
-        Accept: "text/html,application/xhtml+xml",
-      },
-      redirect: "manual",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-
-    const responseTimeMs = Date.now() - startTime;
-    const statusCode = response.status;
-    const headerSnapshot = Object.fromEntries(response.headers);
-    const xRobotsTag = response.headers.get("x-robots-tag");
-    const headerCanonicalUrl = parseLinkHeaderCanonical(
-      response.headers.get("link"),
-      url,
-    );
-
-    if (statusCode >= 300 && statusCode < 400) {
-      const location = response.headers.get("location");
-      const redirectUrl = location ? normalizeUrl(location, url) : null;
-      return partialPageResult({
-        url,
-        statusCode,
-        fetchClass: "ok",
-        extractionState: "NOT_EXTRACTED",
-        redirectUrl,
-        responseTimeMs,
-        htmlBytes: 0,
-        xRobotsTag,
-        headerCanonicalUrl,
-      });
-    }
-
-    const contentType = response.headers.get("content-type") ?? "";
-    const isHtml = contentType.includes("text/html");
-    // Large pages make Cheerio disproportionately expensive and can exhaust a
-    // crawl step's CPU or isolate memory. The first 2 MiB still contains the
-    // SEO metadata and navigation needed by the audit in normal documents.
-    const body = isHtml
-      ? await readTextUpTo(response, MAX_HTML_BYTES)
-      : { text: "", bytes: 0, truncated: false };
-    const fetchClass = classifyFetch(
-      statusCode,
-      Boolean(response.headers.get("cf-mitigated")),
-      body.text.slice(0, 4_000),
-    );
-
-    if (fetchClass === "blocked" || fetchClass === "rate_limited") {
-      return partialPageResult({
-        url,
-        statusCode,
-        fetchClass,
-        extractionState: "ACCESS_BLOCKED",
-        redirectUrl: null,
-        responseTimeMs,
-        htmlBytes: body.bytes,
-        xRobotsTag,
-        headerCanonicalUrl,
-        retryAfter: response.headers.get("retry-after"),
-      });
-    }
-    if (!isHtml || statusCode >= 400) {
-      return partialPageResult({
-        url,
-        statusCode,
-        fetchClass,
-        extractionState: "NOT_EXTRACTED",
-        redirectUrl: null,
-        responseTimeMs,
-        htmlBytes: body.bytes,
-        xRobotsTag,
-        headerCanonicalUrl,
-      });
-    }
-
-    // Dynamic import keeps cheerio (page-analyzer's HTML parser) out of the
-    // worker's startup module graph: SiteAuditWorkflow is re-exported from
-    // src/server.ts, so a static import would evaluate cheerio in every
-    // isolate's baseline heap, not just when an audit actually crawls.
-    const { analyzeHtml, classifyExtractionState } =
-      await import("@/server/lib/audit/page-analyzer");
-    let analysis;
-    let platformDetection: PlatformDetection = {
-      platform: null,
-      confidence: 0,
-      evidence: [],
-    };
     try {
-      analysis = analyzeHtml(body.text, url, statusCode, responseTimeMs);
-    } catch {
-      // A page we cannot parse is exactly the case where claiming "complete"
-      // extraction would be dishonest: record ok/fetch but failed analysis.
-      // Platform detection still runs on the reachable HTML.
+      // Manual redirect handling: each hop is recorded as its own page row and
+      // its target is enqueued by the frontier, so redirect chains and loops are
+      // detectable from the recorded rows. Trailing-slash redirects (/docs ->
+      // /docs/) need no special handling: normalizeUrl preserves trailing
+      // slashes, so /docs and /docs/ are distinct URLs and the redirect resolves
+      // to its canonical target instead of cycling back to its own source.
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": CRAWL_USER_AGENT,
+          Accept: "text/html,application/xhtml+xml",
+        },
+        redirect: "manual",
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      const responseTimeMs = Date.now() - startTime;
+      const statusCode = response.status;
+      const headerSnapshot = Object.fromEntries(response.headers);
+      const xRobotsTag = response.headers.get("x-robots-tag");
+      const headerCanonicalUrl = parseLinkHeaderCanonical(
+        response.headers.get("link"),
+        url,
+      );
+
+      if (statusCode >= 300 && statusCode < 400) {
+        const location = response.headers.get("location");
+        const redirectUrl = location ? normalizeUrl(location, url) : null;
+        return partialPageResult({
+          url,
+          statusCode,
+          fetchClass: "ok",
+          extractionState: "NOT_EXTRACTED",
+          redirectUrl,
+          responseTimeMs,
+          htmlBytes: 0,
+          xRobotsTag,
+          headerCanonicalUrl,
+        });
+      }
+
+      const contentType = response.headers.get("content-type") ?? "";
+      const isHtml = contentType.includes("text/html");
+      // Large pages make Cheerio disproportionately expensive and can exhaust a
+      // crawl step's CPU or isolate memory. The first 2 MiB still contains the
+      // SEO metadata and navigation needed by the audit in normal documents.
+      const body = isHtml
+        ? await readTextUpTo(response, MAX_HTML_BYTES)
+        : { text: "", bytes: 0, truncated: false };
+      const fetchClass = classifyFetch(
+        statusCode,
+        Boolean(response.headers.get("cf-mitigated")),
+        body.text.slice(0, 4_000),
+      );
+
+      if (fetchClass === "blocked" || fetchClass === "rate_limited") {
+        return partialPageResult({
+          url,
+          statusCode,
+          fetchClass,
+          extractionState: "ACCESS_BLOCKED",
+          redirectUrl: null,
+          responseTimeMs,
+          htmlBytes: body.bytes,
+          xRobotsTag,
+          headerCanonicalUrl,
+          retryAfter: response.headers.get("retry-after"),
+        });
+      }
+      if (!isHtml || statusCode >= 400) {
+        return partialPageResult({
+          url,
+          statusCode,
+          fetchClass,
+          extractionState: "NOT_EXTRACTED",
+          redirectUrl: null,
+          responseTimeMs,
+          htmlBytes: body.bytes,
+          xRobotsTag,
+          headerCanonicalUrl,
+        });
+      }
+
+      // Dynamic import keeps cheerio (page-analyzer's HTML parser) out of the
+      // worker's startup module graph: SiteAuditWorkflow is re-exported from
+      // src/server.ts, so a static import would evaluate cheerio in every
+      // isolate's baseline heap, not just when an audit actually crawls.
+      const { analyzeHtml, classifyExtractionState } =
+        await import("@/server/lib/audit/page-analyzer");
+      let analysis;
+      let platformDetection: PlatformDetection = {
+        platform: null,
+        confidence: 0,
+        evidence: [],
+      };
+      try {
+        analysis = analyzeHtml(body.text, url, statusCode, responseTimeMs);
+      } catch {
+        // A page we cannot parse is exactly the case where claiming "complete"
+        // extraction would be dishonest: record ok/fetch but failed analysis.
+        // Platform detection still runs on the reachable HTML.
+        platformDetection = detectPlatform({
+          html: body.text,
+          url,
+          headers: headerSnapshot,
+        });
+        return partialPageResult({
+          url,
+          statusCode,
+          fetchClass: "ok",
+          extractionState: "EXTRACTION_FAILED",
+          redirectUrl: null,
+          responseTimeMs,
+          htmlBytes: body.bytes,
+          xRobotsTag,
+          headerCanonicalUrl,
+          title: "",
+          isIndexable: false,
+          platform: platformDetection.platform,
+          platformConfidence: platformDetection.confidence,
+        });
+      }
+
+      // Platform detection runs on the same reachable HTML (see the 2 MiB cap
+      // above). Below-threshold evidence never names a platform.
       platformDetection = detectPlatform({
         html: body.text,
         url,
         headers: headerSnapshot,
       });
-      return partialPageResult({
+
+      return {
+        id: crypto.randomUUID(),
         url,
         statusCode,
-        fetchClass: "ok",
+        fetchClass,
+        // The head metadata derives from data within the read window; body
+        // word counts and findings that depend on full content are not
+        // complete when the document was truncated. Report STATIC_PARTIAL
+        // there and let page-reporters gate accordingly.
+        extractionState: body.truncated
+          ? "STATIC_PARTIAL"
+          : classifyExtractionState(body.text, analysis),
+        failureReason: null,
+        retryAfter: null,
+        redirectUrl: null,
+        title: analysis.title,
+        metaDescription: analysis.metaDescription,
+        canonicalUrl: analysis.canonical
+          ? (normalizeUrl(analysis.canonical, url) ?? analysis.canonical)
+          : null,
+        robotsMeta: analysis.robotsMeta,
+        xRobotsTag,
+        headerCanonicalUrl,
+        ogTitle: analysis.ogTitle,
+        ogDescription: analysis.ogDescription,
+        ogImage: analysis.ogImage,
+        h1Count: analysis.h1s.filter((h) => h.length > 0).length,
+        h1Text: firstH1Text(analysis.h1s),
+        h2Count: analysis.headingOrder.filter((h) => h === 2).length,
+        h3Count: analysis.headingOrder.filter((h) => h === 3).length,
+        h4Count: analysis.headingOrder.filter((h) => h === 4).length,
+        h5Count: analysis.headingOrder.filter((h) => h === 5).length,
+        h6Count: analysis.headingOrder.filter((h) => h === 6).length,
+        headingOrder: analysis.headingOrder,
+        wordCount: analysis.wordCount,
+        contentHash: analysis.bodyText
+          ? await sha256Hex(analysis.bodyText)
+          : null,
+        htmlBytes: body.bytes,
+        isHtml: true,
+        imagesTotal: analysis.images.length,
+        // Only a truly absent alt attribute counts: alt="" is the correct
+        // markup for decorative images.
+        imagesMissingAlt: analysis.images.filter((img) => img.alt === null)
+          .length,
+        images: analysis.images,
+        links: analysis.links,
+        hasStructuredData: analysis.hasStructuredData,
+        structuredDataJson: analysis.structuredDataJson,
+        sallaExtractionJson: analysis.sallaExtractionJson,
+        hreflangTags: analysis.hreflangTags,
+        isIndexable: ![analysis.robotsMeta, xRobotsTag]
+          .filter(Boolean)
+          .join(",")
+          .toLowerCase()
+          .includes("noindex"),
+        responseTimeMs,
+        platform: platformDetection.platform,
+        platformConfidence: platformDetection.confidence,
+        pageType: analysis.pageType,
+        pageTypeConfidence: analysis.pageTypeConfidence,
+        crawlDepth: null,
+        inSitemap: false,
+      };
+    } catch (error) {
+      if (attempt < maxRetries) {
+        attempt += 1;
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+        continue;
+      }
+
+      const responseTimeMs = Date.now() - startTime;
+      const failureReason: PageFailureReason =
+        error instanceof Error && error.name === "TimeoutError"
+          ? "fetch_timeout"
+          : "network_error";
+      console.warn(
+        "Failed to crawl:",
+        url,
+        failureReason,
+        error,
+      );
+      return partialPageResult({
+        url,
+        statusCode: 0,
+        fetchClass: "error",
         extractionState: "EXTRACTION_FAILED",
         redirectUrl: null,
         responseTimeMs,
-        htmlBytes: body.bytes,
-        xRobotsTag,
-        headerCanonicalUrl,
-        title: "",
-        isIndexable: false,
-        platform: platformDetection.platform,
-        platformConfidence: platformDetection.confidence,
+        htmlBytes: 0,
+        xRobotsTag: null,
+        headerCanonicalUrl: null,
+        failureReason,
       });
     }
-
-    // Platform detection runs on the same reachable HTML (see the 2 MiB cap
-    // above). Below-threshold evidence never names a platform.
-    platformDetection = detectPlatform({
-      html: body.text,
-      url,
-      headers: headerSnapshot,
-    });
-
-    return {
-      id: crypto.randomUUID(),
-      url,
-      statusCode,
-      fetchClass,
-      // The head metadata derives from data within the read window; body
-      // word counts and findings that depend on full content are not
-      // complete when the document was truncated. Report STATIC_PARTIAL
-      // there and let page-reporters gate accordingly.
-      extractionState: body.truncated
-        ? "STATIC_PARTIAL"
-        : classifyExtractionState(body.text, analysis),
-      failureReason: null,
-      retryAfter: null,
-      redirectUrl: null,
-      title: analysis.title,
-      metaDescription: analysis.metaDescription,
-      canonicalUrl: analysis.canonical
-        ? (normalizeUrl(analysis.canonical, url) ?? analysis.canonical)
-        : null,
-      robotsMeta: analysis.robotsMeta,
-      xRobotsTag,
-      headerCanonicalUrl,
-      ogTitle: analysis.ogTitle,
-      ogDescription: analysis.ogDescription,
-      ogImage: analysis.ogImage,
-      h1Count: analysis.h1s.filter((h) => h.length > 0).length,
-      h1Text: firstH1Text(analysis.h1s),
-      h2Count: analysis.headingOrder.filter((h) => h === 2).length,
-      h3Count: analysis.headingOrder.filter((h) => h === 3).length,
-      h4Count: analysis.headingOrder.filter((h) => h === 4).length,
-      h5Count: analysis.headingOrder.filter((h) => h === 5).length,
-      h6Count: analysis.headingOrder.filter((h) => h === 6).length,
-      headingOrder: analysis.headingOrder,
-      wordCount: analysis.wordCount,
-      contentHash: analysis.bodyText
-        ? await sha256Hex(analysis.bodyText)
-        : null,
-      htmlBytes: body.bytes,
-      isHtml: true,
-      imagesTotal: analysis.images.length,
-      // Only a truly absent alt attribute counts: alt="" is the correct
-      // markup for decorative images.
-      imagesMissingAlt: analysis.images.filter((img) => img.alt === null)
-        .length,
-      images: analysis.images,
-      links: analysis.links,
-      hasStructuredData: analysis.hasStructuredData,
-      structuredDataJson: analysis.structuredDataJson,
-      sallaExtractionJson: analysis.sallaExtractionJson,
-      hreflangTags: analysis.hreflangTags,
-      isIndexable: ![analysis.robotsMeta, xRobotsTag]
-        .filter(Boolean)
-        .join(",")
-        .toLowerCase()
-        .includes("noindex"),
-      responseTimeMs,
-      platform: platformDetection.platform,
-      platformConfidence: platformDetection.confidence,
-      pageType: analysis.pageType,
-      pageTypeConfidence: analysis.pageTypeConfidence,
-      crawlDepth: null,
-      inSitemap: false,
-    };
-  } catch (error) {
-    const responseTimeMs = Date.now() - startTime;
-    const failureReason: PageFailureReason =
-      error instanceof Error && error.name === "TimeoutError"
-        ? "fetch_timeout"
-        : "network_error";
-    console.warn(`Failed to crawl ${url}:`, failureReason, error);
-    return partialPageResult({
-      url,
-      statusCode: 0,
-      fetchClass: "error",
-      extractionState: "EXTRACTION_FAILED",
-      redirectUrl: null,
-      responseTimeMs,
-      htmlBytes: 0,
-      xRobotsTag: null,
-      headerCanonicalUrl: null,
-      failureReason,
-    });
   }
 }
 
@@ -334,7 +363,7 @@ export async function crawlPageWithThrottle(
   url: string,
 ): Promise<ThrottledFetchResult> {
   let attempt = 0;
-  for (;;) {
+  for (; ;) {
     const started = await throttle.ready();
     if (!started) return { notFetched: true, result: null };
     const result = await crawlPage(url);

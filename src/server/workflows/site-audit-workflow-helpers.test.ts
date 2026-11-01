@@ -254,6 +254,40 @@ describe("crawlPageWithThrottle", () => {
     });
   });
 
+  it("retries on transient network error and succeeds if a subsequent attempt succeeds", async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw new TypeError("failed to fetch");
+      }
+      return new Response(PAGE_HTML, {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    });
+
+    const page = await crawlPage(PAGE_URL, { maxRetries: 2, retryDelayMs: 0 });
+    expect(callCount).toBe(2);
+    expect(page.statusCode).toBe(200);
+    expect(page.fetchClass).toBe("ok");
+    expect(page.title).toBe("A page");
+  });
+
+  it("retries up to maxRetries on persistent network error before failing", async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      callCount += 1;
+      throw new TypeError("socket hang up");
+    });
+
+    const page = await crawlPage(PAGE_URL, { maxRetries: 2, retryDelayMs: 0 });
+    expect(callCount).toBe(3); // 1 initial attempt + 2 retries
+    expect(page.statusCode).toBe(0);
+    expect(page.fetchClass).toBe("error");
+    expect(page.failureReason).toBe("network_error");
+  });
+
   it("marks a truncated read as STATIC_PARTIAL instead of complete", async () => {
     // 2.5 MiB of real words: the head metadata fits in the read window,
     // the body tail does not.

@@ -117,6 +117,30 @@ export const gscSearchPerformance = sqliteTable(
       table.grain,
       table.date,
     ),
+    index("gsc_search_perf_project_grain_query_date_idx").on(
+      table.projectId,
+      table.grain,
+      table.query,
+      table.date,
+    ),
+    index("gsc_search_perf_project_grain_page_date_idx").on(
+      table.projectId,
+      table.grain,
+      table.page,
+      table.date,
+    ),
+    index("gsc_search_perf_project_grain_country_date_idx").on(
+      table.projectId,
+      table.grain,
+      table.country,
+      table.date,
+    ),
+    index("gsc_search_perf_project_grain_device_date_idx").on(
+      table.projectId,
+      table.grain,
+      table.device,
+      table.date,
+    ),
   ],
 );
 

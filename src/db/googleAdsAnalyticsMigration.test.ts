@@ -42,10 +42,10 @@ import {
   googleAdsSyncUnits,
 } from "./google-ads-sync.schema";
 
-const SQLITE_MIGRATION = "drizzle/0065_great_stature.sql";
-const PG_MIGRATION = "drizzle-pg/0043_productive_quentin_quire.sql";
-const SQLITE_SNAPSHOT = "drizzle/meta/0065_snapshot.json";
-const PG_SNAPSHOT = "drizzle-pg/meta/0043_snapshot.json";
+const SQLITE_MIGRATION = "drizzle/0074_great_stature.sql";
+const PG_MIGRATION = "drizzle-pg/0052_productive_quentin_quire.sql";
+const SQLITE_SNAPSHOT = "drizzle/meta/0074_snapshot.json";
+const PG_SNAPSHOT = "drizzle-pg/meta/0052_snapshot.json";
 
 const NEW_TABLES = [
   "google_ads_accounts",
@@ -375,22 +375,22 @@ describe("Google Ads analytics/sync migration", () => {
 
   it("registers the migration in both dialect journals", () => {
     const sqliteEntry = journalEntries("drizzle/meta/_journal.json").find(
-      (entry) => entry.tag === "0065_great_stature",
+      (entry) => entry.tag === "0074_great_stature",
     );
     const pgEntry = journalEntries("drizzle-pg/meta/_journal.json").find(
-      (entry) => entry.tag === "0043_productive_quentin_quire",
+      (entry) => entry.tag === "0052_productive_quentin_quire",
     );
 
-    expect(sqliteEntry?.idx).toBe(65);
-    expect(pgEntry?.idx).toBe(43);
+    expect(sqliteEntry?.idx).toBe(74);
+    expect(pgEntry?.idx).toBe(52);
   });
 
   it("chains the new snapshots onto the Google Ads connection migration", () => {
     expect(snapshotString(SQLITE_SNAPSHOT, "prevId")).toBe(
-      snapshotString("drizzle/meta/0064_snapshot.json", "id"),
+      snapshotString("drizzle/meta/0073_snapshot.json", "id"),
     );
     expect(snapshotString(PG_SNAPSHOT, "prevId")).toBe(
-      snapshotString("drizzle-pg/meta/0042_snapshot.json", "id"),
+      snapshotString("drizzle-pg/meta/0051_snapshot.json", "id"),
     );
     for (const table of NEW_TABLES) {
       expect(snapshotTables(SQLITE_SNAPSHOT)).toContain(table);

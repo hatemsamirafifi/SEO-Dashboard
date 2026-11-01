@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("cloudflare:workers", () => ({
+  env: {},
   waitUntil: vi.fn(),
 }));
 

@@ -7,19 +7,23 @@ import {
 const TODAY = new Date("2026-05-28T00:00:00Z");
 
 describe("resolveDateRange", () => {
-  it("ends convenience ranges 3 days back for GSC data lag", () => {
+  it("ends convenience ranges 2 days back for GSC data lag", () => {
     const { endDate } = resolveDateRange({ dateRange: "last_28_days" }, TODAY);
-    expect(endDate).toBe("2026-05-25");
+    expect(endDate).toBe("2026-05-26");
   });
 
-  it("computes a 28-day window from the lagged end", () => {
-    const { startDate, endDate } = resolveDateRange(
-      { dateRange: "last_28_days" },
-      TODAY,
-    );
-    expect(startDate).toBe("2026-04-27");
-    expect(endDate).toBe("2026-05-25");
-  });
+  it.each([
+    { dateRange: "last_7_days" as const, startDate: "2026-05-20" },
+    { dateRange: "last_28_days" as const, startDate: "2026-04-29" },
+  ])(
+    "computes an inclusive $dateRange window from the lagged end",
+    ({ dateRange, startDate }) => {
+      expect(resolveDateRange({ dateRange }, TODAY)).toEqual({
+        startDate,
+        endDate: "2026-05-26",
+      });
+    },
+  );
 
   it("clamps the start to the 16-month floor", () => {
     const { startDate } = resolveDateRange(
@@ -50,7 +54,7 @@ describe("resolveDateRange", () => {
   it("subtracts calendar months without overflowing short months", () => {
     const { startDate, endDate } = resolveDateRange(
       { dateRange: "last_3_months" },
-      new Date("2026-06-03T00:00:00Z"),
+      new Date("2026-06-02T00:00:00Z"),
     );
     expect(startDate).toBe("2026-02-28");
     expect(endDate).toBe("2026-05-31");
@@ -61,8 +65,8 @@ describe("resolveDateRange", () => {
       { dateRange: "last_6_months" },
       TODAY,
     );
-    expect(startDate).toBe("2025-11-25");
-    expect(endDate).toBe("2026-05-25");
+    expect(startDate).toBe("2025-11-26");
+    expect(endDate).toBe("2026-05-26");
   });
 
   it("computes a 12-month window from the lagged end", () => {
@@ -70,8 +74,8 @@ describe("resolveDateRange", () => {
       { dateRange: "last_12_months" },
       TODAY,
     );
-    expect(startDate).toBe("2025-05-25");
-    expect(endDate).toBe("2026-05-25");
+    expect(startDate).toBe("2025-05-26");
+    expect(endDate).toBe("2026-05-26");
   });
 
   it("does not clamp start beyond end if end is before floor", () => {

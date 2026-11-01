@@ -13,6 +13,7 @@ type McpAuth = {
   userId: string;
   userEmail: string;
   organizationId: string;
+  role?: string;
   scopes: string[];
   clientId: string | null;
   audience: string;
@@ -26,6 +27,7 @@ const mcpToolAuthContextSchema = z.object({
   userId: z.string().min(1),
   userEmail: z.string().min(1),
   organizationId: z.string().min(1),
+  role: z.string().optional().default("owner"),
   clientId: z.string().nullable(),
   scopes: z.array(z.string()),
   audience: z.string().min(1),
@@ -53,6 +55,7 @@ export function buildFirstPartyMcpAuthContext(input: {
   userId: string;
   userEmail: string;
   organizationId: string;
+  role?: string;
   baseUrl: string;
   scopes?: string[];
 }): McpToolAuthContext {
@@ -60,6 +63,7 @@ export function buildFirstPartyMcpAuthContext(input: {
     userId: input.userId,
     userEmail: input.userEmail,
     organizationId: input.organizationId,
+    role: input.role ?? "owner",
     clientId: null,
     scopes: input.scopes ?? [],
     audience: getMcpResource(input.baseUrl),

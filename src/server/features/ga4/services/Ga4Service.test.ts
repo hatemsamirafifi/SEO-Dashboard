@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   deleteGrant: vi.fn(),
   hasConsent: vi.fn(),
   listProperties: vi.fn(),
+  getUserInfoEmail: vi.fn(),
   get: vi.fn(),
   upsert: vi.fn(),
   remove: vi.fn(),
@@ -26,7 +27,16 @@ vi.mock("@/server/features/ga4/repositories/Ga4ConnectionRepository", () => ({
   },
 }));
 vi.mock("@/server/lib/ga4Client", () => ({
-  createGa4Client: () => ({ listProperties: mocks.listProperties }),
+  createGa4Client: () => ({
+    listProperties: mocks.listProperties,
+    getUserInfoEmail: mocks.getUserInfoEmail,
+  }),
+  Ga4ApiError: class Ga4ApiError extends Error {
+    constructor(public status: number, message: string) {
+      super(message);
+    }
+  },
+  Ga4TokenError: class Ga4TokenError extends Error {},
 }));
 vi.mock("cloudflare:workers", () => ({ env: {} }));
 vi.mock("@/server/lib/seo-data/cost-tracker", () => ({
@@ -82,5 +92,23 @@ describe("Ga4Service boundary", () => {
     });
     expect(mocks.remove).toHaveBeenCalledWith("p1", "o1");
     expect(mocks.deleteGrant).not.toHaveBeenCalled();
+  });
+  it("listPropertiesForUserWithGrantStatus reports accounts with properties and grant validity", async () => {
+    mocks.getUserInfoEmail.mockResolvedValue("test@example.com");
+    mocks.listProperties.mockResolvedValue([
+      { propertyId: "123", displayName: "Prop 1", accountDisplayName: "Acct 1" },
+    ]);
+    const { Ga4Service } = await import("./Ga4Service");
+    const result = await Ga4Service.listPropertiesForUserWithGrantStatus("u");
+    expect(result.accounts).toHaveLength(2);
+    expect(result.accounts[0]).toEqual({
+      accountId: "a",
+      email: "test@example.com",
+      requiresReconnect: false,
+      propertiesUnavailable: false,
+      properties: [
+        { propertyId: "123", displayName: "Prop 1", accountDisplayName: "Acct 1" },
+      ],
+    });
   });
 });

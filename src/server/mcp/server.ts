@@ -25,6 +25,13 @@ import {
   inspectUrlsTool,
 } from "@/server/mcp/tools/search-console-tools";
 import {
+  listGoogleAnalyticsPropertiesTool,
+  listSearchConsoleSitesTool,
+  setGoogleAnalyticsPropertyTool,
+  setSearchConsoleSiteTool,
+} from "@/server/mcp/tools/google-connection-tools";
+import { submitIndexNowUrlsTool } from "@/server/mcp/tools/submit-indexnow-urls";
+import {
   getAuditIssuesTool,
   getAuditPagesTool,
   getAuditStatusTool,
@@ -220,6 +227,24 @@ export function registerOpenSeoMcpTools(server: McpServer) {
     ),
   );
   server.registerTool(
+    listSearchConsoleSitesTool.name,
+    listSearchConsoleSitesTool.config,
+    instrumentMcpToolHandler(
+      listSearchConsoleSitesTool.name,
+      listSearchConsoleSitesTool.config.outputSchema,
+      listSearchConsoleSitesTool.handler,
+    ),
+  );
+  server.registerTool(
+    setSearchConsoleSiteTool.name,
+    setSearchConsoleSiteTool.config,
+    instrumentMcpToolHandler(
+      setSearchConsoleSiteTool.name,
+      setSearchConsoleSiteTool.config.outputSchema,
+      setSearchConsoleSiteTool.handler,
+    ),
+  );
+  server.registerTool(
     getSearchConsolePerformanceTool.name,
     getSearchConsolePerformanceTool.config,
     instrumentMcpToolHandler(
@@ -235,6 +260,15 @@ export function registerOpenSeoMcpTools(server: McpServer) {
       inspectUrlsTool.name,
       inspectUrlsTool.config.outputSchema,
       inspectUrlsTool.handler,
+    ),
+  );
+  server.registerTool(
+    submitIndexNowUrlsTool.name,
+    submitIndexNowUrlsTool.config,
+    instrumentMcpToolHandler(
+      submitIndexNowUrlsTool.name,
+      submitIndexNowUrlsTool.config.outputSchema,
+      submitIndexNowUrlsTool.handler,
     ),
   );
   server.registerTool(
@@ -300,6 +334,24 @@ export function registerOpenSeoMcpTools(server: McpServer) {
       getAnalyticsLandingPagesTool.name,
       getAnalyticsLandingPagesTool.config.outputSchema,
       getAnalyticsLandingPagesTool.handler,
+    ),
+  );
+  server.registerTool(
+    listGoogleAnalyticsPropertiesTool.name,
+    listGoogleAnalyticsPropertiesTool.config,
+    instrumentMcpToolHandler(
+      listGoogleAnalyticsPropertiesTool.name,
+      listGoogleAnalyticsPropertiesTool.config.outputSchema,
+      listGoogleAnalyticsPropertiesTool.handler,
+    ),
+  );
+  server.registerTool(
+    setGoogleAnalyticsPropertyTool.name,
+    setGoogleAnalyticsPropertyTool.config,
+    instrumentMcpToolHandler(
+      setGoogleAnalyticsPropertyTool.name,
+      setGoogleAnalyticsPropertyTool.config.outputSchema,
+      setGoogleAnalyticsPropertyTool.handler,
     ),
   );
   registerAnalyticsReadTools(server);

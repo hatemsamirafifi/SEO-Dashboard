@@ -75,6 +75,8 @@ async function selectGscVersion(projectId: string): Promise<string | null> {
       id: gscSearchPerformanceSyncs.id,
       completedAt: gscSearchPerformanceSyncs.completedAt,
       successfulUnits: gscSearchPerformanceSyncs.successfulUnits,
+      rowsInserted: gscSearchPerformanceSyncs.rowsInserted,
+      status: gscSearchPerformanceSyncs.status,
     })
     .from(gscSearchPerformanceSyncs)
     .where(
@@ -85,7 +87,19 @@ async function selectGscVersion(projectId: string): Promise<string | null> {
     )
     .orderBy(desc(gscSearchPerformanceSyncs.completedAt))
     .limit(25);
-  return rows.find((row) => (row.successfulUnits ?? 0) > 0)?.id ?? null;
+  const fromSync = rows.find(
+    (row) =>
+      (row.successfulUnits ?? 0) > 0 ||
+      (row.rowsInserted ?? 0) > 0 ||
+      row.status === "completed",
+  )?.id;
+  if (fromSync) return fromSync;
+
+  const sample = await GscSearchPerformanceRepository.getLatestFactDate(
+    projectId,
+    "summary",
+  );
+  return sample ? `gsc:${projectId}` : null;
 }
 
 /** GA4: reuses the Task 3 §7 selector (latest run with successful_units > 0).
@@ -301,7 +315,6 @@ async function selectGoogleAdsMutation(
     isMutating: rows.length > 0,
     activeRunIds: rows.map((row) => row.id),
   };
-}
 }
 
 async function selectActiveMutations(

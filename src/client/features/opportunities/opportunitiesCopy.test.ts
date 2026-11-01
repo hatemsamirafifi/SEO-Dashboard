@@ -15,6 +15,7 @@ import {
   parseEventReason,
   priorityBadgeClass,
   priorityLabel,
+  safeDecodeUrlText,
   sourceLabel,
   statusBadgeClass,
   statusLabel,
@@ -330,5 +331,67 @@ describe("spec 018 cannibalization classification labels", () => {
       ["topShare", 0.5],
     ]);
     expect(classificationFromMetrics({ queryImpressions: 10 })).toBeNull();
+  });
+});
+
+
+describe("safeDecodeUrlText", () => {
+  it("handles null, undefined, and empty string safely", () => {
+    expect(safeDecodeUrlText(null)).toBe("");
+    expect(safeDecodeUrlText(undefined)).toBe("");
+    expect(safeDecodeUrlText("")).toBe("");
+  });
+
+  it("leaves strings without percent encoding untouched", () => {
+    expect(safeDecodeUrlText("Simple plain text")).toBe("Simple plain text");
+    expect(safeDecodeUrlText("https://example.com/about")).toBe(
+      "https://example.com/about",
+    );
+  });
+
+  it("decodes percent-encoded Arabic URLs and slugs", () => {
+    const encoded = "https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC";
+    expect(safeDecodeUrlText(encoded)).toBe("https://powersiment.ae/مناهج");
+  });
+
+  it("decodes Arabic URLs embedded in a sentence", () => {
+    const sentence =
+      "Critical issue broken-internal-link on https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC which earned 3 clicks.";
+    expect(safeDecodeUrlText(sentence)).toBe(
+      "Critical issue broken-internal-link on https://powersiment.ae/مناهج which earned 3 clicks.",
+    );
+  });
+
+  it("gracefully tolerates non-hex % characters like 15% drop", () => {
+    const text =
+      "15% drop on https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC-test";
+    expect(safeDecodeUrlText(text)).toBe(
+      "15% drop on https://powersiment.ae/مناهج-test",
+    );
+  });
+
+  it("tolerates broken % sequences without throwing URIError", () => {
+    const broken = "Broken %ZZ sequence on https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC";
+    expect(safeDecodeUrlText(broken)).toBe(
+      "Broken %ZZ sequence on https://powersiment.ae/مناهج",
+    );
+  });
+});
+
+describe("applyClientFilters with decoded search", () => {
+  it("matches search using Arabic decoded keywords even when stored row is encoded", () => {
+    const testRow = row({
+      title: "Critical broken-internal-link on https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC",
+      page: "https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC",
+    });
+
+    // Search by Arabic decoded term
+    expect(applyClientFilters([testRow], { search: "مناهج" })).toHaveLength(1);
+
+    // Search by raw percent-encoded string also matches
+    expect(applyClientFilters([testRow], { search: "%D9%85%D9%86" })).toHaveLength(1);
+
+    // Irrelevant search does not match
+    expect(applyClientFilters([testRow], { search: "غير موجود" })).toHaveLength(0);
   });
 });

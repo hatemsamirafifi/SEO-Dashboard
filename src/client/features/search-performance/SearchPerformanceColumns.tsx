@@ -1,6 +1,7 @@
 import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
 import type { MutableRefObject } from "react";
 import { makeSelectionColumn } from "@/client/components/table/AppDataTable";
+import { safeDecodeUrlText } from "@/client/components/table/url";
 import { SortableHeader } from "@/client/components/table/SortableHeader";
 import type { SelectionAnchor } from "@/client/components/table/tableSelection";
 import type {
@@ -89,11 +90,29 @@ export function buildDimensionColumns(
     dimensionHelper.accessor("key", {
       enableSorting: false,
       header: () => keyLabel,
-      cell: ({ getValue }) => (
-        <span className="block max-w-xl truncate" title={getValue()}>
-          {getValue()}
-        </span>
-      ),
+      cell: ({ getValue }) => {
+        const val = getValue();
+        const decoded = safeDecodeUrlText(val);
+        const isUrl = /^https?:\/\//.test(val);
+        if (isUrl) {
+          return (
+            <a
+              href={val}
+              target="_blank"
+              rel="noreferrer"
+              className="link link-hover block max-w-xl truncate"
+              title={decoded}
+            >
+              {decoded}
+            </a>
+          );
+        }
+        return (
+          <span className="block max-w-xl truncate" title={decoded}>
+            {decoded}
+          </span>
+        );
+      },
     }),
     dimensionHelper.accessor("clicks", {
       header: ({ column }) => (
@@ -185,25 +204,28 @@ export function buildStrikingColumns(
         </span>
       ),
     }),
-    strikingHelper.accessor("page", {
+        strikingHelper.accessor("page", {
       enableSorting: false,
       header: () => "Page",
-      cell: ({ getValue }) =>
-        /^https?:\/\//.test(getValue()) ? (
+      cell: ({ getValue }) => {
+        const val = getValue();
+        const decoded = safeDecodeUrlText(val);
+        return /^https?:\/\//.test(val) ? (
           <a
-            href={getValue()}
+            href={val}
             target="_blank"
             rel="noreferrer"
             className="link link-hover block max-w-sm truncate"
-            title={getValue()}
+            title={decoded}
           >
-            {getValue()}
+            {decoded}
           </a>
         ) : (
-          <span className="block max-w-sm truncate" title={getValue()}>
-            {getValue()}
+          <span className="block max-w-sm truncate" title={decoded}>
+            {decoded}
           </span>
-        ),
+        );
+      },
     }),
     strikingHelper.accessor("impressions", {
       header: ({ column }) => (
