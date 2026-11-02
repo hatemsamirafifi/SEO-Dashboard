@@ -1,3 +1,5 @@
+import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
+import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ORGANIC_CHANNEL_GROUP } from "@/shared/ga4";
 import type { AnalyticsRange } from "@/types/schemas/ga4";
@@ -94,8 +96,37 @@ export function useAnalyticsQueries(
 
   const overviewQuery = useQuery({
     queryKey: ["analyticsOverview", projectId, filterInput],
-    queryFn: () =>
-      getAnalyticsOverview({ data: { projectId, ...filterInput } }),
+    queryFn: async () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "analytics",
+        operation: "analytics.overview",
+        source: "Analytics page",
+        projectId,
+        status: "running",
+        billing: "Free",
+        metered: false,
+        budget: "PASS",
+        cache: "HIT",
+        provider: "GA4",
+        metadata: { ...filterInput },
+      });
+      try {
+        const res = await getAnalyticsOverview({
+          data: { projectId, ...filterInput },
+        });
+        globalTraceStore.completeOperation(opId, {
+          status: "success",
+          httpStatus: 200,
+        });
+        return res;
+      } catch (err) {
+        globalTraceStore.completeOperation(opId, {
+          status: "failed",
+          errorMessage: getStandardErrorMessage(err),
+        });
+        throw err;
+      }
+    },
     enabled: connected,
     placeholderData: keepPreviousData,
   });

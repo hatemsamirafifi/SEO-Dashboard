@@ -22,6 +22,7 @@ export type GlobalTraceFeature =
   | "brand_lookup"
   | "prompt_explorer"
   | "settings"
+  | "google_ads"
   // Spec 010: GA4 goals + goal-scoped analytics reads trace here.
   | "analytics"
   // Spec 014 (G5/P36): competitor-gap input spike measurements + verdict

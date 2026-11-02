@@ -207,6 +207,7 @@ describe("GoogleAdsBreakdownsSection", () => {
 
   it("decodes percent-encoded URLs in the landing pages table", () => {
     const landingPages = {
+      window: { startDate: "2026-09-18", endDate: "2026-10-15" },
       coverage: {
         status: "covered" as const,
         coveredDates: 28,
@@ -220,9 +221,11 @@ describe("GoogleAdsBreakdownsSection", () => {
         {
           landingPageUrl:
             "https://hattricksa.com/%D8%A7%D9%84%D8%AA%D9%88%D8%B5%D9%8A%D9%84",
+          rowCount: 1,
           totals: kpiTotals,
         },
       ],
+      campaignLandingPages: [],
     };
 
     const html = renderToStaticMarkup(
