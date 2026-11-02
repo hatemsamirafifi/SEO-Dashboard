@@ -1,3 +1,4 @@
+import { safeDecodeUrlText } from "@/client/components/table/url";
 import { useMemo, useState } from "react";
 import {
   createColumnHelper,
@@ -98,12 +99,14 @@ function buildPagesColumns({
       header: ({ column }) => <SortableHeader column={column} label="URL" />,
       cell: ({ getValue }) => {
         const url = getValue();
+        const decodedUrl = safeDecodeUrlText(url);
         return (
           <a
             href={url}
             target="_blank"
             rel="noopener noreferrer"
             className="link link-primary inline-flex items-center gap-1 text-xs"
+            title={decodedUrl}
           >
             <span className="truncate">{displayPath(url, canonicalHost)}</span>
             <ExternalLink className="size-3 shrink-0" />
@@ -123,7 +126,10 @@ function buildPagesColumns({
         if (isRedirect(row.original)) {
           const target = row.original.redirectUrl;
           return (
-            <span className="text-xs text-base-content/60">
+            <span
+              className="text-xs text-base-content/60"
+              title={target ? safeDecodeUrlText(target) : undefined}
+            >
               → {target ? displayPath(target, canonicalHost) : "redirect"}
             </span>
           );

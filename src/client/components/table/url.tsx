@@ -27,13 +27,9 @@ export function formatUrlForDisplay(value: string): string {
     const url = new URL(value);
     const hash = url.hash.startsWith("#:~:") ? "" : url.hash;
     const cleaned = `${url.protocol}//${url.host}${url.pathname}${url.search}${hash}`;
-    try {
-      return decodeURI(cleaned);
-    } catch {
-      return cleaned;
-    }
+    return safeDecodeUrlText(cleaned);
   } catch {
-    return value;
+    return safeDecodeUrlText(value);
   }
 }
 
@@ -73,7 +69,7 @@ export function ExternalUrlCell({
 
   const visibleLabel = label ?? getUrlDisplayLabel(value, display);
   return (
-    <a className={className} href={href} target="_blank" rel="noreferrer">
+    <a className={className} href={href} target="_blank" rel="noreferrer" title={safeDecodeUrlText(value)}>
       <span className="truncate">{visibleLabel}</span>
       <ExternalLink className="size-3 shrink-0" />
     </a>
@@ -87,9 +83,9 @@ function getUrlDisplayLabel(
   if (display === "raw") return value;
   if (display === "path") {
     try {
-      return new URL(value).pathname;
+      return safeDecodeUrlText(new URL(value).pathname);
     } catch {
-      return value;
+      return safeDecodeUrlText(value);
     }
   }
   return formatUrlForDisplay(value);

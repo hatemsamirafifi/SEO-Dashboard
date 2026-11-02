@@ -204,6 +204,41 @@ describe("GoogleAdsBreakdownsSection", () => {
     expect(html).not.toContain("$5.00");
     expect(html).toContain("Campaigns");
   });
+
+  it("decodes percent-encoded URLs in the landing pages table", () => {
+    const landingPages = {
+      coverage: {
+        status: "covered" as const,
+        coveredDates: 28,
+        totalDates: 28,
+        firstCoveredDate: "2026-09-18",
+        lastCoveredDate: "2026-10-15",
+      },
+      metricDateBasis: "interaction_date" as const,
+      currencyCode: "SAR",
+      landingPages: [
+        {
+          landingPageUrl:
+            "https://hattricksa.com/%D8%A7%D9%84%D8%AA%D9%88%D8%B5%D9%8A%D9%84",
+          totals: kpiTotals,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <GoogleAdsBreakdownsSection
+        campaigns={null}
+        keywords={null}
+        searchTerms={null}
+        devices={null}
+        landingPages={landingPages}
+        currencyCode="SAR"
+      />,
+    );
+    expect(html).toContain("https://hattricksa.com/التوصيل");
+    expect(html).toContain(">https://hattricksa.com/التوصيل<");
+    expect(html).toContain('title="https://hattricksa.com/التوصيل"');
+  });
 });
 
 describe("GoogleAdsStateBanner", () => {

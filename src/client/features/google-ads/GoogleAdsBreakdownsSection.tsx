@@ -1,5 +1,6 @@
 import { Eye, AlertTriangle } from "lucide-react";
 import { coverageCopy, formatAdsCurrency, formatCount } from "./googleAdsCopy";
+import { safeDecodeUrlText } from "@/client/components/table/url";
 import type {
   GoogleAdsCampaignBreakdown,
   GoogleAdsDeviceBreakdown,
@@ -287,19 +288,40 @@ export function GoogleAdsBreakdownsSection({
               </tr>
             </thead>
             <tbody>
-              {(landingPages?.landingPages ?? []).map((row) => (
-                <tr key={row.landingPageUrl}>
-                  <td>
-                    <span className="flex items-center gap-1">
-                      <Eye className="size-3.5 shrink-0 text-base-content/50" />
-                      <span className="truncate font-mono text-xs">
-                        {row.landingPageUrl}
+              {(landingPages?.landingPages ?? []).map((row) => {
+                const decodedUrl = safeDecodeUrlText(row.landingPageUrl);
+                const isLink =
+                  row.landingPageUrl.startsWith("http://") ||
+                  row.landingPageUrl.startsWith("https://");
+                return (
+                  <tr key={row.landingPageUrl}>
+                    <td>
+                      <span className="flex items-center gap-1">
+                        <Eye className="size-3.5 shrink-0 text-base-content/50" />
+                        {isLink ? (
+                          <a
+                            href={row.landingPageUrl}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="truncate font-mono text-xs hover:underline text-base-content"
+                            title={decodedUrl}
+                          >
+                            {decodedUrl}
+                          </a>
+                        ) : (
+                          <span
+                            className="truncate font-mono text-xs"
+                            title={decodedUrl}
+                          >
+                            {decodedUrl}
+                          </span>
+                        )}
                       </span>
-                    </span>
-                  </td>
-                  <KpiCells totals={row.totals} currencyCode={currencyCode} />
-                </tr>
-              ))}
+                    </td>
+                    <KpiCells totals={row.totals} currencyCode={currencyCode} />
+                  </tr>
+                );
+              })}
               {landingPages && landingPages.landingPages.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="text-base-content/60">

@@ -1,3 +1,4 @@
+import { safeDecodeUrlText } from "@/client/components/table/url";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Copy, Download, Loader2 } from "lucide-react";
@@ -113,7 +114,7 @@ export function SchemaEditorModal({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold">Schema editor</h2>
-            <p className="truncate text-sm text-base-content/70">{page.url}</p>
+            <p className="truncate text-sm text-base-content/70" title={safeDecodeUrlText(page.url)}>{safeDecodeUrlText(page.url)}</p>
           </div>
           <span className="badge badge-ghost shrink-0">
             {page.pageType ?? "unclassified"}
