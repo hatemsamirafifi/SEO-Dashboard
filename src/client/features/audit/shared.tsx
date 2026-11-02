@@ -1,3 +1,4 @@
+import { safeDecodeUrlText } from "@/client/components/table/url";
 import {
   AlertCircle,
   CheckCircle,
@@ -10,15 +11,23 @@ export const SUPPORT_URL = "https://everyapp.dev/support";
 
 export function extractPathname(url: string): string {
   try {
-    return new URL(url).pathname;
+    const parsed =
+      url.startsWith("http://") || url.startsWith("https://")
+        ? new URL(url)
+        : new URL(url, "https://example.com");
+    return safeDecodeUrlText(parsed.pathname);
   } catch {
-    return url;
+    return safeDecodeUrlText(url);
   }
 }
 
 export function extractHostname(url: string): string {
   try {
-    return new URL(url).hostname;
+    const parsed =
+      url.startsWith("http://") || url.startsWith("https://")
+        ? new URL(url)
+        : new URL(url, "https://example.com");
+    return parsed.hostname;
   } catch {
     return url;
   }

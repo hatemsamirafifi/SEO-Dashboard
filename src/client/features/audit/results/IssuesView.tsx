@@ -1,3 +1,4 @@
+import { safeDecodeUrlText } from "@/client/components/table/url";
 import { useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import {
@@ -210,9 +211,9 @@ function AffectedUrlList({ issues }: { issues: AuditIssueRow[] }) {
             href={issue.pageUrl}
             target="_blank"
             rel="noreferrer"
-            title={issue.pageUrl}
+            title={safeDecodeUrlText(issue.pageUrl)}
           >
-            {issue.pageUrl}
+            {safeDecodeUrlText(issue.pageUrl)}
           </a>
           <IssueDetails detailsJson={issue.detailsJson} />
         </div>
@@ -262,7 +263,7 @@ function IssueDetails({ detailsJson }: { detailsJson: string | null }) {
           const rendered = Array.isArray(value)
             ? value.join(" → ")
             : String(value);
-          return `${key}: ${rendered}`;
+          return `${key}: ${safeDecodeUrlText(rendered)}`;
         })
         .join(" · ")}
     </span>

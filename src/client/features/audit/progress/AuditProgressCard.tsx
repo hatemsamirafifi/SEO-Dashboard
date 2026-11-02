@@ -1,3 +1,4 @@
+import { safeDecodeUrlText } from "@/client/components/table/url";
 import { Loader2, StopCircle } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -183,6 +184,7 @@ function ProgressRow({
   index: number;
 }) {
   const pathname = extractPathname(entry.url);
+  const decodedUrl = safeDecodeUrlText(entry.url);
 
   return (
     <div
@@ -194,7 +196,7 @@ function ProgressRow({
     >
       <div className="flex items-center gap-2 min-w-0 flex-1">
         <HttpStatusBadge code={entry.statusCode} />
-        <span className="truncate text-base-content/80" title={entry.url}>
+        <span className="truncate text-base-content/80" title={decodedUrl}>
           {pathname}
         </span>
       </div>

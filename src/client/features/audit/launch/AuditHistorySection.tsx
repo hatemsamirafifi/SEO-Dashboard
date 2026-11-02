@@ -1,3 +1,4 @@
+import { safeDecodeUrlText } from "@/client/components/table/url";
 import { Link } from "@tanstack/react-router";
 import { MoreHorizontal, OctagonX, ScanSearch, Trash2 } from "lucide-react";
 import type { getAuditHistory } from "@/serverFunctions/audit";
@@ -51,7 +52,7 @@ export function AuditHistorySection({
                   <td className="text-xs text-base-content/70">
                     {formatDate(audit.startedAt)}
                   </td>
-                  <td className="max-w-[220px] truncate">{audit.startUrl}</td>
+                  <td className="max-w-[220px] truncate" title={safeDecodeUrlText(audit.startUrl)}>{safeDecodeUrlText(audit.startUrl)}</td>
                   <td>
                     <StatusBadge status={audit.status} />
                   </td>

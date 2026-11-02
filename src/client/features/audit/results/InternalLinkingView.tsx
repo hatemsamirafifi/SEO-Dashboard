@@ -1,3 +1,4 @@
+import { safeDecodeUrlText } from "@/client/components/table/url";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Link2 } from "lucide-react";
 import { getIssueDescriptor } from "@/shared/audit-issues";
@@ -153,9 +154,9 @@ function TargetCard({ target }: { target: Target }) {
         href={target.pageUrl}
         target="_blank"
         rel="noreferrer"
-        title={target.pageUrl}
+        title={safeDecodeUrlText(target.pageUrl)}
       >
-        {target.pageUrl}
+        {safeDecodeUrlText(target.pageUrl)}
       </a>
 
       {target.targetUrl && target.targetUrl !== target.pageUrl && (
@@ -166,8 +167,9 @@ function TargetCard({ target }: { target: Target }) {
             href={target.targetUrl}
             target="_blank"
             rel="noreferrer"
+            title={safeDecodeUrlText(target.targetUrl)}
           >
-            {target.targetUrl}
+            {safeDecodeUrlText(target.targetUrl)}
           </a>
         </p>
       )}
@@ -207,8 +209,9 @@ function TargetCard({ target }: { target: Target }) {
                   href={suggestion.sourceUrl}
                   target="_blank"
                   rel="noreferrer"
+                  title={safeDecodeUrlText(suggestion.sourceUrl)}
                 >
-                  {suggestion.sourceTitle ?? suggestion.sourceUrl}
+                  {suggestion.sourceTitle ?? safeDecodeUrlText(suggestion.sourceUrl)}
                 </a>
                 <span className="text-xs text-base-content/50">
                   {" "}
@@ -238,7 +241,7 @@ function TargetDetails({ target }: { target: Target }) {
       <p className="mt-2 text-sm text-base-content/70">
         Target is {String(target.details?.reason ?? "non-indexable")}
         {target.details?.canonicalUrl
-          ? `; canonical is ${String(target.details.canonicalUrl)}`
+          ? `; canonical is ${safeDecodeUrlText(String(target.details.canonicalUrl))}`
           : ""}
         .
       </p>
