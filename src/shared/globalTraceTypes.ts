@@ -87,6 +87,18 @@ export type GlobalTraceProviderCall = {
   circuitExpiresAt?: string | null;
 };
 
+/**
+ * Per-device before/after position pair for a rank-check keyword child.
+ * positionBefore and positionAfter ALWAYS come from the same device —
+ * keywords tracked on several devices carry one entry per tracked device
+ * so the trace never fabricates a cross-device position pair.
+ */
+export type GlobalTraceDevicePosition = {
+  device: "desktop" | "mobile";
+  positionBefore: number | null;
+  positionAfter: number | null;
+};
+
 export type GlobalTraceKeywordChild = {
   keywordId: string;
   keyword?: string; // safe display label
@@ -101,6 +113,8 @@ export type GlobalTraceKeywordChild = {
   durationMs?: number;
   positionBefore?: number | null;
   positionAfter?: number | null;
+  /** Per-device position pairs; aggregate pair (above) is preferred-device only. */
+  devices?: GlobalTraceDevicePosition[];
   httpStatus?: number | null;
   taskStatus?: number | null;
   cost?: number | string | null;

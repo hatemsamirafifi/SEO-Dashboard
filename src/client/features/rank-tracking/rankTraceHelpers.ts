@@ -55,9 +55,7 @@ function buildMissingSnapshotChild(
     keyword: row?.keyword,
     status: "failed",
     rankingStatus: "CHECK_FAILED",
-    provider: providerLabel(
-      row?.desktop?.provider ?? row?.mobile?.provider,
-    ),
+    provider: providerLabel(row?.desktop?.provider ?? row?.mobile?.provider),
     httpStatus: diag?.httpStatus ?? undefined,
     taskStatus: diag?.dataforseoStatusCode ?? undefined,
     error: run.errorMessage
@@ -80,9 +78,7 @@ function buildFailedDeviceChild(
     ? parseDataforseoDiagnosticsFromErrorMessage(childErrMsg)
     : null;
   const taskStatus =
-    failedDevice.providerStatusCode ??
-    diag?.dataforseoStatusCode ??
-    undefined;
+    failedDevice.providerStatusCode ?? diag?.dataforseoStatusCode ?? undefined;
   const httpStatus = diag?.httpStatus ?? undefined;
 
   return {
@@ -91,9 +87,7 @@ function buildFailedDeviceChild(
     status: "failed",
     rankingStatus: "CHECK_FAILED",
     provider: providerLabel(
-      failedDevice.provider ??
-        row?.desktop?.provider ??
-        row?.mobile?.provider,
+      failedDevice.provider ?? row?.desktop?.provider ?? row?.mobile?.provider,
     ),
     httpStatus,
     taskStatus,
@@ -103,16 +97,28 @@ function buildFailedDeviceChild(
   };
 }
 
+type DeviceSnapshot = NonNullable<RankRowForTrace["desktop"]>;
+
 export function buildKeywordChild(
   id: string,
   row: RankRowForTrace | undefined,
   run: RankRunForTrace,
 ): GlobalTraceKeywordChild {
-  const devices = [row?.desktop, row?.mobile].filter(
-    (d): d is NonNullable<typeof d> => d != null,
-  );
-  const fresh = devices.filter((d) =>
-    isFreshSnapshot(d.checkedAt, run.startedAt),
+  // Device names are preserved so the trace can report per-device positions
+  // instead of a device-blind aggregate.
+  const deviceEntries: Array<{
+    device: "desktop" | "mobile";
+    snapshot?: DeviceSnapshot | null;
+  }> = [
+    { device: "desktop", snapshot: row?.desktop },
+    { device: "mobile", snapshot: row?.mobile },
+  ];
+  const fresh = deviceEntries.filter(
+    (
+      entry,
+    ): entry is { device: "desktop" | "mobile"; snapshot: DeviceSnapshot } =>
+      entry.snapshot != null &&
+      isFreshSnapshot(entry.snapshot.checkedAt, run.startedAt),
   );
 
   if (fresh.length === 0) {
@@ -120,28 +126,38 @@ export function buildKeywordChild(
   }
 
   const failedDevice = fresh.find(
-    (d) => d.status === "failed" || d.rankingStatus === "CHECK_FAILED",
+    (entry) =>
+      entry.snapshot.status === "failed" ||
+      entry.snapshot.rankingStatus === "CHECK_FAILED",
   );
 
+  // One entry per fresh device; each pair comes from a SINGLE device.
+  const perDevice = fresh.map((entry) => ({
+    device: entry.device,
+    positionBefore: entry.snapshot.previousPosition ?? null,
+    positionAfter: entry.snapshot.position ?? null,
+  }));
+
   if (failedDevice) {
-    return buildFailedDeviceChild(id, row, failedDevice, run);
+    return {
+      ...buildFailedDeviceChild(id, row, failedDevice.snapshot, run),
+      devices: perDevice,
+    };
   }
 
-  const positionAfter =
-    fresh.find((d) => d.position != null)?.position ?? null;
-  const positionBefore =
-    fresh.find((d) => d.previousPosition != null)?.previousPosition ?? null;
+  // The aggregate pair must never cross devices: both before and after come
+  // from the preferred device (the ranked device if any, else the first one).
+  const preferred =
+    fresh.find((entry) => entry.snapshot.position != null) ?? fresh[0];
   return {
     keywordId: id,
     keyword: row?.keyword,
-    status: positionAfter != null ? "success" : "no_result",
-    rankingStatus: positionAfter != null ? "RANKED" : "NO_RESULT",
-    provider: providerLabel(
-      fresh.find((device) => device.position != null)?.provider ??
-        fresh[0]?.provider,
-    ),
-    positionBefore,
-    positionAfter,
+    status: preferred.snapshot.position != null ? "success" : "no_result",
+    rankingStatus: preferred.snapshot.position != null ? "RANKED" : "NO_RESULT",
+    provider: providerLabel(preferred.snapshot.provider),
+    positionBefore: preferred.snapshot.previousPosition ?? null,
+    positionAfter: preferred.snapshot.position ?? null,
+    devices: perDevice,
   };
 }
 

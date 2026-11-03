@@ -8,7 +8,10 @@ import {
   type MissingRankingBucket,
   type MissingRankingsBreakdown,
 } from "@/shared/rank-tracking";
-import { formatTraceDuration } from "./globalTraceFormat";
+import {
+  formatKeywordChildPositions,
+  formatTraceDuration,
+} from "./globalTraceFormat";
 
 function formatCircuitRetryAfter(expiresAt?: string | null): string | null {
   if (!expiresAt) return null;
@@ -442,19 +445,9 @@ export function ChildrenSection({
               )}
             </div>
             <div className="flex items-center gap-2.5">
-              {(child.positionBefore !== undefined ||
-                child.positionAfter !== undefined) && (
+              {formatKeywordChildPositions(child) && (
                 <span className="font-mono text-xs">
-                  Pos:{" "}
-                  {child.positionBefore !== null &&
-                  child.positionBefore !== undefined
-                    ? `#${child.positionBefore}`
-                    : "—"}
-                  {" → "}
-                  {child.positionAfter !== null &&
-                  child.positionAfter !== undefined
-                    ? `#${child.positionAfter}`
-                    : "—"}
+                  {formatKeywordChildPositions(child)}
                 </span>
               )}
 
