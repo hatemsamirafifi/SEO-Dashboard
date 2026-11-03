@@ -1,3 +1,4 @@
+import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
@@ -21,7 +22,34 @@ export function Ga4SyncStatus({
     queryFn: () => getGa4SyncStatus({ data: { projectId } }),
   });
   const trigger = useMutation({
-    mutationFn: () => triggerGa4Sync({ data: { projectId } }),
+    mutationFn: async () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "analytics",
+        operation: "analytics.ga4_sync",
+        source: "GA4 Sync Status",
+        projectId,
+        status: "running",
+        billing: "Free",
+        metered: false,
+        budget: "PASS",
+        cache: "MISS",
+        provider: "GA4",
+      });
+      try {
+        const res = await triggerGa4Sync({ data: { projectId } });
+        globalTraceStore.completeOperation(opId, {
+          status: "success",
+          httpStatus: 200,
+        });
+        return res;
+      } catch (err) {
+        globalTraceStore.completeOperation(opId, {
+          status: "failed",
+          errorMessage: getStandardErrorMessage(err),
+        });
+        throw err;
+      }
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: ["ga4SyncStatus", projectId],

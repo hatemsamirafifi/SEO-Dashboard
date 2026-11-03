@@ -49,10 +49,16 @@ async function deterministicId(row: SerpOrganicSnapshotRow): Promise<string> {
 
 async function insertOrganicSnapshots(rows: SerpOrganicSnapshotRow[]) {
   if (rows.length === 0) return;
-  await executeInBatches(rows, async (tx, row) =>
+  const rowsWithIds = await Promise.all(
+    rows.map(async (row) => ({
+      ...row,
+      id: await deterministicId(row),
+    })),
+  );
+  await executeInBatches(rowsWithIds, (tx, row) =>
     tx
       .insert(serpOrganicSnapshots)
-      .values({ id: await deterministicId(row), ...row })
+      .values(row)
       .onConflictDoNothing(),
   );
 }

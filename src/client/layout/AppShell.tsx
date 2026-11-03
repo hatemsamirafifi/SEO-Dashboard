@@ -58,9 +58,7 @@ export function AuthenticatedAppLayout({
   // builds links that self-correct via the route guard once data arrives.
   const sidebarProjectId =
     projectId ?? fallbackProjectId ?? rememberedProjectId;
-  const { panelOpen, setPanelOpen } = useGlobalTrace(
-    sidebarProjectId ?? undefined,
-  );
+  const { panelOpen, setPanelOpen } = useGlobalTrace();
   const shouldCheckSeoApiKeyStatus = location.pathname !== BILLING_ROUTE;
   const seoApiKeyStatusQuery = useQuery({
     queryKey: ["seoApiKeyStatus"],
@@ -166,7 +164,7 @@ export function AuthenticatedAppLayout({
 
       {panelOpen && (
         <GlobalDebugTracePanel
-          projectId={sidebarProjectId ?? undefined}
+          projectId={projectId}
           onClose={() => setPanelOpen(false)}
         />
       )}

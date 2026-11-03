@@ -59,7 +59,44 @@ export function useRankRunPolling(projectId: string, configId: string) {
       prevStatusRef.current = run?.status;
 
       if (run && (run.status === "running" || run.status === "pending")) {
-        const activeOps = findActiveTraces(run.id, projectId);
+        let activeOps = findActiveTraces(run.id, projectId);
+        if (activeOps.length === 0) {
+          const adoptedOpId = `rank_run_${run.id}`;
+          const existing = globalTraceStore.getOperations(projectId).find(
+            (o) =>
+              o.operationId === adoptedOpId ||
+              o.rankCheckRunId === run.id ||
+              (o.metadata as { runId?: unknown } | undefined)?.runId === run.id,
+          );
+          if (!existing) {
+            globalTraceStore.startOperation({
+              operationId: adoptedOpId,
+              feature: "rank_tracking",
+              operation: "rank_tracking.check_all",
+              source: "Rank Tracking page",
+              projectId,
+              status: "running",
+              rankCheckRunId: run.id,
+              supportsCancellation: true,
+              startedAt: run.startedAt
+                ? new Date(run.startedAt).getTime()
+                : Date.now(),
+              billing: "Paid",
+              metered: true,
+              budget: "PASS",
+              cache: "Not applicable",
+              retry: { attempted: false, count: 0 },
+              providerCalls: Array.isArray(run.providerCalls) ? run.providerCalls.length : 0,
+              metadata: {
+                runId: run.id,
+                configId,
+                keywordsChecked: run.keywordsChecked,
+                keywordsTotal: run.keywordsTotal,
+              },
+            });
+            activeOps = findActiveTraces(run.id, projectId);
+          }
+        }
         for (const activeOp of activeOps) {
           // Register cancellation handler so cancellation works even after reload/navigation
           registerCancellation(activeOp.operationId, async () => {
@@ -120,7 +157,54 @@ export function useRankRunPolling(projectId: string, configId: string) {
           });
         }
 
-        const activeOps = findActiveTraces(run.id, projectId);
+        let activeOps = findActiveTraces(run.id, projectId);
+        if (activeOps.length === 0) {
+          const existingOp = globalTraceStore.getOperations(projectId).find(
+            (o) =>
+              o.rankCheckRunId === run.id ||
+              (o.metadata as { runId?: unknown } | undefined)?.runId === run.id,
+          );
+          if (!existingOp) {
+            const completedOpId = `rank_run_${run.id}`;
+            globalTraceStore.recordOperation({
+              operationId: completedOpId,
+              feature: "rank_tracking",
+              operation: "rank_tracking.check_all",
+              source: "Rank Tracking page",
+              projectId,
+              status:
+                run.status === "cancelled"
+                  ? "cancelled"
+                  : run.status === "failed" || run.status === "partial"
+                    ? "failed"
+                    : "success",
+              rankCheckRunId: run.id,
+              startedAt: run.startedAt
+                ? new Date(run.startedAt).getTime()
+                : Date.now(),
+              completedAt: Date.now(),
+              billing: "Paid",
+              metered: true,
+              budget: "PASS",
+              cache: "Not applicable",
+              retry: { attempted: false, count: 0 },
+              providerCalls: Array.isArray(run.providerCalls) ? run.providerCalls.length : 0,
+              errorMessage: run.errorMessage || undefined,
+              metadata: {
+                runId: run.id,
+                configId,
+                keywordsChecked: run.keywordsChecked,
+                keywordsTotal: run.keywordsTotal,
+              },
+            });
+            const newlyCreated = globalTraceStore
+              .getOperations(projectId)
+              .find((o) => o.operationId === completedOpId);
+            if (newlyCreated) {
+              activeOps = [newlyCreated];
+            }
+          }
+        }
         for (const activeOp of activeOps) {
           void finalizeTraceForRun(
             run,

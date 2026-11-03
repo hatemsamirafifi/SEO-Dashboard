@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertCircle,
   Database,
@@ -40,6 +40,20 @@ export function GlobalDebugTracePanel({
   projectId?: string;
   onClose?: () => void;
 }) {
+  const [scope, setScope] = useState<"project" | "all">(
+    projectId ? "project" : "all",
+  );
+
+  useEffect(() => {
+    if (projectId) {
+      setScope("project");
+    } else {
+      setScope("all");
+    }
+  }, [projectId]);
+
+  const effectiveProjectId = scope === "project" ? projectId : undefined;
+
   const {
     operations,
     totalCount,
@@ -47,7 +61,9 @@ export function GlobalDebugTracePanel({
     setActiveFilter,
     clearTrace,
     setPanelOpen,
-  } = useGlobalTrace(projectId);
+  } = useGlobalTrace(effectiveProjectId);
+
+  const { totalCount: globalTotalCount } = useGlobalTrace(undefined);
 
   // Close with Escape key
   useEffect(() => {
@@ -77,12 +93,40 @@ export function GlobalDebugTracePanel({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-base-300 px-5 py-4">
           <div>
-            <h2
-              id="debug-trace-title"
-              className="text-lg font-bold tracking-tight text-base-content"
-            >
-              OpenSEO Debug Trace
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2
+                id="debug-trace-title"
+                className="text-lg font-bold tracking-tight text-base-content"
+              >
+                OpenSEO Debug Trace
+              </h2>
+              {projectId && (
+                <div className="join border border-base-300 rounded-md">
+                  <button
+                    type="button"
+                    onClick={() => setScope("project")}
+                    className={`btn btn-xs join-item ${
+                      scope === "project"
+                        ? "btn-primary"
+                        : "btn-ghost text-base-content/70"
+                    }`}
+                  >
+                    Current project
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScope("all")}
+                    className={`btn btn-xs join-item ${
+                      scope === "all"
+                        ? "btn-primary"
+                        : "btn-ghost text-base-content/70"
+                    }`}
+                  >
+                    All ({globalTotalCount})
+                  </button>
+                </div>
+              )}
+            </div>
             <p className="text-xs text-base-content/60">
               Developer diagnostics for non-SAM application operations · Current
               session
@@ -156,8 +200,19 @@ export function GlobalDebugTracePanel({
               <p className="mt-1 max-w-sm text-xs text-base-content/60">
                 {totalCount > 0
                   ? `No operations match the "${activeFilter}" filter.`
-                  : "Perform actions in OpenSEO (e.g. Check selected rankings in Rank Tracking, Test DataForSEO connection in Settings) to see diagnostics here."}
+                  : scope === "project" && globalTotalCount > 0
+                    ? `No operations recorded for this project yet (${globalTotalCount} available across all projects).`
+                    : "Perform actions in OpenSEO (e.g. Check selected rankings in Rank Tracking, Test DataForSEO connection in Settings) to see diagnostics here."}
               </p>
+              {scope === "project" && globalTotalCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setScope("all")}
+                  className="btn btn-outline btn-xs mt-3 gap-1"
+                >
+                  View all {globalTotalCount} operations
+                </button>
+              )}
             </div>
           ) : (
             operations.map((operation) => (
@@ -173,6 +228,11 @@ export function GlobalDebugTracePanel({
         <div className="flex items-center justify-between border-t border-base-200 bg-base-200/30 px-4 py-2.5 text-xs text-base-content/60">
           <span>
             {operations.length} of {totalCount} operations visible
+            {scope === "project" && globalTotalCount !== totalCount && (
+              <span className="ml-1 text-base-content/40">
+                ({globalTotalCount} total in session)
+              </span>
+            )}
           </span>
           <span>Max retention: 500 events (session only)</span>
         </div>

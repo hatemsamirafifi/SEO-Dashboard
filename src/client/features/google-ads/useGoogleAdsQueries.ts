@@ -1,3 +1,5 @@
+import { globalTraceStore } from "@/client/features/tracing/globalTraceStore";
+import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   getGoogleAdsCampaigns,
@@ -44,7 +46,37 @@ export function useGoogleAdsQueries(
 
   const overviewQuery = useQuery({
     queryKey: ["googleAdsOverview", projectId, criteria],
-    queryFn: () => getGoogleAdsOverview({ data: { projectId, ...criteria } }),
+    queryFn: async () => {
+      const opId = globalTraceStore.startOperation({
+        feature: "google_ads",
+        operation: "google_ads.overview",
+        source: "Google Ads page",
+        projectId,
+        status: "running",
+        billing: "Free",
+        metered: false,
+        budget: "PASS",
+        cache: "HIT",
+        provider: "Google Ads",
+        metadata: { ...criteria },
+      });
+      try {
+        const res = await getGoogleAdsOverview({
+          data: { projectId, ...criteria },
+        });
+        globalTraceStore.completeOperation(opId, {
+          status: "success",
+          httpStatus: 200,
+        });
+        return res;
+      } catch (err) {
+        globalTraceStore.completeOperation(opId, {
+          status: "failed",
+          errorMessage: getStandardErrorMessage(err),
+        });
+        throw err;
+      }
+    },
     enabled: connected,
     placeholderData: keepPreviousData,
   });
