@@ -164,6 +164,86 @@ describe("buildRankCompletionPatch — snapshot-evidence completion", () => {
     expect(patch.httpStatus).toBeUndefined();
   });
 
+  it("never pairs a previous position from one device with another device's result", () => {
+    // Repro: devices="both", Desktop fresh snapshot = not ranking (no
+    // previous), Mobile fresh snapshot = not ranking but previously #6.
+    // The table's Desktop column shows "No ranking found" while the old trace
+    // merged "Pos: #6 -> —" from Mobile evidence into a device-blind pair.
+    const patch = buildRankCompletionPatch({
+      run: run(),
+      rows: [
+        row({
+          desktop: {
+            position: null,
+            previousPosition: null,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+          },
+          mobile: {
+            position: null,
+            previousPosition: 6,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+          },
+        }),
+      ],
+      targetIds: ["kw_1"],
+    });
+
+    // The aggregate pair now belongs to a single (displayed/default) device.
+    expect(patch.children[0].positionBefore).toBeNull();
+    expect(patch.children[0].positionAfter).toBeNull();
+    // Mobile evidence is preserved per-device with truthful labels.
+    expect(patch.children[0].devices).toEqual([
+      { device: "desktop", positionBefore: null, positionAfter: null },
+      { device: "mobile", positionBefore: 6, positionAfter: null },
+    ]);
+  });
+
+  it("builds the aggregate pair from the ranked device and labels every device", () => {
+    // Repro: Desktop checked and not ranking, Mobile fresh RANKED #6.
+    // Old trace unlabelled this as "Pos: #6 -> #6" for whichever devices had
+    // any position/previous position, matching neither column truthfully.
+    const patch = buildRankCompletionPatch({
+      run: run(),
+      rows: [
+        row({
+          desktop: {
+            position: null,
+            previousPosition: null,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+          },
+          mobile: {
+            position: 6,
+            previousPosition: 6,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+          },
+        }),
+      ],
+      targetIds: ["kw_1"],
+    });
+
+    expect(patch.children[0].status).toBe("success");
+    expect(patch.children[0].positionBefore).toBe(6);
+    expect(patch.children[0].positionAfter).toBe(6);
+    expect(patch.children[0].devices).toEqual([
+      { device: "desktop", positionBefore: null, positionAfter: null },
+      { device: "mobile", positionBefore: 6, positionAfter: 6 },
+    ]);
+  });
+
+  it("keeps single-device summaries unchanged and labelled per-device", () => {
+    const patch = buildRankCompletionPatch({
+      run: run(),
+      rows: [row()],
+      targetIds: ["kw_1"],
+    });
+
+    expect(patch.children[0].positionBefore).toBe(10);
+    expect(patch.children[0].positionAfter).toBe(5);
+    expect(patch.children[0].devices).toEqual([
+      { device: "desktop", positionBefore: 10, positionAfter: 5 },
+    ]);
+  });
+
   it("marks a fresh null-position snapshot as no_result (still success)", () => {
     const patch = buildRankCompletionPatch({
       run: run(),

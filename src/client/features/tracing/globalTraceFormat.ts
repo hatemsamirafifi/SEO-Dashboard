@@ -1,5 +1,6 @@
 import type {
   GlobalTraceFilter,
+  GlobalTraceKeywordChild,
   GlobalTraceOperation,
   GlobalTraceProviderCall,
   GlobalTraceStatus,
@@ -9,6 +10,45 @@ export function formatTraceDuration(durationMs?: number): string {
   if (typeof durationMs !== "number" || durationMs < 0) return "—";
   if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
   return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+function formatPositionPair(
+  before: number | null | undefined,
+  after: number | null | undefined,
+): string {
+  return `${before != null ? `#${before}` : "—"} → ${
+    after != null ? `#${after}` : "—"
+  }`;
+}
+
+/**
+ * Human-readable positions for a rank-check keyword child.
+ * With per-device data (from buildKeywordChild): labelled per-device pairs,
+ * e.g. "Desktop — → — · Mobile #6 → #6", so a pair is never read as a mix of
+ * two devices. Fallbacks to the single aggregated pair for children built
+ * without per-device details. Returns null when there is nothing to render.
+ */
+export function formatKeywordChildPositions(
+  child: Pick<
+    GlobalTraceKeywordChild,
+    "devices" | "positionBefore" | "positionAfter"
+  >,
+): string | null {
+  if (child.devices && child.devices.length > 0) {
+    return child.devices
+      .map(
+        (segment) =>
+          `${segment.device === "mobile" ? "Mobile" : "Desktop"} ${formatPositionPair(
+            segment.positionBefore,
+            segment.positionAfter,
+          )}`,
+      )
+      .join(" · ");
+  }
+  if (child.positionBefore === undefined && child.positionAfter === undefined) {
+    return null;
+  }
+  return formatPositionPair(child.positionBefore, child.positionAfter);
 }
 
 export function formatProviderBreakdown(
