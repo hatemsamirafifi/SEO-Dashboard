@@ -23,9 +23,38 @@ const QUEUED_EXTRA_PAGE_COST_USD = 0.00045;
 
 /**
  * How a rank check reaches DataForSEO: "live" is the instant endpoint used for
- * manual checks; "queued" is the cheaper task queue used for scheduled checks.
+ * an explicitly manual check of a single keyword; "queued" is the cheaper
+ * task queue used for scheduled checks and manual bulk checks.
  */
-type RankCheckMethod = "live" | "queued";
+export type RankCheckMethod = "live" | "queued";
+
+/**
+ * Resolve the dispatch method for a rank check from its trigger and the
+ * ACTUAL scoped/eligible keyword count (after selection and missing-ranking
+ * filters — never the pre-filter selection size).
+ *
+ *  - scheduled: always the Standard Queue (bulk out of Live by design);
+ *  - manual with exactly ONE keyword: the Live endpoint (instant result);
+ *  - manual with MORE than one keyword: the Standard Queue.
+ *
+ * One keyword with both devices still counts as ONE keyword — the device
+ * expansion happens after method selection. This helper is the single source
+ * of truth shared by the workflow's execution branch, the server credit
+ * precheck, and the client's cost/time copy, so all three always agree.
+ */
+export function resolveRankCheckMethod(
+  trigger: "manual" | "scheduled",
+  scopedKeywordCount: number,
+): RankCheckMethod {
+  if (trigger === "scheduled") return "queued";
+  return scopedKeywordCount === 1 ? "live" : "queued";
+}
+
+/** User-facing copy for how long a QUEUED (Standard Queue) check takes.
+ *  The workflow polls DataForSEO's queue on a ~15-minute window (first
+ *  collection pass ~4 minutes in), so instant-results copy must never be
+ *  shown for queued bulk checks. */
+export const QUEUED_RESULTS_WINDOW_TEXT = "Results in ~5–15 min";
 
 /** How many keywords are checked per batch */
 export const KEYWORDS_PER_BATCH = 10;

@@ -101,6 +101,9 @@ function dataforseoProvider(client: DataforseoClient): SerpProvider {
           device: input.device,
           targetDomain: input.targetDomain,
           depth: input.depth,
+          // The account gate honors this while waiting for the slot and
+          // re-checks immediately before the paid live dispatch.
+          isCancelled: input.isCancelled,
         });
         const call: SerpProviderCall = {
           provider: "dataforseo",

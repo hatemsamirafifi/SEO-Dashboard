@@ -631,3 +631,24 @@ export const rankProviderCalls = pgTable(
     ),
   ],
 );
+
+// One row per DataForSEO ACCOUNT coordinating rank-check request dispatch.
+// Account identity is a SHA-256 hash of the effective DataForSEO login ONLY —
+// the same login with different API passwords resolves to the same row, and
+// no credential material (login, password, raw request bodies) is ever
+// persisted here. The row acts as a single-slot mutex across every worker,
+// project, and organization that dispatches rank-check requests through the
+// same account. Parity-matched with the SQLite twin (see
+// src/db/app.schema.ts for the full field contract).
+export const dataforseoAccountRequestSlots = pgTable(
+  "dataforseo_account_request_slots",
+  {
+    // SHA-256 hex of the effective DataForSEO login — opaque, no credentials.
+    accountHash: text("account_hash").primaryKey(),
+    // Monotonic fencing counter; bumped on every acquisition.
+    epoch: integer("epoch").notNull().default(1),
+    acquiredAt: text("acquired_at").notNull(),
+    // Earliest re-acquisition instant (ISO-8601 UTC text; lexical compare).
+    freeAt: text("free_at").notNull(),
+  },
+);

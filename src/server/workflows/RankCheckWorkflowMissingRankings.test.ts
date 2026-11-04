@@ -27,7 +27,13 @@ const pathsMocks = vi.hoisted(() => ({
         ctx: { keywords: Array<{ id: string }> },
       ) => Promise<string | null>
     >(),
-  runQueuedCheck: vi.fn(),
+  runQueuedCheck:
+    vi.fn<
+      (
+        step: unknown,
+        ctx: { keywords: Array<{ id: string }> },
+      ) => Promise<unknown>
+    >(),
 }));
 
 const factsMocks = vi.hoisted(() => ({
@@ -227,8 +233,10 @@ describe("RankCheckWorkflow missing-rankings re-resolution", () => {
       missingRankings: true,
     });
 
-    expect(pathsMocks.runLiveCheck).toHaveBeenCalledTimes(1);
-    const ctx = pathsMocks.runLiveCheck.mock.calls[0][1];
+    // Two eligible keywords remain: a manual BULK check runs queued.
+    expect(pathsMocks.runQueuedCheck).toHaveBeenCalledTimes(1);
+    expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
+    const ctx = pathsMocks.runQueuedCheck.mock.calls[0][1];
     expect(ctx.keywords.map((kw) => kw.id)).toEqual(["keyword_1", "keyword_3"]);
   });
 
@@ -238,8 +246,8 @@ describe("RankCheckWorkflow missing-rankings re-resolution", () => {
     await runWorkflow({ keywordIds: ["keyword_1", "keyword_2"] });
 
     expect(factsMocks.getLatestRankingFactsForConfig).not.toHaveBeenCalled();
-    expect(pathsMocks.runLiveCheck).toHaveBeenCalledTimes(1);
-    const ctx = pathsMocks.runLiveCheck.mock.calls[0][1];
+    expect(pathsMocks.runQueuedCheck).toHaveBeenCalledTimes(1);
+    const ctx = pathsMocks.runQueuedCheck.mock.calls[0][1];
     expect(ctx.keywords).toHaveLength(2);
   });
 
@@ -261,9 +269,10 @@ describe("RankCheckWorkflow missing-rankings re-resolution", () => {
       }),
     ).rejects.toThrow("No keywords to track");
     expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
+    expect(pathsMocks.runQueuedCheck).not.toHaveBeenCalled();
   });
 
-  it("missing-rankings run still finalizes from snapshots (retries/fallback unchanged)", async () => {
+  it("missing-rankings run still finalizes from snapshots (single eligible keyword stays live)", async () => {
     repoMocks.getKeywordsForConfig.mockResolvedValue(makeKeywords(1));
     factsMocks.getLatestRankingFactsForConfig.mockResolvedValue(
       pairFacts({ "keyword_1:desktop": "lost", "keyword_1:mobile": "lost" }),
@@ -281,6 +290,8 @@ describe("RankCheckWorkflow missing-rankings re-resolution", () => {
       missingRankings: true,
     });
 
+    // A single eligible keyword is a manual LIVE check (instant result).
+    expect(pathsMocks.runLiveCheck).toHaveBeenCalledTimes(1);
     expect(repoMocks.updateRun).toHaveBeenCalledWith(
       "run_1",
       expect.objectContaining({ status: "completed", keywordsChecked: 1 }),
@@ -338,8 +349,8 @@ describe("RankCheckWorkflow missing-rankings re-resolution", () => {
       missingRankingStates: ["ranking_unavailable", "no_ranking"],
     });
 
-    expect(pathsMocks.runLiveCheck).toHaveBeenCalledTimes(1);
-    const ctx = pathsMocks.runLiveCheck.mock.calls[0][1];
+    expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
+    const ctx = pathsMocks.runQueuedCheck.mock.calls[0][1];
     expect(ctx.keywords.map((kw) => kw.id)).toEqual(["keyword_1", "keyword_3"]);
   });
 });

@@ -6,7 +6,15 @@ import {
   SerpGoogleOrganicLiveAdvancedRequestInfo,
   SerpGoogleOrganicTaskPostRequestInfo,
 } from "dataforseo-client";
-import { serpApi } from "@/server/lib/dataforseo/core";
+import {
+  serpApi,
+  resolveDataforseoAccountBinding,
+} from "@/server/lib/dataforseo/core";
+import { runWithDataforseoContext } from "@/server/lib/dataforseo/context";
+import {
+  withDataforseoAccountRequest,
+  type DataforseoRankCheckRequestKind,
+} from "@/server/features/rank-tracking/services/dataforseoAccountGate";
 import { MAX_TASKS_PER_POST } from "@/server/lib/dataforseo/shared";
 import {
   assertOk,
@@ -114,6 +122,51 @@ export interface RankCheckOrganicEntry {
   domain: string;
 }
 
+/**
+ * Async liveness probe honored by every coordinated rank-check dispatch
+ * (Live, task_post, task_get): checked while waiting for the account slot
+ * and once more immediately after acquiring, so a cancelled run's request
+ * is never sent. Never called mid-dispatch — it cannot abort a request
+ * that is already on the wire.
+ */
+export interface RankCheckDispatchCancellation {
+  isCancelled?: () => Promise<boolean>;
+}
+
+/**
+ * Run one rank-check SDK dispatch through the account coordination gate.
+ *
+ * ONE credential resolution decides BOTH the coordinated account (SHA-256 of
+ * the effective login) and the pinned credentials for the dispatch: the
+ * resolved pair is re-bound around the gated SDK call, so the request can
+ * only ever run as the account the slot was acquired for — settings drift
+ * while waiting on the slot cannot redirect it to a different account. (A
+ * raw API key that does not decode to login:password has no pair to pin; the
+ * fetch's own env resolution applies, which is where the hash came from.)
+ *
+ * The gate bounds the wait, honors cancellation (signal / isCancelled),
+ * fails closed when coordination storage errors, and always releases.
+ */
+async function gatedAccountDispatch<T>(
+  kind: DataforseoRankCheckRequestKind,
+  cancellation: RankCheckDispatchCancellation,
+  sdkCall: () => Promise<T>,
+): Promise<T> {
+  const binding = await resolveDataforseoAccountBinding();
+  return withDataforseoAccountRequest(
+    binding.accountHash,
+    kind,
+    () => {
+      if (!binding.login || !binding.password) return sdkCall();
+      return runWithDataforseoContext(
+        { login: binding.login, password: binding.password },
+        sdkCall,
+      );
+    },
+    { isCancelled: cancellation.isCancelled },
+  );
+}
+
 /** Organic results kept per keyword and device (spec 019). */
 const MAX_ORGANIC_CAPTURE = 10;
 
@@ -173,31 +226,39 @@ function buildRankCheckResult(
   };
 }
 
-export async function fetchRankCheckSerp(input: {
-  keyword: string;
-  keywordId: string;
-  locationCode: number;
-  languageCode: string;
-  locationName?: string;
-  device: "desktop" | "mobile";
-  targetDomain: string;
-  depth: number;
-}): Promise<DataforseoApiResponse<RankCheckResult>> {
+export async function fetchRankCheckSerp(
+  input: {
+    keyword: string;
+    keywordId: string;
+    locationCode: number;
+    languageCode: string;
+    locationName?: string;
+    device: "desktop" | "mobile";
+    targetDomain: string;
+    depth: number;
+  } & RankCheckDispatchCancellation,
+): Promise<DataforseoApiResponse<RankCheckResult>> {
   const depth = clampSerpDepth(input.depth);
   const locationParams = input.locationName
     ? { location_name: input.locationName }
     : { location_code: input.locationCode };
-  const response = await serpApi().googleOrganicLiveAdvanced([
-    new SerpGoogleOrganicLiveAdvancedRequestInfo({
-      keyword: input.keyword,
-      ...locationParams,
-      language_code: input.languageCode,
-      device: input.device,
-      os: input.device === "desktop" ? "windows" : "android",
-      depth,
-      ...stopCrawlOnTarget(input.targetDomain),
-    }),
-  ]);
+  // The single-keyword Live rank check is a paid, account-scoped dispatch:
+  // it goes through the same account coordination gate as the queue paths so
+  // concurrent projects sharing one DataForSEO account cannot multiply its
+  // outbound request concurrency.
+  const response = await gatedAccountDispatch("live_rank_check", input, () =>
+    serpApi().googleOrganicLiveAdvanced([
+      new SerpGoogleOrganicLiveAdvancedRequestInfo({
+        keyword: input.keyword,
+        ...locationParams,
+        language_code: input.languageCode,
+        device: input.device,
+        os: input.device === "desktop" ? "windows" : "android",
+        depth,
+        ...stopCrawlOnTarget(input.targetDomain),
+      }),
+    ]),
+  );
 
   // "No Search Results" (40501) is valid for obscure/new keywords — treat as an
   // empty result set rather than failing the whole rank-tracking run.
@@ -215,10 +276,13 @@ export async function fetchRankCheckSerp(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Task-queue rank checks (scheduled runs). DataForSEO's standard queue costs
+// Task-queue rank checks (bulk runs). DataForSEO's standard queue costs
 // ~30% of the live endpoint; tasks complete in ~5 minutes on average. The flow
-// is task_post (charged) -> poll task_get (free) -> live fallback for
-// stragglers, orchestrated by the rank check workflow.
+// is task_post (charged) -> poll task_get (free), orchestrated by the rank
+// check workflow. Queue outcomes that never produce a result (rejections,
+// failures, or tasks still pending when the polling window closes) are
+// surfaced as per-keyword diagnostics — bulk queue work is NEVER resubmitted
+// to the Live endpoint.
 // ---------------------------------------------------------------------------
 
 export interface RankCheckTaskInput {
@@ -231,14 +295,33 @@ export interface PostedRankCheckTask extends RankCheckTaskInput {
   taskId: string;
 }
 
-export async function postRankCheckTasks(input: {
-  tasks: RankCheckTaskInput[];
-  locationCode: number;
-  languageCode: string;
-  locationName?: string;
-  depth: number;
-  targetDomain: string;
-}): Promise<DataforseoApiResponse<PostedRankCheckTask[]>> {
+/** A keyword/device pair DataForSEO refused at task_post, with its reason. */
+export interface RejectedRankCheckTask {
+  /** The pair DataForSEO rejected; null when the response entry's tag could
+   *  not be mapped back to a submitted pair (malformed response). */
+  task: RankCheckTaskInput | null;
+  /** DataForSEO's task-level status_code for the rejected entry, when present. */
+  statusCode: number | null;
+  /** Sanitized, bounded status message ("Task Limit Exceeded", ...). */
+  statusMessage: string | null;
+}
+
+/** Result of one task_post batch: accepted tasks plus rejected pairs. */
+export interface PostRankCheckTasksResult {
+  posted: PostedRankCheckTask[];
+  rejected: RejectedRankCheckTask[];
+}
+
+export async function postRankCheckTasks(
+  input: {
+    tasks: RankCheckTaskInput[];
+    locationCode: number;
+    languageCode: string;
+    locationName?: string;
+    depth: number;
+    targetDomain: string;
+  } & RankCheckDispatchCancellation,
+): Promise<DataforseoApiResponse<PostRankCheckTasksResult>> {
   if (input.tasks.length === 0 || input.tasks.length > MAX_TASKS_PER_POST) {
     throw new AppError(
       "INTERNAL_ERROR",
@@ -249,25 +332,35 @@ export async function postRankCheckTasks(input: {
   const locationParams = input.locationName
     ? { location_name: input.locationName }
     : { location_code: input.locationCode };
-  const response = await serpApi().googleOrganicTaskPost(
-    input.tasks.map(
-      (task) =>
-        new SerpGoogleOrganicTaskPostRequestInfo({
-          keyword: task.keyword,
-          ...locationParams,
-          language_code: input.languageCode,
-          device: task.device,
-          os: task.device === "desktop" ? "windows" : "android",
-          depth,
-          // Queued tasks are billed provisionally at full depth at post time;
-          // task_get later reports the reduced actual cost when the crawl
-          // stopped early. We meter customers on the post-time amount —
-          // collection-time metering is a possible future optimization.
-          ...stopCrawlOnTarget(input.targetDomain),
-          // Echoed back on the response entry and task_get; used to map a
-          // DataForSEO task id back to our keyword without relying on order.
-          tag: `${task.keywordId}:${task.device}`,
-        }),
+  // task_post is a PAID, account-scoped dispatch: it goes through the
+  // account coordination gate so concurrent projects sharing one DataForSEO
+  // account cannot multiply outbound request concurrency. A wait that times
+  // out or is cancelled never dispatches (the caller records diagnostics
+  // for the unposted pairs; it never blindly retries an ambiguous paid POST).
+  const response = await gatedAccountDispatch("task_post", input, () =>
+    serpApi().googleOrganicTaskPost(
+      input.tasks.map(
+        (task) =>
+          new SerpGoogleOrganicTaskPostRequestInfo({
+            keyword: task.keyword,
+            ...locationParams,
+            language_code: input.languageCode,
+            device: task.device,
+            os: task.device === "desktop" ? "windows" : "android",
+            depth,
+            // Standard Queue at normal priority (1) — never priority_high,
+            // which DataForSEO bills at a premium.
+            priority: 1,
+            // Queued tasks are billed provisionally at full depth at post time;
+            // task_get later reports the reduced actual cost when the crawl
+            // stopped early. We meter customers on the post-time amount —
+            // collection-time metering is a possible future optimization.
+            ...stopCrawlOnTarget(input.targetDomain),
+            // Echoed back on the response entry and task_get; used to map a
+            // DataForSEO task id back to our keyword without relying on order.
+            tag: `${task.keywordId}:${task.device}`,
+          }),
+      ),
     ),
   );
 
@@ -281,12 +374,14 @@ export async function postRankCheckTasks(input: {
   // One response entry per submitted task; accepted entries have status 20100
   // "Task Created" and their own cost (charged at post time). Cost is summed
   // over every entry — accepted or not — so anything DataForSEO charged is
-  // metered. Rejected entries get no posted task; the workflow falls back to
-  // the live endpoint for any keyword/device pair missing from the result.
+  // metered. Rejected pairs are returned (not silently dropped) so the
+  // workflow can record per-keyword diagnostics; bulk queue rejections are
+  // NEVER resubmitted to the Live endpoint.
   const byTag = new Map(
     input.tasks.map((task) => [`${task.keywordId}:${task.device}`, task]),
   );
   const posted: PostedRankCheckTask[] = [];
+  const rejected: RejectedRankCheckTask[] = [];
   let costUsd = 0;
   for (const entry of response.tasks ?? []) {
     costUsd += entry.cost ?? 0;
@@ -296,13 +391,24 @@ export async function postRankCheckTasks(input: {
       console.warn(
         `dataforseo.task_post.rejected-entry (${entry.status_code}): ${entry.status_message}`,
       );
+      rejected.push({
+        // Null task = unmappable tag; the caller reconciles the chunk so no
+        // pair is ever silently lost (unaccounted pairs get a generic
+        // rejection diagnostic).
+        task: task ?? null,
+        statusCode: entry.status_code ?? null,
+        statusMessage:
+          typeof entry.status_message === "string" && entry.status_message
+            ? entry.status_message.slice(0, 300)
+            : null,
+      });
       continue;
     }
     posted.push({ ...task, taskId: entry.id });
   }
 
   return {
-    data: posted,
+    data: { posted, rejected },
     billing: {
       path: ["v3", "serp", "google", "organic", "task_post"],
       costUsd,
@@ -326,13 +432,23 @@ const TASK_IN_PROGRESS_STATUS_CODES = new Set([20100, 40601, 40602]);
  * (reduced when stop_crawl_on_match ended the crawl early) — running it
  * through the metering seam would charge the customer twice.
  */
-export async function fetchRankCheckTaskResult(input: {
-  taskId: string;
-  keywordId: string;
-  keyword: string;
-  targetDomain: string;
-}): Promise<RankCheckTaskOutcome> {
-  const response = await serpApi().googleOrganicTaskGetAdvanced(input.taskId);
+export async function fetchRankCheckTaskResult(
+  input: {
+    taskId: string;
+    keywordId: string;
+    keyword: string;
+    targetDomain: string;
+  } & RankCheckDispatchCancellation,
+): Promise<RankCheckTaskOutcome> {
+  // task_get is free at DataForSEO but still an account-scoped HTTP
+  // dispatch: it shares the account coordination gate (and the account's
+  // request budget) with the paid paths. Callers wrap it in
+  // runWithDataforseoAccountContext so it resolves the same effective
+  // account the metered task_post used — including project-level credential
+  // overrides — instead of falling back to environment credentials.
+  const response = await gatedAccountDispatch("task_get", input, () =>
+    serpApi().googleOrganicTaskGetAdvanced(input.taskId),
+  );
   const task = response?.tasks?.[0];
   if (!response || response.status_code !== 20000 || !task) {
     throw new AppError(

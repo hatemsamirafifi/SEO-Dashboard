@@ -670,3 +670,30 @@ export const rankProviderCalls = sqliteTable(
     ),
   ],
 );
+
+// One row per DataForSEO ACCOUNT coordinating rank-check request dispatch.
+// Account identity is a SHA-256 hash of the effective DataForSEO login ONLY —
+// the same login with different API passwords resolves to the same row, and
+// no credential material (login, password, raw request bodies) is ever
+// persisted here. The row acts as a single-slot mutex across every worker,
+// project, and organization that dispatches rank-check requests through the
+// same account:
+// - `epoch` is the fencing counter: every acquisition (fresh insert, normal
+//   hand-off, or expiry reclaim) increments it, so a release from a previous
+//   owner can never unlock a newer one.
+// - `freeAt` is the earliest instant the slot may be re-acquired. While a
+//   request is in flight it holds the lease deadline (acquiredAt + lease);
+//   on release it holds releaseAt + pacing gap.
+// See src/server/features/rank-tracking/services/dataforseoAccountGate.ts.
+export const dataforseoAccountRequestSlots = sqliteTable(
+  "dataforseo_account_request_slots",
+  {
+    // SHA-256 hex of the effective DataForSEO login — opaque, no credentials.
+    accountHash: text("account_hash").primaryKey(),
+    // Monotonic fencing counter; bumped on every acquisition.
+    epoch: integer("epoch").notNull().default(1),
+    acquiredAt: text("acquired_at").notNull(),
+    // Earliest re-acquisition instant (ISO-8601 UTC text; lexical compare).
+    freeAt: text("free_at").notNull(),
+  },
+);

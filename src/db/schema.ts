@@ -143,6 +143,7 @@ export const {
   rankCheckRuns,
   rankSnapshots,
   rankProviderCalls,
+  dataforseoAccountRequestSlots,
   organizationActivationState,
   projectActivationState,
   backlinkSnapshots,

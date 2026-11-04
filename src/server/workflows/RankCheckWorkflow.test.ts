@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkflowStep } from "cloudflare:workers";
+import { estimateRankCheckCredits } from "@/shared/rank-tracking";
 
-// The rank-check workflow's scope enforcement: when keywordIds are provided,
-// DataForSEO tasks and snapshots must be created for exactly those keywords —
-// never the config's full keyword list.
+// The rank-check workflow's scope enforcement and METHOD SELECTION: when
+// keywordIds are provided, DataForSEO tasks and snapshots must be created for
+// exactly those keywords — never the config's full keyword list — and the
+// dispatch method (Live vs Standard Queue) must follow resolveRankCheckMethod
+// on that same scoped count, agreeing with the credit precheck.
 
 interface KeywordEntry {
   id: string;
@@ -35,11 +38,20 @@ const repoMocks = vi.hoisted(() => ({
 const pathsMocks = vi.hoisted(() => ({
   runLiveCheck:
     vi.fn<(step: unknown, ctx: CheckContextCall) => Promise<string | null>>(),
-  runQueuedCheck: vi.fn(),
+  runQueuedCheck:
+    vi.fn<(step: unknown, ctx: CheckContextCall) => Promise<unknown>>(),
 }));
 
 const guardModule = vi.hoisted(() => ({
   failRunIfActive: vi.fn(),
+}));
+
+const runtimeEnvMocks = vi.hoisted(() => ({
+  isHostedServerAuthMode: vi.fn<() => Promise<boolean>>(),
+}));
+
+const autumnMocks = vi.hoisted(() => ({
+  check: vi.fn<() => Promise<{ balance?: { remaining?: number } }>>(),
 }));
 
 vi.mock("cloudflare:workers", () => ({
@@ -89,10 +101,10 @@ vi.mock("@/server/lib/posthog", () => ({
   captureServerEvent: vi.fn(),
 }));
 vi.mock("@/server/billing/autumn", () => ({
-  autumn: { check: vi.fn() },
+  autumn: { check: autumnMocks.check },
 }));
 vi.mock("@/server/lib/runtime-env", () => ({
-  isHostedServerAuthMode: vi.fn().mockResolvedValue(false),
+  isHostedServerAuthMode: runtimeEnvMocks.isHostedServerAuthMode,
 }));
 
 const activeRun = { id: "run_1", status: "pending", keywordsTotal: 0 };
@@ -176,48 +188,62 @@ function liveCheckContext(index = 0): CheckContextCall {
   return call[1];
 }
 
+function queuedCheckContext(index = 0): CheckContextCall {
+  const calls = pathsMocks.runQueuedCheck.mock.calls;
+  const call = calls[index];
+  if (!call) throw new Error(`No runQueuedCheck call at index ${index}`);
+  return call[1];
+}
+
 function runUpdateTotals(): number[] {
   return repoMocks.updateRun.mock.calls
     .map(([, data]) => data.keywordsTotal)
     .filter((total): total is number => typeof total === "number");
 }
 
-describe("RankCheckWorkflow scope enforcement", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    for (const mock of Object.values(repoMocks)) mock.mockReset();
-    for (const mock of Object.values(pathsMocks)) mock.mockReset();
-    guardModule.failRunIfActive.mockReset();
+function resetWorkflowMocks() {
+  vi.resetModules();
+  for (const mock of Object.values(repoMocks)) mock.mockReset();
+  for (const mock of Object.values(pathsMocks)) mock.mockReset();
+  guardModule.failRunIfActive.mockReset();
+  runtimeEnvMocks.isHostedServerAuthMode.mockReset();
+  autumnMocks.check.mockReset();
 
-    repoMocks.getRunById.mockResolvedValue(activeRun);
-    repoMocks.getConfigById.mockResolvedValue({ isActive: true });
-    repoMocks.getKeywordsForConfig.mockResolvedValue(makeKeywords(901));
-    repoMocks.getSnapshotsForRun.mockResolvedValue([]);
-    repoMocks.updateRun.mockResolvedValue(undefined);
-    repoMocks.updateConfig.mockResolvedValue(undefined);
-    pathsMocks.runLiveCheck.mockResolvedValue(null);
-    pathsMocks.runQueuedCheck.mockResolvedValue({
-      queueTasks: 0,
-      queueCollected: 0,
-      fallbackTasks: 0,
-      fallbackChecked: 0,
-    });
+  repoMocks.getRunById.mockResolvedValue(activeRun);
+  repoMocks.getConfigById.mockResolvedValue({ isActive: true });
+  repoMocks.getKeywordsForConfig.mockResolvedValue(makeKeywords(901));
+  repoMocks.getSnapshotsForRun.mockResolvedValue([]);
+  repoMocks.updateRun.mockResolvedValue(undefined);
+  repoMocks.updateConfig.mockResolvedValue(undefined);
+  runtimeEnvMocks.isHostedServerAuthMode.mockResolvedValue(false);
+  pathsMocks.runLiveCheck.mockResolvedValue(null);
+  pathsMocks.runQueuedCheck.mockResolvedValue({
+    queueTasks: 0,
+    queueCollected: 0,
+    uncollectedTasks: 0,
   });
+}
 
-  it("REGRESSION: 901 tracked keywords, 4 selected — check path receives exactly 4 keywords", async () => {
+describe("RankCheckWorkflow scope enforcement", () => {
+  beforeEach(resetWorkflowMocks);
+
+  it("REGRESSION: 901 tracked keywords, 4 selected — queued check path receives exactly 4 keywords", async () => {
     const selected = ["keyword_1", "keyword_2", "keyword_3", "keyword_4"];
     await runWorkflow({ keywordIds: selected });
 
-    expect(pathsMocks.runLiveCheck).toHaveBeenCalledTimes(1);
-    const ctx = liveCheckContext();
+    // 4 keywords is a manual BULK check: Standard Queue, not Live.
+    expect(pathsMocks.runQueuedCheck).toHaveBeenCalledTimes(1);
+    expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
+    const ctx = queuedCheckContext();
     expect(ctx.keywords).toHaveLength(4);
     expect(ctx.keywords.map((kw) => kw.id)).toEqual(selected);
   }, 30_000);
 
-  it("without keywordIds the check path receives the full keyword list", async () => {
+  it("without keywordIds the queued check path receives the full keyword list", async () => {
     await runWorkflow({});
 
-    expect(liveCheckContext().keywords).toHaveLength(901);
+    expect(queuedCheckContext().keywords).toHaveLength(901);
+    expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
   }, 30_000);
 
   it("sets the run's keywordsTotal to the selected scope", async () => {
@@ -233,6 +259,7 @@ describe("RankCheckWorkflow scope enforcement", () => {
       runWorkflow({ keywordIds: ["foreign_a", "foreign_b"] }),
     ).rejects.toThrow("No keywords to track");
     expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
+    expect(pathsMocks.runQueuedCheck).not.toHaveBeenCalled();
     expect(guardModule.failRunIfActive).toHaveBeenCalled();
   });
 
@@ -250,9 +277,11 @@ describe("RankCheckWorkflow scope enforcement", () => {
         position: null,
       },
     ]);
-    pathsMocks.runLiveCheck.mockResolvedValue(
-      "DataForSEO task error (40201): temporarily paused access",
-    );
+    pathsMocks.runQueuedCheck.mockResolvedValue({
+      queueTasks: 0,
+      queueCollected: 0,
+      uncollectedTasks: 2,
+    });
 
     await runWorkflow({ keywordIds: selected });
 
@@ -279,9 +308,6 @@ describe("RankCheckWorkflow scope enforcement", () => {
         position: null,
       },
     ]);
-    pathsMocks.runLiveCheck.mockResolvedValue(
-      "DataForSEO task error (40201): temporarily paused access",
-    );
 
     await runWorkflow({ keywordIds: selected });
 
@@ -319,4 +345,114 @@ describe("RankCheckWorkflow scope enforcement", () => {
       }),
     );
   });
+});
+
+describe("RankCheckWorkflow method selection (Live vs Standard Queue)", () => {
+  beforeEach(resetWorkflowMocks);
+
+  it("a manual check of a SINGLE keyword (both devices) stays on the Live endpoint", async () => {
+    await runWorkflow({ keywordIds: ["keyword_1"] });
+
+    expect(pathsMocks.runLiveCheck).toHaveBeenCalledTimes(1);
+    expect(pathsMocks.runQueuedCheck).not.toHaveBeenCalled();
+    expect(liveCheckContext().keywords.map((kw) => kw.id)).toEqual([
+      "keyword_1",
+    ]);
+  }, 30_000);
+
+  it("a manual check of MORE than one keyword uses the Standard Queue", async () => {
+    await runWorkflow({ keywordIds: ["keyword_1", "keyword_2"] });
+
+    expect(pathsMocks.runQueuedCheck).toHaveBeenCalledTimes(1);
+    expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it("a scheduled check uses the Standard Queue even for a single keyword", async () => {
+    await runWorkflow({
+      keywordIds: ["keyword_1"],
+      trigger: "scheduled",
+    });
+
+    expect(pathsMocks.runQueuedCheck).toHaveBeenCalledTimes(1);
+    expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
+  }, 30_000);
+});
+
+describe("RankCheckWorkflow hosted credit precheck agrees with method selection", () => {
+  beforeEach(() => {
+    resetWorkflowMocks();
+    runtimeEnvMocks.isHostedServerAuthMode.mockResolvedValue(true);
+    autumnMocks.check.mockResolvedValue({ balance: { remaining: 0 } });
+  });
+
+  /** Set the available balance (split across the two autumn feature checks). */
+  function setAvailableCredits(credits: number) {
+    autumnMocks.check.mockImplementation(async () => ({
+      balance: { remaining: Math.ceil(credits / 2) },
+    }));
+  }
+
+  it("prices a multi-keyword manual check at QUEUED credits (bulk is never live-priced)", async () => {
+    const selected = ["keyword_1", "keyword_2", "keyword_3"];
+    const devices = "both" as const;
+    const { costCredits: queuedCost } = estimateRankCheckCredits(
+      selected.length,
+      devices,
+      20,
+      "queued",
+    );
+    const { costCredits: liveCost } = estimateRankCheckCredits(
+      selected.length,
+      devices,
+      20,
+      "live",
+    );
+    expect(liveCost).toBeGreaterThan(queuedCost);
+
+    // Balance covers the queued price but NOT the live price: the run must
+    // proceed only because the precheck used the queued method.
+    setAvailableCredits(queuedCost);
+    await runWorkflow({ keywordIds: selected });
+    expect(pathsMocks.runQueuedCheck).toHaveBeenCalledTimes(1);
+
+    // Below the queued price the run must fail with INSUFFICIENT_CREDITS.
+    repoMocks.updateRun.mockClear();
+    pathsMocks.runQueuedCheck.mockClear();
+    guardModule.failRunIfActive.mockClear();
+    setAvailableCredits(queuedCost - 1);
+    await expect(runWorkflow({ keywordIds: selected })).rejects.toMatchObject({
+      code: "INSUFFICIENT_CREDITS",
+    });
+    expect(pathsMocks.runQueuedCheck).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it("prices a single-keyword manual check at LIVE credits", async () => {
+    const devices = "both" as const;
+    const { costCredits: queuedCost } = estimateRankCheckCredits(
+      1,
+      devices,
+      20,
+      "queued",
+    );
+    const { costCredits: liveCost } = estimateRankCheckCredits(
+      1,
+      devices,
+      20,
+      "live",
+    );
+    expect(liveCost).toBeGreaterThan(queuedCost);
+
+    // Balance covers the queued price but NOT the live price: a
+    // single-keyword manual check is LIVE, so the run must fail.
+    setAvailableCredits(queuedCost);
+    await expect(
+      runWorkflow({ keywordIds: ["keyword_1"] }),
+    ).rejects.toMatchObject({ code: "INSUFFICIENT_CREDITS" });
+    expect(pathsMocks.runLiveCheck).not.toHaveBeenCalled();
+
+    // With the live price covered, the same single-keyword check proceeds.
+    setAvailableCredits(liveCost);
+    await runWorkflow({ keywordIds: ["keyword_1"] });
+    expect(pathsMocks.runLiveCheck).toHaveBeenCalledTimes(1);
+  }, 30_000);
 });

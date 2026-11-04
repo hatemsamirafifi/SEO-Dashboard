@@ -12,10 +12,13 @@ import {
   calculateEtaSeconds,
   formatEta,
   isRunButtonDisabled,
+  runMissingRankingsCopy,
   STATE_OPTIONS,
 } from "./MissingRankingsConfirmModal";
 import {
   estimateRankCheckCredits,
+  QUEUED_RESULTS_WINDOW_TEXT,
+  resolveRankCheckMethod,
   type MissingRankingsBreakdown,
 } from "@/shared/rank-tracking";
 
@@ -164,5 +167,61 @@ describe("MissingRankingsConfirmModal dynamic state and count calculations", () 
     expect(
       calculateActiveCount(tableSelectionBreakdown, ["ranking_unavailable"]),
     ).toBe(7);
+  });
+});
+
+describe("rank check method selection agrees with user cost/time copy", () => {
+  it("resolveRankCheckMethod: scheduled always queued; manual single live; manual bulk queued", () => {
+    expect(resolveRankCheckMethod("scheduled", 1)).toBe("queued");
+    expect(resolveRankCheckMethod("scheduled", 500)).toBe("queued");
+    // One keyword with BOTH devices still counts as one keyword: live.
+    expect(resolveRankCheckMethod("manual", 1)).toBe("live");
+    expect(resolveRankCheckMethod("manual", 2)).toBe("queued");
+    expect(resolveRankCheckMethod("manual", 500)).toBe("queued");
+  });
+
+  it("single eligible keyword: live method, instant ETA, live price", () => {
+    const copy = runMissingRankingsCopy({
+      activeCount: 1,
+      devices: "both",
+      serpDepth: 40,
+    });
+    expect(copy.method).toBe("live");
+    // Instant copy for the live single-keyword check (both devices = 1 batch).
+    expect(copy.etaText).toBe("Results in ~6s");
+    // Live pricing (~3.3x the queued price at the same depth).
+    const queuedCost = estimateRankCheckCredits(1, "both", 40, "queued");
+    expect(copy.costUsd).toBeGreaterThan(queuedCost.costUsd);
+  });
+
+  it("multiple eligible keywords: queued method, NEVER instant time copy, queued price", () => {
+    for (const activeCount of [2, 12, 677]) {
+      const copy = runMissingRankingsCopy({
+        activeCount,
+        devices: "desktop",
+        serpDepth: 10,
+      });
+      expect(copy.method).toBe("queued");
+      // Queued bulk checks must not show instant-results time.
+      expect(copy.etaText).toBe(QUEUED_RESULTS_WINDOW_TEXT);
+      expect(copy.etaText).not.toMatch(/~\d+s$/);
+      const liveCost = estimateRankCheckCredits(
+        activeCount,
+        "desktop",
+        10,
+        "live",
+      );
+      expect(copy.costUsd).toBeLessThan(liveCost.costUsd);
+    }
+  });
+
+  it("zero eligible keywords: no instant promise, no method mismatch", () => {
+    const copy = runMissingRankingsCopy({
+      activeCount: 0,
+      devices: "desktop",
+      serpDepth: 10,
+    });
+    expect(copy.etaText).toBe("0s");
+    expect(copy.costUsd).toBe(0);
   });
 });
