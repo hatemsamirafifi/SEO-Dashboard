@@ -1,5 +1,8 @@
 # Local DataForSEO account queue migration — 2026-11-05
 
+For the later, user-authorized single Live request and confirmed provider account
+pause, see [the follow-up diagnosis](2026-11-05-live-serp-account-paused.md).
+
 Migration `0077_dataforseo_account_request_slots.sql` was applied successfully to
 the existing local Docker application. Existing projects, tracking configuration,
 keywords, and ranking history were preserved. This adds a coordination table;
