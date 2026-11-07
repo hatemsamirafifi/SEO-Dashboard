@@ -1,5 +1,7 @@
+/* eslint-disable max-lines */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { globalTraceStore } from "./globalTraceStore";
+import { formatKeywordChildPositions } from "./globalTraceFormat";
 
 vi.mock("@/serverFunctions/rank-tracking", () => ({
   cancelRankCheckRun: vi.fn(async () => ({ ok: true, status: "cancelled" })),
@@ -436,5 +438,28 @@ describe("Global Debug Trace — Rank Tracking Selected Checks Integration", () 
     // Provider calls and checks started must remain at actual 2, never reset to 0 or inflated to 5
     expect(op?.providerCalls).toBe(2);
     expect(op?.rankChecksStarted).toBe(2);
+  });
+});
+
+describe("formatKeywordChildPositions — per-device trace rendering", () => {
+  it("renders labelled per-device pairs so no pair is read across devices", () => {
+    expect(
+      formatKeywordChildPositions({
+        devices: [
+          { device: "desktop", positionBefore: null, positionAfter: null },
+          { device: "mobile", positionBefore: 6, positionAfter: 6 },
+        ],
+      }),
+    ).toBe("Desktop — → — · Mobile #6 → #6");
+  });
+
+  it("falls back to the single aggregated pair when no per-device data exists", () => {
+    expect(
+      formatKeywordChildPositions({ positionBefore: 10, positionAfter: 5 }),
+    ).toBe("#10 → #5");
+  });
+
+  it("returns null when there is nothing to render", () => {
+    expect(formatKeywordChildPositions({})).toBeNull();
   });
 });
