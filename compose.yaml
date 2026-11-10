@@ -18,7 +18,10 @@ services:
       - AUTH_MODE=local_noauth
       - OPENSEO_TELEMETRY_DISABLED=${OPENSEO_TELEMETRY_DISABLED:-}
       - DO_NOT_TRACK=${DO_NOT_TRACK:-}
-      - DATAFORSEO_API_KEY=${DATAFORSEO_API_KEY}
+      - SERANKING_API_KEY=${SERANKING_API_KEY:-}
+      - SERANKING_BASE_URL=${SERANKING_BASE_URL:-}
+      - SERANKING_ENABLED=${SERANKING_ENABLED:-}
+      - DATAFORSEO_API_KEY=${DATAFORSEO_API_KEY:-}
       # Optional: AI features (SAM, the in-app SEO agent). Keys are forwarded
       # from .env (OPENROUTER_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY,
       # ANTHROPIC_API_KEY). AI_AGENT_PROVIDER picks the default provider when

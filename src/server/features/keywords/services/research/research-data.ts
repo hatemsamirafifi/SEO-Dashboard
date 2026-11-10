@@ -136,6 +136,20 @@ function asRecordRows(value: unknown): GoogleAdsKeywordRecord[] {
  *    `source: "google_ads"` plus `ideas` / `keywords` record arrays).
  *  Discriminate structurally — never by trusting the typed response body
  *  against the runtime reality. */
+function isLabsKeywordDataItems(value: unknown): value is LabsKeywordDataItem[] {
+  if (!Array.isArray(value)) return false;
+  if (value.length === 0) return true;
+  const first = value[0];
+  return (
+    typeof first === "object" &&
+    first !== null &&
+    ("keyword_info" in first ||
+      "keyword_properties" in first ||
+      "search_intent_info" in first ||
+      "keyword_data" in first)
+  );
+}
+
 function isAdsKeywordIdeaItems(value: unknown): value is AdsKeywordIdeaItem[] {
   return Array.isArray(value);
 }
@@ -144,6 +158,12 @@ function mapResearchIdeasPayload(data: unknown): {
   rows: EnrichedKeyword[];
   records: GoogleAdsKeywordRecord[];
 } {
+  if (isLabsKeywordDataItems(data)) {
+    return {
+      rows: mapKeywordDataItems(data),
+      records: [],
+    };
+  }
   if (isAdsKeywordIdeaItems(data)) {
     return {
       rows: mapAdsKeywordItems(data),

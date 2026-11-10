@@ -41,13 +41,16 @@ export const errorHandlingMiddleware = createMiddleware({
       ? new AppError("VALIDATION_ERROR")
       : asAppError(error);
 
+    const correlationId = `req_${crypto.randomUUID().slice(0, 8)}`;
+
     if (shouldCaptureAppErrorCode(appError?.code)) {
       const request = getRequest();
       const url = new URL(request.url);
 
-      console.error("server.function error:", error);
+      console.error(`[${correlationId}] server.function error:`, error);
       waitUntil(
         captureServerError(error, {
+          correlationId,
           errorCode: appError?.code ?? "INTERNAL_ERROR",
           method: request.method,
           path: url.pathname,
@@ -56,6 +59,6 @@ export const errorHandlingMiddleware = createMiddleware({
       );
     }
 
-    throw toClientError(appError ?? error);
+    throw toClientError(appError ?? error, correlationId);
   }
 });

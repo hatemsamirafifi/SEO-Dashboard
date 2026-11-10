@@ -82,15 +82,28 @@ async function fetchAutoRows(
   let lastSource: KeywordSource = AUTO_KEYWORD_SOURCES[0];
   const accumulatedRows: EnrichedKeyword[] = [];
   const seenKeywords = new Set<string>();
+  let lastError: unknown = null;
 
   for (const source of AUTO_KEYWORD_SOURCES) {
-    const rows = await fetchRowsFromSource(
-      source,
-      input,
-      seedKeyword,
-      billingCustomer,
-      creditFeature,
-    );
+    let rows: EnrichedKeyword[] = [];
+    try {
+      rows = await fetchRowsFromSource(
+        source,
+        input,
+        seedKeyword,
+        billingCustomer,
+        creditFeature,
+      );
+    } catch (error) {
+      lastError = error;
+      attempts.push({
+        source,
+        rowCount: 0,
+        nonSeedCount: 0,
+      });
+      continue;
+    }
+
     for (const row of rows) {
       if (accumulatedRows.length >= input.resultLimit) break;
       if (seenKeywords.has(row.keyword)) continue;
@@ -120,6 +133,23 @@ async function fetchAutoRows(
         },
       };
     }
+  }
+
+  if (accumulatedRows.length > 0) {
+    return {
+      rows: accumulatedRows,
+      source: lastSource,
+      usedFallback: true,
+      diagnostics: {
+        requestedMode: "auto",
+        threshold: MIN_NON_SEED_FOR_AUTO,
+        sourceAttempts: attempts,
+      },
+    };
+  }
+
+  if (lastError) {
+    throw lastError;
   }
 
   return {

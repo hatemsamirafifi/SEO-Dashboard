@@ -11,6 +11,8 @@ import type { LlmCrossAggregatedItem } from "@/server/lib/dataforseoLlmSchemas";
 import { AppError } from "@/server/lib/errors";
 import { buildCacheKey, getCached, setCached } from "@/server/lib/r2-cache";
 import { assertDataforseoBudgetAvailable } from "@/server/lib/seo-data/cost-tracker";
+import { getProviderFeatureFlags } from "@/server/lib/seo-data/config";
+import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
 import { singleFlight } from "@/server/lib/seo-data/single-flight";
 import {
   resolveCompetitorGroups,
@@ -112,6 +114,14 @@ async function fetchOrCoalesceBrandLookup(
 ) {
   const cached = await getCached(cacheKey);
   if (cached !== null) return cached;
+
+  const flags = await getProviderFeatureFlags();
+  if (!flags.dataforseoEnabled) {
+    throw new ProviderUnavailableError(
+      "dataforseo",
+      "DataForSEO is disabled (DATAFORSEO_ENABLED=false)",
+    );
+  }
 
   await assertDataforseoBudgetAvailable();
 
@@ -334,13 +344,17 @@ function rethrowIfBlockingAiSearchError(
   results: Array<PromiseSettledResult<unknown>>,
 ): void {
   for (const result of results) {
-    if (
-      result.status === "rejected" &&
-      result.reason instanceof AppError &&
-      (result.reason.code === "INSUFFICIENT_CREDITS" ||
-        result.reason.code === "AI_SEARCH_BILLING_ISSUE")
-    ) {
-      throw result.reason;
+    if (result.status === "rejected") {
+      if (
+        result.reason instanceof AppError &&
+        (result.reason.code === "INSUFFICIENT_CREDITS" ||
+          result.reason.code === "AI_SEARCH_BILLING_ISSUE")
+      ) {
+        throw result.reason;
+      }
+      if (result.reason instanceof ProviderUnavailableError) {
+        throw result.reason;
+      }
     }
   }
 }

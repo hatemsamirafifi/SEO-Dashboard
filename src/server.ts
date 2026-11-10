@@ -205,6 +205,8 @@ export { AutopilotWorkflow } from "./server/workflows/AutopilotWorkflow";
 export { OnboardingChatAgent } from "./server/features/onboarding/OnboardingChatAgent";
 // Durable Object class for the SAM in-app agent (Agents SDK).
 export { SamChatAgent } from "./server/features/sam/SamChatAgent";
+// Durable Object class for SE Ranking distributed rate limiting.
+export { SeRankingRateLimiter } from "./server/lib/seranking/rateLimiter";
 
 export default {
   fetch,

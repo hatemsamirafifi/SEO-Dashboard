@@ -25,6 +25,7 @@ import {
 import { runWithDataforseoContext } from "@/server/lib/dataforseo/context";
 import { resolveEffectiveDataforseoConfig } from "@/server/features/settings/services/DataforseoSettingsService";
 import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
+import { getProviderFeatureFlags } from "@/server/lib/seo-data/config";
 
 export { mapDataforseoPathToCreditFeature };
 
@@ -146,6 +147,14 @@ async function meterDataforseoCall<T>(
   execute: () => Promise<DataforseoApiResponse<T>>,
   creditFeature?: CreditFeature,
 ): Promise<T> {
+  const flags = await getProviderFeatureFlags();
+  if (!flags.dataforseoEnabled) {
+    throw new ProviderUnavailableError(
+      "dataforseo",
+      "DataForSEO is disabled (DATAFORSEO_ENABLED=false)",
+    );
+  }
+
   const config = await resolveEffectiveDataforseoConfig({
     organizationId: customer.organizationId,
     projectId: customer.projectId,

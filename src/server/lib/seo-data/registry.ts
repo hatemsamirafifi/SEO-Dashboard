@@ -1,5 +1,6 @@
 import { DataRouter } from "./data-router";
 import { createDataforseoProvider } from "./providers/dataforseo-provider";
+import { createSerankingProvider } from "./providers/seranking-provider";
 import { createGscProvider } from "./providers/gsc-provider";
 import { createGoogleAdsProvider } from "./providers/google-ads-provider";
 import { createBingWebmasterProvider } from "./providers/bing-webmaster-provider";
@@ -22,6 +23,7 @@ export function getSeoDataRouter(): DataRouter {
 
   // Register all providers. The DataRouter checks feature flags at runtime,
   // so disabled providers are simply never tried.
+  singleton.register(createSerankingProvider());
   singleton.register(createDataforseoProvider());
   singleton.register(createGscProvider());
   singleton.register(createGoogleAdsProvider());

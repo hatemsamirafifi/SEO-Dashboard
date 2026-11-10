@@ -62,6 +62,48 @@ export function asAppError(error: unknown): AppError | null {
         typeof error.message === "string" ? error.message : undefined,
       );
     }
+    if (error.name === "ProviderUnsupportedError") {
+      return new AppError(
+        "UPSTREAM_UNAVAILABLE",
+        typeof error.message === "string" ? error.message : undefined,
+      );
+    }
+    if (error.name === "SeRankingAuthError") {
+      return new AppError(
+        "UNAUTHENTICATED",
+        typeof error.message === "string" ? error.message : undefined,
+      );
+    }
+    if (error.name === "SeRankingRateLimitError") {
+      return new AppError(
+        "RATE_LIMITED",
+        typeof error.message === "string" ? error.message : undefined,
+      );
+    }
+    if (error.name === "SeRankingCreditExhaustedError") {
+      return new AppError(
+        "INSUFFICIENT_CREDITS",
+        typeof error.message === "string" ? error.message : undefined,
+      );
+    }
+    if (error.name === "SeRankingValidationError") {
+      return new AppError(
+        "VALIDATION_ERROR",
+        typeof error.message === "string" ? error.message : undefined,
+      );
+    }
+    if (error.name === "SeRankingUpstreamError" || error.name === "SeRankingError") {
+      return new AppError(
+        "UPSTREAM_UNAVAILABLE",
+        typeof error.message === "string" ? error.message : undefined,
+      );
+    }
+    if (error.name === "ZodError") {
+      return new AppError(
+        "UPSTREAM_UNAVAILABLE",
+        "Invalid upstream response format",
+      );
+    }
   }
   return null;
 }
@@ -73,14 +115,23 @@ export function asAppError(error: unknown): AppError | null {
 // same. Everything else stays stripped to its bare code.
 const CLIENT_DETAIL_ERROR_CODES = new Set<ErrorCode>(["AUTH_CONFIG_MISSING"]);
 
-export function toClientError(error: unknown): Error {
+export function toClientError(error: unknown, correlationId?: string): Error {
   const appError = asAppError(error);
+  const code = appError?.code ?? "INTERNAL_ERROR";
+  const refTag = correlationId ? `[ref: ${correlationId}]` : "";
+
   if (
     appError &&
     CLIENT_DETAIL_ERROR_CODES.has(appError.code) &&
     appError.message !== appError.code
   ) {
-    return new Error(`${appError.code}: ${appError.message}`);
+    const detail = refTag ? `${refTag} ${appError.message}` : appError.message;
+    return new Error(`${appError.code}: ${detail}`);
   }
-  return new Error(appError?.code ?? "INTERNAL_ERROR");
+
+  if (refTag) {
+    return new Error(`${code}: ${refTag}`);
+  }
+
+  return new Error(code);
 }

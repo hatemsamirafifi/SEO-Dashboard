@@ -11,6 +11,7 @@ import type {
 } from "./rankTraceCompletion";
 
 export function providerLabel(provider: string | null | undefined): string {
+  if (provider === "seranking") return "SE Ranking";
   if (provider === "dataforseo") return "DataForSEO";
   if (provider === "serper") return "Serper.dev";
   if (provider === "zenserp") return "Zenserp";

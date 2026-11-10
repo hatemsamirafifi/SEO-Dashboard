@@ -12,6 +12,9 @@ declare namespace Cloudflare {
     // Durable Object backing the SAM in-app agent (see wrangler.jsonc).
     SAM_CHAT: DurableObjectNamespace;
 
+    // Durable Object backing global distributed rate limiting for SE Ranking API.
+    SE_RANKING_RATE_LIMITER?: DurableObjectNamespace;
+
     AUTH_MODE?: "cloudflare_access" | "local_noauth" | "hosted";
     BYPASS_EMAIL_VERIFICATION?: string;
     TEAM_DOMAIN?: string;

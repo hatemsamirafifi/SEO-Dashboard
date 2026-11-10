@@ -42,6 +42,7 @@ const domainOverviewResultSchema = z.object({
   referringDomains: z.number().nullable(),
   hasData: z.boolean(),
   fetchedAt: z.string(),
+  provider: z.string().optional(),
 });
 
 type DomainOverviewResult = z.infer<typeof domainOverviewResultSchema>;
@@ -104,7 +105,8 @@ async function getOverview(
     backlinks: backlinkSnapshot?.backlinks ?? null,
     referringDomains: backlinkSnapshot?.referringDomains ?? null,
     hasData: organicKeywords != null && organicKeywords > 0,
-    fetchedAt: new Date().toISOString(),
+    fetchedAt: response.fetchedAt ?? new Date().toISOString(),
+    provider: response.provider,
   };
 }
 

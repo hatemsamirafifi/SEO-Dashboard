@@ -50,15 +50,25 @@ export function useDomainOverviewQuery(input: Input) {
           },
         });
 
+        const resultProvider = "provider" in result ? result.provider : undefined;
+        const providerName =
+          resultProvider === "seranking"
+            ? "SE Ranking"
+            : (resultProvider ?? "SE Ranking");
+        const endpoint =
+          resultProvider === "seranking"
+            ? "v1/domain/overview/db"
+            : "v3/dataforseo_labs/google/domain_rank_overview/live";
+
         globalTraceStore.completeOperation(opId, {
           status: "success",
           httpStatus: 200,
           providerCalls: 1,
-          providerBreakdown: [{ provider: "DataForSEO", count: 1 }],
+          providerBreakdown: [{ provider: providerName, count: 1 }],
           providers: [
             {
-              provider: "DataForSEO",
-              endpoint: "v3/dataforseo_labs/google/domain_rank_overview/live",
+              provider: providerName,
+              endpoint,
               httpStatus: 200,
               taskStatus: 20000,
               transport: "HTTP",

@@ -5,6 +5,7 @@ import {
   type KeywordMetricRow,
 } from "@/server/lib/dataforseo";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
+import { getProviderFeatureFlags } from "@/server/lib/seo-data/config";
 import { assertDataforseoBudgetAvailable } from "@/server/lib/seo-data/cost-tracker";
 import { buildProjectMeta } from "@/server/mcp/context";
 import { mcpResponse } from "@/server/mcp/formatters";
@@ -771,6 +772,14 @@ export const searchLocalBusinessesTool = {
   },
   handler: withMcpProjectAuth(
     async (args: SearchLocalBusinessesArgs, context) => {
+      const flags = await getProviderFeatureFlags();
+      if (!flags.dataforseoEnabled) {
+        return mcpResponse({
+          text: "Local business search requires DataForSEO, which is currently disabled. Enable DataForSEO in Provider Settings to use local search features.",
+          meta: buildProjectMeta(context, args.projectId, `/p/${args.projectId}`),
+          structuredContent: { businesses: [], unavailable: true, reason: "dataforseo_disabled" },
+        });
+      }
       await assertDataforseoBudget();
       const client = createDataforseoClient(context.billing);
       const businesses = await client.business.businessListings({
@@ -812,6 +821,14 @@ export const getLocalSerpResultsTool = {
   },
   handler: withMcpProjectAuth(
     async (args: GetLocalSerpResultsArgs, context) => {
+      const flags = await getProviderFeatureFlags();
+      if (!flags.dataforseoEnabled) {
+        return mcpResponse({
+          text: "Local SERP results require DataForSEO, which is currently disabled. Enable DataForSEO in Provider Settings to use local SERP features.",
+          meta: buildProjectMeta(context, args.projectId, `/p/${args.projectId}`),
+          structuredContent: { results: [], unavailable: true, reason: "dataforseo_disabled" },
+        });
+      }
       await assertDataforseoBudget();
       const client = createDataforseoClient(context.billing);
       const results = await client.serp.local({
@@ -856,6 +873,14 @@ export const getGoogleBusinessQuestionsTool = {
   },
   handler: withMcpProjectAuth(
     async (args: GetGoogleBusinessQuestionsArgs, context) => {
+      const flags = await getProviderFeatureFlags();
+      if (!flags.dataforseoEnabled) {
+        return mcpResponse({
+          text: "Google Business Q&A requires DataForSEO, which is currently disabled. Enable DataForSEO in Provider Settings to use business questions.",
+          meta: buildProjectMeta(context, args.projectId, `/p/${args.projectId}`),
+          structuredContent: { questions: [], unavailable: true, reason: "dataforseo_disabled" },
+        });
+      }
       await assertDataforseoBudget();
       const client = createDataforseoClient(context.billing);
       const questions = await client.business.questionsAnswers({
