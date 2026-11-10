@@ -257,8 +257,19 @@ export async function fetchResearchRowsBySource(
   if (params.source === "related") {
     // Related items wrap the keyword payload one level deeper; unwrap and
     // reuse the same mapper as suggestions/ideas.
-    const { data: relatedItems } =
-      await getSeoDataRouter().route<RelatedKeywordResultItem[]>(request);
+    const response = await getSeoDataRouter().route<unknown>(request);
+    if (Array.isArray(response)) {
+      if (isLabsKeywordDataItems(response)) {
+        return mapKeywordDataItems(response);
+      }
+      return mapKeywordDataItems(
+        (response as RelatedKeywordResultItem[])
+          .map((item) => item.keyword_data)
+          .filter((data): data is NonNullable<typeof data> => data != null),
+      );
+    }
+    const relatedItems =
+      (response as { data?: RelatedKeywordResultItem[] })?.data ?? [];
     return mapKeywordDataItems(
       relatedItems
         .map((item) => item.keyword_data)
@@ -269,8 +280,10 @@ export async function fetchResearchRowsBySource(
   if (params.source !== "ideas") {
     // `suggestions` stays on the Labs item mapper: DataForSEO serves this
     // mode and the planner never claims it.
-    const { data } =
-      await getSeoDataRouter().route<LabsKeywordDataItem[]>(request);
+    const response = await getSeoDataRouter().route<unknown>(request);
+    const data = Array.isArray(response)
+      ? (response as LabsKeywordDataItem[])
+      : ((response as { data?: LabsKeywordDataItem[] })?.data ?? []);
     return mapKeywordDataItems(data);
   }
 
