@@ -111,7 +111,7 @@ async function loadFlags(): Promise<ProviderFeatureFlags> {
 
   cachedFlags = {
     routerEnabled: (await get("SEO_PROVIDER_ROUTER_ENABLED")) ?? true,
-    serankingEnabled: (await get("SERANKING_ENABLED")) ?? false,
+    serankingEnabled: (await get("SERANKING_ENABLED")) ?? true,
     dataforseoEnabled: (await get("DATAFORSEO_ENABLED")) ?? true,
     gscEnabled: (await get("GOOGLE_SEARCH_CONSOLE_ENABLED")) ?? false,
     // First-party Google Ads keyword data ships enabled by default; an

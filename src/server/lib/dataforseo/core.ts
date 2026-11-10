@@ -483,7 +483,7 @@ function createAuthenticatedFetch(classify?: DataforseoErrorClassifier) {
           ? "UPSTREAM_UNAVAILABLE"
           : response.status === 429
             ? "RATE_LIMITED"
-            : response.status === 401
+            : response.status === 401 || response.status === 403
               ? "DATAFORSEO_AUTH_FAILED"
               : response.status === 402
                 ? "PAYMENT_REQUIRED"
