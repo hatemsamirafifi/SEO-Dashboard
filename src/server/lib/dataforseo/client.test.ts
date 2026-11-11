@@ -65,6 +65,8 @@ vi.mock("@/server/billing/subscription", async (importOriginal) => {
 
 vi.mock("@/server/lib/runtime-env", () => ({
   isHostedServerAuthMode: isHostedServerAuthModeMock,
+  getRequiredEnvValue: vi.fn(async () => "test-api-key"),
+  getOptionalEnvValue: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/server/lib/seo-data/cost-tracker", () => ({

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/lib/runtime-env", () => ({
   getRequiredEnvValue: vi.fn(async () => "test-api-key"),
+  getOptionalEnvValue: vi.fn(async () => undefined),
 }));
 
 // The account coordination gate has its own dedicated test file (against a
@@ -36,7 +37,10 @@ vi.mock(
 );
 
 import { runWithDataforseoAccountContext } from "@/server/lib/dataforseo/accountContext";
-import { getRequiredEnvValue } from "@/server/lib/runtime-env";
+import {
+  getOptionalEnvValue,
+  getRequiredEnvValue,
+} from "@/server/lib/runtime-env";
 import {
   fetchRankCheckTaskResult,
   postRankCheckTasks,
@@ -83,6 +87,7 @@ function resetMocks() {
   gateMocks.withRequest.mockImplementation((_hash, _kind, fn) => fn());
   gateMocks.withRequest.mockClear();
   vi.mocked(getRequiredEnvValue).mockImplementation(async () => "test-api-key");
+  vi.mocked(getOptionalEnvValue).mockImplementation(async () => undefined);
   settingsMocks.resolveEffectiveDataforseoConfig.mockReset();
   settingsMocks.resolveEffectiveDataforseoConfig.mockResolvedValue(
     NOT_CONFIGURED,

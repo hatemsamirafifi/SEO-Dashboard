@@ -157,7 +157,7 @@ export function toClientError(error: unknown, correlationId?: string): Error {
     return new Error(`${code}: ${detail}`);
   }
 
-  if (refTag) {
+  if (refTag && code === "INTERNAL_ERROR") {
     return new Error(`${code}: ${refTag}`);
   }
 
