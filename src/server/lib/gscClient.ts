@@ -18,10 +18,10 @@ export class GscApiError extends Error {
   get apiDisabled(): boolean {
     return Boolean(
       this.status === 403 &&
-        this.body &&
-        (this.body.includes("SERVICE_DISABLED") ||
-          this.body.includes("has not been used in project") ||
-          this.body.includes("it is disabled")),
+      this.body &&
+      (this.body.includes("SERVICE_DISABLED") ||
+        this.body.includes("has not been used in project") ||
+        this.body.includes("it is disabled")),
     );
   }
 }

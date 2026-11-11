@@ -151,4 +151,3 @@ describe("isAuditablePageUrl", () => {
     expect(isAuditablePageUrl(url, platform)).toBe(expected);
   });
 });
-

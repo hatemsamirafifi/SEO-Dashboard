@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { extractHostname, extractPathname, formatDate, formatStartedAt } from "./shared";
+import {
+  extractHostname,
+  extractPathname,
+  formatDate,
+  formatStartedAt,
+} from "./shared";
 
 describe("audit shared utilities", () => {
   it("extracts and decodes percent-encoded Arabic pathnames from absolute URLs", () => {
-    const url = "https://hattricksa.com/%D9%85%D9%86%D8%AA%D8%AC%D8%A7%D8%AA-%D9%86%D8%A7%D8%AF%D9%8A%D8%A7";
+    const url =
+      "https://hattricksa.com/%D9%85%D9%86%D8%AA%D8%AC%D8%A7%D8%AA-%D9%86%D8%A7%D8%AF%D9%8A%D8%A7";
     expect(extractPathname(url)).toBe("/منتجات-ناديا");
   });
 

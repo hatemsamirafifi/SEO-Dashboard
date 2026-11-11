@@ -70,9 +70,7 @@ async function runId(row: {
   model: string;
 }): Promise<string> {
   return (
-    await sha256HexFull(
-      [row.projectId, row.eventKey, row.model].join("|"),
-    )
+    await sha256HexFull([row.projectId, row.eventKey, row.model].join("|"))
   ).slice(0, 36);
 }
 

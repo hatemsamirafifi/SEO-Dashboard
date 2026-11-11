@@ -48,9 +48,7 @@ import {
   getAnalyticsConversionsTool,
   getAnalyticsEventsTool,
 } from "@/server/mcp/tools/analytics-reads-tools";
-import {
-  registerIntelligenceTools,
-} from "@/server/mcp/tools/intelligence-tools";
+import { registerIntelligenceTools } from "@/server/mcp/tools/intelligence-tools";
 import {
   generateReportTool,
   getAutopilotRunTool,

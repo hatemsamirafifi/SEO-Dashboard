@@ -142,15 +142,19 @@ export function OpportunityDetail({
             Occurrence #{row.occurrenceNumber}
           </span>
         </div>
-        <h1 className="mt-2 text-xl font-semibold">{safeDecodeUrlText(row.title)}</h1>
+        <h1 className="mt-2 text-xl font-semibold">
+          {safeDecodeUrlText(row.title)}
+        </h1>
         <p className="mt-1 text-sm text-base-content/70">
           {safeDecodeUrlText(row.explanationFact)}
         </p>
         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-base-content/60">
-          {row.keyword ? <span>Keyword: {safeDecodeUrlText(row.keyword)}</span> : null}
+          {row.keyword ? (
+            <span>Keyword: {safeDecodeUrlText(row.keyword)}</span>
+          ) : null}
           {row.page ? (
             <span className="truncate">
-              Page:{' '}
+              Page:{" "}
               <a
                 href={row.page}
                 target="_blank"
@@ -199,7 +203,9 @@ export function OpportunityDetail({
                   params={{ projectId, opportunityId: candidate.id }}
                   className="block rounded-xl border border-base-300 bg-base-100 px-4 py-2 text-sm hover:border-primary/50"
                 >
-                  <span className="font-medium">{safeDecodeUrlText(candidate.title)}</span>
+                  <span className="font-medium">
+                    {safeDecodeUrlText(candidate.title)}
+                  </span>
                   <span className="ml-2 text-base-content/60">
                     {candidate.status} · occurrence #
                     {candidate.occurrenceNumber}

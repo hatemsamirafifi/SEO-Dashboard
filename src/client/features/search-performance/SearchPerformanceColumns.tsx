@@ -204,7 +204,7 @@ export function buildStrikingColumns(
         </span>
       ),
     }),
-        strikingHelper.accessor("page", {
+    strikingHelper.accessor("page", {
       enableSorting: false,
       header: () => "Page",
       cell: ({ getValue }) => {

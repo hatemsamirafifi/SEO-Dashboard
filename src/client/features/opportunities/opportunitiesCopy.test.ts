@@ -334,7 +334,6 @@ describe("spec 018 cannibalization classification labels", () => {
   });
 });
 
-
 describe("safeDecodeUrlText", () => {
   it("handles null, undefined, and empty string safely", () => {
     expect(safeDecodeUrlText(null)).toBe("");
@@ -371,7 +370,8 @@ describe("safeDecodeUrlText", () => {
   });
 
   it("tolerates broken % sequences without throwing URIError", () => {
-    const broken = "Broken %ZZ sequence on https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC";
+    const broken =
+      "Broken %ZZ sequence on https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC";
     expect(safeDecodeUrlText(broken)).toBe(
       "Broken %ZZ sequence on https://powersiment.ae/مناهج",
     );
@@ -381,7 +381,8 @@ describe("safeDecodeUrlText", () => {
 describe("applyClientFilters with decoded search", () => {
   it("matches search using Arabic decoded keywords even when stored row is encoded", () => {
     const testRow = row({
-      title: "Critical broken-internal-link on https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC",
+      title:
+        "Critical broken-internal-link on https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC",
       page: "https://powersiment.ae/%D9%85%D9%86%D8%A7%D9%87%D8%AC",
     });
 
@@ -389,9 +390,13 @@ describe("applyClientFilters with decoded search", () => {
     expect(applyClientFilters([testRow], { search: "مناهج" })).toHaveLength(1);
 
     // Search by raw percent-encoded string also matches
-    expect(applyClientFilters([testRow], { search: "%D9%85%D9%86" })).toHaveLength(1);
+    expect(
+      applyClientFilters([testRow], { search: "%D9%85%D9%86" }),
+    ).toHaveLength(1);
 
     // Irrelevant search does not match
-    expect(applyClientFilters([testRow], { search: "غير موجود" })).toHaveLength(0);
+    expect(applyClientFilters([testRow], { search: "غير موجود" })).toHaveLength(
+      0,
+    );
   });
 });

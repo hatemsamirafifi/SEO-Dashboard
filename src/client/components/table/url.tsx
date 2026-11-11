@@ -1,4 +1,3 @@
-
 /**
  * Safely decodes percent-encoded URLs and embedded URL slugs in arbitrary
  * text (e.g. Arabic or non-ASCII slugs), while gracefully handling non-hex
@@ -69,7 +68,13 @@ export function ExternalUrlCell({
 
   const visibleLabel = label ?? getUrlDisplayLabel(value, display);
   return (
-    <a className={className} href={href} target="_blank" rel="noreferrer" title={safeDecodeUrlText(value)}>
+    <a
+      className={className}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title={safeDecodeUrlText(value)}
+    >
       <span className="truncate">{visibleLabel}</span>
       <ExternalLink className="size-3 shrink-0" />
     </a>

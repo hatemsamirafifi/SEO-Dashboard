@@ -237,7 +237,9 @@ async function selectBacklinksVersion(
 
 /** AI search (spec 020): latest recorded observation (observed_at DESC,
  *  id DESC tiebreak) — the newest committed consumable mutation. */
-async function selectAiSearchVersion(projectId: string): Promise<string | null> {
+async function selectAiSearchVersion(
+  projectId: string,
+): Promise<string | null> {
   const rows = await db
     .select({ id: aiSearchRuns.id, observedAt: aiSearchRuns.observedAt })
     .from(aiSearchRuns)
@@ -376,15 +378,16 @@ async function selectActiveMutations(
 export async function assembleDetectionSourceState(
   projectId: string,
 ): Promise<DetectionSourceState> {
-  const [gsc, ga4, rank, audit, backlinks, aiSearch, googleAds] = await Promise.all([
-    selectGscVersion(projectId),
-    selectGa4Version(projectId),
-    selectRankVersion(projectId),
-    selectAuditVersion(projectId),
-    selectBacklinksVersion(projectId),
-    selectAiSearchVersion(projectId),
-    selectGoogleAdsVersion(projectId),
-  ]);
+  const [gsc, ga4, rank, audit, backlinks, aiSearch, googleAds] =
+    await Promise.all([
+      selectGscVersion(projectId),
+      selectGa4Version(projectId),
+      selectRankVersion(projectId),
+      selectAuditVersion(projectId),
+      selectBacklinksVersion(projectId),
+      selectAiSearchVersion(projectId),
+      selectGoogleAdsVersion(projectId),
+    ]);
   const versions: SourceVersions = {
     gsc,
     ga4,

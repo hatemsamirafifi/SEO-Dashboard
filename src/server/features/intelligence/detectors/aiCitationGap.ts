@@ -50,9 +50,7 @@ export type AiCitationGapInput = {
   thresholds: Record<string, string | number | boolean>;
 };
 
-function isAiCitationGapInput(
-  value: unknown,
-): value is AiCitationGapInput {
+function isAiCitationGapInput(value: unknown): value is AiCitationGapInput {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -75,7 +73,10 @@ function isAiCitationGapInput(
 
 /** Canonical domain identity: lowercase, leading `www.` folded. */
 function canonicalCitationDomain(value: string): string {
-  return value.trim().toLowerCase().replace(/^www\./, "");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, "");
 }
 
 function dateLabel(iso: string): string {
@@ -110,16 +111,16 @@ export async function fetchAiCitationGapInput(
 
   // First-party identity: a missing project domain makes "cited without us"
   // unverifiable — mirror competitor_gap and skip loudly (never guess).
-  const firstPartyDomain = canonicalProjectDomain(await getProjectDomain(projectId));
+  const firstPartyDomain = canonicalProjectDomain(
+    await getProjectDomain(projectId),
+  );
   if (!firstPartyDomain) {
     throw new InsufficientCoverageError(
       "ai_citation_gap: project has no domain",
     );
   }
 
-  const since = new Date(
-    Date.now() - freshnessDays * 86_400_000,
-  ).toISOString();
+  const since = new Date(Date.now() - freshnessDays * 86_400_000).toISOString();
   const runs = await AiSearchObservationRepository.getRunsForProject(
     projectId,
     since,
@@ -182,13 +183,8 @@ const SMALL_SAMPLE_CONFIDENCE = 45;
 
 type FamilyKey = keyof typeof CONFIDENCE_BY_FAMILY;
 
-function familyConfidence(
-  family: FamilyKey,
-  smallSample: boolean,
-): number {
-  return smallSample
-    ? SMALL_SAMPLE_CONFIDENCE
-    : CONFIDENCE_BY_FAMILY[family];
+function familyConfidence(family: FamilyKey, smallSample: boolean): number {
+  return smallSample ? SMALL_SAMPLE_CONFIDENCE : CONFIDENCE_BY_FAMILY[family];
 }
 
 export function detectAiCitationGap(
@@ -300,7 +296,9 @@ export function detectAiCitationGap(
 
   for (const [domain, runIds] of frequentDomains) {
     const runsCitingCount = runIds.length;
-    const sharePct = Math.round((100 * runsCitingCount) / input.observationCount);
+    const sharePct = Math.round(
+      (100 * runsCitingCount) / input.observationCount,
+    );
 
     findings.push({
       entityKey: `frequent_third_party:${domain}`,
@@ -343,9 +341,7 @@ export function detectAiCitationGap(
   }
 
   // Runs that cited no sources at all — a gap, not a missing observation.
-  for (const run of input.runs.filter(
-    (row) => row.citations.length === 0,
-  )) {
+  for (const run of input.runs.filter((row) => row.citations.length === 0)) {
     findings.push({
       entityKey: `no_cited_sources:${run.runId}`,
       entity: {

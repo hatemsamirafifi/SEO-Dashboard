@@ -34,7 +34,9 @@ export const aiSearchRuns = sqliteTable(
     outputTokens: integer("output_tokens"),
     fanOutCount: integer("fan_out_count").notNull().default(0),
     citationCount: integer("citation_count").notNull().default(0),
-    status: text("status", { enum: ["success"] }).notNull().default("success"),
+    status: text("status", { enum: ["success"] })
+      .notNull()
+      .default("success"),
     /** Content hash of the observed answer: the same observation once. */
     eventKey: text("event_key").notNull(),
     observedAt: text("observed_at").notNull(),

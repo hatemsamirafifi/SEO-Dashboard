@@ -249,7 +249,6 @@ export function safeDecodeUrlText(text: string | null | undefined): string {
   }
 }
 
-
 export type OpportunitiesPageView =
   | { kind: "loading" }
   | { kind: "error" }

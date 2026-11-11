@@ -303,7 +303,9 @@ function OpportunitiesSection({ payload }: { payload: ReportPayload }) {
                   {statusLabel(opportunity.status)}
                 </span>
               </div>
-              <p className="mt-1 font-medium">{safeDecodeUrlText(opportunity.title)}</p>
+              <p className="mt-1 font-medium">
+                {safeDecodeUrlText(opportunity.title)}
+              </p>
               <p className="text-sm text-base-content/70">
                 {safeDecodeUrlText(opportunity.explanationFact)}
               </p>

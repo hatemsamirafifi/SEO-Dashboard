@@ -30,11 +30,13 @@
 ### Task 1: Worker Heap & Memory Optimization (Zod 4.6.7 & ASCII Bundling)
 
 **Files:**
+
 - Modify: `package.json`
 - Modify: `vite.config.ts:70-90`
 - Modify: `vite-plugin-lean-worker-bundle.ts:150-175`
 
 **Interfaces:**
+
 - Produces: `package.json` overrides for `zod@4` set to `4.6.7`, pure ASCII bundles from Vite/esbuild to keep module source representation at 1 byte per char in V8.
 
 - [ ] **Step 1: Update package.json dependencies and overrides**
@@ -42,6 +44,7 @@
 In `package.json`:
 Update `"zod": "^4.1.12"` to `"zod": "^4.6.7"`.
 Add pnpm overrides:
+
 ```json
   "pnpm": {
     "overrides": {
@@ -53,6 +56,7 @@ Add pnpm overrides:
 - [ ] **Step 2: Add esbuild ASCII charset in vite.config.ts**
 
 In `vite.config.ts`, inside `defineConfig`:
+
 ```typescript
     esbuild: {
       // Emit every chunk as pure ASCII: esbuild rewrites each non-ASCII
@@ -66,16 +70,17 @@ In `vite.config.ts`, inside `defineConfig`:
 - [ ] **Step 3: Add ASCII comment escaping in vite-plugin-lean-worker-bundle.ts**
 
 In `vite-plugin-lean-worker-bundle.ts` inside `generateBundle`:
+
 ```typescript
-      if (environment !== "client") {
-        for (const output of Object.values(bundle)) {
-          if (output.type !== "chunk") continue;
-          output.code = output.code.replace(
-            /[\u0080-\uffff]/g,
-            (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`,
-          );
-        }
-      }
+if (environment !== "client") {
+  for (const output of Object.values(bundle)) {
+    if (output.type !== "chunk") continue;
+    output.code = output.code.replace(
+      /[\u0080-\uffff]/g,
+      (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    );
+  }
+}
 ```
 
 - [ ] **Step 4: Verify typecheck passes**
@@ -95,6 +100,7 @@ git commit -m "perf(worker): upgrade zod to 4.6.7 and enforce ascii bundles to c
 ### Task 2: Site Audit Resilience & GSC Date Range Window Fix
 
 **Files:**
+
 - Modify: `src/server/lib/audit/url-utils.ts`
 - Modify: `src/server/lib/audit/url-utils.test.ts`
 - Modify: `src/server/lib/audit/page-analyzer.ts`
@@ -105,6 +111,7 @@ git commit -m "perf(worker): upgrade zod to 4.6.7 and enforce ascii bundles to c
 - Modify: `src/server/features/gsc/searchAnalytics.test.ts:15-30`
 
 **Interfaces:**
+
 - Produces: `isAuditablePageUrl` returning `false` for `/cdn-cgi/` paths.
 - Produces: `analyzeHtml` properly spacing block tags in minified HTML and segmenting CJK tokens.
 - Produces: `resolveDateRange` producing exact inclusive 7-day and 28-day windows.
@@ -113,12 +120,14 @@ git commit -m "perf(worker): upgrade zod to 4.6.7 and enforce ascii bundles to c
 
 In `src/server/lib/audit/url-utils.test.ts`:
 Add test case:
+
 ```typescript
     ["https://example.com/cdn-cgi/l/email-protection", undefined, false],
 ```
 
 In `src/server/lib/audit/page-analyzer.test.ts`:
 Add tests for word boundary between block elements and CJK scripts:
+
 ```typescript
 describe("analyzeHtml word count", () => {
   const analyzeBody = (body: string) =>
@@ -138,19 +147,20 @@ describe("analyzeHtml word count", () => {
 
 In `src/server/features/gsc/searchAnalytics.test.ts`:
 Update `resolveDateRange` test to verify exact inclusive 7-day and 28-day windows:
+
 ```typescript
-  it.each([
-    { dateRange: "last_7_days" as const, startDate: "2026-05-19" },
-    { dateRange: "last_28_days" as const, startDate: "2026-04-28" },
-  ])(
-    "computes an inclusive $dateRange window from the lagged end",
-    ({ dateRange, startDate }) => {
-      expect(resolveDateRange({ dateRange }, TODAY)).toEqual({
-        startDate,
-        endDate: "2026-05-25",
-      });
-    },
-  );
+it.each([
+  { dateRange: "last_7_days" as const, startDate: "2026-05-19" },
+  { dateRange: "last_28_days" as const, startDate: "2026-04-28" },
+])(
+  "computes an inclusive $dateRange window from the lagged end",
+  ({ dateRange, startDate }) => {
+    expect(resolveDateRange({ dateRange }, TODAY)).toEqual({
+      startDate,
+      endDate: "2026-05-25",
+    });
+  },
+);
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -161,15 +171,17 @@ Expected: FAIL on the new/updated test cases.
 - [ ] **Step 3: Implement url-utils.ts, page-analyzer.ts, and searchAnalytics.ts updates**
 
 In `src/server/lib/audit/url-utils.ts`:
+
 ```typescript
-  if (NON_DOCUMENT_EXTENSIONS.test(parsed.pathname)) return false;
-  if (parsed.pathname.startsWith("/cdn-cgi/")) return false;
+if (NON_DOCUMENT_EXTENSIONS.test(parsed.pathname)) return false;
+if (parsed.pathname.startsWith("/cdn-cgi/")) return false;
 ```
 
 In `src/server/lib/audit/page-analyzer.ts`:
 Add `BLOCK_TAGS` Set, `SPACELESS_SCRIPT` regex, `wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" })`, `countWords(text: string)`, and update `onopentag`/`onclosetag` to inject space for block tags when `bodyDepth > 0`.
 
 In `src/server/features/gsc/searchAnalytics.ts`:
+
 ```typescript
 // GSC treats both startDate and endDate as inclusive, so an N-day window starts N-1 days before the end.
 function subtractRange(end: Date, range: GscDateRange): Date {
@@ -210,6 +222,7 @@ git commit -m "fix(audit): ignore cloudflare cdn-cgi links and fix cjk minified 
 ### Task 3: IndexNow Integration (Schema, Service, and MCP Tool)
 
 **Files:**
+
 - Modify: `src/db/app.schema.ts`
 - Modify: `src/db/pg/app.schema.ts`
 - Create: `drizzle/0076_indexnow_key.sql`
@@ -223,6 +236,7 @@ git commit -m "fix(audit): ignore cloudflare cdn-cgi links and fix cjk minified 
 - Create: `src/serverFunctions/indexnow.ts`
 
 **Interfaces:**
+
 - Produces: `IndexNowService.submitUrls({ projectId, organizationId }, urls: string[])`
 - Produces: MCP Tool `submit_indexnow_urls` registered on MCP server.
 
@@ -235,11 +249,13 @@ In `src/db/pg/app.schema.ts`:
 Add `indexnowKey: text("indexnow_key")` to `projects`.
 
 Create `drizzle/0076_indexnow_key.sql`:
+
 ```sql
 ALTER TABLE `projects` ADD `indexnow_key` text;
 ```
 
 Create `drizzle-pg/0054_indexnow_key.sql`:
+
 ```sql
 ALTER TABLE "projects" ADD COLUMN "indexnow_key" text;
 ```
@@ -250,6 +266,7 @@ Add helper methods `getIndexNowKey(projectId: string)` and `setIndexNowKey(proje
 - [ ] **Step 2: Create schemas and write unit test for IndexNowService**
 
 Create `src/types/schemas/indexnow.ts`:
+
 ```typescript
 import { z } from "zod";
 
@@ -265,6 +282,7 @@ Test submitting valid URLs, grouping by host, generating and persisting a 32-cha
 - [ ] **Step 3: Implement IndexNowService**
 
 Create `src/server/features/indexnow/services/IndexNowService.ts`:
+
 - Validate URL hosts against project website domains.
 - Generate or retrieve project's 32-character hex IndexNow key.
 - Verify key file accessibility at `https://{host}/{key}.txt`.
@@ -296,6 +314,7 @@ git commit -m "feat(indexnow): add indexnow schema, service, and submit_indexnow
 ### Task 4: Google Connections MCP Tools (GSC Site & GA4 Property Binding)
 
 **Files:**
+
 - Modify: `src/server/features/ga4/services/Ga4Service.ts`
 - Modify: `src/server/features/ga4/services/Ga4Service.test.ts`
 - Create: `src/server/mcp/tools/google-connection-tools.ts`
@@ -303,6 +322,7 @@ git commit -m "feat(indexnow): add indexnow schema, service, and submit_indexnow
 - Modify: `src/server/mcp/server.ts`
 
 **Interfaces:**
+
 - Produces: `Ga4Service.listPropertiesForUserWithGrantStatus(userId: string)`
 - Produces: MCP Tools:
   - `list_search_console_sites`
@@ -323,16 +343,18 @@ Implement `listPropertiesForUserWithGrantStatus(userId: string)` returning Googl
 - [ ] **Step 3: Create google-connection-tools.ts**
 
 Create `src/server/mcp/tools/google-connection-tools.ts`:
+
 - Define `listSearchConsoleSitesTool` (inspects user's GSC accounts and lists verified sites).
 - Define `setSearchConsoleSiteTool` (binds a GSC property using `GscService.setSite`).
 - Define `listGoogleAnalyticsPropertiesTool` (lists visible GA4 properties for user).
 - Define `setGoogleAnalyticsPropertyTool` (binds a GA4 property using `Ga4Service.setProperty`).
-All tools enforce `requireOrgPermission(context.auth, { integration: ["manage"] })` for mutations.
+  All tools enforce `requireOrgPermission(context.auth, { integration: ["manage"] })` for mutations.
 
 - [ ] **Step 4: Create unit tests for google-connection-tools.test.ts**
 
 Create `src/server/mcp/tools/google-connection-tools.test.ts`:
 Test that:
+
 - `list_search_console_sites` lists accounts and marks project's bound site.
 - `set_search_console_site` updates the binding and fires audit/onboarding events.
 - `list_google_analytics_properties` lists accounts with `isSelected` on current property.
@@ -361,6 +383,7 @@ git commit -m "feat(mcp): add tools to list and set google search console and ga
 ### Task 5: Full Verification & Integration Check
 
 **Files:**
+
 - All touched files.
 
 - [ ] **Step 1: Run comprehensive tests**

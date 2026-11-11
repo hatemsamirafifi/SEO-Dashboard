@@ -359,7 +359,11 @@ async function readErrorBody(response: Response): Promise<unknown> {
 
 async function parseApiError(response: Response): Promise<never> {
   const body = await readErrorBody(response);
-  console.error("[GoogleAdsApiError]", response.status, JSON.stringify(body, null, 2));
+  console.error(
+    "[GoogleAdsApiError]",
+    response.status,
+    JSON.stringify(body, null, 2),
+  );
   const parsed = googleErrorBodySchema.safeParse(body);
   const upstreamErrorCode = parsed.success
     ? parsed.data.error?.details?.[0]?.errors?.[0]?.errorCode

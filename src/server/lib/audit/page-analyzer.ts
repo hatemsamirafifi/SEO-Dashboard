@@ -190,37 +190,37 @@ export function analyzeHtml(
     }
   });
 
-/**
- * Elements a browser renders on their own line. Minified HTML has no
- * whitespace between them, so `<p>one</p><p>two</p>` would read as "onetwo"
- * without a separator at their boundaries.
- */
-const BLOCK_TAGS_SELECTOR =
-  "address,article,aside,blockquote,br,caption,dd,details,dialog,div,dl,dt,fieldset,figcaption,figure,footer,form,h1,h2,h3,h4,h5,h6,header,hgroup,hr,li,main,nav,ol,p,pre,section,summary,table,td,th,tr,ul";
+  /**
+   * Elements a browser renders on their own line. Minified HTML has no
+   * whitespace between them, so `<p>one</p><p>two</p>` would read as "onetwo"
+   * without a separator at their boundaries.
+   */
+  const BLOCK_TAGS_SELECTOR =
+    "address,article,aside,blockquote,br,caption,dd,details,dialog,div,dl,dt,fieldset,figcaption,figure,footer,form,h1,h2,h3,h4,h5,h6,header,hgroup,hr,li,main,nav,ol,p,pre,section,summary,table,td,th,tr,ul";
 
-// Chinese, Japanese, Thai, Lao, Khmer and Burmese are written without spaces
-// between words, so a whitespace split counts a whole paragraph as one word
-// and flags those pages as thin content. Tokens in those scripts get their
-// words from Intl.Segmenter; every other token still counts as one word, so
-// counts for space-separated languages are unchanged.
-const SPACELESS_SCRIPT =
-  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
-const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+  // Chinese, Japanese, Thai, Lao, Khmer and Burmese are written without spaces
+  // between words, so a whitespace split counts a whole paragraph as one word
+  // and flags those pages as thin content. Tokens in those scripts get their
+  // words from Intl.Segmenter; every other token still counts as one word, so
+  // counts for space-separated languages are unchanged.
+  const SPACELESS_SCRIPT =
+    /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+  const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 
-function countWords(text: string): number {
-  let count = 0;
-  for (const token of text.split(/\s+/)) {
-    if (!token) continue;
-    if (!SPACELESS_SCRIPT.test(token)) {
-      count += 1;
-      continue;
+  function countWords(text: string): number {
+    let count = 0;
+    for (const token of text.split(/\s+/)) {
+      if (!token) continue;
+      if (!SPACELESS_SCRIPT.test(token)) {
+        count += 1;
+        continue;
+      }
+      for (const segment of wordSegmenter.segment(token)) {
+        if (segment.isWordLike) count += 1;
+      }
     }
-    for (const segment of wordSegmenter.segment(token)) {
-      if (segment.isWordLike) count += 1;
-    }
+    return count;
   }
-  return count;
-}
 
   // --- Word count (visible text in body) ---
   // Remove script/style/noscript tags, then count words in remaining text

@@ -416,4 +416,3 @@ describe("analyzeHtml word count", () => {
     expect(analyzeBody("<p>KLCC 公寓指南 2026</p>").wordCount).toBe(4);
   });
 });
-

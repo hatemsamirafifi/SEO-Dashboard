@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { index, integer, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { projects, rankCheckRuns, rankTrackingConfigs } from "./app.schema";
 
 // See src/db/pg/app.schema.ts for why timestamps are ISO-8601 UTC text.

@@ -82,4 +82,3 @@ describe("GlobalDebugTracePanel scoping and visibility", () => {
     expect(html).toContain("View all 1 operations");
   });
 });
-

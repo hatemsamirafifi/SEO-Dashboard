@@ -271,4 +271,3 @@ export function isAuditablePageUrl(
     sitePlatform === "shopify" && SHOPIFY_NON_PAGE_PATHS.test(parsed.pathname)
   );
 }
-

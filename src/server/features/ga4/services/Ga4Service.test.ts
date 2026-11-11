@@ -32,7 +32,10 @@ vi.mock("@/server/lib/ga4Client", () => ({
     getUserInfoEmail: mocks.getUserInfoEmail,
   }),
   Ga4ApiError: class Ga4ApiError extends Error {
-    constructor(public status: number, message: string) {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
       super(message);
     }
   },
@@ -96,7 +99,11 @@ describe("Ga4Service boundary", () => {
   it("listPropertiesForUserWithGrantStatus reports accounts with properties and grant validity", async () => {
     mocks.getUserInfoEmail.mockResolvedValue("test@example.com");
     mocks.listProperties.mockResolvedValue([
-      { propertyId: "123", displayName: "Prop 1", accountDisplayName: "Acct 1" },
+      {
+        propertyId: "123",
+        displayName: "Prop 1",
+        accountDisplayName: "Acct 1",
+      },
     ]);
     const { Ga4Service } = await import("./Ga4Service");
     const result = await Ga4Service.listPropertiesForUserWithGrantStatus("u");
@@ -107,7 +114,11 @@ describe("Ga4Service boundary", () => {
       requiresReconnect: false,
       propertiesUnavailable: false,
       properties: [
-        { propertyId: "123", displayName: "Prop 1", accountDisplayName: "Acct 1" },
+        {
+          propertyId: "123",
+          displayName: "Prop 1",
+          accountDisplayName: "Acct 1",
+        },
       ],
     });
   });

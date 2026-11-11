@@ -279,7 +279,7 @@ describe("SerpFeatureTags vocabulary consolidation (spec 011, T014)", () => {
     expect(html.match(/>Videos</g)?.length ?? 0).toBe(1);
   });
 });
-
+
 describe("UpdatedCell and getLatestCheckedAt", () => {
   it("resolves the latest checked timestamp based on device visibility", () => {
     const row = {
@@ -288,8 +288,20 @@ describe("UpdatedCell and getLatestCheckedAt", () => {
       searchVolume: 100,
       keywordDifficulty: 20,
       cpc: 1.5,
-      desktop: { position: 1, previousPosition: null, rankingUrl: null, serpFeatures: [], checkedAt: "2026-10-31 22:00:00" },
-      mobile: { position: 2, previousPosition: null, rankingUrl: null, serpFeatures: [], checkedAt: "2026-11-01 01:00:00" },
+      desktop: {
+        position: 1,
+        previousPosition: null,
+        rankingUrl: null,
+        serpFeatures: [],
+        checkedAt: "2026-10-31 22:00:00",
+      },
+      mobile: {
+        position: 2,
+        previousPosition: null,
+        rankingUrl: null,
+        serpFeatures: [],
+        checkedAt: "2026-11-01 01:00:00",
+      },
     };
 
     expect(getLatestCheckedAt(row, true, false)).toBe("2026-10-31 22:00:00");
@@ -304,8 +316,20 @@ describe("UpdatedCell and getLatestCheckedAt", () => {
       searchVolume: null,
       keywordDifficulty: null,
       cpc: null,
-      desktop: { position: null, previousPosition: null, rankingUrl: null, serpFeatures: [], checkedAt: null },
-      mobile: { position: null, previousPosition: null, rankingUrl: null, serpFeatures: [], checkedAt: null },
+      desktop: {
+        position: null,
+        previousPosition: null,
+        rankingUrl: null,
+        serpFeatures: [],
+        checkedAt: null,
+      },
+      mobile: {
+        position: null,
+        previousPosition: null,
+        rankingUrl: null,
+        serpFeatures: [],
+        checkedAt: null,
+      },
     };
 
     expect(getLatestCheckedAt(row, true, false)).toBeNull();
@@ -318,10 +342,14 @@ describe("UpdatedCell and getLatestCheckedAt", () => {
   });
 
   it("renders UpdatedCell correctly for values and nulls", () => {
-    const nullHtml = renderToStaticMarkup(React.createElement(UpdatedCell, { value: null }));
+    const nullHtml = renderToStaticMarkup(
+      React.createElement(UpdatedCell, { value: null }),
+    );
     expect(nullHtml).toContain("-");
 
-    const validHtml = renderToStaticMarkup(React.createElement(UpdatedCell, { value: "2026-11-01 00:00:00" }));
+    const validHtml = renderToStaticMarkup(
+      React.createElement(UpdatedCell, { value: "2026-11-01 00:00:00" }),
+    );
     expect(validHtml).toContain("Nov 1, 2026");
   });
-});
+});

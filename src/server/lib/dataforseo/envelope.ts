@@ -243,7 +243,9 @@ export function defaultClassifyDataforseoTask(
 ): ErrorCode | null {
   if (
     statusCode === 40100 ||
-    (typeof statusCode === "number" && statusCode >= 40100 && statusCode < 40200)
+    (typeof statusCode === "number" &&
+      statusCode >= 40100 &&
+      statusCode < 40200)
   ) {
     return "DATAFORSEO_AUTH_FAILED";
   }
