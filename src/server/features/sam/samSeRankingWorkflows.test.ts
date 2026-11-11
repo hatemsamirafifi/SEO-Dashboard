@@ -26,13 +26,16 @@ vi.mock("@/db", () => ({
   },
 }));
 
-vi.mock("@/server/features/dashboard/repositories/BacklinkSnapshotRepository", () => ({
-  BacklinkSnapshotRepository: {
-    getFreshForProjectDomain: vi.fn(async () => null),
-    getLatestForProject: vi.fn(async () => null),
-    insert: vi.fn(async () => {}),
-  },
-}));
+vi.mock(
+  "@/server/features/dashboard/repositories/BacklinkSnapshotRepository",
+  () => ({
+    BacklinkSnapshotRepository: {
+      getFreshForProjectDomain: vi.fn(async () => null),
+      getLatestForProject: vi.fn(async () => null),
+      insert: vi.fn(async () => {}),
+    },
+  }),
+);
 
 vi.mock("@/server/lib/r2-cache", async (importOriginal) => {
   const actual = await importOriginal<typeof R2Cache>();
@@ -89,18 +92,24 @@ vi.mock("@/server/lib/seo-data/domain-overview-snapshot-repository", () => ({
   },
 }));
 
-vi.mock("@/server/features/settings/repositories/SeoProviderSettingsRepository", () => ({
-  SeoProviderSettingsRepository: {
-    getProjectProviderSettingsRow: vi.fn(async () => null),
-    getOrganizationProviderSettingsRow: vi.fn(async () => null),
-  },
-}));
+vi.mock(
+  "@/server/features/settings/repositories/SeoProviderSettingsRepository",
+  () => ({
+    SeoProviderSettingsRepository: {
+      getProjectProviderSettingsRow: vi.fn(async () => null),
+      getOrganizationProviderSettingsRow: vi.fn(async () => null),
+    },
+  }),
+);
 
-vi.mock("@/server/features/keywords/repositories/KeywordResearchRepository", () => ({
-  KeywordResearchRepository: {
-    upsertKeywordMetric: vi.fn(async () => {}),
-  },
-}));
+vi.mock(
+  "@/server/features/keywords/repositories/KeywordResearchRepository",
+  () => ({
+    KeywordResearchRepository: {
+      upsertKeywordMetric: vi.fn(async () => {}),
+    },
+  }),
+);
 
 import { buildSamMcpTools } from "./samChatTools";
 import { resetSeoDataRouter } from "@/server/lib/seo-data";
@@ -153,7 +162,12 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve({ status: "active", units_left: 50000, units_limit: 100000 }),
+          json: () =>
+            Promise.resolve({
+              status: "active",
+              units_left: 50000,
+              units_limit: 100000,
+            }),
         });
       }
       if (u.includes("/v1/domain/overview/db")) {
@@ -163,7 +177,9 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
           json: () => Promise.resolve(mockDomainOverview),
         });
       }
-      return Promise.reject(new Error(`Unexpected fetch URL in Workflow 1: ${u}`));
+      return Promise.reject(
+        new Error(`Unexpected fetch URL in Workflow 1: ${u}`),
+      );
     });
 
     const tools = buildSamMcpTools(authContext, project);
@@ -175,7 +191,10 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
       { domain: "example.com" } as any,
       // oxlint-disable-next-line typescript/no-explicit-any
       { messages: [], toolCallId: "call_wf1" } as any,
-    )) as { summary?: string; data?: { organicKeywords?: number; organicTraffic?: number } };
+    )) as {
+      summary?: string;
+      data?: { organicKeywords?: number; organicTraffic?: number };
+    };
 
     expect(result).toBeDefined();
     expect(result.data?.organicKeywords).toBe(14200);
@@ -217,10 +236,18 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve({ status: "active", units_left: 50000, units_limit: 100000 }),
+          json: () =>
+            Promise.resolve({
+              status: "active",
+              units_left: 50000,
+              units_limit: 100000,
+            }),
         });
       }
-      if (u.includes("/v1/keywords/similar") || u.includes("/v1/keywords/related")) {
+      if (
+        u.includes("/v1/keywords/similar") ||
+        u.includes("/v1/keywords/related")
+      ) {
         const parsedUrl = new URL(u);
         const source = parsedUrl.searchParams.get("source") ?? "";
         capturedSources.push(source);
@@ -245,7 +272,9 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
           json: () => Promise.resolve([]),
         });
       }
-      return Promise.reject(new Error(`Unexpected fetch URL in Workflow 2: ${u}`));
+      return Promise.reject(
+        new Error(`Unexpected fetch URL in Workflow 2: ${u}`),
+      );
     });
 
     const tools = buildSamMcpTools(authContext, project);
@@ -256,12 +285,26 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
     const egResult = (await tools.research_keywords.execute!(
       // oxlint-disable-next-line typescript/no-explicit-any
       {
-        seeds: [{ seed: arabicKeyword, locationCode: 2818, languageCode: "ar" }],
+        seeds: [
+          { seed: arabicKeyword, locationCode: 2818, languageCode: "ar" },
+        ],
         // oxlint-disable-next-line typescript/no-explicit-any
       } as any,
       // oxlint-disable-next-line typescript/no-explicit-any
       { messages: [], toolCallId: "call_wf2_eg" } as any,
-    )) as { summary?: string; data?: { results?: Array<{ ok: boolean; rows?: Array<{ keyword: string; searchVolume?: number; keywordDifficulty?: number }> }> } };
+    )) as {
+      summary?: string;
+      data?: {
+        results?: Array<{
+          ok: boolean;
+          rows?: Array<{
+            keyword: string;
+            searchVolume?: number;
+            keywordDifficulty?: number;
+          }>;
+        }>;
+      };
+    };
 
     expect(egResult.data?.results).toBeDefined();
     expect(egResult.data?.results?.[0]?.ok).toBe(true);
@@ -275,12 +318,26 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
     const saResult = (await tools.research_keywords.execute!(
       // oxlint-disable-next-line typescript/no-explicit-any
       {
-        seeds: [{ seed: arabicKeyword, locationCode: 2682, languageCode: "ar" }],
+        seeds: [
+          { seed: arabicKeyword, locationCode: 2682, languageCode: "ar" },
+        ],
         // oxlint-disable-next-line typescript/no-explicit-any
       } as any,
       // oxlint-disable-next-line typescript/no-explicit-any
       { messages: [], toolCallId: "call_wf2_sa" } as any,
-    )) as { summary?: string; data?: { results?: Array<{ ok: boolean; rows?: Array<{ keyword: string; searchVolume?: number; keywordDifficulty?: number }> }> } };
+    )) as {
+      summary?: string;
+      data?: {
+        results?: Array<{
+          ok: boolean;
+          rows?: Array<{
+            keyword: string;
+            searchVolume?: number;
+            keywordDifficulty?: number;
+          }>;
+        }>;
+      };
+    };
 
     expect(saResult.data?.results).toBeDefined();
     expect(saResult.data?.results?.[0]?.ok).toBe(true);
@@ -317,7 +374,12 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve({ status: "active", units_left: 50000, units_limit: 100000 }),
+          json: () =>
+            Promise.resolve({
+              status: "active",
+              units_left: 50000,
+              units_limit: 100000,
+            }),
         });
       }
       if (u.includes("/v1/domain/competitors")) {
@@ -327,7 +389,9 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
           json: () => Promise.resolve(mockCompetitors),
         });
       }
-      return Promise.reject(new Error(`Unexpected fetch URL in Workflow 3: ${u}`));
+      return Promise.reject(
+        new Error(`Unexpected fetch URL in Workflow 3: ${u}`),
+      );
     });
 
     const tools = buildSamMcpTools(authContext, project);
@@ -339,7 +403,10 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
       { keywords: ["seo services", "rank tracking"] } as any,
       // oxlint-disable-next-line typescript/no-explicit-any
       { messages: [], toolCallId: "call_wf3" } as any,
-    )) as { summary?: string; data?: { competitors?: Array<{ domain: string }> } };
+    )) as {
+      summary?: string;
+      data?: { competitors?: Array<{ domain: string }> };
+    };
 
     expect(result.data?.competitors).toBeDefined();
     expect(result.data?.competitors).toHaveLength(2);
@@ -371,7 +438,12 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve({ status: "active", units_left: 50000, units_limit: 100000 }),
+          json: () =>
+            Promise.resolve({
+              status: "active",
+              units_left: 50000,
+              units_limit: 100000,
+            }),
         });
       }
       if (u.includes("/v1/domain/keywords")) {
@@ -381,7 +453,9 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
           json: () => Promise.resolve(mockDomainKeywords),
         });
       }
-      return Promise.reject(new Error(`Unexpected fetch URL in Workflow 4: ${u}`));
+      return Promise.reject(
+        new Error(`Unexpected fetch URL in Workflow 4: ${u}`),
+      );
     });
 
     const tools = buildSamMcpTools(authContext, project);
@@ -393,7 +467,16 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
       { domain: "example.com" } as any,
       // oxlint-disable-next-line typescript/no-explicit-any
       { messages: [], toolCallId: "call_wf4" } as any,
-    )) as { summary?: string; data?: { keywords?: Array<{ keyword: string; searchVolume?: number; cpc?: number }> } };
+    )) as {
+      summary?: string;
+      data?: {
+        keywords?: Array<{
+          keyword: string;
+          searchVolume?: number;
+          cpc?: number;
+        }>;
+      };
+    };
 
     expect(result.data?.keywords).toBeDefined();
     expect(result.data?.keywords!.length).toBeGreaterThan(0);
@@ -449,7 +532,12 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve({ status: "active", units_left: 50000, units_limit: 100000 }),
+          json: () =>
+            Promise.resolve({
+              status: "active",
+              units_left: 50000,
+              units_limit: 100000,
+            }),
         });
       }
       if (u.includes("/v1/backlinks/summary")) {
@@ -473,7 +561,9 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
           json: () => Promise.resolve(mockRefDomains),
         });
       }
-      return Promise.reject(new Error(`Unexpected fetch URL in Workflow 5: ${u}`));
+      return Promise.reject(
+        new Error(`Unexpected fetch URL in Workflow 5: ${u}`),
+      );
     });
 
     const tools = buildSamMcpTools(authContext, project);
@@ -495,8 +585,16 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
               referringDomains?: number;
               rank?: number;
             };
-            trends?: Array<{ backlinks?: number; referringDomains?: number; rank?: number; date: string }>;
-            newLostTrends?: Array<{ newBacklinks?: number; lostBacklinks?: number }>;
+            trends?: Array<{
+              backlinks?: number;
+              referringDomains?: number;
+              rank?: number;
+              date: string;
+            }>;
+            newLostTrends?: Array<{
+              newBacklinks?: number;
+              lostBacklinks?: number;
+            }>;
           };
         };
       };
@@ -504,7 +602,9 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
 
     expect(result.data?.overview?.overview).toBeDefined();
     expect(result.data?.overview?.overview?.summary?.backlinks).toBe(32000);
-    expect(result.data?.overview?.overview?.summary?.referringDomains).toBe(850);
+    expect(result.data?.overview?.overview?.summary?.referringDomains).toBe(
+      850,
+    );
     expect(result.data?.overview?.overview?.summary?.rank).toBe(58.5);
     expect(result.data?.overview?.overview?.trends?.length).toBe(2);
     expect(result.data?.overview?.overview?.trends?.[0].backlinks).toBe(31800);
@@ -533,27 +633,53 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve({ status: "active", units_left: 50000, units_limit: 100000 }),
+          json: () =>
+            Promise.resolve({
+              status: "active",
+              units_left: 50000,
+              units_limit: 100000,
+            }),
         });
       }
-      if (u.includes("/v1/keywords/similar") || u.includes("/v1/keywords/related")) {
+      if (
+        u.includes("/v1/keywords/similar") ||
+        u.includes("/v1/keywords/related")
+      ) {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
           json: () => Promise.resolve(mockKeywords),
         });
       }
-      return Promise.reject(new Error(`Unexpected fetch URL in Workflow 6: ${u}`));
+      return Promise.reject(
+        new Error(`Unexpected fetch URL in Workflow 6: ${u}`),
+      );
     });
 
     const tools = buildSamMcpTools(authContext, project);
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const result = (await tools.research_keywords.execute!(
       // oxlint-disable-next-line typescript/no-explicit-any
-      { seeds: [{ seed: "technical seo", locationCode: 2840, languageCode: "en" }] } as any,
+      {
+        seeds: [
+          { seed: "technical seo", locationCode: 2840, languageCode: "en" },
+        ],
+      } as any,
       // oxlint-disable-next-line typescript/no-explicit-any
       { messages: [], toolCallId: "call_wf6" } as any,
-    )) as { summary?: string; data?: { results?: Array<{ ok: boolean; rows?: Array<{ keyword: string; searchVolume?: number; keywordDifficulty?: number }> }> } };
+    )) as {
+      summary?: string;
+      data?: {
+        results?: Array<{
+          ok: boolean;
+          rows?: Array<{
+            keyword: string;
+            searchVolume?: number;
+            keywordDifficulty?: number;
+          }>;
+        }>;
+      };
+    };
 
     const topOpportunity = result.data?.results?.[0]?.rows?.[0];
     expect(topOpportunity).toBeDefined();
@@ -562,11 +688,14 @@ describe("SAM 6 Core Workflows with SE Ranking (Priority 4)", () => {
     expect(topOpportunity?.searchVolume).toBe(3200);
 
     // Verify recommendations ground conclusions on real difficulty <= 30
-    const recommendation = topOpportunity!.keywordDifficulty! < 30
-      ? `Prioritize '${topOpportunity!.keyword}' due to high volume (${topOpportunity!.searchVolume}) and accessible difficulty (${topOpportunity!.keywordDifficulty})`
-      : "High competition";
+    const recommendation =
+      topOpportunity!.keywordDifficulty! < 30
+        ? `Prioritize '${topOpportunity!.keyword}' due to high volume (${topOpportunity!.searchVolume}) and accessible difficulty (${topOpportunity!.keywordDifficulty})`
+        : "High competition";
 
-    expect(recommendation).toContain("Prioritize 'technical seo checklist 2026'");
+    expect(recommendation).toContain(
+      "Prioritize 'technical seo checklist 2026'",
+    );
     expect(recommendation).toContain("3200");
     expect(recommendation).toContain("25");
   });

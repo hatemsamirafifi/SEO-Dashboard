@@ -50,7 +50,8 @@ export function useDomainOverviewQuery(input: Input) {
           },
         });
 
-        const resultProvider = "provider" in result ? result.provider : undefined;
+        const resultProvider =
+          "provider" in result ? result.provider : undefined;
         const providerName =
           resultProvider === "seranking"
             ? "SE Ranking"

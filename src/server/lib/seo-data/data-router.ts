@@ -95,7 +95,7 @@ function firstPartyMetaFromError(error: unknown): SEOFirstPartyError | null {
 const PROVIDER_PRIORITY: Record<SEODataType, string[]> = {
   keyword_ideas: ["google_ads", "seranking", "internal", "dataforseo"],
   keyword_metrics: ["google_ads", "seranking", "internal", "dataforseo"],
-  serp: ["internal", "dataforseo"],
+  serp: ["internal", "serp_resolver", "dataforseo"],
   domain_keywords: ["seranking", "internal", "dataforseo"],
   domain_overview: ["seranking", "dataforseo", "internal"],
   domain_pages: ["seranking", "internal", "dataforseo"],

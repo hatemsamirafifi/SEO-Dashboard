@@ -87,7 +87,9 @@ describe("DataForSEO-dependent tools when DataForSEO is disabled", () => {
     expect(mocks.createDataforseoClient).not.toHaveBeenCalled();
     expect(res.isError).toBeFalsy();
     const c0 = res.content[0];
-    expect(c0?.type === "text" ? c0.text : "").toContain("DataForSEO, which is currently disabled");
+    expect(c0?.type === "text" ? c0.text : "").toContain(
+      "DataForSEO, which is currently disabled",
+    );
     expect(res.structuredContent).toMatchObject({
       businesses: [],
       unavailable: true,
@@ -107,7 +109,9 @@ describe("DataForSEO-dependent tools when DataForSEO is disabled", () => {
 
     expect(mocks.createDataforseoClient).not.toHaveBeenCalled();
     const c0 = res.content[0];
-    expect(c0?.type === "text" ? c0.text : "").toContain("DataForSEO, which is currently disabled");
+    expect(c0?.type === "text" ? c0.text : "").toContain(
+      "DataForSEO, which is currently disabled",
+    );
   });
 
   it("getGoogleBusinessQuestionsTool returns clean unavailable message and never calls DataForSEO client", async () => {
@@ -122,6 +126,8 @@ describe("DataForSEO-dependent tools when DataForSEO is disabled", () => {
 
     expect(mocks.createDataforseoClient).not.toHaveBeenCalled();
     const c0 = res.content[0];
-    expect(c0?.type === "text" ? c0.text : "").toContain("DataForSEO, which is currently disabled");
+    expect(c0?.type === "text" ? c0.text : "").toContain(
+      "DataForSEO, which is currently disabled",
+    );
   });
 });

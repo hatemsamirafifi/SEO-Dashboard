@@ -3,9 +3,14 @@ import { AppError } from "@/server/lib/errors";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import type { CreditFeature } from "@/shared/billing-credit-features";
 import { KeywordResearchRepository } from "@/server/features/keywords/repositories/KeywordResearchRepository";
-import type { KeywordResearchRow } from "@/types/keywords";
+import type { KeywordResearchRow, SeedOverviewInfo } from "@/types/keywords";
 import type { ResolvedResearchKeywordsInput } from "@/types/schemas/keywords";
 import { getKeywordDataProvider } from "@/shared/keyword-locations";
+import {
+  annotateAndSortKeywordRows,
+  isExactKeywordMatch,
+  normalizeArabicKeyword,
+} from "@/shared/keyword-relevance";
 import {
   getPlannerConnectionForBilling,
   GOOGLE_ADS_PLANNER_CACHE_CONTRACT,
@@ -27,8 +32,6 @@ import {
   type ResearchSource,
 } from "./selection";
 import { getProviderFeatureFlags } from "@/server/lib/seo-data/config";
-import { resolveEffectiveSeRankingConfig } from "@/server/features/settings/services/SeRankingSettingsService";
-import { resolveEffectiveDataforseoConfig } from "@/server/features/settings/services/DataforseoSettingsService";
 
 export type SourceAttempt = {
   source: ResearchSource;
@@ -54,6 +57,7 @@ export type ResearchDiagnostics = {
   keywordSourceRequested?: string;
   providerReturnedData?: string | null;
   errorStage?: string | null;
+  confirmedCreditsUsed?: number | null;
 };
 
 export type ResearchResult = {
@@ -61,6 +65,7 @@ export type ResearchResult = {
   rows: KeywordResearchRow[];
   source: ResearchSource;
   usedFallback: boolean;
+  seedOverview?: SeedOverviewInfo;
   // Set by the Google-Ads-served path: true when the payload was the
   // first-party planner envelope, so persistence skips the legacy DFS
   // upsert and the follow-up storage hook records the rows instead.
@@ -106,6 +111,13 @@ async function fetchAutoRows(
   let lastError: unknown = null;
 
   for (const source of AUTO_KEYWORD_SOURCES) {
+    // In SE Ranking, both "suggestions" and "ideas" map to /v1/keywords/similar.
+    // Never fire a duplicate paid call to /v1/keywords/similar when SE Ranking
+    // already served "suggestions".
+    if (source === "ideas" && servingProvider === "seranking") {
+      continue;
+    }
+
     let sourceResult: { rows: EnrichedKeyword[]; provider: string } = {
       rows: [],
       provider: "unknown",
@@ -157,8 +169,9 @@ async function fetchAutoRows(
 
     for (const row of rows) {
       if (accumulatedRows.length >= input.resultLimit) break;
-      if (seenKeywords.has(row.keyword)) continue;
-      seenKeywords.add(row.keyword);
+      const dedupeKey = normalizeArabicKeyword(row.keyword);
+      if (seenKeywords.has(dedupeKey)) continue;
+      seenKeywords.add(dedupeKey);
       accumulatedRows.push(row);
     }
 
@@ -428,25 +441,28 @@ export async function research(
   const mode = effectiveInput.mode ?? "auto";
 
   const flags = await getProviderFeatureFlags();
-  let serankingConfig = { configured: true, enabled: flags.serankingEnabled, priority: 1 };
-  let dataforseoConfig = { configured: false, enabled: flags.dataforseoEnabled, priority: 1 };
-  try {
-    serankingConfig = await resolveEffectiveSeRankingConfig({
-      organizationId: billingCustomer.organizationId,
-      projectId: input.projectId,
-    });
-  } catch {}
-  try {
-    dataforseoConfig = await resolveEffectiveDataforseoConfig({
-      organizationId: billingCustomer.organizationId,
-      projectId: input.projectId,
-    });
-  } catch {}
+  const serankingConfig = {
+    configured: true,
+    enabled: flags.serankingEnabled,
+    priority: 1,
+  };
+  const dataforseoConfig = {
+    configured: false,
+    enabled: flags.dataforseoEnabled,
+    priority: 1,
+  };
 
-  const registeredProviders = ["google_ads", "seranking", "internal", "dataforseo"];
+  const registeredProviders = [
+    "google_ads",
+    "seranking",
+    "internal",
+    "dataforseo",
+  ];
   const enabledProviders = registeredProviders.filter((p) => {
-    if (p === "seranking") return flags.serankingEnabled && serankingConfig.enabled;
-    if (p === "dataforseo") return flags.dataforseoEnabled && dataforseoConfig.enabled;
+    if (p === "seranking")
+      return flags.serankingEnabled && serankingConfig.enabled;
+    if (p === "dataforseo")
+      return flags.dataforseoEnabled && dataforseoConfig.enabled;
     if (p === "google_ads") return flags.googleAdsEnabled;
     return true;
   });
@@ -455,13 +471,17 @@ export async function research(
   if (!flags.serankingEnabled || !serankingConfig.enabled) {
     skippedProviders.push({
       provider: "seranking",
-      reason: !flags.serankingEnabled ? "SERANKING_ENABLED is false" : "disabled in settings",
+      reason: !flags.serankingEnabled
+        ? "SERANKING_ENABLED is false"
+        : "disabled in settings",
     });
   }
   if (!flags.dataforseoEnabled || !dataforseoConfig.enabled) {
     skippedProviders.push({
       provider: "dataforseo",
-      reason: !flags.dataforseoEnabled ? "DATAFORSEO_ENABLED is false" : "disabled in settings",
+      reason: !flags.dataforseoEnabled
+        ? "DATAFORSEO_ENABLED is false"
+        : "disabled in settings",
     });
   }
   if (!flags.googleAdsEnabled) {
@@ -474,7 +494,8 @@ export async function research(
   const baseDiagnostics: Partial<ResearchDiagnostics> = {
     registeredProviders,
     enabledProviders,
-    attemptedProvider: provider === "google_ads" ? "google_ads" : enabledProviders[0] ?? null,
+    attemptedProvider:
+      provider === "google_ads" ? "google_ads" : (enabledProviders[0] ?? null),
     skippedProviders,
     effectiveConfig: {
       serankingConfigured: serankingConfig.configured,
@@ -525,6 +546,54 @@ export async function research(
       );
     } else {
       persistRows(effectiveInput, result.rows);
+    }
+
+    result.rows = annotateAndSortKeywordRows(
+      result.rows,
+      seedKeyword,
+      effectiveInput.languageCode,
+    );
+
+    const exactRow =
+      result.rows.find((row) =>
+        isExactKeywordMatch(row.keyword, seedKeyword),
+      ) ?? null;
+    if (exactRow) {
+      const hasAnyMetric =
+        exactRow.searchVolume !== null ||
+        exactRow.cpc !== null ||
+        exactRow.keywordDifficulty !== null;
+      result.seedOverview = {
+        keyword: exactRow.keyword,
+        exactMatchFound: true,
+        metricsStatus: hasAnyMetric ? "available" : "unavailable",
+        row: exactRow,
+      };
+    } else {
+      result.seedOverview = {
+        keyword: seedKeyword,
+        exactMatchFound: false,
+        metricsStatus: "missing_from_provider",
+        row: {
+          keyword: seedKeyword,
+          searchVolume: null,
+          trend: [],
+          keywordDifficulty: null,
+          cpc: null,
+          competition: null,
+          intent: "unknown",
+          matchType: "exact",
+          relevanceScore: 100,
+          relevanceTier: "high",
+          isWeaklyRelated: false,
+        },
+      };
+    }
+
+    if (result.provider === "seranking") {
+      result.diagnostics.confirmedCreditsUsed = result.rows.length * 10;
+    } else if (result.provider === "cache") {
+      result.diagnostics.confirmedCreditsUsed = 0;
     }
 
     console.info(

@@ -72,30 +72,52 @@ export function asAppError(error: unknown): AppError | null {
       return new AppError(
         "UNAUTHENTICATED",
         typeof error.message === "string" ? error.message : undefined,
+        {
+          publicMessage:
+            "SE Ranking rejected the API token. Verify your SE Ranking API key in Settings.",
+        },
       );
     }
     if (error.name === "SeRankingRateLimitError") {
       return new AppError(
         "RATE_LIMITED",
         typeof error.message === "string" ? error.message : undefined,
+        {
+          publicMessage:
+            "SE Ranking rate limit reached. Please wait a moment and try again.",
+        },
       );
     }
     if (error.name === "SeRankingCreditExhaustedError") {
       return new AppError(
         "INSUFFICIENT_CREDITS",
         typeof error.message === "string" ? error.message : undefined,
+        {
+          publicMessage:
+            "Insufficient SE Ranking API credits for this request.",
+        },
       );
     }
     if (error.name === "SeRankingValidationError") {
-      return new AppError(
-        "VALIDATION_ERROR",
-        typeof error.message === "string" ? error.message : undefined,
-      );
+      const safeDetail =
+        typeof error.message === "string" && error.message.trim().length > 0
+          ? error.message.trim()
+          : "SE Ranking response validation failed.";
+      return new AppError("VALIDATION_ERROR", safeDetail, {
+        publicMessage: safeDetail,
+      });
     }
-    if (error.name === "SeRankingUpstreamError" || error.name === "SeRankingError") {
+    if (
+      error.name === "SeRankingUpstreamError" ||
+      error.name === "SeRankingError"
+    ) {
       return new AppError(
         "UPSTREAM_UNAVAILABLE",
         typeof error.message === "string" ? error.message : undefined,
+        {
+          publicMessage:
+            "SE Ranking is temporarily unavailable. Please retry in a moment.",
+        },
       );
     }
     if (error.name === "ZodError") {
@@ -119,6 +141,7 @@ export function toClientError(error: unknown, correlationId?: string): Error {
   const appError = asAppError(error);
   const code = appError?.code ?? "INTERNAL_ERROR";
   const refTag = correlationId ? `[ref: ${correlationId}]` : "";
+  const publicMessage = appError?.details?.publicMessage?.trim();
 
   if (
     appError &&
@@ -127,6 +150,11 @@ export function toClientError(error: unknown, correlationId?: string): Error {
   ) {
     const detail = refTag ? `${refTag} ${appError.message}` : appError.message;
     return new Error(`${appError.code}: ${detail}`);
+  }
+
+  if (publicMessage) {
+    const detail = refTag ? `${refTag} ${publicMessage}` : publicMessage;
+    return new Error(`${code}: ${detail}`);
   }
 
   if (refTag) {

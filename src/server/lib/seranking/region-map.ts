@@ -9,7 +9,9 @@ const SE_RANKING_REGION_OVERRIDES: Record<string, string> = {
   gb: "uk",
 };
 
-export function locationCodeToSeRankingSource(locationCode?: number | null): string {
+export function locationCodeToSeRankingSource(
+  locationCode?: number | null,
+): string {
   if (!locationCode) {
     return "us";
   }
@@ -17,7 +19,9 @@ export function locationCodeToSeRankingSource(locationCode?: number | null): str
   return SE_RANKING_REGION_OVERRIDES[iso] ?? iso;
 }
 
-export function countryCodeToSeRankingSource(countryCode?: string | null): string {
+export function countryCodeToSeRankingSource(
+  countryCode?: string | null,
+): string {
   if (!countryCode) {
     return "us";
   }

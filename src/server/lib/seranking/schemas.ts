@@ -29,14 +29,20 @@ export function mapSeRankingIntent(raw: unknown): string | null {
     let val = "";
     if (typeof item === "object") {
       const rec = item as Record<string, unknown>;
-      val = String(rec.name ?? rec.id ?? rec.value ?? "").trim().toLowerCase();
+      val = String(rec.name ?? rec.id ?? rec.value ?? "")
+        .trim()
+        .toLowerCase();
     } else {
       val = String(item).trim().toLowerCase();
     }
-    if (val === "i" || val === "1" || val.includes("inform")) return "informational";
-    if (val === "c" || val === "3" || val.includes("commerc")) return "commercial";
-    if (val === "t" || val === "4" || val.includes("transact")) return "transactional";
-    if (val === "n" || val === "2" || val.includes("navig")) return "navigational";
+    if (val === "i" || val === "1" || val.includes("inform"))
+      return "informational";
+    if (val === "c" || val === "3" || val.includes("commerc"))
+      return "commercial";
+    if (val === "t" || val === "4" || val.includes("transact"))
+      return "transactional";
+    if (val === "n" || val === "2" || val.includes("navig"))
+      return "navigational";
   }
   return null;
 }
@@ -63,9 +69,9 @@ export const seRankingSubscriptionSchema = z
     (data) =>
       Boolean(
         data.subscription_info?.status ||
-          data.subscription_info?.units_left !== undefined ||
-          data.status ||
-          data.units_left !== undefined,
+        data.subscription_info?.units_left !== undefined ||
+        data.status ||
+        data.units_left !== undefined,
       ),
     {
       message:
@@ -159,7 +165,7 @@ export const seRankingDomainKeywordItemSchema = z.object({
     .union([z.string(), z.array(z.string())])
     .nullable()
     .optional()
-    .transform((val) => (Array.isArray(val) ? val.join(", ") : val ?? null)),
+    .transform((val) => (Array.isArray(val) ? val.join(", ") : (val ?? null))),
 });
 
 export const seRankingDomainPageItemSchema = z.object({
@@ -232,8 +238,16 @@ export const seRankingBacklinksHistoryItemSchema = z
     lost: z.coerce.number().nullable().optional().default(null),
     new_backlinks: z.coerce.number().nullable().optional().default(null),
     lost_backlinks: z.coerce.number().nullable().optional().default(null),
-    new_referring_domains: z.coerce.number().nullable().optional().default(null),
-    lost_referring_domains: z.coerce.number().nullable().optional().default(null),
+    new_referring_domains: z.coerce
+      .number()
+      .nullable()
+      .optional()
+      .default(null),
+    lost_referring_domains: z.coerce
+      .number()
+      .nullable()
+      .optional()
+      .default(null),
     inlink_rank: z.coerce.number().nullable().optional().default(null),
   })
   .passthrough();

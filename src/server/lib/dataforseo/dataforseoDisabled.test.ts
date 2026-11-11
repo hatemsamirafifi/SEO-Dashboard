@@ -37,19 +37,22 @@ vi.mock("@/server/lib/runtime-env", () => ({
   isHostedServerAuthMode: vi.fn(async () => false),
 }));
 
-vi.mock("@/server/features/settings/repositories/SeoProviderSettingsRepository", () => ({
-  SeoProviderSettingsRepository: {
-    getProjectProviderSettingsRow: vi.fn(async () => ({
-      provider: "dataforseo",
-      enabled: true, // DB row has enabled=true, but DATAFORSEO_ENABLED=false kill switch must override
-      circuitBreakerEnabled: true,
-      maxRetries: 2,
-      credentialsCiphertext: "mock-cipher",
-      priority: 1,
-    })),
-    getOrganizationProviderSettingsRow: vi.fn(async () => null),
-  },
-}));
+vi.mock(
+  "@/server/features/settings/repositories/SeoProviderSettingsRepository",
+  () => ({
+    SeoProviderSettingsRepository: {
+      getProjectProviderSettingsRow: vi.fn(async () => ({
+        provider: "dataforseo",
+        enabled: true, // DB row has enabled=true, but DATAFORSEO_ENABLED=false kill switch must override
+        circuitBreakerEnabled: true,
+        maxRetries: 2,
+        credentialsCiphertext: "mock-cipher",
+        priority: 1,
+      })),
+      getOrganizationProviderSettingsRow: vi.fn(async () => null),
+    },
+  }),
+);
 
 vi.mock("@/server/features/settings/dataforseoCrypto", () => ({
   decryptDataforseoCredentials: vi.fn(async () => ({

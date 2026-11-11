@@ -1,5 +1,9 @@
 import { classifySeRankingHttpError, SeRankingError } from "./errors";
-import { getApiKeyFingerprint, getRateLimiterCoordinator, type RateLimiterCoordinator } from "./rateLimiter";
+import {
+  getApiKeyFingerprint,
+  getRateLimiterCoordinator,
+  type RateLimiterCoordinator,
+} from "./rateLimiter";
 import { seRankingSubscriptionSchema } from "./schemas";
 import type { SeRankingConfig, SeRankingSubscription } from "./types";
 
@@ -43,10 +47,15 @@ export class SeRankingClient {
     return this.apiKeyFingerprintPromise;
   }
 
-  private buildUrl(path: string, params?: Record<string, string | number | boolean | undefined | null>): string {
+  private buildUrl(
+    path: string,
+    params?: Record<string, string | number | boolean | undefined | null>,
+  ): string {
     const cleanPath = path.startsWith("/") ? path : `/${path}`;
     // If path does not start with /v1, prefix it (official SE Ranking endpoints are /v1/...)
-    const fullPath = cleanPath.startsWith("/v1") ? cleanPath : `/v1${cleanPath}`;
+    const fullPath = cleanPath.startsWith("/v1")
+      ? cleanPath
+      : `/v1${cleanPath}`;
     const url = new URL(`${this.baseUrl}${fullPath}`);
 
     if (params) {
@@ -85,9 +94,14 @@ export class SeRankingClient {
         });
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? this.timeoutMs);
+        const timeoutId = setTimeout(
+          () => controller.abort(),
+          options.timeoutMs ?? this.timeoutMs,
+        );
         if (options.signal) {
-          options.signal.addEventListener("abort", () => controller.abort(), { once: true });
+          options.signal.addEventListener("abort", () => controller.abort(), {
+            once: true,
+          });
         }
 
         try {
@@ -117,10 +131,19 @@ export class SeRankingClient {
           }
 
           if (!response.ok) {
-            const classified = classifySeRankingHttpError(response.status, parsedBody);
+            const classified = classifySeRankingHttpError(
+              response.status,
+              parsedBody,
+            );
             // Retry on 429 or 5xx if attempts remain
-            if ((response.status === 429 || response.status >= 500) && attempt <= this.maxRetries) {
-              const backoff = Math.min(1000 * Math.pow(2, attempt - 1) + Math.random() * 200, 5000);
+            if (
+              (response.status === 429 || response.status >= 500) &&
+              attempt <= this.maxRetries
+            ) {
+              const backoff = Math.min(
+                1000 * Math.pow(2, attempt - 1) + Math.random() * 200,
+                5000,
+              );
               await new Promise((r) => setTimeout(r, backoff));
               continue;
             }
@@ -134,12 +157,22 @@ export class SeRankingClient {
           lastError = error;
 
           if (controller.signal.aborted && !options.signal?.aborted) {
-            lastError = new SeRankingError(`SE Ranking request timed out after ${options.timeoutMs ?? this.timeoutMs}ms`, 504);
+            lastError = new SeRankingError(
+              `SE Ranking request timed out after ${options.timeoutMs ?? this.timeoutMs}ms`,
+              504,
+            );
           }
 
-          if (lastError instanceof SeRankingError && (lastError.statusCode === 429 || (lastError.statusCode && lastError.statusCode >= 500))) {
+          if (
+            lastError instanceof SeRankingError &&
+            (lastError.statusCode === 429 ||
+              (lastError.statusCode && lastError.statusCode >= 500))
+          ) {
             if (attempt <= this.maxRetries) {
-              const backoff = Math.min(1000 * Math.pow(2, attempt - 1) + Math.random() * 200, 5000);
+              const backoff = Math.min(
+                1000 * Math.pow(2, attempt - 1) + Math.random() * 200,
+                5000,
+              );
               await new Promise((r) => setTimeout(r, backoff));
               continue;
             }
@@ -164,7 +197,9 @@ export class SeRankingClient {
   }
 
   async getSubscription(): Promise<SeRankingSubscription> {
-    const raw = await this.request<unknown>("/account/subscription", { method: "GET" });
+    const raw = await this.request<unknown>("/account/subscription", {
+      method: "GET",
+    });
     return seRankingSubscriptionSchema.parse(raw);
   }
 }

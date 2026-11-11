@@ -143,7 +143,10 @@ type ErrorWithMeta = {
   details?: { upstreamStatus?: unknown };
 };
 
-function detectFailureProvider(error: unknown): { provider: string; endpoint: string } {
+function detectFailureProvider(error: unknown): {
+  provider: string;
+  endpoint: string;
+} {
   const rawMsg = error instanceof Error ? error.message : "";
   const lower = rawMsg.toLowerCase();
   const errorObj =

@@ -776,8 +776,16 @@ export const searchLocalBusinessesTool = {
       if (!flags.dataforseoEnabled) {
         return mcpResponse({
           text: "Local business search requires DataForSEO, which is currently disabled. Enable DataForSEO in Provider Settings to use local search features.",
-          meta: buildProjectMeta(context, args.projectId, `/p/${args.projectId}`),
-          structuredContent: { businesses: [], unavailable: true, reason: "dataforseo_disabled" },
+          meta: buildProjectMeta(
+            context,
+            args.projectId,
+            `/p/${args.projectId}`,
+          ),
+          structuredContent: {
+            businesses: [],
+            unavailable: true,
+            reason: "dataforseo_disabled",
+          },
         });
       }
       await assertDataforseoBudget();
@@ -825,8 +833,16 @@ export const getLocalSerpResultsTool = {
       if (!flags.dataforseoEnabled) {
         return mcpResponse({
           text: "Local SERP results require DataForSEO, which is currently disabled. Enable DataForSEO in Provider Settings to use local SERP features.",
-          meta: buildProjectMeta(context, args.projectId, `/p/${args.projectId}`),
-          structuredContent: { results: [], unavailable: true, reason: "dataforseo_disabled" },
+          meta: buildProjectMeta(
+            context,
+            args.projectId,
+            `/p/${args.projectId}`,
+          ),
+          structuredContent: {
+            results: [],
+            unavailable: true,
+            reason: "dataforseo_disabled",
+          },
         });
       }
       await assertDataforseoBudget();
@@ -877,8 +893,16 @@ export const getGoogleBusinessQuestionsTool = {
       if (!flags.dataforseoEnabled) {
         return mcpResponse({
           text: "Google Business Q&A requires DataForSEO, which is currently disabled. Enable DataForSEO in Provider Settings to use business questions.",
-          meta: buildProjectMeta(context, args.projectId, `/p/${args.projectId}`),
-          structuredContent: { questions: [], unavailable: true, reason: "dataforseo_disabled" },
+          meta: buildProjectMeta(
+            context,
+            args.projectId,
+            `/p/${args.projectId}`,
+          ),
+          structuredContent: {
+            questions: [],
+            unavailable: true,
+            reason: "dataforseo_disabled",
+          },
         });
       }
       await assertDataforseoBudget();

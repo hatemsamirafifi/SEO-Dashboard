@@ -93,7 +93,9 @@ function resolveServingProviderEndpoint(
   source?: string,
 ): string {
   if (provider === "SE Ranking") {
-    return source === "related" ? "/v1/keywords/related" : "/v1/keywords/similar";
+    return source === "related"
+      ? "/v1/keywords/related"
+      : "/v1/keywords/similar";
   }
   if (provider === "Google Ads") {
     return "GenerateKeywordIdeas";
@@ -134,7 +136,10 @@ export async function keywordResearchQueryFn(request: KeywordResearchRequest) {
 
     const resultObj =
       typeof result === "object" && result !== null
-        ? (result as { provider?: string; diagnostics?: { servingProvider?: string } })
+        ? (result as {
+            provider?: string;
+            diagnostics?: { servingProvider?: string };
+          })
         : null;
     const providerLabel = formatServingProviderLabel(
       resultObj?.provider ?? resultObj?.diagnostics?.servingProvider,

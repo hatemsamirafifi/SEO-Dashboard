@@ -12,6 +12,8 @@ export * from "./keywords";
 export * from "./domains";
 export * from "./backlinks";
 
-export function createSeRankingClient(config: SeRankingConfig): SeRankingClient {
+export function createSeRankingClient(
+  config: SeRankingConfig,
+): SeRankingClient {
   return new SeRankingClient(config);
 }

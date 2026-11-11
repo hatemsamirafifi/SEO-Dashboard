@@ -11,7 +11,9 @@ async function encryptionKey(): Promise<string | null> {
   return base ? `${base}:seranking-credentials-v1` : null;
 }
 
-export async function encryptSeRankingApiKey(apiKey: string): Promise<string | null> {
+export async function encryptSeRankingApiKey(
+  apiKey: string,
+): Promise<string | null> {
   const key = await encryptionKey();
   return key
     ? symmetricEncrypt({ key, data: JSON.stringify({ apiKey }) })

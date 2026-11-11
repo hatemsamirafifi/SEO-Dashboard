@@ -113,6 +113,13 @@ export function resetCreditGuardState(): void {
   cachedSubscriptionState = null;
 }
 
+export function getOrganizationSeRankingSpend(organizationId: string): number {
+  const currentMonthKey = getMonthKey();
+  const record = orgSpendMap.get(organizationId);
+  if (!record || record.monthKey !== currentMonthKey) return 0;
+  return record.spentUnits;
+}
+
 function getMonthKey(now = new Date()): string {
   return now.toISOString().slice(0, 7);
 }
@@ -203,9 +210,20 @@ export async function reserveSeRankingCredits(
     commit: async (actualUnits?: number) => {
       if (settled) return;
       settled = true;
+      const settledUnits =
+        actualUnits !== undefined ? Math.max(0, actualUnits) : estimatedUnits;
       if (actualUnits !== undefined && orgRecord) {
-        const delta = actualUnits - estimatedUnits;
-        orgRecord.spentUnits += delta;
+        const delta = settledUnits - estimatedUnits;
+        orgRecord.spentUnits = Math.max(0, orgRecord.spentUnits + delta);
+      }
+      if (cachedSubscriptionState && settledUnits > 0) {
+        cachedSubscriptionState.data = {
+          ...cachedSubscriptionState.data,
+          units_left: Math.max(
+            0,
+            cachedSubscriptionState.data.units_left - settledUnits,
+          ),
+        };
       }
     },
     release: async () => {

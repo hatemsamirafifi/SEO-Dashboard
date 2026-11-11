@@ -55,7 +55,10 @@ function isNoDataError(code: string | null, lowerMsg: string): boolean {
   );
 }
 
-function isInsufficientFundsError(code: string | null, lowerMsg: string): boolean {
+function isInsufficientFundsError(
+  code: string | null,
+  lowerMsg: string,
+): boolean {
   return (
     code === "INSUFFICIENT_FUNDS" ||
     code === "CREDITS_UNAVAILABLE" ||
@@ -82,7 +85,10 @@ function isRateLimitedError(code: string | null, lowerMsg: string): boolean {
   );
 }
 
-function isUpstreamUnavailableError(code: string | null, lowerMsg: string): boolean {
+function isUpstreamUnavailableError(
+  code: string | null,
+  lowerMsg: string,
+): boolean {
   return (
     code === "UPSTREAM_UNAVAILABLE" ||
     code === "TRANSIENT_UPSTREAM" ||
@@ -91,7 +97,11 @@ function isUpstreamUnavailableError(code: string | null, lowerMsg: string): bool
   );
 }
 
-function isInternalServerError(code: string | null, msg: string, lowerMsg: string): boolean {
+function isInternalServerError(
+  code: string | null,
+  msg: string,
+  lowerMsg: string,
+): boolean {
   return (
     code === "INTERNAL_ERROR" ||
     msg === "INTERNAL_ERROR" ||

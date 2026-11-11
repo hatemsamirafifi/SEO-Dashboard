@@ -11,6 +11,8 @@ import {
   refreshSavedKeywordMetrics,
 } from "@/server/features/keywords/services/research";
 
+export type { SerpAnalysisResult } from "@/server/features/keywords/services/research/serp";
+
 export const KeywordResearchService = {
   research,
   getSerpAnalysis,

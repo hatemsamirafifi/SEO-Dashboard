@@ -131,7 +131,9 @@ function asRecordRows(value: unknown): GoogleAdsKeywordRecord[] {
  *    `source: "google_ads"` plus `ideas` / `keywords` record arrays).
  *  Discriminate structurally — never by trusting the typed response body
  *  against the runtime reality. */
-function isLabsKeywordDataItems(value: unknown): value is LabsKeywordDataItem[] {
+function isLabsKeywordDataItems(
+  value: unknown,
+): value is LabsKeywordDataItem[] {
   if (!Array.isArray(value)) return false;
   if (value.length === 0) return true;
   const first = value[0];
@@ -205,9 +207,15 @@ export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
   if (!items) return [];
   const array: unknown[] = Array.isArray(items)
     ? items
-    : typeof items === "object" && items !== null && "data" in items && Array.isArray((items as { data: unknown }).data)
+    : typeof items === "object" &&
+        items !== null &&
+        "data" in items &&
+        Array.isArray((items as { data: unknown }).data)
       ? (items as { data: unknown[] }).data
-      : typeof items === "object" && items !== null && "items" in items && Array.isArray((items as { items: unknown }).items)
+      : typeof items === "object" &&
+          items !== null &&
+          "items" in items &&
+          Array.isArray((items as { items: unknown }).items)
         ? (items as { items: unknown[] }).items
         : [];
 
@@ -218,7 +226,9 @@ export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
     if (!raw || typeof raw !== "object") continue;
     // Unwrap if wrapped under keyword_data
     const item =
-      "keyword_data" in raw && raw.keyword_data && typeof raw.keyword_data === "object"
+      "keyword_data" in raw &&
+      raw.keyword_data &&
+      typeof raw.keyword_data === "object"
         ? (raw as { keyword_data: Record<string, unknown> }).keyword_data
         : (raw as Record<string, unknown>);
 
@@ -232,12 +242,19 @@ export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
     if ("searchVolume" in item && "keywordDifficulty" in item) {
       rows.push({
         keyword: normalized,
-        searchVolume: typeof item.searchVolume === "number" ? item.searchVolume : null,
+        searchVolume:
+          typeof item.searchVolume === "number" ? item.searchVolume : null,
         trend: Array.isArray(item.trend) ? (item.trend as MonthlySearch[]) : [],
         cpc: typeof item.cpc === "number" ? item.cpc : null,
-        competition: typeof item.competition === "number" ? item.competition : null,
-        keywordDifficulty: typeof item.keywordDifficulty === "number" ? item.keywordDifficulty : null,
-        intent: normalizeIntent(typeof item.intent === "string" ? item.intent : null),
+        competition:
+          typeof item.competition === "number" ? item.competition : null,
+        keywordDifficulty:
+          typeof item.keywordDifficulty === "number"
+            ? item.keywordDifficulty
+            : null,
+        intent: normalizeIntent(
+          typeof item.intent === "string" ? item.intent : null,
+        ),
       });
       continue;
     }
@@ -248,7 +265,9 @@ export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
         ? (item.history_trend as Array<{ date?: string; volume?: number }>)
         : [];
       const trend: MonthlySearch[] = historyTrend.map((t) => {
-        const parts = String(t?.date ?? "").split("-").map(Number);
+        const parts = String(t?.date ?? "")
+          .split("-")
+          .map(Number);
         return {
           year: parts[0] || 0,
           month: parts[1] || 0,
@@ -266,8 +285,10 @@ export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
         searchVolume: typeof item.volume === "number" ? item.volume : null,
         trend,
         cpc: typeof item.cpc === "number" ? item.cpc : null,
-        competition: typeof item.competition === "number" ? item.competition : null,
-        keywordDifficulty: typeof item.difficulty === "number" ? item.difficulty : null,
+        competition:
+          typeof item.competition === "number" ? item.competition : null,
+        keywordDifficulty:
+          typeof item.difficulty === "number" ? item.difficulty : null,
         intent: normalizeIntent(rawIntent),
       });
       continue;
@@ -275,7 +296,8 @@ export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
 
     // 3. LabsKeywordDataItem shape (DataForSEO)
     const labsItem = item as LabsKeywordDataItem;
-    const keywordInfo = labsItem.keyword_info_normalized_with_clickstream?.search_volume
+    const keywordInfo = labsItem.keyword_info_normalized_with_clickstream
+      ?.search_volume
       ? labsItem.keyword_info_normalized_with_clickstream
       : labsItem.keyword_info;
 
@@ -289,7 +311,8 @@ export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
       })),
       cpc: labsItem.keyword_info?.cpc ?? null,
       competition: labsItem.keyword_info?.competition ?? null,
-      keywordDifficulty: labsItem.keyword_properties?.keyword_difficulty ?? null,
+      keywordDifficulty:
+        labsItem.keyword_properties?.keyword_difficulty ?? null,
       intent: normalizeIntent(labsItem.search_intent_info?.main_intent),
     });
   }

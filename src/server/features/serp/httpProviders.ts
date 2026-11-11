@@ -1,3 +1,4 @@
+/* eslint-disable eslint/max-lines */
 import { z } from "zod";
 import {
   assertNotCancelled,
@@ -5,6 +6,7 @@ import {
   normalizedDomain,
   SerpProviderError,
   type NormalizedSerpResult,
+  type SerpFeatureSet,
   type SerpProvider,
   type SerpProviderCall,
   type SerpProviderId,
@@ -20,6 +22,8 @@ const organicItemSchema = z
     title: z.string().nullable().optional(),
     link: z.string().url().optional(),
     url: z.string().url().optional(),
+    snippet: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
   })
   .passthrough();
 const responseSchema = z
@@ -172,6 +176,7 @@ type NormalizedOrganic = {
   title: string | null;
   url: string;
   domain: string;
+  description: string | null;
 };
 
 function normalizeOrganic(
@@ -188,10 +193,126 @@ function normalizeOrganic(
             title: item.title ?? null,
             url,
             domain,
+            description: item.snippet ?? item.description ?? null,
           },
         ]
       : [];
   });
+}
+
+function asRecord(val: unknown): Record<string, unknown> | null {
+  return typeof val === "object" && val !== null && !Array.isArray(val)
+    ? // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- guarded by typeof/null/isArray
+      (val as Record<string, unknown>)
+    : null;
+}
+
+function asString(val: unknown): string | null {
+  return typeof val === "string" && val.trim().length > 0 ? val : null;
+}
+
+function extractObservedFeatures(raw: Record<string, unknown>): {
+  features: SerpFeatureSet;
+  familyNames: string[];
+} {
+  const features: SerpFeatureSet = {};
+  const familyNames: string[] = [];
+
+  const answerBox = asRecord(raw.answerBox ?? raw.answer_box);
+  if (answerBox) {
+    const title = asString(answerBox.title) ?? asString(answerBox.answer);
+    const snippet =
+      asString(answerBox.snippet) ?? asString(answerBox.answer) ?? "";
+    const url = asString(answerBox.link ?? answerBox.url);
+    if (title) {
+      features.featuredResult = {
+        title,
+        url,
+        domain: url ? normalizedDomain(url) : null,
+        snippet,
+      };
+      familyNames.push("featured_snippet");
+    }
+  }
+
+  const paaRaw = raw.peopleAlsoAsk ?? raw.people_also_ask ?? raw.questions;
+  if (Array.isArray(paaRaw)) {
+    const items = paaRaw.flatMap((entry) => {
+      const rec = asRecord(entry);
+      const question = rec
+        ? (asString(rec.question) ?? asString(rec.title))
+        : asString(entry);
+      if (!question) return [];
+      const url = rec ? asString(rec.link ?? rec.url) : null;
+      return [{ question, url, placement: null }];
+    });
+    if (items.length > 0) {
+      features.peopleAlsoAsk = { items };
+      familyNames.push("people_also_ask");
+    }
+  }
+
+  const relatedRaw = raw.relatedSearches ?? raw.related_searches;
+  if (Array.isArray(relatedRaw)) {
+    const items = relatedRaw.flatMap((entry) => {
+      const rec = asRecord(entry);
+      const query = rec
+        ? (asString(rec.query) ?? asString(rec.title))
+        : asString(entry);
+      return query ? [query] : [];
+    });
+    if (items.length > 0) {
+      features.relatedSearches = { items };
+      familyNames.push("related_searches");
+    }
+  }
+
+  const placesRaw = raw.places ?? raw.local_results ?? raw.maps_results;
+  if (Array.isArray(placesRaw)) {
+    const items = placesRaw.flatMap((entry) => {
+      const rec = asRecord(entry);
+      const title = rec ? asString(rec.title) : null;
+      if (!rec || !title) return [];
+      const url = asString(rec.website ?? rec.link ?? rec.url);
+      const rating = typeof rec.rating === "number" ? rec.rating : null;
+      const reviewCountRaw = rec.ratingCount ?? rec.reviews ?? rec.review_count;
+      const reviewCount =
+        typeof reviewCountRaw === "number" && Number.isInteger(reviewCountRaw)
+          ? reviewCountRaw
+          : null;
+      return [
+        {
+          title,
+          url,
+          domain: url ? normalizedDomain(url) : null,
+          address: asString(rec.address),
+          rating,
+          reviewCount,
+        },
+      ];
+    });
+    if (items.length > 0) {
+      features.localPack = { items };
+      familyNames.push("local_pack");
+    }
+  }
+
+  const kg = asRecord(raw.knowledgeGraph ?? raw.knowledge_graph);
+  if (kg) {
+    const title = asString(kg.title);
+    if (title) {
+      const url = asString(kg.website ?? kg.descriptionLink ?? kg.url);
+      features.knowledgeGraph = {
+        title,
+        url,
+        domain: url ? normalizedDomain(url) : null,
+        description: asString(kg.description),
+      };
+      familyNames.push("knowledge_graph");
+    }
+  }
+
+  return { features, familyNames };
 }
 
 function result(input: {
@@ -201,7 +322,16 @@ function result(input: {
   calls: SerpProviderCall[];
   match?: NormalizedOrganic;
   organic?: NormalizedOrganic[];
+  observedFeatures?: SerpFeatureSet;
+  serpFeatures?: string[];
 }): NormalizedSerpResult {
+  const topOrganic = (input.organic ?? []).slice(0, 10);
+  const organicDescriptions: Record<number, string> = {};
+  for (const entry of topOrganic) {
+    if (entry.description) {
+      organicDescriptions[entry.position] = entry.description;
+    }
+  }
   return {
     keywordId: input.searchInput.keywordId,
     keyword: input.searchInput.keyword,
@@ -209,11 +339,11 @@ function result(input: {
     url: input.match?.url ?? null,
     title: input.match?.title ?? null,
     domain: input.match?.domain ?? null,
-    serpFeatures: [],
+    serpFeatures: input.serpFeatures ?? [],
     provider: input.provider,
     inspectedDepth: Math.min(input.searchInput.depth, input.inspectedDepth),
     calls: input.calls,
-    organicResults: (input.organic ?? []).slice(0, 10).map((entry) => ({
+    organicResults: topOrganic.map((entry) => ({
       position: entry.position,
       title: entry.title,
       url: entry.url,
@@ -221,6 +351,12 @@ function result(input: {
       resultType: "organic",
       featureRefs: [],
     })),
+    ...(Object.keys(organicDescriptions).length > 0
+      ? { organicDescriptions }
+      : {}),
+    ...(input.observedFeatures && Object.keys(input.observedFeatures).length > 0
+      ? { observedFeatures: input.observedFeatures }
+      : {}),
   };
 }
 
@@ -238,6 +374,8 @@ export function createHttpSerpProvider(
       const calls: SerpProviderCall[] = [];
       const pageFingerprints = new Set<string>();
       const collectedOrganic: NormalizedOrganic[] = [];
+      let pageOneFeatures: SerpFeatureSet | undefined;
+      let pageOneFeatureNames: string[] = [];
       let inspectedDepth = 0;
       let noProgressPages = 0;
 
@@ -319,6 +457,12 @@ export function createHttpSerpProvider(
           });
         }
 
+        if (pageNumber === 1) {
+          const extracted = extractObservedFeatures(parsed.data);
+          pageOneFeatures = extracted.features;
+          pageOneFeatureNames = extracted.familyNames;
+        }
+
         const pageOrganic = normalizeOrganic(parsed.data, pageNumber);
         collectedOrganic.push(...pageOrganic);
         const fingerprint = pageOrganic
@@ -349,11 +493,13 @@ export function createHttpSerpProvider(
         };
         calls.push(call);
 
-        const match = pageOrganic.find(
-          (item) =>
-            item.position <= requestedDepth &&
-            domainMatches(item.domain, input.targetDomain),
-        );
+        const match = input.targetDomain
+          ? pageOrganic.find(
+              (item) =>
+                item.position <= requestedDepth &&
+                domainMatches(item.domain, input.targetDomain),
+            )
+          : undefined;
         if (match) {
           call.resultCompleteness = "target_found";
           return result({
@@ -363,9 +509,16 @@ export function createHttpSerpProvider(
             calls,
             match,
             organic: collectedOrganic,
+            observedFeatures: pageOneFeatures,
+            serpFeatures: pageOneFeatureNames,
           });
         }
-        if (inspectedDepth >= requestedDepth) {
+        if (
+          inspectedDepth >= requestedDepth ||
+          (!input.targetDomain &&
+            pageNumber === 1 &&
+            requestedDepth <= PAGE_SIZE)
+        ) {
           call.resultCompleteness = "complete";
           return result({
             searchInput: input,
@@ -373,6 +526,8 @@ export function createHttpSerpProvider(
             inspectedDepth,
             calls,
             organic: collectedOrganic,
+            observedFeatures: pageOneFeatures,
+            serpFeatures: pageOneFeatureNames,
           });
         }
         if (noProgressPages >= 2) break;

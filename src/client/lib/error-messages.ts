@@ -59,6 +59,14 @@ function splitCodedMessage(
   return { code, detail: message.slice(separatorIndex + 2) };
 }
 
+const REF_TAG_REGEX = /\[ref:\s*([^\]]+)\]/i;
+
+export function getErrorCorrelationId(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  const match = error.message.match(REF_TAG_REGEX);
+  return match?.[1]?.trim() ?? null;
+}
+
 export function getStandardErrorMessage(
   error: unknown,
   fallback: string = STANDARD_MESSAGES.INTERNAL_ERROR,
@@ -66,7 +74,16 @@ export function getStandardErrorMessage(
   if (!(error instanceof Error)) return fallback;
   if (isErrorCode(error.message)) return STANDARD_MESSAGES[error.message];
   const coded = splitCodedMessage(error.message);
-  if (coded) return coded.detail;
+  if (coded) {
+    const refMatch = coded.detail.match(REF_TAG_REGEX);
+    const refTag = refMatch?.[1]?.trim() ? `[ref: ${refMatch[1].trim()}]` : "";
+    const cleanDetail = coded.detail.replace(REF_TAG_REGEX, "").trim();
+    if (cleanDetail.length > 0) {
+      return refTag ? `${cleanDetail} ${refTag}` : cleanDetail;
+    }
+    const baseMessage = STANDARD_MESSAGES[coded.code];
+    return refTag ? `${baseMessage} ${refTag}` : baseMessage;
+  }
   if (error.message) return error.message;
   return fallback;
 }

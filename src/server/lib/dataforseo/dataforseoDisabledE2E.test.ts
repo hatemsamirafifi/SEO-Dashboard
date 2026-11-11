@@ -31,13 +31,16 @@ vi.mock("@/db", () => ({
   },
 }));
 
-vi.mock("@/server/features/dashboard/repositories/BacklinkSnapshotRepository", () => ({
-  BacklinkSnapshotRepository: {
-    getFreshForProjectDomain: vi.fn(async () => null),
-    getLatestForProject: vi.fn(async () => null),
-    insert: vi.fn(async () => {}),
-  },
-}));
+vi.mock(
+  "@/server/features/dashboard/repositories/BacklinkSnapshotRepository",
+  () => ({
+    BacklinkSnapshotRepository: {
+      getFreshForProjectDomain: vi.fn(async () => null),
+      getLatestForProject: vi.fn(async () => null),
+      insert: vi.fn(async () => {}),
+    },
+  }),
+);
 
 vi.mock("@/server/lib/r2-cache", async (importOriginal) => {
   const actual = await importOriginal<typeof R2Cache>();
@@ -94,30 +97,38 @@ vi.mock("@/server/lib/seo-data/domain-overview-snapshot-repository", () => ({
   },
 }));
 
-vi.mock("@/server/features/settings/repositories/SeoProviderSettingsRepository", () => ({
-  SeoProviderSettingsRepository: {
-    getProjectProviderSettingsRow: vi.fn(async (projectId: string, provider: string) => {
-      if (provider === "dataforseo") {
-        return {
-          provider: "dataforseo",
-          enabled: true, // DB row has enabled=true, but DATAFORSEO_ENABLED=false kill switch must override!
-          circuitBreakerEnabled: true,
-          maxRetries: 2,
-          credentialsCiphertext: "mock-dfs-cipher",
-          priority: 2,
-        };
-      }
-      return null;
-    }),
-    getOrganizationProviderSettingsRow: vi.fn(async () => null),
-  },
-}));
+vi.mock(
+  "@/server/features/settings/repositories/SeoProviderSettingsRepository",
+  () => ({
+    SeoProviderSettingsRepository: {
+      getProjectProviderSettingsRow: vi.fn(
+        async (projectId: string, provider: string) => {
+          if (provider === "dataforseo") {
+            return {
+              provider: "dataforseo",
+              enabled: true, // DB row has enabled=true, but DATAFORSEO_ENABLED=false kill switch must override!
+              circuitBreakerEnabled: true,
+              maxRetries: 2,
+              credentialsCiphertext: "mock-dfs-cipher",
+              priority: 2,
+            };
+          }
+          return null;
+        },
+      ),
+      getOrganizationProviderSettingsRow: vi.fn(async () => null),
+    },
+  }),
+);
 
-vi.mock("@/server/features/keywords/repositories/KeywordResearchRepository", () => ({
-  KeywordResearchRepository: {
-    upsertKeywordMetric: vi.fn(async () => {}),
-  },
-}));
+vi.mock(
+  "@/server/features/keywords/repositories/KeywordResearchRepository",
+  () => ({
+    KeywordResearchRepository: {
+      upsertKeywordMetric: vi.fn(async () => {}),
+    },
+  }),
+);
 
 vi.mock("@/server/features/settings/dataforseoCrypto", () => ({
   decryptDataforseoCredentials: vi.fn(async () => ({
@@ -187,7 +198,9 @@ describe("DataForSEO Independence End-to-End (Priority 5)", () => {
       fetchUrls.push(u);
 
       if (u.includes("dataforseo.com")) {
-        throw new Error(`CRITICAL INVARIANT VIOLATION: HTTP request made to DataForSEO: ${u}`);
+        throw new Error(
+          `CRITICAL INVARIANT VIOLATION: HTTP request made to DataForSEO: ${u}`,
+        );
       }
 
       // Mock SE Ranking responses
@@ -195,7 +208,12 @@ describe("DataForSEO Independence End-to-End (Priority 5)", () => {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve({ status: "active", units_left: 50000, units_limit: 100000 }),
+          json: () =>
+            Promise.resolve({
+              status: "active",
+              units_left: 50000,
+              units_limit: 100000,
+            }),
         });
       }
 
@@ -216,7 +234,10 @@ describe("DataForSEO Independence End-to-End (Priority 5)", () => {
         });
       }
 
-      if (u.includes("/v1/keywords/similar") || u.includes("/v1/keywords/related")) {
+      if (
+        u.includes("/v1/keywords/similar") ||
+        u.includes("/v1/keywords/related")
+      ) {
         return Promise.resolve({
           ok: true,
           headers: new Headers({ "content-type": "application/json" }),
@@ -302,7 +323,11 @@ describe("DataForSEO Independence End-to-End (Priority 5)", () => {
     const tools = buildSamMcpTools(authContext, project);
     const result = (await tools.research_keywords.execute!(
       // oxlint-disable-next-line typescript/no-explicit-any
-      { seeds: [{ seed: "seo audit tools", locationCode: 2840, languageCode: "en" }] } as any,
+      {
+        seeds: [
+          { seed: "seo audit tools", locationCode: 2840, languageCode: "en" },
+        ],
+      } as any,
       // oxlint-disable-next-line typescript/no-explicit-any
       { messages: [], toolCallId: "call_dfs_1" } as any,
     )) as { summary?: string; data?: { results?: Array<{ ok: boolean }> } };
@@ -318,7 +343,10 @@ describe("DataForSEO Independence End-to-End (Priority 5)", () => {
       { target: "example.com" } as any,
       // oxlint-disable-next-line typescript/no-explicit-any
       { messages: [], toolCallId: "call_dfs_2" } as any,
-    )) as { summary?: string; data?: { overview?: { overview?: { summary?: { backlinks?: number } } } } };
+    )) as {
+      summary?: string;
+      data?: { overview?: { overview?: { summary?: { backlinks?: number } } } };
+    };
 
     expect(result.data?.overview?.overview?.summary?.backlinks).toBe(15000);
     expect(fetchUrls.some((u) => u.includes("dataforseo.com"))).toBe(false);

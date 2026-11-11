@@ -44,9 +44,15 @@ describe("Rate Limiting — Priority 1: Distributed & Shared Rate Limiter", () =
       const key = "key-a";
       const timestamps: number[] = [];
 
-      const p1 = limiter.acquire(key, { rps: 1 }).then(() => timestamps.push(Date.now()));
-      const p2 = limiter.acquire(key, { rps: 1 }).then(() => timestamps.push(Date.now()));
-      const p3 = limiter.acquire(key, { rps: 1 }).then(() => timestamps.push(Date.now()));
+      const p1 = limiter
+        .acquire(key, { rps: 1 })
+        .then(() => timestamps.push(Date.now()));
+      const p2 = limiter
+        .acquire(key, { rps: 1 })
+        .then(() => timestamps.push(Date.now()));
+      const p3 = limiter
+        .acquire(key, { rps: 1 })
+        .then(() => timestamps.push(Date.now()));
 
       await vi.advanceTimersByTimeAsync(0);
       expect(timestamps).toEqual([0]);
@@ -64,8 +70,12 @@ describe("Rate Limiting — Priority 1: Distributed & Shared Rate Limiter", () =
       const timestampsA: number[] = [];
       const timestampsB: number[] = [];
 
-      const pA1 = limiter.acquire("org-1-key", { rps: 1 }).then(() => timestampsA.push(Date.now()));
-      const pB1 = limiter.acquire("org-2-key", { rps: 1 }).then(() => timestampsB.push(Date.now()));
+      const pA1 = limiter
+        .acquire("org-1-key", { rps: 1 })
+        .then(() => timestampsA.push(Date.now()));
+      const pB1 = limiter
+        .acquire("org-2-key", { rps: 1 })
+        .then(() => timestampsB.push(Date.now()));
 
       await vi.advanceTimersByTimeAsync(0);
       // Both dispatch immediately on their first call
@@ -88,9 +98,9 @@ describe("Rate Limiting — Priority 1: Distributed & Shared Rate Limiter", () =
       }
 
       // 52nd call (queue already has 50 waiting) must reject with 429
-      await expect(limiter.acquire(key, { rps: 1, timeoutMs: 120000 })).rejects.toThrow(
-        /Rate limit queue capacity reached/i,
-      );
+      await expect(
+        limiter.acquire(key, { rps: 1, timeoutMs: 120000 }),
+      ).rejects.toThrow(/Rate limit queue capacity reached/i);
 
       // Drain timers to cleanly complete the queued calls
       await vi.advanceTimersByTimeAsync(120000);
@@ -105,7 +115,10 @@ describe("Rate Limiting — Priority 1: Distributed & Shared Rate Limiter", () =
       await limiter.acquire(key, { rps: 1 });
 
       // Second call queues
-      const queuedPromise = limiter.acquire(key, { rps: 1, signal: controller.signal });
+      const queuedPromise = limiter.acquire(key, {
+        rps: 1,
+        signal: controller.signal,
+      });
       expect(limiter.getQueueLength(key)).toBe(1);
 
       // Abort second call
@@ -177,7 +190,8 @@ describe("Rate Limiting — Priority 1: Distributed & Shared Rate Limiter", () =
 
       // Verify each dispatched with at least 1000ms delta
       for (let i = 1; i < workerResults.length; i++) {
-        const delta = workerResults[i].timestamp - workerResults[i - 1].timestamp;
+        const delta =
+          workerResults[i].timestamp - workerResults[i - 1].timestamp;
         expect(delta).toBeGreaterThanOrEqual(1000);
       }
     });
@@ -191,8 +205,12 @@ describe("Rate Limiting — Priority 1: Distributed & Shared Rate Limiter", () =
       const doLimiter = new SeRankingRateLimiter(mockState, mockEnv);
 
       const timestamps: number[] = [];
-      const p1 = doLimiter.acquire({ rps: 1 }).then(() => timestamps.push(Date.now()));
-      const p2 = doLimiter.acquire({ rps: 1 }).then(() => timestamps.push(Date.now()));
+      const p1 = doLimiter
+        .acquire({ rps: 1 })
+        .then(() => timestamps.push(Date.now()));
+      const p2 = doLimiter
+        .acquire({ rps: 1 })
+        .then(() => timestamps.push(Date.now()));
 
       await vi.advanceTimersByTimeAsync(0);
       expect(timestamps).toEqual([0]);

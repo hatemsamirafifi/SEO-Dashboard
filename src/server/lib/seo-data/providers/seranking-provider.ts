@@ -41,7 +41,8 @@ export function createSerankingProvider(): SEODataProvider {
         case "keyword_ideas":
           return Boolean(request.keyword && request.keyword.trim().length > 0);
         case "keyword_metrics": {
-          const keywords = request.keywords ?? (request.keyword ? [request.keyword] : []);
+          const keywords =
+            request.keywords ?? (request.keyword ? [request.keyword] : []);
           return keywords.length > 0;
         }
         case "domain_overview":
@@ -53,7 +54,9 @@ export function createSerankingProvider(): SEODataProvider {
             (request.keywords && request.keywords.length > 0) ||
             (request.keyword && request.keyword.trim().length > 0),
           );
-          const hasDomain = Boolean(request.domain && request.domain.trim().length > 0);
+          const hasDomain = Boolean(
+            request.domain && request.domain.trim().length > 0,
+          );
           return hasDomain || hasKeywords;
         }
         case "backlinks":
@@ -118,16 +121,24 @@ export function createSerankingProvider(): SEODataProvider {
           case "keyword_ideas": {
             result = await routeKeywordIdeas(client, request, source);
             const returnedCount = Array.isArray(result) ? result.length : 0;
-            actualUnits = returnedCount > 0 ? returnedCount * 10 : undefined;
+            actualUnits = returnedCount * 10;
             httpBilled = true;
             break;
           }
-          case "keyword_metrics":
+          case "keyword_metrics": {
             result = await routeKeywordMetrics(client, request, source);
+            const returnedCount = Array.isArray(result) ? result.length : count;
+            actualUnits = Math.max(1, returnedCount);
             httpBilled = true;
             break;
+          }
           case "domain_overview":
-            result = await routeDomainOverview(client, request, source, organizationId);
+            result = await routeDomainOverview(
+              client,
+              request,
+              source,
+              organizationId,
+            );
             httpBilled = true;
             break;
           case "domain_keywords":
@@ -155,27 +166,47 @@ export function createSerankingProvider(): SEODataProvider {
       } catch (error) {
         const errorObj =
           typeof error === "object" && error !== null
-            ? (error as { upstreamStatus?: unknown; name?: unknown; message?: unknown })
+            ? (error as {
+                upstreamStatus?: unknown;
+                rawItemCount?: unknown;
+                name?: unknown;
+                message?: unknown;
+              })
             : null;
         const upstreamStatus =
           typeof errorObj?.upstreamStatus === "number"
             ? errorObj.upstreamStatus
             : undefined;
+        const rawItemCount =
+          typeof errorObj?.rawItemCount === "number"
+            ? errorObj.rawItemCount
+            : undefined;
         if (httpBilled || upstreamStatus === 200) {
-          await reservation.commit(actualUnits);
+          const reconciledUnits =
+            actualUnits ??
+            (rawItemCount !== undefined
+              ? request.dataType === "keyword_ideas"
+                ? rawItemCount * 10
+                : Math.max(1, rawItemCount)
+              : undefined);
+          await reservation.commit(reconciledUnits);
         } else {
           await reservation.release();
         }
         if (errorObj?.name === "SeRankingAuthError") {
           throw new AuthenticationError(
             "seranking",
-            typeof errorObj.message === "string" ? errorObj.message : "Authentication failed",
+            typeof errorObj.message === "string"
+              ? errorObj.message
+              : "Authentication failed",
           );
         }
         if (errorObj?.name === "SeRankingRateLimitError") {
           throw new RateLimitError(
             "seranking",
-            typeof errorObj.message === "string" ? errorObj.message : "Rate limit exceeded",
+            typeof errorObj.message === "string"
+              ? errorObj.message
+              : "Rate limit exceeded",
           );
         }
         throw error;
@@ -184,7 +215,9 @@ export function createSerankingProvider(): SEODataProvider {
   };
 }
 
-function mapRequestToSeRankingOperation(request: SEODataRequest): SeRankingOperation {
+function mapRequestToSeRankingOperation(
+  request: SEODataRequest,
+): SeRankingOperation {
   switch (request.dataType) {
     case "keyword_ideas":
       return "keyword_ideas";
@@ -200,7 +233,8 @@ function mapRequestToSeRankingOperation(request: SEODataRequest): SeRankingOpera
       return "domain_competitors";
     case "backlinks":
     case "competitive_metrics": {
-      const mode = (request.constraints?.backlinkCall as string | undefined) ?? "summary";
+      const mode =
+        (request.constraints?.backlinkCall as string | undefined) ?? "summary";
       if (mode === "refdomains") return "backlinks_refdomains";
       if (mode === "pages") return "backlinks_pages";
       if (mode === "history") return "backlinks_history";
@@ -283,7 +317,8 @@ async function routeKeywordMetrics(
   request: SEODataRequest,
   source: string,
 ): Promise<KeywordMetricRow[]> {
-  const keywords = request.keywords ?? (request.keyword ? [request.keyword] : []);
+  const keywords =
+    request.keywords ?? (request.keyword ? [request.keyword] : []);
   if (keywords.length === 0) return [];
 
   const items = await getExportKeywords(client, {
@@ -480,13 +515,17 @@ async function routeCompetitors(
     try {
       await persistCompetitorSnapshot({
         projectId,
-        keywords: request.keywords ?? (request.keyword ? [request.keyword] : []),
+        keywords:
+          request.keywords ?? (request.keyword ? [request.keyword] : []),
         locationCode: request.locationCode ?? 2840,
         languageCode: request.languageCode ?? "en",
         items,
       });
     } catch (err) {
-      console.error("seo-data.seranking.competitor-snapshot.write-through:", err);
+      console.error(
+        "seo-data.seranking.competitor-snapshot.write-through:",
+        err,
+      );
     }
   }
 
@@ -498,7 +537,9 @@ async function routeBacklinks(
   request: SEODataRequest,
 ): Promise<unknown> {
   const domain = request.domain!;
-  const mode = (request.constraints?.backlinkCall as BacklinkCall | undefined) ?? "summary";
+  const mode =
+    (request.constraints?.backlinkCall as BacklinkCall | undefined) ??
+    "summary";
   const c = request.constraints ?? {};
   const limit = (c.limit as number | undefined) ?? 100;
   const offset = (c.offset as number | undefined) ?? 0;

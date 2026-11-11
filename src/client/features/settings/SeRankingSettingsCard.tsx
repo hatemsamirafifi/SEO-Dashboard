@@ -1,7 +1,14 @@
 /* eslint-disable eslint/complexity, eslint/max-lines-per-function */
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  RefreshCw,
+  Save,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   getSeRankingSettings,
@@ -72,12 +79,13 @@ export function SeRankingSettingsCard({
       await queryClient.invalidateQueries({ queryKey });
     },
     onError: (error) =>
-      toast.error(getStandardErrorMessage(error, "Failed to save SE Ranking settings")),
+      toast.error(
+        getStandardErrorMessage(error, "Failed to save SE Ranking settings"),
+      ),
   });
 
   const remove = useMutation({
-    mutationFn: () =>
-      removeSeRankingSettingsFn({ data: { projectId } }),
+    mutationFn: () => removeSeRankingSettingsFn({ data: { projectId } }),
     onSuccess: async () => {
       toast.success("SE Ranking override removed");
       setApiKey("");
@@ -85,7 +93,9 @@ export function SeRankingSettingsCard({
       await queryClient.invalidateQueries({ queryKey });
     },
     onError: (error) =>
-      toast.error(getStandardErrorMessage(error, "Failed to remove SE Ranking settings")),
+      toast.error(
+        getStandardErrorMessage(error, "Failed to remove SE Ranking settings"),
+      ),
   });
 
   const connection = useMutation({
@@ -99,12 +109,16 @@ export function SeRankingSettingsCard({
       if (result.ok) {
         toast.success("SE Ranking connected successfully");
       } else {
-        toast.error(`SE Ranking test failed: ${result.reason.replaceAll("_", " ")}`);
+        toast.error(
+          `SE Ranking test failed: ${result.reason.replaceAll("_", " ")}`,
+        );
       }
       await queryClient.invalidateQueries({ queryKey });
     },
     onError: (error) =>
-      toast.error(getStandardErrorMessage(error, "Failed to test SE Ranking connection")),
+      toast.error(
+        getStandardErrorMessage(error, "Failed to test SE Ranking connection"),
+      ),
   });
 
   if (query.isPending) {
@@ -123,10 +137,13 @@ export function SeRankingSettingsCard({
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-base">SE Ranking</h3>
-            <span className="badge badge-primary badge-sm">Primary Provider</span>
+            <span className="badge badge-primary badge-sm">
+              Primary Provider
+            </span>
           </div>
           <p className="mt-1 text-xs text-base-content/60">
-            Primary SEO intelligence provider for Keyword Research, Domain Analysis, Competitor Discovery, and Backlinks.
+            Primary SEO intelligence provider for Keyword Research, Domain
+            Analysis, Competitor Discovery, and Backlinks.
           </p>
         </div>
         <span className="badge badge-outline h-auto whitespace-nowrap py-1">
@@ -191,7 +208,9 @@ export function SeRankingSettingsCard({
         </div>
         <div>
           <span className="block text-base-content/50">Last tested</span>
-          <span>{lastTested ? lastTested.toLocaleTimeString() : "Not tested"}</span>
+          <span>
+            {lastTested ? lastTested.toLocaleTimeString() : "Not tested"}
+          </span>
         </div>
       </div>
 
@@ -218,18 +237,28 @@ export function SeRankingSettingsCard({
             </span>
             {testResult.ok && (
               <div className="text-[11px] opacity-90">
-                Subscription: <span className="font-semibold">{testResult.subscriptionStatus ?? "Active"}</span>
+                Subscription:{" "}
+                <span className="font-semibold">
+                  {testResult.subscriptionStatus ?? "Active"}
+                </span>
                 {testResult.unitsLimit != null && (
-                  <span> · Limit: {testResult.unitsLimit.toLocaleString()} units</span>
+                  <span>
+                    {" "}
+                    · Limit: {testResult.unitsLimit.toLocaleString()} units
+                  </span>
                 )}
                 {testResult.balance != null && (
-                  <span> · Available: {testResult.balance.toLocaleString()} units</span>
+                  <span>
+                    {" "}
+                    · Available: {testResult.balance.toLocaleString()} units
+                  </span>
                 )}
               </div>
             )}
             {!testResult.ok && (
               <div className="text-[11px] opacity-90">
-                HTTP {testResult.status}: Please verify your SE Ranking API token and subscription status.
+                HTTP {testResult.status}: Please verify your SE Ranking API
+                token and subscription status.
               </div>
             )}
           </div>
@@ -247,7 +276,8 @@ export function SeRankingSettingsCard({
           className="input input-bordered input-sm mt-1.5 w-full font-mono"
         />
         <span className="block mt-1 text-[11px] text-base-content/60">
-          Personal API token from your SE Ranking account settings. Stored securely with AES-GCM encryption.
+          Personal API token from your SE Ranking account settings. Stored
+          securely with AES-GCM encryption.
         </span>
       </label>
 
@@ -307,7 +337,8 @@ export function SeRankingSettingsCard({
       </div>
 
       <p className="text-[11px] text-base-content/50">
-        Connection test queries the SE Ranking subscription endpoint (costs 0 credits).
+        Connection test queries the SE Ranking subscription endpoint (costs 0
+        credits).
       </p>
 
       <div className="flex flex-wrap justify-between gap-2 border-t border-base-200 pt-4">

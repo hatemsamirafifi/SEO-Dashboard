@@ -125,7 +125,8 @@ describe("SE Ranking Schemas & API Contracts", () => {
         },
       };
 
-      const parsed = seRankingKeywordSuggestionItemSchema.parse(officialDocItem);
+      const parsed =
+        seRankingKeywordSuggestionItemSchema.parse(officialDocItem);
       expect(parsed.keyword).toBe("1 avocado brownies");
       expect(parsed.volume).toBe(480);
       expect(parsed.difficulty).toBe(28);
@@ -146,7 +147,8 @@ describe("SE Ranking Schemas & API Contracts", () => {
         serp_features: [],
       };
 
-      const parsedNulls = seRankingKeywordSuggestionItemSchema.parse(itemWithNulls);
+      const parsedNulls =
+        seRankingKeywordSuggestionItemSchema.parse(itemWithNulls);
       expect(parsedNulls.keyword).toBe("عطور رجالية نادرة");
       expect(parsedNulls.volume).toBeNull();
       expect(parsedNulls.intent).toBeNull();
@@ -176,7 +178,9 @@ describe("SE Ranking Schemas & API Contracts", () => {
       expect(results[0].keyword).toBe("عطور رجالية");
       expect(results[0].history_trend).toEqual([]);
       expect(results[1].keyword).toBe("عطور فرنسية");
-      expect(results[1].history_trend).toEqual([{ date: "2026-01-01", volume: 1800 }]);
+      expect(results[1].history_trend).toEqual([
+        { date: "2026-01-01", volume: 1800 },
+      ]);
     });
 
     it("parses export item schema with body structure", () => {

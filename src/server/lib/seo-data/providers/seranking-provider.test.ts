@@ -105,9 +105,15 @@ describe("SerankingProvider", () => {
         billingCustomer: testBillingCustomer,
       };
 
-      expect(provider.supports({ ...base, dataType: "domain_overview" })).toBe(true);
-      expect(provider.supports({ ...base, dataType: "domain_keywords" })).toBe(true);
-      expect(provider.supports({ ...base, dataType: "domain_pages" })).toBe(true);
+      expect(provider.supports({ ...base, dataType: "domain_overview" })).toBe(
+        true,
+      );
+      expect(provider.supports({ ...base, dataType: "domain_keywords" })).toBe(
+        true,
+      );
+      expect(provider.supports({ ...base, dataType: "domain_pages" })).toBe(
+        true,
+      );
     });
 
     it("supports competitors and backlinks", () => {
@@ -116,9 +122,13 @@ describe("SerankingProvider", () => {
         billingCustomer: testBillingCustomer,
       };
 
-      expect(provider.supports({ ...base, dataType: "competitors" })).toBe(true);
+      expect(provider.supports({ ...base, dataType: "competitors" })).toBe(
+        true,
+      );
       expect(provider.supports({ ...base, dataType: "backlinks" })).toBe(true);
-      expect(provider.supports({ ...base, dataType: "competitive_metrics" })).toBe(true);
+      expect(
+        provider.supports({ ...base, dataType: "competitive_metrics" }),
+      ).toBe(true);
     });
 
     it("does not support site_audit or serp directly", () => {
@@ -146,9 +156,8 @@ describe("SerankingProvider", () => {
     });
 
     it("throws ProviderUnavailableError when not configured", async () => {
-      const { resolveEffectiveSeRankingConfig } = await import(
-        "@/server/features/settings/services/SeRankingSettingsService"
-      );
+      const { resolveEffectiveSeRankingConfig } =
+        await import("@/server/features/settings/services/SeRankingSettingsService");
       vi.mocked(resolveEffectiveSeRankingConfig).mockResolvedValue({
         provider: "seranking",
         configured: false,
@@ -169,9 +178,8 @@ describe("SerankingProvider", () => {
     });
 
     it("fetches and normalizes keyword metrics", async () => {
-      const { resolveEffectiveSeRankingConfig } = await import(
-        "@/server/features/settings/services/SeRankingSettingsService"
-      );
+      const { resolveEffectiveSeRankingConfig } =
+        await import("@/server/features/settings/services/SeRankingSettingsService");
       vi.mocked(resolveEffectiveSeRankingConfig).mockResolvedValue({
         provider: "seranking",
         configured: true,
@@ -224,9 +232,8 @@ describe("SerankingProvider", () => {
     });
 
     it("fetches and normalizes keyword ideas for Arabic keyword and Egypt", async () => {
-      const { resolveEffectiveSeRankingConfig } = await import(
-        "@/server/features/settings/services/SeRankingSettingsService"
-      );
+      const { resolveEffectiveSeRankingConfig } =
+        await import("@/server/features/settings/services/SeRankingSettingsService");
       vi.mocked(resolveEffectiveSeRankingConfig).mockResolvedValue({
         provider: "seranking",
         configured: true,
@@ -266,7 +273,11 @@ describe("SerankingProvider", () => {
           search_volume: number;
           cpc: number;
           competition: number;
-          monthly_searches: Array<{ year: number; month: number; search_volume: number }>;
+          monthly_searches: Array<{
+            year: number;
+            month: number;
+            search_volume: number;
+          }>;
         };
         keyword_properties: {
           keyword_difficulty: number;
@@ -298,9 +309,8 @@ describe("SerankingProvider", () => {
     });
 
     it("fetches and normalizes domain overview", async () => {
-      const { resolveEffectiveSeRankingConfig } = await import(
-        "@/server/features/settings/services/SeRankingSettingsService"
-      );
+      const { resolveEffectiveSeRankingConfig } =
+        await import("@/server/features/settings/services/SeRankingSettingsService");
       vi.mocked(resolveEffectiveSeRankingConfig).mockResolvedValue({
         provider: "seranking",
         configured: true,
@@ -340,9 +350,8 @@ describe("SerankingProvider", () => {
     });
 
     it("fetches and normalizes backlinks summary", async () => {
-      const { resolveEffectiveSeRankingConfig } = await import(
-        "@/server/features/settings/services/SeRankingSettingsService"
-      );
+      const { resolveEffectiveSeRankingConfig } =
+        await import("@/server/features/settings/services/SeRankingSettingsService");
       vi.mocked(resolveEffectiveSeRankingConfig).mockResolvedValue({
         provider: "seranking",
         configured: true,
@@ -386,9 +395,8 @@ describe("SerankingProvider", () => {
     });
 
     it("fetches and maps genuine backlinks history", async () => {
-      const { resolveEffectiveSeRankingConfig } = await import(
-        "@/server/features/settings/services/SeRankingSettingsService"
-      );
+      const { resolveEffectiveSeRankingConfig } =
+        await import("@/server/features/settings/services/SeRankingSettingsService");
       vi.mocked(resolveEffectiveSeRankingConfig).mockResolvedValue({
         provider: "seranking",
         configured: true,
@@ -434,9 +442,8 @@ describe("SerankingProvider", () => {
     });
 
     it("never fabricates missing history and returns empty array when empty", async () => {
-      const { resolveEffectiveSeRankingConfig } = await import(
-        "@/server/features/settings/services/SeRankingSettingsService"
-      );
+      const { resolveEffectiveSeRankingConfig } =
+        await import("@/server/features/settings/services/SeRankingSettingsService");
       vi.mocked(resolveEffectiveSeRankingConfig).mockResolvedValue({
         provider: "seranking",
         configured: true,

@@ -69,7 +69,10 @@ export async function getDomainKeywords(
 
   const array = extractArrayData(raw);
   const totalCount =
-    typeof raw === "object" && raw !== null && "total" in raw && typeof raw.total === "number"
+    typeof raw === "object" &&
+    raw !== null &&
+    "total" in raw &&
+    typeof raw.total === "number"
       ? raw.total
       : null;
 
@@ -102,7 +105,10 @@ export async function getDomainPages(
 
   const array = extractArrayData(raw);
   const totalCount =
-    typeof raw === "object" && raw !== null && "total" in raw && typeof raw.total === "number"
+    typeof raw === "object" &&
+    raw !== null &&
+    "total" in raw &&
+    typeof raw.total === "number"
       ? raw.total
       : null;
 
@@ -123,7 +129,10 @@ export type DomainCompetitorsOptions = {
 export async function getDomainCompetitors(
   client: SeRankingClient,
   options: DomainCompetitorsOptions,
-): Promise<{ items: SeRankingDomainCompetitorItem[]; totalCount: number | null }> {
+): Promise<{
+  items: SeRankingDomainCompetitorItem[];
+  totalCount: number | null;
+}> {
   const raw = await client.request<unknown>("/domain/competitors", {
     method: "GET",
     params: {
@@ -137,7 +146,10 @@ export async function getDomainCompetitors(
 
   const array = extractArrayData(raw);
   const totalCount =
-    typeof raw === "object" && raw !== null && "total" in raw && typeof raw.total === "number"
+    typeof raw === "object" &&
+    raw !== null &&
+    "total" in raw &&
+    typeof raw.total === "number"
       ? raw.total
       : null;
 

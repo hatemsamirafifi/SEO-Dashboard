@@ -2,9 +2,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SEODataRequest } from "@/server/lib/seo-data";
 import { AppError } from "@/server/lib/errors";
-import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
-import { SeRankingCreditExhaustedError } from "@/server/lib/seranking/errors";
+import {
+  ProviderUnavailableError,
+  SerpNoProviderConfiguredError,
+} from "@/server/lib/seo-data/errors";
+import {
+  SeRankingCreditExhaustedError,
+  SeRankingValidationError,
+} from "@/server/lib/seranking/errors";
+import {
+  getOrganizationSeRankingSpend,
+  resetCreditGuardState,
+  reserveSeRankingCredits,
+} from "@/server/lib/seranking/credits";
 import { research } from "./research";
+import { getSerpAnalysis } from "./serp";
 
 const mocks = vi.hoisted(() => ({
   seoDataRouter: {
@@ -15,7 +27,11 @@ const mocks = vi.hoisted(() => ({
   }),
   repository: {
     upsertKeywordMetric: vi.fn(async () => {}),
-    listSavedKeywordsByProject: vi.fn(async () => ({ rows: [], totalCount: 0, tags: [] })),
+    listSavedKeywordsByProject: vi.fn(async () => ({
+      rows: [],
+      totalCount: 0,
+      tags: [],
+    })),
   },
 }));
 
@@ -42,7 +58,12 @@ const billingCustomer = {
   userEmail: "test@example.com",
 };
 
-function makeSeRankingRow(keyword: string, volume: number, difficulty = 30, intent = "commercial") {
+function makeSeRankingRow(
+  keyword: string,
+  volume: number,
+  difficulty = 30,
+  intent = "commercial",
+) {
   const dataItem = {
     keyword,
     keyword_info: {
@@ -229,8 +250,8 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
     expect(result.source).toBe("related");
   });
 
-  // 5. Empty API results handled cleanly
-  it("handles empty API results without error", async () => {
+  // 5. Empty API results handled cleanly (and skips duplicate "ideas" when seranking serves suggestions)
+  it("handles empty API results without error and skips duplicate ideas call for seranking", async () => {
     mocks.seoDataRouter.route.mockResolvedValue({
       dataType: "keyword_ideas",
       provider: "seranking",
@@ -253,7 +274,12 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
     );
 
     expect(result.rows).toEqual([]);
-    expect(result.diagnostics.sourceAttempts.length).toBe(3); // attempted suggestions, ideas, related
+    // Only 2 attempts (suggestions -> related), skipping duplicate "ideas" (/v1/keywords/similar)
+    expect(result.diagnostics.sourceAttempts.map((a) => a.source)).toEqual([
+      "suggestions",
+      "related",
+    ]);
+    expect(mocks.seoDataRouter.route).toHaveBeenCalledTimes(2);
   });
 
   // 6. Credit exhaustion error handled safely
@@ -282,7 +308,10 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
   it("continues auto waterfall to 'ideas' when 'suggestions' throws ProviderUnavailableError", async () => {
     mocks.seoDataRouter.route
       .mockRejectedValueOnce(
-        new ProviderUnavailableError("seranking", "suggestions temporarily unavailable"),
+        new ProviderUnavailableError(
+          "seranking",
+          "suggestions temporarily unavailable",
+        ),
       )
       .mockResolvedValueOnce({
         dataType: "keyword_ideas",
@@ -644,7 +673,198 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
     expect(result.rows[1].intent).toBe("informational");
   });
 
-  // 15. DataForSEO request count is strictly 0 across all runs
+  // 15. Arabic relevance & exact overview for "شركات لاندسكيب" in Egypt
+  it("ranks Arabic keywords above weakly related English rows and reports missing exact match for 'شركات لاندسكيب'", async () => {
+    mocks.seoDataRouter.route
+      // suggestions returns 1 row (below threshold 5)
+      .mockResolvedValueOnce({
+        dataType: "keyword_ideas",
+        provider: "seranking",
+        fromCache: false,
+        durationMs: 90,
+        data: [
+          makeSeRankingRow("شركات لاندسكيب في مصر", 320, 18, "commercial"),
+        ],
+      })
+      // related returns mixed Arabic + weakly related English rows (ideas is skipped because seranking served suggestions)
+      .mockResolvedValueOnce({
+        dataType: "keyword_ideas",
+        provider: "seranking",
+        fromCache: false,
+        durationMs: 110,
+        data: [
+          makeSeRankingRow(
+            "landscape architecture course",
+            900,
+            35,
+            "informational",
+          ),
+          makeSeRankingRow(
+            "افضل شركات لاندسكيب في القاهرة",
+            210,
+            15,
+            "commercial",
+          ),
+          makeSeRankingRow("اسعار شركات اللاندسكيب", 140, 12, "commercial"),
+          makeSeRankingRow("backyard ideas", 1500, 40, "informational"),
+        ],
+      });
+
+    const result = await research(
+      {
+        projectId: "proj_landscape_eg",
+        keywords: ["شركات لاندسكيب"],
+        locationCode: 2818,
+        languageCode: "ar",
+        resultLimit: 150,
+        mode: "auto",
+        clickstream: false,
+      },
+      billingCustomer,
+    );
+
+    // Must not have called duplicate "ideas"
+    expect(mocks.seoDataRouter.route).toHaveBeenCalledTimes(2);
+    // Exact seed "شركات لاندسكيب" was not returned by provider
+    expect(result.seedOverview).toMatchObject({
+      keyword: "شركات لاندسكيب",
+      exactMatchFound: false,
+      metricsStatus: "missing_from_provider",
+      row: {
+        keyword: "شركات لاندسكيب",
+        searchVolume: null,
+        cpc: null,
+        competition: null,
+        keywordDifficulty: null,
+        intent: "unknown",
+        matchType: "exact",
+      },
+    });
+    // All 5 rows are preserved (none discarded), with Arabic relevant rows ranked before weakly related English rows
+    expect(result.rows).toHaveLength(5);
+    expect(result.rows[0].keyword).toBe("شركات لاندسكيب في مصر");
+    expect(result.rows[0].isWeaklyRelated).toBe(false);
+    expect(result.rows[1].keyword).toBe("افضل شركات لاندسكيب في القاهرة");
+    expect(result.rows[2].keyword).toBe("اسعار شركات اللاندسكيب");
+    expect(result.rows[3].isWeaklyRelated).toBe(true);
+    expect(result.rows[4].isWeaklyRelated).toBe(true);
+  });
+
+  // 16. SERP Analysis works independently of DataForSEO and returns structured unavailable/ok states
+  it("returns structured 'unavailable' state when no SERP provider is configured and 'ok' when Serper serves results", async () => {
+    mocks.seoDataRouter.route.mockRejectedValueOnce(
+      new SerpNoProviderConfiguredError("no_serp_provider_configured", [
+        { provider: "serper", reason: "missing_credentials" },
+        { provider: "zenserp", reason: "disabled" },
+      ]),
+    );
+
+    const unavailable = await getSerpAnalysis(
+      {
+        projectId: "proj_serp_eg",
+        keyword: "شركات لاندسكيب",
+        locationCode: 2818,
+        languageCode: "ar",
+      },
+      billingCustomer,
+    );
+
+    expect(unavailable.status).toBe("unavailable");
+    expect(unavailable.unavailableReason).toBe("no_serp_provider_configured");
+    expect(unavailable.providerDiagnostics).toEqual([
+      { provider: "serper", reason: "missing_credentials" },
+      { provider: "zenserp", reason: "disabled" },
+    ]);
+
+    mocks.seoDataRouter.route.mockResolvedValueOnce({
+      dataType: "serp",
+      provider: "serper",
+      fromCache: false,
+      fetchedAt: "2026-11-11T01:00:00.000Z",
+      durationMs: 140,
+      data: [
+        {
+          type: "organic",
+          rank_group: 1,
+          rank_absolute: 1,
+          url: "https://example.eg/landscape",
+          domain: "example.eg",
+          title: "أفضل شركات لاندسكيب في مصر",
+          description: "تصميم وتنفيذ حدائق ولاندسكيب في مصر",
+          _provider: "serper",
+          _fetchedAt: "2026-11-11T01:00:00.000Z",
+        },
+        {
+          type: "people_also_ask",
+          title: "ما هي أفضل شركة لاندسكيب في مصر؟",
+        },
+        {
+          type: "local_pack",
+          title: "شركات لاندسكيب القاهرة",
+        },
+      ],
+    });
+
+    const okResult = await getSerpAnalysis(
+      {
+        projectId: "proj_serp_eg",
+        keyword: "شركات لاندسكيب",
+        locationCode: 2818,
+        languageCode: "ar",
+      },
+      billingCustomer,
+    );
+
+    expect(okResult.status).toBe("ok");
+    expect(okResult.provider).toBe("serper");
+    expect(okResult.fromCache).toBe(false);
+    expect(okResult.locationCode).toBe(2818);
+    expect(okResult.languageCode).toBe("ar");
+    expect(okResult.items).toHaveLength(1);
+    expect(okResult.items[0]).toMatchObject({
+      rank: 1,
+      url: "https://example.eg/landscape",
+      title: "أفضل شركات لاندسكيب في مصر",
+      description: "تصميم وتنفيذ حدائق ولاندسكيب في مصر",
+    });
+    expect(okResult.features?.peopleAlsoAsk).toBeDefined();
+    expect(okResult.features?.localPack).toBeDefined();
+  });
+
+  // 17. Credit accounting: reconciles actual units (including 0) and preserves rawItemCount on validation error
+  it("reconciles exact SE Ranking units (110 for 11 rows, 0 for 0 rows) and preserves rawItemCount on validation failure", async () => {
+    resetCreditGuardState();
+    const orgId = "org_credit_test_17";
+
+    // 11 rows returned -> 110 credits
+    const res1 = await reserveSeRankingCredits({
+      organizationId: orgId,
+      operation: "keyword_ideas",
+      count: 150,
+    });
+    await res1.commit(110);
+    expect(getOrganizationSeRankingSpend(orgId)).toBe(110);
+
+    // 0 rows returned -> 0 credits (must not charge 1500 estimated units)
+    const res2 = await reserveSeRankingCredits({
+      organizationId: orgId,
+      operation: "keyword_ideas",
+      count: 150,
+    });
+    await res2.commit(0);
+    expect(getOrganizationSeRankingSpend(orgId)).toBe(110);
+
+    // Validation error after HTTP 200 carries rawItemCount so credits are committed, not released
+    const valErr = new SeRankingValidationError(
+      "Invalid item schema",
+      undefined,
+      200,
+      5,
+    );
+    expect(valErr.rawItemCount).toBe(5);
+  });
+
+  // 18. DataForSEO request count is strictly 0 across all runs
   it("ensures DataForSEO client invocation count is strictly zero", () => {
     expect(mocks.createDataforseoClient).toHaveBeenCalledTimes(0);
   });

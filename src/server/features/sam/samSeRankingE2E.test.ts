@@ -19,13 +19,16 @@ vi.mock("@/db", () => ({
   },
 }));
 
-vi.mock("@/server/features/dashboard/repositories/BacklinkSnapshotRepository", () => ({
-  BacklinkSnapshotRepository: {
-    getFreshForProjectDomain: vi.fn(async () => null),
-    getLatestForProject: vi.fn(async () => null),
-    insert: vi.fn(async () => {}),
-  },
-}));
+vi.mock(
+  "@/server/features/dashboard/repositories/BacklinkSnapshotRepository",
+  () => ({
+    BacklinkSnapshotRepository: {
+      getFreshForProjectDomain: vi.fn(async () => null),
+      getLatestForProject: vi.fn(async () => null),
+      insert: vi.fn(async () => {}),
+    },
+  }),
+);
 
 vi.mock("@/server/lib/r2-cache", async (importOriginal) => {
   const actual = await importOriginal<typeof R2Cache>();
@@ -82,18 +85,24 @@ vi.mock("@/server/lib/seo-data/domain-overview-snapshot-repository", () => ({
   },
 }));
 
-vi.mock("@/server/features/settings/repositories/SeoProviderSettingsRepository", () => ({
-  SeoProviderSettingsRepository: {
-    getProjectProviderSettingsRow: vi.fn(async () => null),
-    getOrganizationProviderSettingsRow: vi.fn(async () => null),
-  },
-}));
+vi.mock(
+  "@/server/features/settings/repositories/SeoProviderSettingsRepository",
+  () => ({
+    SeoProviderSettingsRepository: {
+      getProjectProviderSettingsRow: vi.fn(async () => null),
+      getOrganizationProviderSettingsRow: vi.fn(async () => null),
+    },
+  }),
+);
 
-vi.mock("@/server/features/keywords/repositories/KeywordResearchRepository", () => ({
-  KeywordResearchRepository: {
-    upsertKeywordMetric: vi.fn(async () => {}),
-  },
-}));
+vi.mock(
+  "@/server/features/keywords/repositories/KeywordResearchRepository",
+  () => ({
+    KeywordResearchRepository: {
+      upsertKeywordMetric: vi.fn(async () => {}),
+    },
+  }),
+);
 
 import { buildSamMcpTools } from "./samChatTools";
 import { resetSeoDataRouter } from "@/server/lib/seo-data";
@@ -140,24 +149,31 @@ describe("SAM -> Tool -> Service -> Data Router -> SE Ranking Provider E2E", () 
       },
     };
 
-    globalThis.fetch = vi.fn().mockImplementation((url: string | URL | Request) => {
-      const urlStr = url.toString();
-      if (urlStr.includes("/account/subscription")) {
-        return Promise.resolve({
-          ok: true,
-          headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve({ status: "active", units_left: 50000, units_limit: 100000 }),
-        });
-      }
-      if (urlStr.includes("/v1/domain/overview/db")) {
-        return Promise.resolve({
-          ok: true,
-          headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve(mockOverviewResponse),
-        });
-      }
-      return Promise.reject(new Error(`Unhandled mock url: ${urlStr}`));
-    });
+    globalThis.fetch = vi
+      .fn()
+      .mockImplementation((url: string | URL | Request) => {
+        const urlStr = url.toString();
+        if (urlStr.includes("/account/subscription")) {
+          return Promise.resolve({
+            ok: true,
+            headers: new Headers({ "content-type": "application/json" }),
+            json: () =>
+              Promise.resolve({
+                status: "active",
+                units_left: 50000,
+                units_limit: 100000,
+              }),
+          });
+        }
+        if (urlStr.includes("/v1/domain/overview/db")) {
+          return Promise.resolve({
+            ok: true,
+            headers: new Headers({ "content-type": "application/json" }),
+            json: () => Promise.resolve(mockOverviewResponse),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled mock url: ${urlStr}`));
+      });
 
     const tools = buildSamMcpTools(authContext, project);
     expect(tools).toHaveProperty("get_domain_overview");
@@ -170,7 +186,9 @@ describe("SAM -> Tool -> Service -> Data Router -> SE Ranking Provider E2E", () 
 
     // Verify fetch was called with SE Ranking endpoint and auth token
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      expect.stringContaining("https://api.seranking.com/v1/domain/overview/db"),
+      expect.stringContaining(
+        "https://api.seranking.com/v1/domain/overview/db",
+      ),
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
@@ -245,28 +263,35 @@ describe("SAM -> Tool -> Service -> Data Router -> SE Ranking Provider E2E", () 
       },
     ];
 
-    globalThis.fetch = vi.fn().mockImplementation((url: string | URL | Request) => {
-      const urlStr = url.toString();
-      if (urlStr.includes("/account/subscription")) {
-        return Promise.resolve({
-          ok: true,
-          headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve({ status: "active", units_left: 50000, units_limit: 100000 }),
-        });
-      }
-      if (
-        urlStr.includes("/v1/keywords/similar") ||
-        urlStr.includes("/v1/keywords/suggestions") ||
-        urlStr.includes("/v1/keywords/related")
-      ) {
-        return Promise.resolve({
-          ok: true,
-          headers: new Headers({ "content-type": "application/json" }),
-          json: () => Promise.resolve(mockKeywordsResponse),
-        });
-      }
-      return Promise.reject(new Error(`Unhandled mock url: ${urlStr}`));
-    });
+    globalThis.fetch = vi
+      .fn()
+      .mockImplementation((url: string | URL | Request) => {
+        const urlStr = url.toString();
+        if (urlStr.includes("/account/subscription")) {
+          return Promise.resolve({
+            ok: true,
+            headers: new Headers({ "content-type": "application/json" }),
+            json: () =>
+              Promise.resolve({
+                status: "active",
+                units_left: 50000,
+                units_limit: 100000,
+              }),
+          });
+        }
+        if (
+          urlStr.includes("/v1/keywords/similar") ||
+          urlStr.includes("/v1/keywords/suggestions") ||
+          urlStr.includes("/v1/keywords/related")
+        ) {
+          return Promise.resolve({
+            ok: true,
+            headers: new Headers({ "content-type": "application/json" }),
+            json: () => Promise.resolve(mockKeywordsResponse),
+          });
+        }
+        return Promise.reject(new Error(`Unhandled mock url: ${urlStr}`));
+      });
 
     const tools = buildSamMcpTools(authContext, project);
     expect(tools).toHaveProperty("research_keywords");
@@ -277,7 +302,12 @@ describe("SAM -> Tool -> Service -> Data Router -> SE Ranking Provider E2E", () 
         resultLimit: 50,
       },
       { messages: [], toolCallId: "call_2" },
-    )) as { summary?: string; data?: { results?: Array<{ ok: boolean; rows?: unknown[]; source?: string }> } };
+    )) as {
+      summary?: string;
+      data?: {
+        results?: Array<{ ok: boolean; rows?: unknown[]; source?: string }>;
+      };
+    };
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining("https://api.seranking.com/v1/keywords/"),

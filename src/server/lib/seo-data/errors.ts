@@ -1,5 +1,10 @@
 import { AppError } from "@/server/lib/errors";
 
+export type SerpProviderDiagnostic = {
+  provider: string;
+  reason: string;
+};
+
 /**
  * The provider is configured but currently unavailable (e.g. credentials
  * missing, OAuth revoked, network down). The router should try the next
@@ -13,6 +18,16 @@ export class ProviderUnavailableError extends Error {
   ) {
     super(message ?? `Provider ${provider} is unavailable`);
     this.name = "ProviderUnavailableError";
+  }
+}
+
+export class SerpNoProviderConfiguredError extends ProviderUnavailableError {
+  readonly providerDiagnostics: SerpProviderDiagnostic[];
+
+  constructor(reason: string, providerDiagnostics: SerpProviderDiagnostic[]) {
+    super("serp_resolver", reason);
+    this.name = "SerpNoProviderConfiguredError";
+    this.providerDiagnostics = providerDiagnostics;
   }
 }
 

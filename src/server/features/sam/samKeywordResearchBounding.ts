@@ -9,6 +9,9 @@ type ResearchRow = {
   cpc: number | null;
   competition: number | null;
   intent: string;
+  matchType?: "exact" | "phrase" | "partial" | "related";
+  relevanceTier?: "high" | "medium" | "low";
+  isWeaklyRelated?: boolean;
 };
 
 const RESEARCH_COLUMNS: McpTableColumn<ResearchRow>[] = [
@@ -98,8 +101,16 @@ export function boundAgentKeywordResearchOutput(output: unknown): unknown {
       return r;
     }
 
-    // Sort by search volume descending if available
+    // Sort by relevance (exact first, non-weak before weak) then search volume descending
     const sorted = r.rows.toSorted((a, b) => {
+      const exactA = a.matchType === "exact" ? 1 : 0;
+      const exactB = b.matchType === "exact" ? 1 : 0;
+      if (exactA !== exactB) return exactB - exactA;
+
+      const weakA = a.isWeaklyRelated ? 1 : 0;
+      const weakB = b.isWeaklyRelated ? 1 : 0;
+      if (weakA !== weakB) return weakA - weakB;
+
       const volA = typeof a.searchVolume === "number" ? a.searchVolume : -1;
       const volB = typeof b.searchVolume === "number" ? b.searchVolume : -1;
       return volB - volA;

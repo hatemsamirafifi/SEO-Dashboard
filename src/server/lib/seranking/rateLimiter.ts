@@ -46,9 +46,15 @@ export class InMemoryRateLimiterCoordinator implements RateLimiterCoordinator {
     }
   }
 
-  async acquire(keyFingerprint: string, options?: RateLimiterOptions): Promise<void> {
+  async acquire(
+    keyFingerprint: string,
+    options?: RateLimiterOptions,
+  ): Promise<void> {
     if (options?.signal?.aborted) {
-      throw new SeRankingError("Request aborted before acquiring rate limit slot", 499);
+      throw new SeRankingError(
+        "Request aborted before acquiring rate limit slot",
+        499,
+      );
     }
 
     let record = this.state.get(keyFingerprint);
@@ -110,8 +116,14 @@ export class InMemoryRateLimiterCoordinator implements RateLimiterCoordinator {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
-            if (record) record.queueLength = Math.max(0, record.queueLength - 1);
-            reject(new SeRankingError("Request aborted while waiting in rate limit queue", 499));
+            if (record)
+              record.queueLength = Math.max(0, record.queueLength - 1);
+            reject(
+              new SeRankingError(
+                "Request aborted while waiting in rate limit queue",
+                499,
+              ),
+            );
           },
           { once: true },
         );
@@ -134,9 +146,15 @@ export class SeRankingRateLimiter {
 
   // Constructor accepts DO state and env
   // oxlint-disable-next-line typescript/no-explicit-any
-  constructor(protected ctx?: any, protected env?: any) {}
+  constructor(
+    protected ctx?: any,
+    protected env?: any,
+  ) {}
 
-  async acquire(options?: { rps?: number; timeoutMs?: number }): Promise<{ success: boolean; waitMs: number }> {
+  async acquire(options?: {
+    rps?: number;
+    timeoutMs?: number;
+  }): Promise<{ success: boolean; waitMs: number }> {
     const rps = options?.rps && options.rps > 0 ? options.rps : 1;
     const minIntervalMs = Math.round(1000 / rps);
     const timeoutMs = options?.timeoutMs ?? 30000;
@@ -176,17 +194,26 @@ export class SeRankingRateLimiter {
   async fetch(request: Request): Promise<Response> {
     if (request.method === "POST") {
       try {
-        const body = (await request.json().catch(() => ({}))) as { rps?: number; timeoutMs?: number };
+        const body = (await request.json().catch(() => ({}))) as {
+          rps?: number;
+          timeoutMs?: number;
+        };
         const result = await this.acquire(body);
         return Response.json(result);
       } catch (err: unknown) {
         if (err instanceof SeRankingError) {
-          return Response.json({ error: err.message, statusCode: err.statusCode }, { status: err.statusCode ?? 500 });
+          return Response.json(
+            { error: err.message, statusCode: err.statusCode },
+            { status: err.statusCode ?? 500 },
+          );
         }
         return Response.json({ error: String(err) }, { status: 500 });
       }
     }
-    return Response.json({ queueCount: this.queueCount, nextAllowedTime: this.nextAllowedTime });
+    return Response.json({
+      queueCount: this.queueCount,
+      nextAllowedTime: this.nextAllowedTime,
+    });
   }
 }
 
@@ -194,7 +221,10 @@ export class CloudflareDoRateLimiterCoordinator implements RateLimiterCoordinato
   // oxlint-disable-next-line typescript/no-explicit-any
   constructor(private readonly namespace: any) {}
 
-  async acquire(keyFingerprint: string, options?: RateLimiterOptions): Promise<void> {
+  async acquire(
+    keyFingerprint: string,
+    options?: RateLimiterOptions,
+  ): Promise<void> {
     const id = this.namespace.idFromName(keyFingerprint);
     const stub = this.namespace.get(id);
 
@@ -211,13 +241,22 @@ export class CloudflareDoRateLimiterCoordinator implements RateLimiterCoordinato
     const response = await stub.fetch("https://rate-limiter/acquire", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rps: options?.rps, timeoutMs: options?.timeoutMs }),
+      body: JSON.stringify({
+        rps: options?.rps,
+        timeoutMs: options?.timeoutMs,
+      }),
       signal: options?.signal,
     });
 
     if (!response.ok) {
-      const data = (await response.json().catch(() => ({}))) as { error?: string; statusCode?: number };
-      throw new SeRankingError(data.error ?? "Rate limiter rejected request", data.statusCode ?? response.status);
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        statusCode?: number;
+      };
+      throw new SeRankingError(
+        data.error ?? "Rate limiter rejected request",
+        data.statusCode ?? response.status,
+      );
     }
   }
 }
@@ -228,18 +267,24 @@ export class CloudflareDoRateLimiterCoordinator implements RateLimiterCoordinato
  * - Otherwise falls back to global in-memory queue coordinator.
  */
 // oxlint-disable-next-line typescript/no-explicit-any
-export function getRateLimiterCoordinator(customEnv?: any): RateLimiterCoordinator {
+export function getRateLimiterCoordinator(
+  customEnv?: any,
+): RateLimiterCoordinator {
   try {
     // Check if customEnv has SE_RANKING_RATE_LIMITER
     if (customEnv?.SE_RANKING_RATE_LIMITER) {
-      return new CloudflareDoRateLimiterCoordinator(customEnv.SE_RANKING_RATE_LIMITER);
+      return new CloudflareDoRateLimiterCoordinator(
+        customEnv.SE_RANKING_RATE_LIMITER,
+      );
     }
     // Check global cloudflare:workers env if running inside Worker runtime
     if (typeof globalThis !== "undefined") {
       // oxlint-disable-next-line typescript/no-explicit-any
       const cfEnv = (globalThis as any).__env__ || (globalThis as any).env;
       if (cfEnv?.SE_RANKING_RATE_LIMITER) {
-        return new CloudflareDoRateLimiterCoordinator(cfEnv.SE_RANKING_RATE_LIMITER);
+        return new CloudflareDoRateLimiterCoordinator(
+          cfEnv.SE_RANKING_RATE_LIMITER,
+        );
       }
     }
   } catch {

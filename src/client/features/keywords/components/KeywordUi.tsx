@@ -12,11 +12,20 @@ export function OverviewStats({ keyword }: { keyword: KeywordResearchRow }) {
     <div className="shrink-0 bg-base-100 border border-base-300 rounded-xl px-4 py-2.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 min-h-[48px]">
       <div className="flex items-center gap-2 min-w-0 flex-1">
         <span
-          className="font-bold text-base capitalize whitespace-normal break-words"
+          className="font-bold text-base whitespace-normal break-words"
           title={keyword.keyword}
         >
           {keyword.keyword}
         </span>
+        {keyword.matchType === "exact" ? (
+          <span className="badge badge-success badge-outline badge-xs shrink-0">
+            Exact match
+          </span>
+        ) : keyword.matchType ? (
+          <span className="badge badge-ghost badge-xs shrink-0">
+            Related suggestion
+          </span>
+        ) : null}
         <ScoreBadge value={keyword.keywordDifficulty} />
       </div>
 
@@ -25,20 +34,29 @@ export function OverviewStats({ keyword }: { keyword: KeywordResearchRow }) {
       <div className="flex items-center gap-4 text-sm flex-wrap shrink-0">
         <div className="flex items-center gap-1.5">
           <span className="text-base-content/50">Vol</span>
-          <span className="font-semibold tabular-nums">
-            {formatNumber(keyword.searchVolume)}
+          <span
+            className="font-semibold tabular-nums"
+            title={
+              keyword.searchVolume == null
+                ? "Search volume not reported by provider"
+                : undefined
+            }
+          >
+            {keyword.searchVolume == null
+              ? "Unavailable"
+              : formatNumber(keyword.searchVolume)}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-base-content/50">CPC</span>
           <span className="font-semibold tabular-nums">
-            {keyword.cpc == null ? "-" : `$${keyword.cpc.toFixed(2)}`}
+            {keyword.cpc == null ? "—" : `$${keyword.cpc.toFixed(2)}`}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-base-content/50">Comp</span>
           <span className="font-semibold tabular-nums">
-            {keyword.competition == null ? "-" : keyword.competition.toFixed(2)}
+            {keyword.competition == null ? "—" : keyword.competition.toFixed(2)}
           </span>
         </div>
         <IntentBadge intent={keyword.intent} />

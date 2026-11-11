@@ -49,13 +49,17 @@ describe("DataRouter with SE Ranking", () => {
     const serankingProvider: SEODataProvider = {
       name: "seranking",
       supports: () => true,
-      get: vi.fn(async () => [{ metrics: { organic: { etv: 1000, count: 500 } } }]),
+      get: vi.fn(async () => [
+        { metrics: { organic: { etv: 1000, count: 500 } } },
+      ]),
     };
 
     const dfsProvider: SEODataProvider = {
       name: "dataforseo",
       supports: () => true,
-      get: vi.fn(async () => [{ metrics: { organic: { etv: 2000, count: 800 } } }]),
+      get: vi.fn(async () => [
+        { metrics: { organic: { etv: 2000, count: 800 } } },
+      ]),
     };
 
     router.register(serankingProvider);

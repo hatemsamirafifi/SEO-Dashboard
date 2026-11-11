@@ -109,7 +109,11 @@ vi.mock("@/server/features/settings/serankingCrypto", () => ({
     cipher.startsWith("encrypted:") ? cipher.slice("encrypted:".length) : null,
   ),
   maskSeRankingApiKey: vi.fn((key?: string | null) =>
-    key && key.length > 4 ? `••••••••••••${key.slice(-4)}` : (key ? "••••••••" : null),
+    key && key.length > 4
+      ? `••••••••••••${key.slice(-4)}`
+      : key
+        ? "••••••••"
+        : null,
   ),
 }));
 

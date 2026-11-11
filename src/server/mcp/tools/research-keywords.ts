@@ -191,9 +191,11 @@ export const researchKeywordsTool = {
           return {
             seed: item.seed,
             ok: true as const,
+            provider: data.provider,
             rowCount: data.rows.length,
             source: data.source,
             usedFallback: data.usedFallback,
+            seedOverview: data.seedOverview,
             rows: data.rows,
           };
         } catch (error) {
@@ -214,11 +216,15 @@ export const researchKeywordsTool = {
           if (!r.ok) {
             return `## "${r.seed}" — FAILED\n${r.error}`;
           }
-          const header = `## "${r.seed}" — ${r.rowCount} keywords (source: ${r.source}${r.usedFallback ? ", fallback" : ""})`;
+          const header = `## "${r.seed}" — ${r.rowCount} keywords (provider: ${r.provider}, source: ${r.source}${r.usedFallback ? ", fallback" : ""})`;
+          const exactMissingNote =
+            r.seedOverview && !r.seedOverview.exactMatchFound
+              ? `\nNote: Exact-match metrics for "${r.seed}" were not reported by ${r.provider} (search volume is unavailable, not zero). Showing related suggestions.`
+              : "";
           if (r.rowCount === 0) {
-            return `${header}\n(no keywords returned)`;
+            return `${header}${exactMissingNote}\n(no keywords returned)`;
           }
-          return `${header}\n${formatMcpTable(r.rows, RESEARCH_COLUMNS)}`;
+          return `${header}${exactMissingNote}\n${formatMcpTable(r.rows, RESEARCH_COLUMNS)}`;
         })
         .join("\n\n") +
       `\n\nResearched ${okCount} of ${results.length} seeds${failCount > 0 ? ` (${failCount} failed)` : ""}. Columns: volume = monthly searches, KD = keyword difficulty (0-100), CPC in USD, competition = paid competition (0-1); "—" = unavailable.`;

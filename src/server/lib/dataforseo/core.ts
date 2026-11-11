@@ -10,7 +10,10 @@ import {
   SerpApi,
 } from "dataforseo-client";
 import { AppError } from "@/server/lib/errors";
-import { getOptionalEnvValue, getRequiredEnvValue } from "@/server/lib/runtime-env";
+import {
+  getOptionalEnvValue,
+  getRequiredEnvValue,
+} from "@/server/lib/runtime-env";
 import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
 import { getDataforseoContext } from "@/server/lib/dataforseo/context";
 import { parseLegacyDataforseoApiKey } from "@/server/features/settings/dataforseoCrypto";

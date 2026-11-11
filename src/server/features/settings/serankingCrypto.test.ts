@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/server/lib/runtime-env", () => ({
   getOptionalEnvValue: vi.fn(async (name: string) =>
-    name === "AI_CREDENTIALS_ENCRYPTION_KEY" ? "test-encryption-key-for-seranking" : null,
+    name === "AI_CREDENTIALS_ENCRYPTION_KEY"
+      ? "test-encryption-key-for-seranking"
+      : null,
   ),
 }));
 

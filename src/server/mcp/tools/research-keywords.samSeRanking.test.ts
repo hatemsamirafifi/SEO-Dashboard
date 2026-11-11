@@ -43,12 +43,19 @@ vi.mock("@/server/features/settings/services/SeRankingSettingsService", () => ({
   resolveEffectiveSeRankingConfig: mocks.resolveEffectiveSeRankingConfig,
 }));
 
-vi.mock("@/server/features/keywords/repositories/KeywordResearchRepository", () => ({
-  KeywordResearchRepository: {
-    upsertKeywordMetric: mocks.upsertKeywordMetric,
-    listSavedKeywordsByProject: vi.fn(async () => ({ rows: [], totalCount: 0, tags: [] })),
-  },
-}));
+vi.mock(
+  "@/server/features/keywords/repositories/KeywordResearchRepository",
+  () => ({
+    KeywordResearchRepository: {
+      upsertKeywordMetric: mocks.upsertKeywordMetric,
+      listSavedKeywordsByProject: vi.fn(async () => ({
+        rows: [],
+        totalCount: 0,
+        tags: [],
+      })),
+    },
+  }),
+);
 
 vi.mock("@/server/lib/seranking", async (importOriginal) => {
   const actual = await importOriginal<typeof SerankingModule>();
@@ -175,7 +182,9 @@ describe("SAM Integration: research_keywords Tool with SE Ranking", () => {
     const response = await researchKeywordsTool.handler(
       {
         projectId: "proj_sam_eg",
-        seeds: [{ seed: "عطور رجالية", locationCode: 2818, languageCode: "ar" }],
+        seeds: [
+          { seed: "عطور رجالية", locationCode: 2818, languageCode: "ar" },
+        ],
         resultLimit: 150,
       },
       toolExtra,
@@ -184,7 +193,9 @@ describe("SAM Integration: research_keywords Tool with SE Ranking", () => {
     // 1. Verify SAM receives valid structuredContent
     expect(response).toBeDefined();
     expect(response.structuredContent).toBeDefined();
-    const results = (response.structuredContent as { results: Array<Record<string, unknown>> }).results;
+    const results = (
+      response.structuredContent as { results: Array<Record<string, unknown>> }
+    ).results;
     expect(results).toHaveLength(1);
 
     const firstSeedResult = results[0];
@@ -225,7 +236,8 @@ describe("SAM Integration: research_keywords Tool with SE Ranking", () => {
     );
 
     // 4. Verify text content table formatting
-    const textContent = response.content?.find((c) => c.type === "text")?.text ?? "";
+    const textContent =
+      response.content?.find((c) => c.type === "text")?.text ?? "";
     expect(textContent).toContain("عطور رجالية");
     expect(textContent).toContain("2400");
     expect(textContent).toContain("commercial");

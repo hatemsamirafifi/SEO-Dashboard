@@ -13,7 +13,10 @@ vi.mock("@/serverFunctions/serankingSettings", () => ({
 }));
 
 describe("SeRankingSettingsCard", () => {
-  function renderWithQueryClient(ui: React.ReactElement, initialData?: SeRankingSettingsView) {
+  function renderWithQueryClient(
+    ui: React.ReactElement,
+    initialData?: SeRankingSettingsView,
+  ) {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -163,7 +166,9 @@ describe("SeRankingSettingsCard", () => {
     expect(markup).toContain("100,000");
     // Verify detailed connection success notification banner
     expect(markup).toContain("SE Ranking API connected successfully");
-    expect(markup).toContain("Subscription: <span class=\"font-semibold\">active</span>");
+    expect(markup).toContain(
+      'Subscription: <span class="font-semibold">active</span>',
+    );
     expect(markup).toContain("Limit: 100,000 units");
     expect(markup).toContain("Available: 100,000 units");
   });

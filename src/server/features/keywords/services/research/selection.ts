@@ -1,3 +1,4 @@
+import { isExactKeywordMatch } from "@/shared/keyword-relevance";
 import type { EnrichedKeyword } from "./helpers";
 
 export type KeywordSource = "related" | "suggestions" | "ideas";
@@ -20,8 +21,8 @@ export function countNonSeedKeywords(
   rows: EnrichedKeyword[],
   seedKeyword: string,
 ): number {
-  const normalizedSeed = seedKeyword.trim().toLowerCase();
-  return rows.filter((row) => row.keyword !== normalizedSeed).length;
+  return rows.filter((row) => !isExactKeywordMatch(row.keyword, seedKeyword))
+    .length;
 }
 
 export function hasSufficientCoverage(

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { sortBy } from "remeda";
 import { parseTerms } from "@/client/features/keywords/utils";
+import { normalizeArabicKeyword } from "@/shared/keyword-relevance";
 import type { KeywordResearchRow } from "@/types/keywords";
 import {
   parseIntentFilter,
@@ -14,12 +15,16 @@ export function applyKeywordFiltersAndSort(params: {
   sortField: SortField;
   sortDir: SortDir;
 }): KeywordResearchRow[] {
-  const includeTerms = parseTerms(params.filters.include);
-  const excludeTerms = parseTerms(params.filters.exclude);
+  const includeTerms = parseTerms(params.filters.include).map(
+    normalizeArabicKeyword,
+  );
+  const excludeTerms = parseTerms(params.filters.exclude).map(
+    normalizeArabicKeyword,
+  );
   const selectedIntents = parseIntentFilter(params.filters.intents);
 
   const filtered = params.rows.filter((row) => {
-    const haystack = row.keyword.toLowerCase();
+    const haystack = normalizeArabicKeyword(row.keyword);
     if (
       includeTerms.length > 0 &&
       !includeTerms.every((term) => haystack.includes(term))
@@ -34,20 +39,43 @@ export function applyKeywordFiltersAndSort(params: {
       return false;
     }
 
-    const vol = row.searchVolume ?? 0;
-    const cpc = row.cpc ?? 0;
-    const kd = row.keywordDifficulty ?? 0;
-
-    if (params.filters.minVol && vol < Number(params.filters.minVol))
-      return false;
-    if (params.filters.maxVol && vol > Number(params.filters.maxVol))
-      return false;
-    if (params.filters.minCpc && cpc < Number(params.filters.minCpc))
-      return false;
-    if (params.filters.maxCpc && cpc > Number(params.filters.maxCpc))
-      return false;
-    if (params.filters.minKd && kd < Number(params.filters.minKd)) return false;
-    if (params.filters.maxKd && kd > Number(params.filters.maxKd)) return false;
+    // Never treat null (missing/unavailable metric) as 0 when filtering by range
+    if (params.filters.minVol.trim() !== "") {
+      if (
+        row.searchVolume == null ||
+        row.searchVolume < Number(params.filters.minVol)
+      )
+        return false;
+    }
+    if (params.filters.maxVol.trim() !== "") {
+      if (
+        row.searchVolume == null ||
+        row.searchVolume > Number(params.filters.maxVol)
+      )
+        return false;
+    }
+    if (params.filters.minCpc.trim() !== "") {
+      if (row.cpc == null || row.cpc < Number(params.filters.minCpc))
+        return false;
+    }
+    if (params.filters.maxCpc.trim() !== "") {
+      if (row.cpc == null || row.cpc > Number(params.filters.maxCpc))
+        return false;
+    }
+    if (params.filters.minKd.trim() !== "") {
+      if (
+        row.keywordDifficulty == null ||
+        row.keywordDifficulty < Number(params.filters.minKd)
+      )
+        return false;
+    }
+    if (params.filters.maxKd.trim() !== "") {
+      if (
+        row.keywordDifficulty == null ||
+        row.keywordDifficulty > Number(params.filters.maxKd)
+      )
+        return false;
+    }
     return true;
   });
 
@@ -55,6 +83,29 @@ export function applyKeywordFiltersAndSort(params: {
     return sortBy(filtered, [(row) => row.keyword, params.sortDir]);
   }
   if (params.sortField === "searchVolume") {
+    const hasRelevanceMetadata = filtered.some(
+      (row) =>
+        row.matchType !== undefined ||
+        row.isWeaklyRelated !== undefined ||
+        row.relevanceTier !== undefined,
+    );
+    if (hasRelevanceMetadata && params.sortDir === "desc") {
+      return sortBy(
+        filtered,
+        [(row) => (row.matchType === "exact" ? 1 : 0), "desc"],
+        [(row) => (row.isWeaklyRelated ? 1 : 0), "asc"],
+        [
+          (row) =>
+            row.relevanceTier === "high"
+              ? 3
+              : row.relevanceTier === "medium"
+                ? 2
+                : 1,
+          "desc",
+        ],
+        [(row) => row.searchVolume ?? -1, "desc"],
+      );
+    }
     return sortBy(filtered, [(row) => row.searchVolume ?? -1, params.sortDir]);
   }
   if (params.sortField === "cpc") {

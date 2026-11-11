@@ -35,8 +35,12 @@ describe("SeRankingClient", () => {
   });
 
   it("throws error when API key is missing or blank", () => {
-    expect(() => new SeRankingClient({ apiKey: "" })).toThrow("SE Ranking API key is required");
-    expect(() => new SeRankingClient({ apiKey: "   " })).toThrow("SE Ranking API key is required");
+    expect(() => new SeRankingClient({ apiKey: "" })).toThrow(
+      "SE Ranking API key is required",
+    );
+    expect(() => new SeRankingClient({ apiKey: "   " })).toThrow(
+      "SE Ranking API key is required",
+    );
   });
 
   it("sends Authorization: Token header and returns subscription", async () => {
@@ -121,7 +125,9 @@ describe("SeRankingClient", () => {
     });
 
     const client = new SeRankingClient({ apiKey: "key", maxRetries: 1 });
-    await expect(client.getSubscription()).rejects.toThrow(SeRankingRateLimitError);
+    await expect(client.getSubscription()).rejects.toThrow(
+      SeRankingRateLimitError,
+    );
     // 1 initial + 1 retry = 2 attempts
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
@@ -135,7 +141,9 @@ describe("SeRankingClient", () => {
     });
 
     const client = new SeRankingClient({ apiKey: "key", maxRetries: 0 });
-    await expect(client.request("/some/path")).rejects.toThrow(SeRankingCreditExhaustedError);
+    await expect(client.request("/some/path")).rejects.toThrow(
+      SeRankingCreditExhaustedError,
+    );
   });
 
   it("handles HTTP 500 upstream server error after retries", async () => {
@@ -147,7 +155,9 @@ describe("SeRankingClient", () => {
     });
 
     const client = new SeRankingClient({ apiKey: "key", maxRetries: 1 });
-    await expect(client.request("/some/path")).rejects.toThrow(SeRankingUpstreamError);
+    await expect(client.request("/some/path")).rejects.toThrow(
+      SeRankingUpstreamError,
+    );
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 
@@ -162,7 +172,11 @@ describe("SeRankingClient", () => {
       });
     });
 
-    const client = new SeRankingClient({ apiKey: "key", timeoutMs: 20, maxRetries: 0 });
+    const client = new SeRankingClient({
+      apiKey: "key",
+      timeoutMs: 20,
+      maxRetries: 0,
+    });
     await expect(client.request("/slow/path")).rejects.toThrow(/timed out/);
   });
 

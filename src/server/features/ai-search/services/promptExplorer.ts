@@ -5,7 +5,10 @@ import type { LlmResponseResult } from "@/server/lib/dataforseoLlmSchemas";
 import { AppError } from "@/server/lib/errors";
 import { buildCacheKey, getCached, setCached } from "@/server/lib/r2-cache";
 import { assertDataforseoBudgetAvailable } from "@/server/lib/seo-data/cost-tracker";
-import { BudgetExceededError, ProviderUnavailableError } from "@/server/lib/seo-data/errors";
+import {
+  BudgetExceededError,
+  ProviderUnavailableError,
+} from "@/server/lib/seo-data/errors";
 import { getProviderFeatureFlags } from "@/server/lib/seo-data/config";
 import { singleFlight } from "@/server/lib/seo-data/single-flight";
 import { safeHostname, safeHttpUrl } from "@/server/features/ai-search/safeUrl";
@@ -191,7 +194,9 @@ async function recordAiSearchObservation(
       position: index + 1,
     }))
     .filter(
-      (citation): citation is {
+      (
+        citation,
+      ): citation is {
         url: string;
         domain: string;
         title: string | null;

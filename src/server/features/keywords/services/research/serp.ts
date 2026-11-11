@@ -6,14 +6,19 @@ import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { canonicalUrl } from "@/shared/intelligence";
 import { getSeoDataRouter } from "@/server/lib/seo-data";
 import {
+  ProviderUnavailableError,
+  SerpNoProviderConfiguredError,
+  type SerpProviderDiagnostic,
+} from "@/server/lib/seo-data/errors";
+import {
   enrichCompetitiveMetrics,
   traceEnrichmentRun,
 } from "@/server/features/serp/serpEnrichment";
 import { normalizeKeyword } from "./helpers";
 
-type SerpAnalysisReason = "no_organic_results";
+type SerpAnalysisReason = "no_organic_results" | "provider_unavailable";
 
-type SerpAnalysisResult = {
+export type SerpAnalysisResult = {
   requestedKeyword: string;
   items: SerpResultItem[];
   /** Normalized SERP features observed in this analysis (spec 011, US1):
@@ -21,8 +26,30 @@ type SerpAnalysisResult = {
    *  Absent when no feature items were observed (never an empty placeholder). */
   features?: SerpFeatureSet;
   reason?: SerpAnalysisReason;
+  status?: "ok" | "unavailable";
+  unavailableReason?: string;
+  providerDiagnostics?: SerpProviderDiagnostic[];
+  provider?: string;
+  fetchedAt?: string;
+  fromCache?: boolean;
+  locationCode?: number;
+  languageCode?: string;
   enrichmentAccountBlocked?: "account_paused" | "billing" | null;
 };
+
+function readItemMetaString(
+  items: SerpLiveItem[],
+  key: "_provider" | "_fetchedAt",
+): string | undefined {
+  for (const item of items) {
+    const rec: Record<string, unknown> = { ...item };
+    const value = rec[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
 
 function mapOrganicSerpItems(items: SerpLiveItem[]): SerpResultItem[] {
   return items
@@ -54,19 +81,56 @@ async function getSerpLiveAnalysis(
 ): Promise<SerpAnalysisResult> {
   const keyword = normalizeKeyword(input.keyword);
 
-  // Caching and single-flight live in the router; the trimmed organic-only
-  // mapping below stays a cheap per-call transform.
-  const { data, provider, fromCache, durationMs } =
-    await getSeoDataRouter().route<SerpLiveItem[]>({
+  let data: SerpLiveItem[];
+  let provider: string;
+  let fromCache: boolean;
+  let durationMs: number;
+  let routerFetchedAt: string | undefined;
+
+  try {
+    // Caching and single-flight live in the router; the trimmed organic-only
+    // mapping below stays a cheap per-call transform.
+    const routeResult = await getSeoDataRouter().route<SerpLiveItem[]>({
       dataType: "serp",
       keyword,
       locationCode: input.locationCode,
       languageCode: input.languageCode,
       billingCustomer,
     });
+    data = routeResult.data;
+    provider = routeResult.provider;
+    fromCache = routeResult.fromCache;
+    durationMs = routeResult.durationMs;
+    routerFetchedAt = routeResult.fetchedAt;
+  } catch (error) {
+    if (error instanceof ProviderUnavailableError) {
+      return {
+        requestedKeyword: keyword,
+        items: [],
+        reason: "provider_unavailable",
+        status: "unavailable",
+        unavailableReason: error.message,
+        providerDiagnostics:
+          error instanceof SerpNoProviderConfiguredError
+            ? error.providerDiagnostics
+            : undefined,
+        locationCode: input.locationCode,
+        languageCode: input.languageCode,
+      };
+    }
+    throw error;
+  }
+
+  const itemProvider = readItemMetaString(data, "_provider");
+  const itemFetchedAt = readItemMetaString(data, "_fetchedAt");
+  const resolvedProvider =
+    itemProvider ?? (provider === "provider" ? "dataforseo" : provider);
+  const resolvedFetchedAt =
+    itemFetchedAt ?? routerFetchedAt ?? new Date().toISOString();
+
   traceEnrichmentRun({
     operation: "serp_analysis",
-    provider,
+    provider: resolvedProvider,
     targetCount: data.filter((item) => item.type === "organic").length,
     cacheHits: fromCache ? 1 : 0,
     cacheMisses: fromCache ? 0 : 1,
@@ -76,7 +140,16 @@ async function getSerpLiveAnalysis(
   });
 
   const items = mapOrganicSerpItems(data);
-  const result: SerpAnalysisResult = { requestedKeyword: keyword, items };
+  const result: SerpAnalysisResult = {
+    requestedKeyword: keyword,
+    items,
+    status: "ok",
+    provider: resolvedProvider,
+    fetchedAt: resolvedFetchedAt,
+    fromCache,
+    locationCode: input.locationCode,
+    languageCode: input.languageCode,
+  };
   // Normalize observed feature items into the frozen contract (spec 011).
   // Organic-only filtering below is untouched: features never displace ranks.
   const features = mapLiveItemsToFeatureSet(data);

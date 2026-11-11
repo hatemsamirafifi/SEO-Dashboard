@@ -100,11 +100,15 @@ export async function resolveEffectiveSeRankingConfig(params?: {
   }
 
   const settingsRow = projectRow ?? orgRow;
-  const envBaseUrl = (await getOptionalEnvValue("SERANKING_BASE_URL")) ?? "https://api.seranking.com";
+  const envBaseUrl =
+    (await getOptionalEnvValue("SERANKING_BASE_URL")) ??
+    "https://api.seranking.com";
 
   // 1. Project-level override
   if (projectRow) {
-    const apiKey = await decryptSeRankingApiKey(projectRow.credentialsCiphertext);
+    const apiKey = await decryptSeRankingApiKey(
+      projectRow.credentialsCiphertext,
+    );
     if (apiKey) {
       return {
         provider: "seranking",
@@ -136,7 +140,10 @@ export async function resolveEffectiveSeRankingConfig(params?: {
         baseUrl: envBaseUrl,
         source: "organization",
         configured: true,
-        priority: settingsRow?.priority ?? orgRow.priority ?? DEFAULT_SERANKING_PRIORITY,
+        priority:
+          settingsRow?.priority ??
+          orgRow.priority ??
+          DEFAULT_SERANKING_PRIORITY,
       };
     }
   }
@@ -150,8 +157,12 @@ export async function resolveEffectiveSeRankingConfig(params?: {
     return {
       provider: "seranking",
       enabled: settingsRow ? settingsRow.enabled : envEnabled,
-      circuitBreakerEnabled: settingsRow ? settingsRow.circuitBreakerEnabled : true,
-      maxRetries: clampProviderRetries(settingsRow ? settingsRow.maxRetries : 2),
+      circuitBreakerEnabled: settingsRow
+        ? settingsRow.circuitBreakerEnabled
+        : true,
+      maxRetries: clampProviderRetries(
+        settingsRow ? settingsRow.maxRetries : 2,
+      ),
       apiKey: envKey.trim(),
       baseUrl: envBaseUrl,
       source: "environment",
@@ -164,7 +175,9 @@ export async function resolveEffectiveSeRankingConfig(params?: {
   return {
     provider: "seranking",
     enabled: settingsRow ? settingsRow.enabled : false,
-    circuitBreakerEnabled: settingsRow ? settingsRow.circuitBreakerEnabled : true,
+    circuitBreakerEnabled: settingsRow
+      ? settingsRow.circuitBreakerEnabled
+      : true,
     maxRetries: clampProviderRetries(settingsRow ? settingsRow.maxRetries : 2),
     baseUrl: envBaseUrl,
     source: "none",
@@ -189,7 +202,9 @@ export async function getSeRankingSettingsView(input: {
 
   let override: SeRankingSettingsView["override"] = null;
   if (projectRow) {
-    const projectApiKey = await decryptSeRankingApiKey(projectRow.credentialsCiphertext);
+    const projectApiKey = await decryptSeRankingApiKey(
+      projectRow.credentialsCiphertext,
+    );
     override = {
       configured: Boolean(projectApiKey),
       enabled: projectRow.enabled,
@@ -249,7 +264,9 @@ export async function saveSeRankingSettings(input: {
   let credentialsCiphertext = existing?.credentialsCiphertext ?? null;
   if (input.patch.apiKey !== undefined) {
     if (input.patch.apiKey.trim().length > 0) {
-      credentialsCiphertext = await encryptSeRankingApiKey(input.patch.apiKey.trim());
+      credentialsCiphertext = await encryptSeRankingApiKey(
+        input.patch.apiKey.trim(),
+      );
     } else {
       credentialsCiphertext = null;
     }
@@ -257,11 +274,14 @@ export async function saveSeRankingSettings(input: {
 
   const enabled = input.patch.enabled ?? existing?.enabled ?? true;
   const circuitBreakerEnabled =
-    input.patch.circuitBreakerEnabled ?? existing?.circuitBreakerEnabled ?? true;
+    input.patch.circuitBreakerEnabled ??
+    existing?.circuitBreakerEnabled ??
+    true;
   const maxRetries = clampProviderRetries(
     input.patch.maxRetries ?? existing?.maxRetries ?? 2,
   );
-  const priority = input.patch.priority ?? existing?.priority ?? DEFAULT_SERANKING_PRIORITY;
+  const priority =
+    input.patch.priority ?? existing?.priority ?? DEFAULT_SERANKING_PRIORITY;
 
   if (input.projectId) {
     await SeoProviderSettingsRepository.upsertProjectProviderSettingsRow(
@@ -402,7 +422,8 @@ export async function testSeRankingConnection(params: {
       subscriptionStatus: sub.status,
     };
   } catch (error) {
-    let classification: SeRankingConnectionTestResult["reason"] = "TRANSIENT_UPSTREAM";
+    let classification: SeRankingConnectionTestResult["reason"] =
+      "TRANSIENT_UPSTREAM";
     let status = 500;
 
     if (error instanceof SeRankingAuthError) {

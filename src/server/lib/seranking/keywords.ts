@@ -26,7 +26,12 @@ export function parseKeywordSuggestionItems(
   const result: SeRankingKeywordSuggestionItem[] = [];
   const errors: Array<{
     index: number;
-    issues: Array<{ path: string; expected?: string; received?: string; message: string }>;
+    issues: Array<{
+      path: string;
+      expected?: string;
+      received?: string;
+      message: string;
+    }>;
   }> = [];
 
   for (let i = 0; i < array.length; i++) {
@@ -35,8 +40,10 @@ export function parseKeywordSuggestionItems(
       result.push(parsed.data);
     } else {
       const issues = parsed.error.issues.map((issue) => {
-        const expected = "expected" in issue ? String(issue.expected) : undefined;
-        const received = "received" in issue ? String(issue.received) : undefined;
+        const expected =
+          "expected" in issue ? String(issue.expected) : undefined;
+        const received =
+          "received" in issue ? String(issue.received) : undefined;
         return {
           path: issue.path.join("."),
           expected,
@@ -60,6 +67,7 @@ export function parseKeywordSuggestionItems(
       `SE Ranking ${endpoint} returned ${array.length} items, but none matched the expected keyword schema. Validation issues: ${JSON.stringify(errors.slice(0, 3))}`,
       undefined,
       200,
+      array.length,
     );
   }
 
@@ -73,7 +81,12 @@ export function parseKeywordExportItems(
   const result: SeRankingKeywordExportItem[] = [];
   const errors: Array<{
     index: number;
-    issues: Array<{ path: string; expected?: string; received?: string; message: string }>;
+    issues: Array<{
+      path: string;
+      expected?: string;
+      received?: string;
+      message: string;
+    }>;
   }> = [];
 
   for (let i = 0; i < array.length; i++) {
@@ -82,8 +95,10 @@ export function parseKeywordExportItems(
       result.push(parsed.data);
     } else {
       const issues = parsed.error.issues.map((issue) => {
-        const expected = "expected" in issue ? String(issue.expected) : undefined;
-        const received = "received" in issue ? String(issue.received) : undefined;
+        const expected =
+          "expected" in issue ? String(issue.expected) : undefined;
+        const received =
+          "received" in issue ? String(issue.received) : undefined;
         return {
           path: issue.path.join("."),
           expected,
@@ -107,6 +122,7 @@ export function parseKeywordExportItems(
       `SE Ranking ${endpoint} returned ${array.length} items, but none matched the expected keyword schema. Validation issues: ${JSON.stringify(errors.slice(0, 3))}`,
       undefined,
       200,
+      array.length,
     );
   }
 

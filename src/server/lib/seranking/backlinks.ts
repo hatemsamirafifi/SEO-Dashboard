@@ -24,7 +24,10 @@ function extractArrayData(raw: unknown): unknown[] {
     if ("data" in raw && Array.isArray(raw.data)) return raw.data;
     if ("items" in raw && Array.isArray(raw.items)) return raw.items;
     // oxlint-disable-next-line typescript/no-explicit-any
-    if ("new_lost_backlinks_count" in raw && Array.isArray((raw as any).new_lost_backlinks_count)) {
+    if (
+      "new_lost_backlinks_count" in raw &&
+      Array.isArray((raw as any).new_lost_backlinks_count)
+    ) {
       // oxlint-disable-next-line typescript/no-explicit-any
       return (raw as any).new_lost_backlinks_count;
     }
@@ -64,7 +67,10 @@ export type BacklinksListOptions = {
 export async function getReferringDomains(
   client: SeRankingClient,
   options: BacklinksListOptions,
-): Promise<{ items: SeRankingReferringDomainItem[]; totalCount: number | null }> {
+): Promise<{
+  items: SeRankingReferringDomainItem[];
+  totalCount: number | null;
+}> {
   const raw = await client.request<unknown>("/backlinks/refdomains", {
     method: "GET",
     params: {
@@ -79,7 +85,10 @@ export async function getReferringDomains(
 
   const array = extractArrayData(raw);
   const totalCount =
-    typeof raw === "object" && raw !== null && "total" in raw && typeof raw.total === "number"
+    typeof raw === "object" &&
+    raw !== null &&
+    "total" in raw &&
+    typeof raw.total === "number"
       ? raw.total
       : null;
 
@@ -107,7 +116,10 @@ export async function getBacklinks(
 
   const array = extractArrayData(raw);
   const totalCount =
-    typeof raw === "object" && raw !== null && "total" in raw && typeof raw.total === "number"
+    typeof raw === "object" &&
+    raw !== null &&
+    "total" in raw &&
+    typeof raw.total === "number"
       ? raw.total
       : null;
 
@@ -133,7 +145,10 @@ export async function getBacklinkPages(
 
   const array = extractArrayData(raw);
   const totalCount =
-    typeof raw === "object" && raw !== null && "total" in raw && typeof raw.total === "number"
+    typeof raw === "object" &&
+    raw !== null &&
+    "total" in raw &&
+    typeof raw.total === "number"
       ? raw.total
       : null;
 

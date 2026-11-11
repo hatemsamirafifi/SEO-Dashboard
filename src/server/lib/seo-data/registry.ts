@@ -6,6 +6,7 @@ import { createGoogleAdsProvider } from "./providers/google-ads-provider";
 import { createBingWebmasterProvider } from "./providers/bing-webmaster-provider";
 import { createLocalCrawlerProvider } from "./providers/local-crawler-provider";
 import { createInternalProvider } from "./providers/internal-provider";
+import { createSerpResolverProvider } from "./providers/serp-resolver-provider";
 
 /**
  * Singleton DataRouter with all providers registered.
@@ -30,6 +31,7 @@ export function getSeoDataRouter(): DataRouter {
   singleton.register(createBingWebmasterProvider());
   singleton.register(createLocalCrawlerProvider());
   singleton.register(createInternalProvider());
+  singleton.register(createSerpResolverProvider());
 
   return singleton;
 }
