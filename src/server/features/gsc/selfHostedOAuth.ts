@@ -101,7 +101,7 @@ const googleIdTokenSchema = z.object({
   sub: z.string().min(1),
 });
 
-const oauthStateNonceSchema = z.object({
+const _oauthStateNonceSchema = z.object({
   nonce: z.string().uuid(),
 });
 

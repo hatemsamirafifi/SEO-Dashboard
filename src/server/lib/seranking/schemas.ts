@@ -29,9 +29,11 @@ export function mapSeRankingIntent(raw: unknown): string | null {
     let val = "";
     if (typeof item === "object") {
       const rec = item as Record<string, unknown>;
-      val = String(rec.name ?? rec.id ?? rec.value ?? "")
-        .trim()
-        .toLowerCase();
+      const rawVal = rec.name ?? rec.id ?? rec.value ?? "";
+      val =
+        typeof rawVal === "string" || typeof rawVal === "number"
+          ? String(rawVal).trim().toLowerCase()
+          : "";
     } else {
       val = String(item).trim().toLowerCase();
     }

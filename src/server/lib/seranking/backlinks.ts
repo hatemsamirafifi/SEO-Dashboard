@@ -21,15 +21,11 @@ import type {
 function extractArrayData(raw: unknown): unknown[] {
   if (Array.isArray(raw)) return raw;
   if (typeof raw === "object" && raw !== null) {
-    if ("data" in raw && Array.isArray(raw.data)) return raw.data;
-    if ("items" in raw && Array.isArray(raw.items)) return raw.items;
-    // oxlint-disable-next-line typescript/no-explicit-any
-    if (
-      "new_lost_backlinks_count" in raw &&
-      Array.isArray((raw as any).new_lost_backlinks_count)
-    ) {
-      // oxlint-disable-next-line typescript/no-explicit-any
-      return (raw as any).new_lost_backlinks_count;
+    const rec = raw as Record<string, unknown>;
+    if (Array.isArray(rec.data)) return rec.data;
+    if (Array.isArray(rec.items)) return rec.items;
+    if (Array.isArray(rec.new_lost_backlinks_count)) {
+      return rec.new_lost_backlinks_count;
     }
   }
   return [];

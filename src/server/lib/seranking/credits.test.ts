@@ -11,8 +11,9 @@ import { SeRankingCreditExhaustedError } from "./errors";
 import type { SeRankingClient } from "./client";
 
 describe("Credit Budget Protection — Priority 3", () => {
+  const getSubscriptionMock = vi.fn();
   const mockClient = {
-    getSubscription: vi.fn(),
+    getSubscription: getSubscriptionMock,
   } as unknown as SeRankingClient;
 
   beforeEach(() => {
@@ -87,7 +88,7 @@ describe("Credit Budget Protection — Priority 3", () => {
     });
 
     it("enforces per-organization monthly budget limit", async () => {
-      vi.mocked(mockClient.getSubscription).mockResolvedValue({
+      getSubscriptionMock.mockResolvedValue({
         status: "active",
         units_left: 500000,
         units_limit: 1000000,
@@ -114,7 +115,7 @@ describe("Credit Budget Protection — Priority 3", () => {
     });
 
     it("reconciles reservation upon release if an operation fails", async () => {
-      vi.mocked(mockClient.getSubscription).mockResolvedValue({
+      getSubscriptionMock.mockResolvedValue({
         status: "active",
         units_left: 500000,
         units_limit: 1000000,
@@ -142,7 +143,7 @@ describe("Credit Budget Protection — Priority 3", () => {
 
     it("forces subscription balance refresh when cached balance is low", async () => {
       // First call for cheap operation (5 units) caches a low balance of 10 units
-      vi.mocked(mockClient.getSubscription)
+      getSubscriptionMock
         .mockResolvedValueOnce({
           status: "active",
           units_left: 10,
@@ -163,7 +164,7 @@ describe("Credit Budget Protection — Priority 3", () => {
         client: mockClient,
       });
       await res1.commit();
-      expect(mockClient.getSubscription).toHaveBeenCalledTimes(1);
+      expect(getSubscriptionMock).toHaveBeenCalledTimes(1);
 
       // Subsequent 100-unit operation sees cached 10 is low, forces a refresh, and gets 2000 units
       const res2 = await reserveSeRankingCredits({
@@ -173,7 +174,7 @@ describe("Credit Budget Protection — Priority 3", () => {
       });
 
       expect(res2.estimatedUnits).toBe(100);
-      expect(mockClient.getSubscription).toHaveBeenCalledTimes(2);
+      expect(getSubscriptionMock).toHaveBeenCalledTimes(2);
       await res2.commit();
     });
   });

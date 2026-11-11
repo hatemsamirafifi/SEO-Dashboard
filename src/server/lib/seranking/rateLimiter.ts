@@ -144,11 +144,9 @@ export class SeRankingRateLimiter {
   private queueCount = 0;
   private readonly maxQueue = 50;
 
-  // Constructor accepts DO state and env
-  // oxlint-disable-next-line typescript/no-explicit-any
   constructor(
-    protected ctx?: any,
-    protected env?: any,
+    protected ctx?: unknown,
+    protected env?: unknown,
   ) {}
 
   async acquire(options?: {
@@ -266,15 +264,18 @@ export class CloudflareDoRateLimiterCoordinator implements RateLimiterCoordinato
  * - Uses Cloudflare Durable Object if env.SE_RANKING_RATE_LIMITER is bound.
  * - Otherwise falls back to global in-memory queue coordinator.
  */
-// oxlint-disable-next-line typescript/no-explicit-any
 export function getRateLimiterCoordinator(
-  customEnv?: any,
+  customEnv?: unknown,
 ): RateLimiterCoordinator {
   try {
     // Check if customEnv has SE_RANKING_RATE_LIMITER
-    if (customEnv?.SE_RANKING_RATE_LIMITER) {
+    const envObj =
+      typeof customEnv === "object" && customEnv !== null
+        ? (customEnv as { SE_RANKING_RATE_LIMITER?: unknown })
+        : undefined;
+    if (envObj?.SE_RANKING_RATE_LIMITER) {
       return new CloudflareDoRateLimiterCoordinator(
-        customEnv.SE_RANKING_RATE_LIMITER,
+        envObj.SE_RANKING_RATE_LIMITER,
       );
     }
     // Check global cloudflare:workers env if running inside Worker runtime

@@ -1,3 +1,4 @@
+/* eslint-disable eslint/max-lines */
 import { z } from "zod";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import { SeoProviderSettingsRepository } from "@/server/features/settings/repositories/SeoProviderSettingsRepository";

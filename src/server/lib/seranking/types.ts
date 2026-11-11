@@ -10,7 +10,7 @@ export type SeRankingConfig = {
 };
 
 export type SeRankingSubscription = {
-  status: "active" | "inactive" | "expired" | "disabled" | string;
+  status: "active" | "inactive" | "expired" | "disabled" | (string & {});
   start_date?: string;
   expiration_date?: string;
   units_limit: number;

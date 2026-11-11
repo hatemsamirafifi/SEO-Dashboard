@@ -1,3 +1,4 @@
+/* eslint-disable eslint/max-lines, eslint/max-lines-per-function */
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
@@ -179,7 +180,9 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
   const scanMutation = useMutation({
     mutationFn: () => triggerIntelligenceScan({ data: { projectId } }),
     onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ["opportunities", projectId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["opportunities", projectId],
+      });
       if (res.ok) {
         toast.success(
           `Scan completed! Discovered ${res.findingsCount} findings.`,

@@ -152,7 +152,12 @@ describe("SAM -> Tool -> Service -> Data Router -> SE Ranking Provider E2E", () 
     globalThis.fetch = vi
       .fn()
       .mockImplementation((url: string | URL | Request) => {
-        const urlStr = url.toString();
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : "url" in url
+              ? url.url
+              : url.toString();
         if (urlStr.includes("/account/subscription")) {
           return Promise.resolve({
             ok: true,
@@ -266,7 +271,12 @@ describe("SAM -> Tool -> Service -> Data Router -> SE Ranking Provider E2E", () 
     globalThis.fetch = vi
       .fn()
       .mockImplementation((url: string | URL | Request) => {
-        const urlStr = url.toString();
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : "url" in url
+              ? url.url
+              : url.toString();
         if (urlStr.includes("/account/subscription")) {
           return Promise.resolve({
             ok: true,
