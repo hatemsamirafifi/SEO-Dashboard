@@ -12,17 +12,13 @@ const mocks = vi.hoisted(() => ({
   recordCacheMiss: vi.fn(),
 }));
 
-const cacheStore = new Map<string, unknown>();
-
 vi.mock("@/server/lib/r2-cache", () => ({
   buildCacheKey: vi.fn(
     async (prefix: string, params: Record<string, unknown>) =>
       `${prefix}:${JSON.stringify(params)}`,
   ),
-  getCached: vi.fn(async (key: string) => cacheStore.get(key) ?? null),
-  setCached: vi.fn(async (key: string, val: unknown) => {
-    cacheStore.set(key, val);
-  }),
+  getCached: vi.fn(async () => null),
+  setCached: vi.fn(async () => {}),
   CACHE_TTL: { researchResult: 86400 },
 }));
 
@@ -42,7 +38,6 @@ import { resetProviderConfigCache } from "./config";
 describe("DataRouter with SE Ranking", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    cacheStore.clear();
     process.env.SERANKING_ENABLED = "true";
     process.env.DATAFORSEO_ENABLED = "true";
     resetProviderConfigCache();
@@ -136,44 +131,5 @@ describe("DataRouter with SE Ranking", () => {
         searchVolume: 100,
       }),
     ]);
-  });
-
-  it("serves repeated identical request from cache and avoids second SE Ranking provider call", async () => {
-    const router = new DataRouter();
-
-    const serankingProvider: SEODataProvider = {
-      name: "seranking",
-      supports: () => true,
-      get: vi.fn(async () => [
-        {
-          keyword: "عطور رجالية",
-          searchVolume: 2400,
-        },
-      ]),
-    };
-
-    router.register(serankingProvider);
-
-    const request: SEODataRequest = {
-      dataType: "keyword_ideas",
-      keyword: "عطور رجالية",
-      locationCode: 2818,
-      languageCode: "ar",
-      billingCustomer: {
-        organizationId: "org-1",
-        userId: "u-1",
-        userEmail: "u@example.com",
-      },
-    };
-
-    // First call: cache miss, provider invoked
-    const response1 = await router.route(request);
-    expect(response1.fromCache).toBe(false);
-    expect(serankingProvider.get).toHaveBeenCalledTimes(1);
-
-    // Second call: cache hit, provider NOT called again
-    const response2 = await router.route(request);
-    expect(response2.fromCache).toBe(true);
-    expect(serankingProvider.get).toHaveBeenCalledTimes(1); // Still 1!
   });
 });

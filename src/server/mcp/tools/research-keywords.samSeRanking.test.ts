@@ -3,6 +3,7 @@ import type { ToolExtra } from "@/server/mcp/context";
 import { MCP_AUTH_CONTEXT_PROP } from "@/server/mcp/context";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type * as SerankingModule from "@/server/lib/seranking";
+import { researchKeywordsTool } from "./research-keywords";
 
 const mocks = vi.hoisted(() => ({
   getProjectForOrganization: vi.fn(),
@@ -170,8 +171,6 @@ describe("SAM Integration: research_keywords Tool with SE Ranking", () => {
         history_trend: [{ date: "2026-01-01", volume: 1100 }],
       },
     ]);
-
-    const { researchKeywordsTool } = await import("./research-keywords");
 
     const response = await researchKeywordsTool.handler(
       {

@@ -6,23 +6,33 @@ export const seRankingHistoryTrendItemSchema = z.object({
 });
 
 export const seRankingHistoryTrendSchema = z
-  .union([
-    z.array(seRankingHistoryTrendItemSchema),
-    z.record(z.string(), z.coerce.number()).transform((record) =>
-      Object.entries(record).map(([date, volume]) => ({
-        date,
-        volume: Number(volume) || 0,
-      })),
-    ),
-  ])
-  .optional()
-  .default([]);
+  .preprocess((val) => {
+    if (val == null) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === "object") {
+      return Object.entries(val as Record<string, unknown>).map(
+        ([date, volume]) => ({
+          date,
+          volume: Number(volume) || 0,
+        }),
+      );
+    }
+    return [];
+  }, z.array(seRankingHistoryTrendItemSchema))
+  .catch([]);
 
 export function mapSeRankingIntent(raw: unknown): string | null {
   if (raw == null) return null;
   const items = Array.isArray(raw) ? raw : [raw];
   for (const item of items) {
-    const val = String(item).trim().toLowerCase();
+    if (item == null) continue;
+    let val = "";
+    if (typeof item === "object") {
+      const rec = item as Record<string, unknown>;
+      val = String(rec.name ?? rec.id ?? rec.value ?? "").trim().toLowerCase();
+    } else {
+      val = String(item).trim().toLowerCase();
+    }
     if (val === "i" || val === "1" || val.includes("inform")) return "informational";
     if (val === "c" || val === "3" || val.includes("commerc")) return "commercial";
     if (val === "t" || val === "4" || val.includes("transact")) return "transactional";
@@ -81,7 +91,7 @@ export const seRankingSubscriptionSchema = z
 
 export const seRankingKeywordExportItemSchema = z
   .object({
-    keyword: z.string(),
+    keyword: z.string().trim().min(1),
     volume: z.coerce.number().nullable().optional().default(null),
     cpc: z.coerce.number().nullable().optional().default(null),
     competition: z.coerce.number().nullable().optional().default(null),
@@ -90,6 +100,7 @@ export const seRankingKeywordExportItemSchema = z
     intents: z.unknown().optional(),
     history_trend: seRankingHistoryTrendSchema,
   })
+  .passthrough()
   .transform((item) => ({
     keyword: item.keyword,
     volume: item.volume,
@@ -102,7 +113,7 @@ export const seRankingKeywordExportItemSchema = z
 
 export const seRankingKeywordSuggestionItemSchema = z
   .object({
-    keyword: z.string(),
+    keyword: z.string().trim().min(1),
     volume: z.coerce.number().nullable().optional().default(null),
     cpc: z.coerce.number().nullable().optional().default(null),
     competition: z.coerce.number().nullable().optional().default(null),
@@ -111,6 +122,7 @@ export const seRankingKeywordSuggestionItemSchema = z
     intents: z.unknown().optional(),
     history_trend: seRankingHistoryTrendSchema,
   })
+  .passthrough()
   .transform((item) => ({
     keyword: item.keyword,
     volume: item.volume,

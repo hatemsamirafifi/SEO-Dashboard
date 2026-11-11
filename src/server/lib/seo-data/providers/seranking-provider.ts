@@ -66,7 +66,10 @@ export function createSerankingProvider(): SEODataProvider {
 
     async get(request: SEODataRequest): Promise<unknown> {
       const organizationId = request.billingCustomer.organizationId;
-      const projectId = typeof request.constraints?.projectId === "string" ? request.constraints.projectId : undefined;
+      const projectId =
+        typeof request.constraints?.projectId === "string"
+          ? request.constraints.projectId
+          : request.billingCustomer?.projectId;
 
       const config = await resolveEffectiveSeRankingConfig({
         organizationId,
@@ -106,45 +109,74 @@ export function createSerankingProvider(): SEODataProvider {
         client,
       });
 
+      let httpBilled = false;
+      let actualUnits: number | undefined;
+
       try {
         let result: unknown;
         switch (request.dataType) {
-          case "keyword_ideas":
+          case "keyword_ideas": {
             result = await routeKeywordIdeas(client, request, source);
+            const returnedCount = Array.isArray(result) ? result.length : 0;
+            actualUnits = returnedCount > 0 ? returnedCount * 10 : undefined;
+            httpBilled = true;
             break;
+          }
           case "keyword_metrics":
             result = await routeKeywordMetrics(client, request, source);
+            httpBilled = true;
             break;
           case "domain_overview":
             result = await routeDomainOverview(client, request, source, organizationId);
+            httpBilled = true;
             break;
           case "domain_keywords":
             result = await routeDomainKeywords(client, request, source);
+            httpBilled = true;
             break;
           case "domain_pages":
             result = await routeDomainPages(client, request, source);
+            httpBilled = true;
             break;
           case "competitors":
             result = await routeCompetitors(client, request, source, projectId);
+            httpBilled = true;
             break;
           case "backlinks":
           case "competitive_metrics":
             result = await routeBacklinks(client, request);
+            httpBilled = true;
             break;
           default:
             throw new ProviderUnsupportedError("seranking", request.dataType);
         }
-        await reservation.commit();
+        await reservation.commit(actualUnits);
         return result;
       } catch (error) {
-        await reservation.release();
-        if (typeof error === "object" && error !== null && "name" in error) {
-          if (error.name === "SeRankingAuthError") {
-            throw new AuthenticationError("seranking", (error as Error).message);
-          }
-          if (error.name === "SeRankingRateLimitError") {
-            throw new RateLimitError("seranking", (error as Error).message);
-          }
+        const errorObj =
+          typeof error === "object" && error !== null
+            ? (error as { upstreamStatus?: unknown; name?: unknown; message?: unknown })
+            : null;
+        const upstreamStatus =
+          typeof errorObj?.upstreamStatus === "number"
+            ? errorObj.upstreamStatus
+            : undefined;
+        if (httpBilled || upstreamStatus === 200) {
+          await reservation.commit(actualUnits);
+        } else {
+          await reservation.release();
+        }
+        if (errorObj?.name === "SeRankingAuthError") {
+          throw new AuthenticationError(
+            "seranking",
+            typeof errorObj.message === "string" ? errorObj.message : "Authentication failed",
+          );
+        }
+        if (errorObj?.name === "SeRankingRateLimitError") {
+          throw new RateLimitError(
+            "seranking",
+            typeof errorObj.message === "string" ? errorObj.message : "Rate limit exceeded",
+          );
         }
         throw error;
       }

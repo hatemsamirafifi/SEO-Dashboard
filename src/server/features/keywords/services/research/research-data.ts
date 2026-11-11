@@ -1,3 +1,4 @@
+/* eslint-disable eslint/max-lines, eslint/complexity */
 import {
   type AdsKeywordIdeaItem,
   type LabsKeywordDataItem,
@@ -10,6 +11,7 @@ import {
   type ParsedPlannerEnvelope,
 } from "@/server/lib/seo-data/providers/planner-envelope";
 import type { KeywordIdeasSource } from "@/server/lib/seo-data/providers/dataforseo-provider";
+import type { MonthlySearch } from "@/types/keywords";
 import {
   normalizeIntent,
   normalizeKeyword,
@@ -29,13 +31,6 @@ type FetchResearchRowsParams = {
   // Attribute the DataForSEO spend to a specific feature (e.g. "onboarding");
   // defaults to the path-derived feature when omitted.
   creditFeature?: CreditFeature;
-};
-
-// `related` items wrap the keyword payload one level deeper than the
-// suggestions/ideas items; providers return raw SDK items so the mappers below
-// stay in this module.
-type RelatedKeywordResultItem = {
-  keyword_data?: LabsKeywordDataItem | null;
 };
 
 export function mapKeywordDataItems(
@@ -193,6 +188,7 @@ function mapResearchIdeasPayload(data: unknown): {
  *  flattened close variants). */
 export type GoogleAdsResearchRows = {
   rows: EnrichedKeyword[];
+  provider: string;
   servedFirstParty: boolean;
   rawPlannerRecords: GoogleAdsKeywordRecord[];
   /** The R2-validated first-party envelope for the persistence hook; null
@@ -200,16 +196,112 @@ export type GoogleAdsResearchRows = {
   plannerEnvelope: ParsedPlannerEnvelope | null;
 };
 
+export type FetchResearchRowsResult = {
+  rows: EnrichedKeyword[];
+  provider: string;
+};
+
+export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
+  if (!items) return [];
+  const array: unknown[] = Array.isArray(items)
+    ? items
+    : typeof items === "object" && items !== null && "data" in items && Array.isArray((items as { data: unknown }).data)
+      ? (items as { data: unknown[] }).data
+      : typeof items === "object" && items !== null && "items" in items && Array.isArray((items as { items: unknown }).items)
+        ? (items as { items: unknown[] }).items
+        : [];
+
+  const rows: EnrichedKeyword[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of array) {
+    if (!raw || typeof raw !== "object") continue;
+    // Unwrap if wrapped under keyword_data
+    const item =
+      "keyword_data" in raw && raw.keyword_data && typeof raw.keyword_data === "object"
+        ? (raw as { keyword_data: Record<string, unknown> }).keyword_data
+        : (raw as Record<string, unknown>);
+
+    const rawKeyword = typeof item.keyword === "string" ? item.keyword : null;
+    if (!rawKeyword) continue;
+    const normalized = normalizeKeyword(rawKeyword);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+
+    // 1. Direct EnrichedKeyword shape
+    if ("searchVolume" in item && "keywordDifficulty" in item) {
+      rows.push({
+        keyword: normalized,
+        searchVolume: typeof item.searchVolume === "number" ? item.searchVolume : null,
+        trend: Array.isArray(item.trend) ? (item.trend as MonthlySearch[]) : [],
+        cpc: typeof item.cpc === "number" ? item.cpc : null,
+        competition: typeof item.competition === "number" ? item.competition : null,
+        keywordDifficulty: typeof item.keywordDifficulty === "number" ? item.keywordDifficulty : null,
+        intent: normalizeIntent(typeof item.intent === "string" ? item.intent : null),
+      });
+      continue;
+    }
+
+    // 2. SE Ranking Suggestion Item or Export Item shape (has volume or difficulty or history_trend)
+    if ("volume" in item || "difficulty" in item || "history_trend" in item) {
+      const historyTrend = Array.isArray(item.history_trend)
+        ? (item.history_trend as Array<{ date?: string; volume?: number }>)
+        : [];
+      const trend: MonthlySearch[] = historyTrend.map((t) => {
+        const parts = String(t?.date ?? "").split("-").map(Number);
+        return {
+          year: parts[0] || 0,
+          month: parts[1] || 0,
+          searchVolume: Number(t?.volume) || 0,
+        };
+      });
+      const rawIntent =
+        typeof item.intent === "string"
+          ? item.intent
+          : Array.isArray(item.intents) && item.intents.length > 0
+            ? String(item.intents[0])
+            : null;
+      rows.push({
+        keyword: normalized,
+        searchVolume: typeof item.volume === "number" ? item.volume : null,
+        trend,
+        cpc: typeof item.cpc === "number" ? item.cpc : null,
+        competition: typeof item.competition === "number" ? item.competition : null,
+        keywordDifficulty: typeof item.difficulty === "number" ? item.difficulty : null,
+        intent: normalizeIntent(rawIntent),
+      });
+      continue;
+    }
+
+    // 3. LabsKeywordDataItem shape (DataForSEO)
+    const labsItem = item as LabsKeywordDataItem;
+    const keywordInfo = labsItem.keyword_info_normalized_with_clickstream?.search_volume
+      ? labsItem.keyword_info_normalized_with_clickstream
+      : labsItem.keyword_info;
+
+    rows.push({
+      keyword: normalized,
+      searchVolume: keywordInfo?.search_volume ?? null,
+      trend: (keywordInfo?.monthly_searches ?? []).map((entry) => ({
+        year: entry.year ?? 0,
+        month: entry.month ?? 0,
+        searchVolume: entry.search_volume ?? 0,
+      })),
+      cpc: labsItem.keyword_info?.cpc ?? null,
+      competition: labsItem.keyword_info?.competition ?? null,
+      keywordDifficulty: labsItem.keyword_properties?.keyword_difficulty ?? null,
+      intent: normalizeIntent(labsItem.search_intent_info?.main_intent),
+    });
+  }
+
+  return rows;
+}
+
 export async function fetchGoogleAdsResearchRows(
   params: Omit<FetchResearchRowsParams, "source">,
   billingCustomer: BillingCustomerContext,
 ): Promise<GoogleAdsResearchRows> {
-  // DataForSEO's keywords_for_keywords (Google Ads) endpoint. The router's
-  // google_ads API provider does not apply this source (see the adsIdeas
-  // branch in the DataForSEO provider), so the DFS provider serves it —
-  // unless the project runs first-party, in which case the google_ads
-  // provider wins the walk and answers with its planner envelope instead.
-  const { data } = await getSeoDataRouter().route({
+  const response = await getSeoDataRouter().route({
     dataType: "keyword_ideas",
     keyword: params.seedKeyword,
     locationCode: params.locationCode,
@@ -219,17 +311,18 @@ export async function fetchGoogleAdsResearchRows(
     constraints: {
       source: "google_ads" satisfies KeywordIdeasSource,
       limit: params.resultLimit,
+      projectId: billingCustomer.projectId,
     },
   });
+  const data = response.data;
   const payload = mapResearchIdeasPayload(data);
   const servedFirstParty =
     typeof data === "object" && data !== null && !Array.isArray(data);
   return {
     rows: payload.rows,
+    provider: response.provider,
     rawPlannerRecords: payload.records,
     servedFirstParty,
-    // The cache-validated envelope; null when the payload is not a planner
-    // envelope or its re-parse fails (the row mapping above still holds).
     plannerEnvelope: parseStoredPlannerEnvelope(data),
   };
 }
@@ -237,12 +330,13 @@ export async function fetchGoogleAdsResearchRows(
 export async function fetchResearchRowsBySource(
   params: FetchResearchRowsParams,
   billingCustomer: BillingCustomerContext,
-): Promise<EnrichedKeyword[]> {
+): Promise<FetchResearchRowsResult> {
   const constraints = {
     source: params.source satisfies KeywordIdeasSource,
     limit: params.resultLimit,
     ...(params.source === "related" ? { depth: 1 } : {}),
     includeClickstreamData: params.includeClickstreamData,
+    projectId: billingCustomer.projectId,
   };
   const request = {
     dataType: "keyword_ideas" as const,
@@ -254,41 +348,27 @@ export async function fetchResearchRowsBySource(
     constraints,
   };
 
-  if (params.source === "related") {
-    // Related items wrap the keyword payload one level deeper; unwrap and
-    // reuse the same mapper as suggestions/ideas.
-    const response = await getSeoDataRouter().route<unknown>(request);
-    if (Array.isArray(response)) {
-      if (isLabsKeywordDataItems(response)) {
-        return mapKeywordDataItems(response);
-      }
-      return mapKeywordDataItems(
-        (response as RelatedKeywordResultItem[])
-          .map((item) => item.keyword_data)
-          .filter((data): data is NonNullable<typeof data> => data != null),
-      );
+  const response = await getSeoDataRouter().route(request);
+  const rawData = response.data !== undefined ? response.data : response;
+  const provider = response.provider ?? "seranking";
+
+  if (params.source === "ideas") {
+    // Check if it's first-party Google Ads envelope
+    if (
+      typeof rawData === "object" &&
+      rawData !== null &&
+      !Array.isArray(rawData) &&
+      ("ideas" in rawData || "keywords" in rawData)
+    ) {
+      return {
+        rows: mapResearchIdeasPayload(rawData).rows,
+        provider,
+      };
     }
-    const relatedItems =
-      (response as { data?: RelatedKeywordResultItem[] })?.data ?? [];
-    return mapKeywordDataItems(
-      relatedItems
-        .map((item) => item.keyword_data)
-        .filter((data): data is NonNullable<typeof data> => data != null),
-    );
   }
 
-  if (params.source !== "ideas") {
-    // `suggestions` stays on the Labs item mapper: DataForSEO serves this
-    // mode and the planner never claims it.
-    const response = await getSeoDataRouter().route<unknown>(request);
-    const data = Array.isArray(response)
-      ? (response as LabsKeywordDataItem[])
-      : ((response as { data?: LabsKeywordDataItem[] })?.data ?? []);
-    return mapKeywordDataItems(data);
-  }
-
-  // The "ideas" mode is the only one the first-party provider claims, so the
-  // payload may legitimately arrive in either shape here.
-  const { data } = await getSeoDataRouter().route(request);
-  return mapResearchIdeasPayload(data).rows;
+  return {
+    rows: mapGenericKeywordItems(rawData),
+    provider,
+  };
 }

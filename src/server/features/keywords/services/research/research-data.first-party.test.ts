@@ -150,7 +150,7 @@ describe("research-data — first-party payload discrimination", () => {
     });
     const { fetchResearchRowsBySource } = await import("./research-data");
 
-    const rows = await fetchResearchRowsBySource(
+    const { rows } = await fetchResearchRowsBySource(
       {
         seedKeyword: "seo tools",
         locationCode: 2840,

@@ -1,3 +1,4 @@
+/* eslint-disable eslint/max-lines */
 import {
   AiOptimizationApi,
   AppendixApi,
@@ -9,7 +10,8 @@ import {
   SerpApi,
 } from "dataforseo-client";
 import { AppError } from "@/server/lib/errors";
-import { getRequiredEnvValue } from "@/server/lib/runtime-env";
+import { getOptionalEnvValue, getRequiredEnvValue } from "@/server/lib/runtime-env";
+import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
 import { getDataforseoContext } from "@/server/lib/dataforseo/context";
 import { parseLegacyDataforseoApiKey } from "@/server/features/settings/dataforseoCrypto";
 import type { ErrorCode } from "@/shared/error-codes";
@@ -370,6 +372,17 @@ function emitDataforseoTrace(
  */
 function createAuthenticatedFetch(classify?: DataforseoErrorClassifier) {
   return async (url: RequestInfo, init?: RequestInit): Promise<Response> => {
+    const envEnabledRaw = await getOptionalEnvValue("DATAFORSEO_ENABLED");
+    if (
+      ["false", "0"].includes(envEnabledRaw ?? "") ||
+      ["false", "0"].includes(process.env.DATAFORSEO_ENABLED ?? "")
+    ) {
+      throw new ProviderUnavailableError(
+        "dataforseo",
+        "DataForSEO is disabled (DATAFORSEO_ENABLED=false)",
+      );
+    }
+
     const basicAuth = await resolveAuthenticatedDataforseoBasicAuth();
     const headers = new Headers(init?.headers);
     headers.set("Authorization", `Basic ${basicAuth}`);

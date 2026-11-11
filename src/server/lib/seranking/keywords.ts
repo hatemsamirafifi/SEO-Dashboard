@@ -1,5 +1,5 @@
-import { z } from "zod";
 import type { SeRankingClient } from "./client";
+import { SeRankingValidationError } from "./errors";
 import {
   seRankingKeywordExportItemSchema,
   seRankingKeywordSuggestionItemSchema,
@@ -17,6 +17,100 @@ function extractArrayData(raw: unknown): unknown[] {
     if ("keywords" in raw && Array.isArray(raw.keywords)) return raw.keywords;
   }
   return [];
+}
+
+export function parseKeywordSuggestionItems(
+  array: unknown[],
+  endpoint = "/keywords/similar",
+): SeRankingKeywordSuggestionItem[] {
+  const result: SeRankingKeywordSuggestionItem[] = [];
+  const errors: Array<{
+    index: number;
+    issues: Array<{ path: string; expected?: string; received?: string; message: string }>;
+  }> = [];
+
+  for (let i = 0; i < array.length; i++) {
+    const parsed = seRankingKeywordSuggestionItemSchema.safeParse(array[i]);
+    if (parsed.success) {
+      result.push(parsed.data);
+    } else {
+      const issues = parsed.error.issues.map((issue) => {
+        const expected = "expected" in issue ? String(issue.expected) : undefined;
+        const received = "received" in issue ? String(issue.received) : undefined;
+        return {
+          path: issue.path.join("."),
+          expected,
+          received,
+          message: issue.message,
+        };
+      });
+      errors.push({ index: i, issues });
+    }
+  }
+
+  if (errors.length > 0) {
+    console.warn(
+      `[seranking] Validation issues on ${endpoint}: ${errors.length}/${array.length} items failed validation:`,
+      JSON.stringify(errors.slice(0, 5)),
+    );
+  }
+
+  if (array.length > 0 && result.length === 0) {
+    throw new SeRankingValidationError(
+      `SE Ranking ${endpoint} returned ${array.length} items, but none matched the expected keyword schema. Validation issues: ${JSON.stringify(errors.slice(0, 3))}`,
+      undefined,
+      200,
+    );
+  }
+
+  return result;
+}
+
+export function parseKeywordExportItems(
+  array: unknown[],
+  endpoint = "/keywords/export",
+): SeRankingKeywordExportItem[] {
+  const result: SeRankingKeywordExportItem[] = [];
+  const errors: Array<{
+    index: number;
+    issues: Array<{ path: string; expected?: string; received?: string; message: string }>;
+  }> = [];
+
+  for (let i = 0; i < array.length; i++) {
+    const parsed = seRankingKeywordExportItemSchema.safeParse(array[i]);
+    if (parsed.success) {
+      result.push(parsed.data);
+    } else {
+      const issues = parsed.error.issues.map((issue) => {
+        const expected = "expected" in issue ? String(issue.expected) : undefined;
+        const received = "received" in issue ? String(issue.received) : undefined;
+        return {
+          path: issue.path.join("."),
+          expected,
+          received,
+          message: issue.message,
+        };
+      });
+      errors.push({ index: i, issues });
+    }
+  }
+
+  if (errors.length > 0) {
+    console.warn(
+      `[seranking] Validation issues on ${endpoint}: ${errors.length}/${array.length} items failed validation:`,
+      JSON.stringify(errors.slice(0, 5)),
+    );
+  }
+
+  if (array.length > 0 && result.length === 0) {
+    throw new SeRankingValidationError(
+      `SE Ranking ${endpoint} returned ${array.length} items, but none matched the expected keyword schema. Validation issues: ${JSON.stringify(errors.slice(0, 3))}`,
+      undefined,
+      200,
+    );
+  }
+
+  return result;
 }
 
 export type KeywordExportOptions = {
@@ -46,7 +140,7 @@ export async function getExportKeywords(
   });
 
   const array = extractArrayData(raw);
-  return z.array(seRankingKeywordExportItemSchema).parse(array);
+  return parseKeywordExportItems(array, "/keywords/export");
 }
 
 export type KeywordDiscoveryOptions = {
@@ -75,7 +169,7 @@ export async function getSimilarKeywords(
   });
 
   const array = extractArrayData(raw);
-  return z.array(seRankingKeywordSuggestionItemSchema).parse(array);
+  return parseKeywordSuggestionItems(array, "/keywords/similar");
 }
 
 export async function getRelatedKeywords(
@@ -95,7 +189,7 @@ export async function getRelatedKeywords(
   });
 
   const array = extractArrayData(raw);
-  return z.array(seRankingKeywordSuggestionItemSchema).parse(array);
+  return parseKeywordSuggestionItems(array, "/keywords/related");
 }
 
 export async function getQuestionKeywords(
@@ -115,7 +209,7 @@ export async function getQuestionKeywords(
   });
 
   const array = extractArrayData(raw);
-  return z.array(seRankingKeywordSuggestionItemSchema).parse(array);
+  return parseKeywordSuggestionItems(array, "/keywords/questions");
 }
 
 export async function getLongTailKeywords(
@@ -135,5 +229,5 @@ export async function getLongTailKeywords(
   });
 
   const array = extractArrayData(raw);
-  return z.array(seRankingKeywordSuggestionItemSchema).parse(array);
+  return parseKeywordSuggestionItems(array, "/keywords/longtail");
 }

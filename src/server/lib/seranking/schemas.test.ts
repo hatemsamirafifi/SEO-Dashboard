@@ -6,6 +6,7 @@ import {
   seRankingKeywordExportItemSchema,
   seRankingSubscriptionSchema,
 } from "./schemas";
+import { parseKeywordSuggestionItems } from "./keywords";
 
 describe("SE Ranking Schemas & API Contracts", () => {
   describe("seRankingHistoryTrendSchema", () => {
@@ -37,6 +38,14 @@ describe("SE Ranking Schemas & API Contracts", () => {
 
     it("defaults undefined to empty array", () => {
       expect(seRankingHistoryTrendSchema.parse(undefined)).toEqual([]);
+    });
+
+    it("parses null history_trend into an empty array without throwing", () => {
+      expect(seRankingHistoryTrendSchema.parse(null)).toEqual([]);
+    });
+
+    it("handles empty object {} into an empty array without throwing", () => {
+      expect(seRankingHistoryTrendSchema.parse({})).toEqual([]);
     });
   });
 
@@ -99,6 +108,75 @@ describe("SE Ranking Schemas & API Contracts", () => {
       expect(parsed.competition).toBeNull();
       expect(parsed.intent).toBeNull();
       expect(parsed.history_trend).toEqual([]);
+    });
+
+    it("parses official SE Ranking contract with null fields and passthrough extra keys", () => {
+      const officialDocItem = {
+        keyword: "1 avocado brownies",
+        volume: 480,
+        cpc: 1.1,
+        difficulty: 28,
+        competition: 0.45,
+        intents: ["I", "C"],
+        serp_features: ["featured_snippets", "images"],
+        history_trend: {
+          "2025-11-01": 400,
+          "2025-12-01": 450,
+        },
+      };
+
+      const parsed = seRankingKeywordSuggestionItemSchema.parse(officialDocItem);
+      expect(parsed.keyword).toBe("1 avocado brownies");
+      expect(parsed.volume).toBe(480);
+      expect(parsed.difficulty).toBe(28);
+      expect(parsed.intent).toBe("informational"); // "I" matches informational
+      expect(parsed.history_trend).toEqual([
+        { date: "2025-11-01", volume: 400 },
+        { date: "2025-12-01", volume: 450 },
+      ]);
+
+      const itemWithNulls = {
+        keyword: "عطور رجالية نادرة",
+        volume: null,
+        cpc: null,
+        difficulty: null,
+        competition: null,
+        intents: null,
+        history_trend: null,
+        serp_features: [],
+      };
+
+      const parsedNulls = seRankingKeywordSuggestionItemSchema.parse(itemWithNulls);
+      expect(parsedNulls.keyword).toBe("عطور رجالية نادرة");
+      expect(parsedNulls.volume).toBeNull();
+      expect(parsedNulls.intent).toBeNull();
+      expect(parsedNulls.history_trend).toEqual([]);
+    });
+
+    it("parseKeywordSuggestionItems safely parses arrays and salvages valid items even if an item has anomalies", () => {
+      const items = [
+        {
+          keyword: "عطور رجالية",
+          volume: 2400,
+          history_trend: null,
+        },
+        {
+          // missing keyword string
+          volume: 1200,
+        },
+        {
+          keyword: "عطور فرنسية",
+          volume: 1800,
+          history_trend: { "2026-01-01": 1800 },
+        },
+      ];
+
+      const results = parseKeywordSuggestionItems(items);
+      expect(results).toHaveLength(2);
+      expect(results[0].keyword).toBe("عطور رجالية");
+      expect(results[0].history_trend).toEqual([]);
+      expect(results[1].keyword).toBe("عطور فرنسية");
+      expect(results[1].history_trend).toEqual([{ date: "2026-01-01", volume: 1800 }]);
     });
 
     it("parses export item schema with body structure", () => {

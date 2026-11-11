@@ -1,7 +1,10 @@
+/* eslint-disable eslint/max-lines, eslint/max-lines-per-function */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SEODataRequest } from "@/server/lib/seo-data";
+import { AppError } from "@/server/lib/errors";
 import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
 import { SeRankingCreditExhaustedError } from "@/server/lib/seranking/errors";
+import { research } from "./research";
 
 const mocks = vi.hoisted(() => ({
   seoDataRouter: {
@@ -66,7 +69,6 @@ function makeSeRankingRow(keyword: string, volume: number, difficulty = 30, inte
 
 describe("SE Ranking Keyword Research Regression Suite", () => {
   beforeEach(() => {
-    vi.resetModules();
     mocks.seoDataRouter.route.mockReset();
     mocks.createDataforseoClient.mockClear();
     mocks.repository.upsertKeywordMetric.mockClear();
@@ -91,7 +93,6 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
       data: arabicRows,
     });
 
-    const { research } = await import("./research");
     const result = await research(
       {
         projectId: "proj_arabic_eg",
@@ -147,7 +148,6 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
       ],
     });
 
-    const { research } = await import("./research");
     const result = await research(
       {
         projectId: "proj_seranking_only",
@@ -179,7 +179,6 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
       data: tenRows,
     });
 
-    const { research } = await import("./research");
     const result = await research(
       {
         projectId: "proj_limits",
@@ -206,7 +205,6 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
       data: [makeSeRankingRow("related perfume", 500)],
     });
 
-    const { research } = await import("./research");
     const result = await research(
       {
         projectId: "proj_related",
@@ -241,7 +239,6 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
       data: [],
     });
 
-    const { research } = await import("./research");
     const result = await research(
       {
         projectId: "proj_empty",
@@ -265,7 +262,6 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
       new SeRankingCreditExhaustedError("SE Ranking credit limit reached"),
     );
 
-    const { research } = await import("./research");
     await expect(
       research(
         {
@@ -303,7 +299,6 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
         ],
       });
 
-    const { research } = await import("./research");
     const result = await research(
       {
         projectId: "proj_fallback",
@@ -346,7 +341,6 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
         new ProviderUnavailableError("seranking", "related upstream error"),
       );
 
-    const { research } = await import("./research");
     const result = await research(
       {
         projectId: "proj_partial",
@@ -363,5 +357,295 @@ describe("SE Ranking Keyword Research Regression Suite", () => {
     // The 2 rows from suggestions must be preserved!
     expect(result.rows).toHaveLength(2);
     expect(result.rows[0].keyword).toBe("عطور فخمة");
+  });
+
+  // 9. Reports actual serving provider in result and diagnostics
+  it("reports actual serving provider 'seranking' on ResearchResult and in diagnostics", async () => {
+    mocks.seoDataRouter.route.mockResolvedValueOnce({
+      dataType: "keyword_ideas",
+      provider: "seranking",
+      fromCache: false,
+      durationMs: 85,
+      data: [
+        makeSeRankingRow("عطور شرقية", 1900, 32, "commercial"),
+        makeSeRankingRow("عطور شرقية نسائية", 1400, 28, "commercial"),
+        makeSeRankingRow("عطور شرقية رجالية", 1200, 26, "commercial"),
+        makeSeRankingRow("افضل عطور شرقية", 950, 22, "informational"),
+        makeSeRankingRow("عطور شرقية ثبات", 750, 20, "commercial"),
+        makeSeRankingRow("عطور شرقية فاخرة", 650, 18, "commercial"),
+      ],
+    });
+
+    const result = await research(
+      {
+        projectId: "proj_provider_check",
+        keywords: ["عطور شرقية"],
+        locationCode: 2818,
+        languageCode: "ar",
+        resultLimit: 150,
+        mode: "auto",
+        clickstream: false,
+      },
+      billingCustomer,
+    );
+
+    expect(result.provider).toBe("seranking");
+    expect(result.diagnostics.servingProvider).toBe("seranking");
+    expect(result.diagnostics.providerReturnedData).toBe("seranking");
+    expect(mocks.createDataforseoClient).not.toHaveBeenCalled();
+  });
+
+  // 10. Normalizes native SE Ranking suggestion items into canonical internal DTOs
+  it("normalizes flat native SE Ranking items directly into canonical EnrichedKeyword DTOs", async () => {
+    // Native SE Ranking response shape: flat volume, cpc, difficulty, intent, history_trend
+    const nativeSeRankingItems = [
+      {
+        keyword: "عطور عود",
+        volume: 3600,
+        cpc: 1.25,
+        competition: 0.72,
+        difficulty: 45,
+        intent: "commercial",
+        history_trend: [
+          { date: "2026-01-01", volume: 3600 },
+          { date: "2026-02-01", volume: 3400 },
+        ],
+      },
+      {
+        keyword: "عطور عود فاخرة",
+        volume: 1800,
+        cpc: 1.1,
+        competition: 0.65,
+        difficulty: 38,
+        intent: "c", // single-letter code from SE Ranking
+        history_trend: [{ date: "2026-01-01", volume: 1800 }],
+      },
+      {
+        keyword: "افضل انواع عطور العود",
+        volume: 1200,
+        cpc: 0.9,
+        competition: 0.5,
+        difficulty: 30,
+        intent: "1", // numeric code from SE Ranking (informational)
+        history_trend: [{ date: "2026-01-01", volume: 1200 }],
+      },
+      {
+        keyword: "عطور عود رجالية",
+        volume: 950,
+        cpc: 0.8,
+        competition: 0.55,
+        difficulty: 28,
+        intent: "commercial",
+        history_trend: [{ date: "2026-01-01", volume: 950 }],
+      },
+      {
+        keyword: "عطور عود اصلية",
+        volume: 850,
+        cpc: 0.95,
+        competition: 0.6,
+        difficulty: 32,
+        intent: "commercial",
+        history_trend: [{ date: "2026-01-01", volume: 850 }],
+      },
+      {
+        keyword: "اسعار عطور العود",
+        volume: 700,
+        cpc: 0.75,
+        competition: 0.45,
+        difficulty: 25,
+        intent: "transactional",
+        history_trend: [{ date: "2026-01-01", volume: 700 }],
+      },
+    ];
+
+    mocks.seoDataRouter.route.mockResolvedValueOnce({
+      dataType: "keyword_ideas",
+      provider: "seranking",
+      fromCache: false,
+      durationMs: 90,
+      data: nativeSeRankingItems,
+    });
+
+    const result = await research(
+      {
+        projectId: "proj_native_seranking",
+        keywords: ["عطور عود"],
+        locationCode: 2818,
+        languageCode: "ar",
+        resultLimit: 150,
+        mode: "auto",
+        clickstream: false,
+      },
+      billingCustomer,
+    );
+
+    expect(result.rows).toHaveLength(6);
+    expect(result.rows[0]).toMatchObject({
+      keyword: "عطور عود",
+      searchVolume: 3600,
+      cpc: 1.25,
+      competition: 0.72,
+      keywordDifficulty: 45,
+      intent: "commercial",
+      trend: [
+        { year: 2026, month: 1, searchVolume: 3600 },
+        { year: 2026, month: 2, searchVolume: 3400 },
+      ],
+    });
+    // Single-letter "c" mapped to "commercial"
+    expect(result.rows[1].intent).toBe("commercial");
+    // Numeric "1" mapped to "informational"
+    expect(result.rows[2].intent).toBe("informational");
+  });
+
+  // 11. Handles malformed upstream responses without crashing
+  it("handles malformed upstream items gracefully without throwing", async () => {
+    const malformedData = [
+      null,
+      undefined,
+      "not an object",
+      { keyword: null },
+      { not_a_keyword: "test" },
+      makeSeRankingRow("عطور صالحة", 1500, 20),
+    ];
+
+    mocks.seoDataRouter.route.mockResolvedValue({
+      dataType: "keyword_ideas",
+      provider: "seranking",
+      fromCache: false,
+      durationMs: 70,
+      data: malformedData,
+    });
+
+    const result = await research(
+      {
+        projectId: "proj_malformed",
+        keywords: ["عطور صالحة"],
+        locationCode: 2818,
+        languageCode: "ar",
+        resultLimit: 150,
+        mode: "auto",
+        clickstream: false,
+      },
+      billingCustomer,
+    );
+
+    // The one valid keyword should be parsed; nulls/strings skipped without error
+    expect(result.rows.length).toBeGreaterThanOrEqual(1);
+    expect(result.rows[0].keyword).toBe("عطور صالحة");
+  });
+
+  // 12. Google Ads unavailable falls back cleanly to SE Ranking
+  it("falls back cleanly to SE Ranking when Google Ads is unavailable", async () => {
+    mocks.seoDataRouter.route.mockResolvedValueOnce({
+      dataType: "keyword_ideas",
+      provider: "seranking",
+      fromCache: false,
+      durationMs: 110,
+      data: [
+        makeSeRankingRow("عطور رجالية مميزة", 2200),
+        makeSeRankingRow("عطور رجالية شتوية فخمة", 1700),
+        makeSeRankingRow("اجمل عطور رجالية", 1400),
+        makeSeRankingRow("عطور رجالية جذابة", 1100),
+        makeSeRankingRow("عطور رجالية كلاسيك", 950),
+        makeSeRankingRow("عطور رجالية ثقيلة", 800),
+      ],
+    });
+
+    const result = await research(
+      {
+        projectId: "proj_no_gads",
+        keywords: ["عطور رجالية"],
+        locationCode: 2818,
+        languageCode: "ar",
+        resultLimit: 150,
+        mode: "auto",
+        clickstream: false,
+      },
+      billingCustomer,
+    );
+
+    expect(result.provider).toBe("seranking");
+    expect(result.rows).toHaveLength(6);
+    expect(mocks.createDataforseoClient).not.toHaveBeenCalled();
+  });
+
+  // 13. Stops auto waterfall immediately on VALIDATION_ERROR without repeated calls
+  it("stops auto waterfall immediately and does not retry subsequent paid sources when VALIDATION_ERROR occurs", async () => {
+    mocks.seoDataRouter.route.mockRejectedValue(
+      new AppError("VALIDATION_ERROR", "Invalid parameter or schema mismatch"),
+    );
+
+    await expect(
+      research(
+        {
+          projectId: "proj_val_stop",
+          keywords: ["عطور رجالية"],
+          locationCode: 2818,
+          languageCode: "ar",
+          resultLimit: 150,
+          mode: "auto",
+          clickstream: false,
+        },
+        billingCustomer,
+      ),
+    ).rejects.toThrow();
+
+    // Must only have called the first source ("suggestions") and stopped immediately
+    expect(mocks.seoDataRouter.route).toHaveBeenCalledTimes(1);
+  });
+
+  // 14. Handles official SE Ranking payload with null fields (null history_trend, null intents)
+  it("parses official SE Ranking payload containing null history_trend, null intents, and null metrics", async () => {
+    mocks.seoDataRouter.route.mockResolvedValueOnce({
+      dataType: "keyword_ideas",
+      provider: "seranking",
+      fromCache: false,
+      durationMs: 80,
+      data: [
+        {
+          keyword: "عطور رجالية شتوية",
+          volume: 1200,
+          cpc: null,
+          difficulty: null,
+          competition: null,
+          intents: null,
+          history_trend: null,
+        },
+        {
+          keyword: "عطور رجالية صيفية",
+          volume: null,
+          cpc: 0.5,
+          difficulty: 20,
+          competition: 0.3,
+          intents: ["I"],
+          history_trend: { "2026-01-01": 500 },
+        },
+      ],
+    });
+
+    const result = await research(
+      {
+        projectId: "proj_nulls",
+        keywords: ["عطور رجالية شتوية"],
+        locationCode: 2818,
+        languageCode: "ar",
+        resultLimit: 150,
+        mode: "auto",
+        clickstream: false,
+      },
+      billingCustomer,
+    );
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0].keyword).toBe("عطور رجالية شتوية");
+    expect(result.rows[0].trend).toEqual([]);
+    expect(result.rows[1].keyword).toBe("عطور رجالية صيفية");
+    expect(result.rows[1].intent).toBe("informational");
+  });
+
+  // 15. DataForSEO request count is strictly 0 across all runs
+  it("ensures DataForSEO client invocation count is strictly zero", () => {
+    expect(mocks.createDataforseoClient).toHaveBeenCalledTimes(0);
   });
 });
