@@ -17,9 +17,11 @@ import {
   testSeRankingConnectionFn,
   type SeRankingConnectionTestResult,
 } from "@/serverFunctions/serankingSettings";
+import { migrateSeRankingAccountFn } from "@/serverFunctions/rank-tracking-targets";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { formatSource } from "./DataforseoSettingsParts";
 import { formatCircuitRetryAfter } from "./ProviderCircuitStatus";
+import { SeRankingSyncStatusSection } from "./SeRankingSyncStatusSection";
 
 export function SeRankingSettingsCard({
   projectId,
@@ -60,23 +62,38 @@ export function SeRankingSettingsCard({
   }, [query.data]);
 
   const save = useMutation({
-    mutationFn: () =>
-      saveSeRankingSettingsFn({
+    mutationFn: async () => {
+      const submittedKey = apiKey.trim();
+      const saved = await saveSeRankingSettingsFn({
         data: {
           projectId,
           patch: {
-            apiKey: apiKey.trim() || undefined,
+            apiKey: submittedKey || undefined,
             enabled,
             circuitBreakerEnabled: circuitBreaker,
             maxRetries: retries,
             priority,
           },
         },
-      }),
-    onSuccess: async () => {
+      });
+      return { saved, submittedKey };
+    },
+    onSuccess: async ({ submittedKey }) => {
       toast.success("SE Ranking settings saved");
       setApiKey("");
       await queryClient.invalidateQueries({ queryKey });
+      if (submittedKey && !projectId && enabled) {
+        try {
+          await migrateSeRankingAccountFn({
+            data: { newApiKey: submittedKey },
+          });
+        } catch {
+          // Migration status & retry control remain visible in Sync Status section.
+        }
+      }
+      await queryClient.invalidateQueries({
+        queryKey: ["seRankingSyncStatus"],
+      });
     },
     onError: (error) =>
       toast.error(
@@ -261,6 +278,27 @@ export function SeRankingSettingsCard({
                 token and subscription status.
               </div>
             )}
+            {testResult.projectApi && (
+              <div className="text-[11px] opacity-90">
+                Project API (Rank Tracking):{" "}
+                <span className="font-semibold">
+                  {testResult.projectApi.accessible ? "Accessible" : "Blocked"}
+                </span>
+                {testResult.projectApi.siteCount != null && (
+                  <span> · {testResult.projectApi.siteCount} site(s)</span>
+                )}
+                {testResult.projectApi.trackedKeywords != null && (
+                  <span>
+                    {" "}
+                    · {testResult.projectApi.trackedKeywords.toLocaleString()}{" "}
+                    tracked keyword(s)
+                  </span>
+                )}
+                {testResult.projectApi.detail && (
+                  <span> · {testResult.projectApi.detail}</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -383,6 +421,11 @@ export function SeRankingSettingsCard({
           Save
         </button>
       </div>
+
+      <SeRankingSyncStatusSection
+        configured={!!data?.configured}
+        projectId={projectId}
+      />
     </div>
   );
 }

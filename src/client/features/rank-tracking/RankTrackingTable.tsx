@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
 import { FileDown, Loader2, Play, SearchX, Sheet, Trash2 } from "lucide-react";
-import { Modal } from "@/client/components/Modal";
 import {
   AppDataTable,
   useAppTable,
@@ -18,9 +17,16 @@ import { exportTableToSheets } from "@/client/lib/exportToSheets";
 import { captureClientEvent } from "@/client/lib/posthog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { removeTrackingKeywords } from "@/serverFunctions/rank-tracking";
+import {
+  BulkTargetAssignControl,
+  RemoveKeywordsConfirmModal,
+} from "./RankTrackingTargetAssignControl";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import type { ColumnSizingState, Updater } from "@tanstack/react-table";
-import type { RankTrackingRow } from "@/types/schemas/rank-tracking";
+import type {
+  RankTrackingRow,
+  RankTrackingTarget,
+} from "@/types/schemas/rank-tracking";
 import { useRankTrackingColumns } from "./RankTrackingColumns";
 
 const COLUMN_SIZING_KEY = "rank-tracking-column-sizing";
@@ -61,6 +67,9 @@ export function RankTrackingTable({
   locationCode,
   locationName,
   serpDepth,
+  trackingTargetId,
+  targets,
+  targetIdsByKeyword,
   onCheckSelected,
   onCheckMissingSelected,
   checkSelectedBusy,
@@ -78,6 +87,9 @@ export function RankTrackingTable({
   locationCode: number;
   locationName?: string | null;
   serpDepth: number;
+  trackingTargetId?: string;
+  targets?: RankTrackingTarget[];
+  targetIdsByKeyword?: Record<string, string[]>;
   onCheckSelected: (keywordIds: string[]) => void;
   onCheckMissingSelected: (keywordIds: string[]) => void;
   checkSelectedBusy: boolean;
@@ -124,6 +136,8 @@ export function RankTrackingTable({
     locationName,
     isChecking,
     serpDepth,
+    targets,
+    targetIdsByKeyword,
   });
 
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() =>
@@ -298,6 +312,11 @@ export function RankTrackingTable({
             >
               Remove
             </TableBulkActionButton>
+            <BulkTargetAssignControl
+              projectId={projectId}
+              targets={targets}
+              selectedKeywordIds={selectedKeywordIds}
+            />
             <TableBulkExportMenu
               actions={[
                 {
@@ -316,42 +335,13 @@ export function RankTrackingTable({
         }
       />
 
-      {/* Confirm modal */}
       {showConfirm && (
-        <Modal
+        <RemoveKeywordsConfirmModal
+          selectedCount={selectedCount}
+          isPending={removeMutation.isPending}
+          onConfirm={() => removeMutation.mutate(selectedRows.map((r) => r.id))}
           onClose={() => setShowConfirm(false)}
-          labelledBy="remove-keywords-title"
-        >
-          <h3 id="remove-keywords-title" className="text-lg font-semibold">
-            Remove keywords?
-          </h3>
-          <p className="text-sm text-base-content/70">
-            This will stop tracking {selectedCount} keyword
-            {selectedCount !== 1 ? "s" : ""}. Historical ranking data is
-            preserved but won't appear in the table.
-          </p>
-          <div className="flex justify-end gap-2">
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setShowConfirm(false)}
-            >
-              Cancel
-            </button>
-            <button
-              className="btn btn-error btn-sm gap-1"
-              onClick={() =>
-                removeMutation.mutate(selectedRows.map((r) => r.id))
-              }
-              disabled={removeMutation.isPending}
-            >
-              {removeMutation.isPending && (
-                <Loader2 className="size-3 animate-spin" />
-              )}
-              Remove {selectedCount} keyword
-              {selectedCount !== 1 ? "s" : ""}
-            </button>
-          </div>
-        </Modal>
+        />
       )}
 
       {trendTarget && (
@@ -363,6 +353,11 @@ export function RankTrackingTable({
           locationCode={locationCode}
           locationName={locationName ?? undefined}
           serpDepth={serpDepth}
+          trackingTargetId={trackingTargetId}
+          targets={targets}
+          assignedTargetIds={
+            targetIdsByKeyword?.[trendTarget.trackingKeywordId]
+          }
           onClose={() => setTrendTarget(null)}
         />
       )}

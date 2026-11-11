@@ -23,6 +23,7 @@ export async function getLatestResults(
   configId: string,
   projectId: string,
   comparePeriod: ComparePeriod = "7d",
+  trackingTargetId?: string,
 ): Promise<{
   rows: RankTrackingRow[];
   run: { id: string; lastCheckedAt: string } | null;
@@ -44,11 +45,21 @@ export async function getLatestResults(
     RankTrackingRepository.getConfigById({ configId, projectId }),
     RankTrackingRepository.getKeywordsForConfig(configId),
     // Latest snapshot attempt per keyword per device (including terminal failed/partial runs)
-    RankTrackingRepository.getLatestSnapshotsForKeywords(configId),
+    RankTrackingRepository.getLatestSnapshotsForKeywords(
+      configId,
+      trackingTargetId,
+    ),
     // Latest valid observation per keyword per device (RANKED or NO_RESULT only)
-    RankTrackingRepository.getLatestValidSnapshotsForKeywords(configId),
+    RankTrackingRepository.getLatestValidSnapshotsForKeywords(
+      configId,
+      trackingTargetId,
+    ),
     // Comparison snapshots from before the target date (excluding failed attempts)
-    RankTrackingRepository.getSnapshotsBeforeDate(configId, targetDate),
+    RankTrackingRepository.getSnapshotsBeforeDate(
+      configId,
+      targetDate,
+      trackingTargetId,
+    ),
   ]);
   if (!config) {
     throw new AppError("INTERNAL_ERROR", "Rank tracking config not found");
@@ -86,6 +97,7 @@ export async function getLatestResults(
       await RankTrackingRepository.getEarliestSnapshotsForKeywords(
         configId,
         uniqueMissingIds,
+        trackingTargetId,
       );
     for (const snap of earliestSnapshots) {
       const key = `${snap.trackingKeywordId}:${snap.device}`;
@@ -177,12 +189,15 @@ export function toDeviceResult(
   latestValidPosition?: number | null,
 ): RankTrackingDeviceResult {
   const isFailed = snapshot.rankingStatus === "CHECK_FAILED";
+  const isNotChecked = snapshot.rankingStatus === "NOT_CHECKED";
   const isRanked = snapshot.position !== null;
   const status: RankTrackingDeviceResult["status"] = isFailed
     ? "failed"
-    : isRanked
-      ? "ranked"
-      : "not_ranking";
+    : isNotChecked
+      ? "not_checked"
+      : isRanked
+        ? "ranked"
+        : "not_ranking";
 
   let errorCode: string | null = null;
   if (snapshot.providerStatusCode === 40201) {
@@ -194,15 +209,16 @@ export function toDeviceResult(
   return {
     position: snapshot.position,
     previousPosition,
-    rankingUrl: isFailed ? null : snapshot.url,
-    serpFeatures: parseSerpFeatures(snapshot.serpFeatures),
+    rankingUrl: isFailed || isNotChecked ? null : snapshot.url,
+    serpFeatures: isNotChecked ? [] : parseSerpFeatures(snapshot.serpFeatures),
     checkedAt: snapshot.checkedAt,
     status,
     rankingStatus:
       snapshot.rankingStatus ?? (isRanked ? "RANKED" : "NO_RESULT"),
-    latestValidPosition: isFailed
-      ? (latestValidPosition ?? null)
-      : snapshot.position,
+    latestValidPosition:
+      isFailed || isNotChecked
+        ? (latestValidPosition ?? null)
+        : snapshot.position,
     errorCode,
     errorMessage: snapshot.errorMessage,
     providerStatus: snapshot.providerStatus,

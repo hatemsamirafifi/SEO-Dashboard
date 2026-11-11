@@ -105,6 +105,14 @@ vi.mock("@/server/billing/autumn", () => ({
 }));
 vi.mock("@/server/lib/runtime-env", () => ({
   isHostedServerAuthMode: runtimeEnvMocks.isHostedServerAuthMode,
+  getOptionalEnvValue: async () => undefined,
+}));
+vi.mock("@/server/features/settings/services/SeRankingSettingsService", () => ({
+  resolveEffectiveSeRankingConfig: async () => ({
+    enabled: false,
+    apiKey: null,
+    source: "none",
+  }),
 }));
 
 const activeRun = { id: "run_1", status: "pending", keywordsTotal: 0 };

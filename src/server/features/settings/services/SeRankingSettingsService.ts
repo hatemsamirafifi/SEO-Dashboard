@@ -17,6 +17,7 @@ import {
 } from "@/server/features/serp/circuitBreaker";
 import { clampProviderRetries } from "@/server/features/serp/retryPolicy";
 import { SeRankingClient } from "@/server/lib/seranking/client";
+import { validateProjectApiAccess } from "@/server/lib/seranking/projectAccess";
 import {
   SeRankingAuthError,
   SeRankingCreditExhaustedError,
@@ -70,6 +71,12 @@ export type SeRankingConnectionTestResult = {
   balance?: number | null;
   unitsLimit?: number | null;
   subscriptionStatus?: string | null;
+  projectApi?: {
+    accessible: boolean;
+    siteCount?: number;
+    trackedKeywords?: number;
+    detail?: string;
+  };
 };
 
 export const DEFAULT_SERANKING_PRIORITY = 1;
@@ -392,6 +399,25 @@ export async function testSeRankingConnection(params: {
   };
 
   try {
+    let projectApiSummary: SeRankingConnectionTestResult["projectApi"] =
+      undefined;
+    try {
+      const report = await validateProjectApiAccess(client);
+      projectApiSummary = {
+        accessible: report.projectApi.accessible,
+        siteCount: report.sites.length,
+        trackedKeywords:
+          typeof report.trackedKeywordCapacity.used === "number"
+            ? report.trackedKeywordCapacity.used
+            : undefined,
+      };
+    } catch (projErr) {
+      projectApiSummary = {
+        accessible: false,
+        detail: projErr instanceof Error ? projErr.message : String(projErr),
+      };
+    }
+
     const sub = await client.getSubscription();
 
     console.info("[seranking-connection-test] Diagnostics", {
@@ -401,6 +427,7 @@ export async function testSeRankingConnection(params: {
       subscriptionStatus: sub.status,
       unitsLeft: sub.units_left,
       unitsLimit: sub.units_limit,
+      projectApiAccessible: projectApiSummary?.accessible,
     });
 
     if (sub.units_left != null && sub.units_left <= 0) {
@@ -411,6 +438,7 @@ export async function testSeRankingConnection(params: {
         balance: sub.units_left,
         unitsLimit: sub.units_limit,
         subscriptionStatus: sub.status,
+        projectApi: projectApiSummary,
       };
     }
     closeProviderCircuit(identity);
@@ -421,6 +449,7 @@ export async function testSeRankingConnection(params: {
       balance: sub.units_left,
       unitsLimit: sub.units_limit,
       subscriptionStatus: sub.status,
+      projectApi: projectApiSummary,
     };
   } catch (error) {
     let classification: SeRankingConnectionTestResult["reason"] =

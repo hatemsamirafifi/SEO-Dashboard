@@ -138,8 +138,10 @@ describe("DataForSEO account request slots migration", () => {
     // set the precedent of forward entries without new drizzle-kit snapshots).
     const sqliteEntries = journalEntries("drizzle/meta/_journal.json");
     const pgEntries = journalEntries("drizzle-pg/meta/_journal.json");
-    expect(sqliteEntries.at(-2)?.tag).toBe("0076_indexnow_key");
-    expect(pgEntries.at(-2)?.tag).toBe("0054_indexnow_key");
+    const sqliteIdx = sqliteEntries.findIndex((entry) => entry.idx === 77);
+    const pgIdx = pgEntries.findIndex((entry) => entry.idx === 55);
+    expect(sqliteEntries[sqliteIdx - 1]?.tag).toBe("0076_indexnow_key");
+    expect(pgEntries[pgIdx - 1]?.tag).toBe("0054_indexnow_key");
   });
 
   it("emits the equivalent Postgres table (same columns, PK, defaults)", () => {

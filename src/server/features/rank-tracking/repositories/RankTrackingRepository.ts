@@ -1,4 +1,13 @@
-import { and, count, desc, eq, inArray, isNull, lte } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+} from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import { db } from "@/db";
 import {
@@ -25,6 +34,18 @@ import { getLatestRankingFactsForConfig } from "./missingRankingQueries";
 // ---------------------------------------------------------------------------
 // Config CRUD
 // ---------------------------------------------------------------------------
+
+async function getProjectsForOrganization(organizationId: string) {
+  return db
+    .select()
+    .from(projects)
+    .where(
+      and(
+        eq(projects.organizationId, organizationId),
+        isNull(projects.archivedAt),
+      ),
+    );
+}
 
 async function getConfigsForProject(projectId: string) {
   return db
@@ -228,23 +249,41 @@ async function insertSnapshots(
     Omit<InferInsertModel<typeof rankSnapshots>, "id" | "checkedAt">
   >,
 ) {
-  // Target the (run, keyword, device) unique index explicitly. An UNtargeted
-  // ON CONFLICT DO NOTHING also swallows a primary-key collision, which would
-  // silently drop every row if the `id` serial sequence ever drifts behind
-  // max(id) (e.g. after a data import that copied explicit ids). Scoping the
-  // clause to the intended dedupe index keeps re-runs idempotent while letting
-  // a pk collision surface as a loud duplicate-key error instead of data loss.
+  // Target the partial unique indexes explicitly so primary-key drift never gets
+  // swallowed while target-aware multi-country observations and legacy rows are
+  // each deduplicated safely even when `location` or `language` is NULL.
+  // Note: drizzle-orm's sqlite-core `onConflictDoNothing({ target, where })`
+  // currently emits invalid SQL (`DO NOTHING WHERE ...`), whereas
+  // `onConflictDoUpdate({ target, targetWhere, set })` emits valid
+  // `ON CONFLICT (...) WHERE ... DO UPDATE SET ...` in both SQLite and PG.
   await executeInBatches(snapshots, (tx, snapshot) =>
-    tx
-      .insert(rankSnapshots)
-      .values(snapshot)
-      .onConflictDoNothing({
-        target: [
-          rankSnapshots.runId,
-          rankSnapshots.trackingKeywordId,
-          rankSnapshots.device,
-        ],
-      }),
+    snapshot.trackingTargetId !== null &&
+    snapshot.trackingTargetId !== undefined
+      ? tx
+          .insert(rankSnapshots)
+          .values(snapshot)
+          .onConflictDoUpdate({
+            target: [
+              rankSnapshots.runId,
+              rankSnapshots.trackingTargetId,
+              rankSnapshots.trackingKeywordId,
+              rankSnapshots.device,
+            ],
+            targetWhere: isNotNull(rankSnapshots.trackingTargetId),
+            set: { trackingKeywordId: snapshot.trackingKeywordId },
+          })
+      : tx
+          .insert(rankSnapshots)
+          .values(snapshot)
+          .onConflictDoUpdate({
+            target: [
+              rankSnapshots.runId,
+              rankSnapshots.trackingKeywordId,
+              rankSnapshots.device,
+            ],
+            targetWhere: isNull(rankSnapshots.trackingTargetId),
+            set: { trackingKeywordId: snapshot.trackingKeywordId },
+          }),
   );
 }
 
@@ -394,6 +433,7 @@ async function getKeywordCountForConfig(configId: string) {
 }
 
 export const RankTrackingRepository = {
+  getProjectsForOrganization,
   getConfigsForProject,
   getConfigById,
   getConfigByProjectDomainLocation,

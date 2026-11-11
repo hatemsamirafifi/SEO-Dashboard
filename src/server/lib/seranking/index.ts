@@ -11,6 +11,10 @@ export * from "./client";
 export * from "./keywords";
 export * from "./domains";
 export * from "./backlinks";
+export * from "./projectSchemas";
+export * from "./projectCatalog";
+export * from "./projectAccess";
+export * from "./project";
 
 export function createSeRankingClient(
   config: SeRankingConfig,

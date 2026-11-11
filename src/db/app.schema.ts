@@ -360,6 +360,9 @@ export const rankSnapshots = sqliteTable(
     providerStatus: text("provider_status"),
     providerStatusCode: integer("provider_status_code"),
     errorMessage: text("error_message"),
+    trackingTargetId: text("tracking_target_id"),
+    countryCode: text("country_code"),
+    cityName: text("city_name"),
     checkedAt: text("checked_at")
       .notNull()
       .default(sql`(current_timestamp)`),
@@ -379,10 +382,20 @@ export const rankSnapshots = sqliteTable(
       table.device,
       table.checkedAt,
     ),
-    uniqueIndex("rank_snapshots_run_keyword_device_idx").on(
-      table.runId,
-      table.trackingKeywordId,
-      table.device,
+    uniqueIndex("rank_snapshots_run_target_kw_device_idx")
+      .on(
+        table.runId,
+        table.trackingTargetId,
+        table.trackingKeywordId,
+        table.device,
+      )
+      .where(sql`${table.trackingTargetId} IS NOT NULL`),
+    uniqueIndex("rank_snapshots_legacy_run_kw_device_idx")
+      .on(table.runId, table.trackingKeywordId, table.device)
+      .where(sql`${table.trackingTargetId} IS NULL`),
+    index("rank_snapshots_target_checked_idx").on(
+      table.trackingTargetId,
+      table.checkedAt,
     ),
     index("rank_snapshots_project_kw_checked_idx").on(
       table.projectId,
@@ -396,6 +409,256 @@ export const rankSnapshots = sqliteTable(
     index("rank_snapshots_project_date_idx").on(
       table.projectId,
       table.checkedDate,
+    ),
+  ],
+);
+
+// Local tracking targets for multi-country, multi-city, multi-language tracking
+export const rankTrackingTargets = sqliteTable(
+  "rank_tracking_targets",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    localProjectId: text("local_project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    trackingConfigId: text("tracking_config_id").references(
+      () => rankTrackingConfigs.id,
+      { onDelete: "cascade" },
+    ),
+    searchEngine: text("search_engine").notNull().default("google"),
+    countryCode: text("country_code").notNull(),
+    regionCode: text("region_code"),
+    cityName: text("city_name"),
+    languageCode: text("language_code").notNull().default("en"),
+    device: text("device", { enum: ["desktop", "mobile"] }).notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    index("rank_tracking_targets_project_idx").on(
+      table.localProjectId,
+      table.enabled,
+    ),
+    index("rank_tracking_targets_config_idx").on(
+      table.trackingConfigId,
+      table.enabled,
+    ),
+    uniqueIndex("rank_tracking_targets_national_idx")
+      .on(
+        table.localProjectId,
+        table.searchEngine,
+        table.countryCode,
+        table.languageCode,
+        table.device,
+      )
+      .where(sql`${table.cityName} IS NULL`),
+    uniqueIndex("rank_tracking_targets_local_idx")
+      .on(
+        table.localProjectId,
+        table.searchEngine,
+        table.countryCode,
+        table.cityName,
+        table.languageCode,
+        table.device,
+      )
+      .where(sql`${table.cityName} IS NOT NULL`),
+  ],
+);
+
+// Mapping of locally tracked keywords to target tracking dimensions
+export const rankTrackingKeywordTargets = sqliteTable(
+  "rank_tracking_keyword_targets",
+  {
+    id: text("id").primaryKey(),
+    trackingKeywordId: text("tracking_keyword_id")
+      .notNull()
+      .references(() => rankTrackingKeywords.id, { onDelete: "cascade" }),
+    trackingTargetId: text("tracking_target_id")
+      .notNull()
+      .references(() => rankTrackingTargets.id, { onDelete: "cascade" }),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    uniqueIndex("rank_tracking_keyword_targets_kw_target_idx").on(
+      table.trackingKeywordId,
+      table.trackingTargetId,
+    ),
+    index("rank_tracking_keyword_targets_target_idx").on(
+      table.trackingTargetId,
+      table.enabled,
+    ),
+  ],
+);
+
+// SE Ranking Provider Account Bindings
+export const seRankingAccountBindings = sqliteTable(
+  "se_ranking_account_bindings",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    accountFingerprint: text("account_fingerprint").notNull(),
+    credentialVersion: integer("credential_version").notNull().default(1),
+    status: text("status", {
+      enum: ["active", "migration_required", "disconnected"],
+    })
+      .notNull()
+      .default("active"),
+    lastValidatedAt: text("last_validated_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    index("se_ranking_account_bindings_org_status_idx").on(
+      table.organizationId,
+      table.status,
+    ),
+    index("se_ranking_account_bindings_fingerprint_idx").on(
+      table.accountFingerprint,
+    ),
+  ],
+);
+
+// SE Ranking Project Bindings (OpenSEO project -> remote SE Ranking site)
+export const seRankingProjectBindings = sqliteTable(
+  "se_ranking_project_bindings",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    localProjectId: text("local_project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    providerAccountBindingId: text("provider_account_binding_id")
+      .notNull()
+      .references(() => seRankingAccountBindings.id, { onDelete: "cascade" }),
+    remoteSiteId: integer("remote_site_id"),
+    status: text("status", {
+      enum: [
+        "pending",
+        "syncing",
+        "connected",
+        "migration_required",
+        "paused",
+        "failed",
+      ],
+    })
+      .notNull()
+      .default("pending"),
+    lastSuccessfulSync: text("last_successful_sync"),
+    errorMessage: text("error_message"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    uniqueIndex("se_ranking_project_bindings_project_account_idx").on(
+      table.localProjectId,
+      table.providerAccountBindingId,
+    ),
+    index("se_ranking_project_bindings_project_status_idx").on(
+      table.localProjectId,
+      table.status,
+    ),
+  ],
+);
+
+// SE Ranking Search Engine Bindings (OpenSEO target -> remote site_engine_id)
+export const seRankingEngineBindings = sqliteTable(
+  "se_ranking_engine_bindings",
+  {
+    id: text("id").primaryKey(),
+    projectBindingId: text("project_binding_id")
+      .notNull()
+      .references(() => seRankingProjectBindings.id, { onDelete: "cascade" }),
+    trackingTargetId: text("tracking_target_id")
+      .notNull()
+      .references(() => rankTrackingTargets.id, { onDelete: "cascade" }),
+    remoteSiteEngineId: integer("remote_site_engine_id").notNull(),
+    remoteSearchEngineId: integer("remote_search_engine_id").notNull(),
+    remoteRegionId: integer("remote_region_id"),
+    remoteRegionName: text("remote_region_name"),
+    remoteLanguageCode: text("remote_language_code"),
+    syncStatus: text("sync_status", {
+      enum: ["pending", "connected", "migration_required", "failed"],
+    })
+      .notNull()
+      .default("connected"),
+    lastSuccessfulSync: text("last_successful_sync"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    uniqueIndex("se_ranking_engine_bindings_binding_target_idx").on(
+      table.projectBindingId,
+      table.trackingTargetId,
+    ),
+    index("se_ranking_engine_bindings_site_engine_idx").on(
+      table.projectBindingId,
+      table.remoteSiteEngineId,
+    ),
+  ],
+);
+
+// SE Ranking Keyword Mappings (Local keyword -> remote keyword ID in project)
+export const seRankingKeywordMappings = sqliteTable(
+  "se_ranking_keyword_mappings",
+  {
+    id: text("id").primaryKey(),
+    projectBindingId: text("project_binding_id")
+      .notNull()
+      .references(() => seRankingProjectBindings.id, { onDelete: "cascade" }),
+    trackingKeywordId: text("tracking_keyword_id")
+      .notNull()
+      .references(() => rankTrackingKeywords.id, { onDelete: "cascade" }),
+    remoteKeywordId: text("remote_keyword_id").notNull(),
+    status: text("status", {
+      enum: ["synced", "pending", "failed"],
+    })
+      .notNull()
+      .default("synced"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(current_timestamp)`),
+  },
+  (table) => [
+    uniqueIndex("se_ranking_keyword_mappings_binding_kw_idx").on(
+      table.projectBindingId,
+      table.trackingKeywordId,
+    ),
+    index("se_ranking_keyword_mappings_remote_kw_idx").on(
+      table.projectBindingId,
+      table.remoteKeywordId,
     ),
   ],
 );

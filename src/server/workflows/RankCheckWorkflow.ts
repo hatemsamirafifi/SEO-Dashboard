@@ -32,6 +32,8 @@ import {
 } from "@/shared/rank-tracking";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import { createRankSerpResolver } from "@/server/features/serp/providerResolver";
+import { resolveEffectiveSeRankingConfig } from "@/server/features/settings/services/SeRankingSettingsService";
+import { runSeRankingCheck } from "@/server/workflows/seRankingCheckExecution";
 
 const SINGLE_ATTEMPT_STEP_CONFIG = {
   retries: { limit: 0, delay: "1 second" as const },
@@ -390,12 +392,22 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       missingRankingStates,
     } = event.payload;
 
-    const client = createDataforseoClient(billingCustomer);
-    const rankSerp = await createRankSerpResolver({
-      client,
+    const seRankingConfig = await resolveEffectiveSeRankingConfig({
       organizationId: billingCustomer.organizationId,
       projectId,
     });
+    const isSeRankingSelected = Boolean(seRankingConfig?.enabled);
+
+    const client = isSeRankingSelected
+      ? null
+      : createDataforseoClient(billingCustomer);
+    const rankSerp = isSeRankingSelected
+      ? null
+      : await createRankSerpResolver({
+          client: client!,
+          organizationId: billingCustomer.organizationId,
+          projectId,
+        });
 
     // Guard: skip if config was archived after the workflow was triggered
     const configCheck = await pgStep(
@@ -416,6 +428,12 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
     }
 
     try {
+      if (isSeRankingSelected && !seRankingConfig?.apiKey) {
+        throw new NonRetryableError(
+          "SE Ranking is selected for Rank Tracking, but no API key is configured. Will not fall back to DataForSEO, Serper, or Zenserp.",
+        );
+      }
+
       console.log(
         `[rank-check] ${runId} starting (trigger=${trigger}, devices=${devices})`,
       );
@@ -446,42 +464,59 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       let queueStats: QueuedCheckStats | null = null;
 
       try {
-        const checkContext = {
-          client,
-          rankSerp,
-          keywords,
-          devices,
-          serpDepth,
-          domain,
-          locationCode,
-          languageCode,
-          locationName,
-          runId,
-          projectId,
-          configId,
-          // The scope whose effective DataForSEO settings the metered posts
-          // run under — queued collection binds to the same account.
-          billingScope: {
-            organizationId: billingCustomer.organizationId,
-            projectId: billingCustomer.projectId ?? null,
-          },
-        };
-        // Method selection from the ACTUAL scoped keyword count: scheduled
-        // checks and manual bulk checks run through DataForSEO's Standard
-        // Queue (~30% of live cost); only an explicitly manual check of a
-        // single keyword stays on the live endpoint for instant results.
-        // resolveRankCheckMethod is the same helper the credit precheck and
-        // the client cost/time copy use, so all three agree.
-        const method = resolveRankCheckMethod(trigger, keywords.length);
-        if (method === "queued") {
-          queueStats = await runQueuedCheck(step, checkContext);
+        if (isSeRankingSelected && seRankingConfig.apiKey) {
+          const seResult = await runSeRankingCheck(step, {
+            runId,
+            projectId,
+            configId,
+            domain,
+            billingCustomer,
+            keywords,
+            devices,
+            locationCode,
+            languageCode,
+            locationName,
+            apiKey: seRankingConfig.apiKey,
+          });
+          batchError = seResult.batchError;
         } else {
-          const liveFirstError = await runLiveCheck(step, checkContext);
-          // Observability only: record the first sanitized provider failure
-          // reason in the run record so the trace can name the actual
-          // underlying error. No control-flow, retry, scope, or billing
-          // change — finalize still recounts from the DB.
-          batchError ??= liveFirstError;
+          const checkContext = {
+            client: client!,
+            rankSerp: rankSerp!,
+            keywords,
+            devices,
+            serpDepth,
+            domain,
+            locationCode,
+            languageCode,
+            locationName,
+            runId,
+            projectId,
+            configId,
+            // The scope whose effective DataForSEO settings the metered posts
+            // run under — queued collection binds to the same account.
+            billingScope: {
+              organizationId: billingCustomer.organizationId,
+              projectId: billingCustomer.projectId ?? null,
+            },
+          };
+          // Method selection from the ACTUAL scoped keyword count: scheduled
+          // checks and manual bulk checks run through DataForSEO's Standard
+          // Queue (~30% of live cost); only an explicitly manual check of a
+          // single keyword stays on the live endpoint for instant results.
+          // resolveRankCheckMethod is the same helper the credit precheck and
+          // the client cost/time copy use, so all three agree.
+          const method = resolveRankCheckMethod(trigger, keywords.length);
+          if (method === "queued") {
+            queueStats = await runQueuedCheck(step, checkContext);
+          } else {
+            const liveFirstError = await runLiveCheck(step, checkContext);
+            // Observability only: record the first sanitized provider failure
+            // reason in the run record so the trace can name the actual
+            // underlying error. No control-flow, retry, scope, or billing
+            // change — finalize still recounts from the DB.
+            batchError ??= liveFirstError;
+          }
         }
       } catch (error) {
         // Batch failure — snapshots for completed batches are already

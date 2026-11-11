@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   getSuggestedKeywords: vi.fn(),
   getConfigById: vi.fn(),
   getConfigsForProject: vi.fn(),
+  getTargetsForProject: vi.fn(),
   getLatestResults: vi.fn(),
   seoDataRouter: {
     route: vi.fn(),
@@ -55,6 +56,14 @@ vi.mock(
     RankTrackingRepository: {
       getConfigById: mocks.getConfigById,
       getConfigsForProject: mocks.getConfigsForProject,
+    },
+  }),
+);
+vi.mock(
+  "@/server/features/rank-tracking/repositories/RankTrackingTargetRepository",
+  () => ({
+    RankTrackingTargetRepository: {
+      getTargetsForProject: mocks.getTargetsForProject,
     },
   }),
 );
@@ -102,6 +111,7 @@ describe("MCP tool text output (service-backed tools)", () => {
       }
     }
     mocks.seoDataRouter.route.mockReset();
+    mocks.getTargetsForProject.mockResolvedValue([]);
     mocks.getProjectForOrganization.mockResolvedValue({
       id: "project_1",
       locationCode: 2840,

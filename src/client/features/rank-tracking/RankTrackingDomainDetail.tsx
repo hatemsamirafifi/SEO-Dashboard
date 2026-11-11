@@ -1,13 +1,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCustomer } from "autumn-js/react";
-import {
-  getLatestRankResults,
-  getRankPositionMatrix,
-  estimateRankCheckCost,
-  getMissingRankingsSummary,
-} from "@/serverFunctions/rank-tracking";
 import { useRankRunCancel } from "./useRankRunCancel";
 import { ArrowLeft } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
@@ -18,6 +12,16 @@ import { ConfigAlerts } from "./ConfigAlerts";
 import { RankTrackingDetailHeader } from "./RankTrackingDetailHeader";
 import { RankTrackingOverview } from "./RankTrackingOverview";
 import { RankTrackingTable } from "./RankTrackingTable";
+import {
+  createRankCheckScopeHandlers,
+  notifyKeywordsAddedResult,
+  type PendingRankCheck,
+  RANK_DETAIL_QUERY_KEYS,
+  RankTrackingDetailFooter,
+  resolveDeviceVisibility,
+  SeRankingProjectSyncBanner,
+  useRankTrackingDetailData,
+} from "./SeRankingProjectSyncBanner";
 import {
   countMatrixRuns,
   RankTrackingHistoryMatrix,
@@ -31,7 +35,6 @@ import type {
   RankTrackingConfig,
   ComparePeriod,
 } from "@/types/schemas/rank-tracking";
-import type { MissingRankingBucket } from "@/shared/rank-tracking";
 import { AddKeywordsPanel } from "./AddKeywordsPanel";
 import {
   FilterPanel,
@@ -40,27 +43,9 @@ import {
   EMPTY_FILTERS,
   type Filters,
 } from "./RankTrackingFilters";
-import { RankCheckModals } from "./RankCheckModals";
 import { useMetricsRefresh } from "./useMetricsRefresh";
 import { useRankCheckTrigger } from "./useRankCheckTrigger";
 import { useRankRunPolling } from "./useRankRunPolling";
-import { SerpClustersSection } from "@/client/features/serp-clustering/SerpClustersSection";
-
-function deviceVisibility(
-  devices: RankTrackingConfig["devices"],
-  activeDevice: "desktop" | "mobile",
-): { showDesktop: boolean; showMobile: boolean } {
-  if (devices === "both") {
-    return {
-      showDesktop: activeDevice === "desktop",
-      showMobile: activeDevice === "mobile",
-    };
-  }
-  return {
-    showDesktop: devices !== "mobile",
-    showMobile: devices !== "desktop",
-  };
-}
 
 export function RankTrackingDomainDetail({
   config,
@@ -83,6 +68,10 @@ export function RankTrackingDomainDetail({
 
   const queryClient = useQueryClient();
   const [showAddKeywords, setShowAddKeywords] = useState(false);
+  const [showTargetsModal, setShowTargetsModal] = useState(false);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(
+    undefined,
+  );
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [comparePeriod, setComparePeriod] = useState<ComparePeriod>(
@@ -97,12 +86,25 @@ export function RankTrackingDomainDetail({
   );
   const [viewMode, setViewMode] = useState<"table" | "history">("table");
 
-  const { data: resultsData, isLoading: resultsLoading } = useQuery({
-    queryKey: ["rankTrackingResults", projectId, config.id, comparePeriod],
-    queryFn: () =>
-      getLatestRankResults({
-        data: { projectId, configId: config.id, comparePeriod },
-      }),
+  const {
+    resultsData,
+    resultsLoading,
+    matrixCells,
+    matrixLoading,
+    costEstimate,
+    missingRankingsSummary,
+    missingRankingsLoading,
+    targets,
+    targetAssignments,
+    latestSyncBinding,
+    retryingSync,
+    onRetrySync,
+  } = useRankTrackingDetailData({
+    projectId,
+    configId: config.id,
+    comparePeriod,
+    activeDevice,
+    selectedTargetId,
   });
 
   const latestRun = useRankRunPolling(projectId, config.id);
@@ -111,67 +113,24 @@ export function RankTrackingDomainDetail({
     config.id,
     latestRun?.id,
   );
-
-  // Also feeds the History toggle: the matrix view only earns its tab once
-  // there are two checks to compare.
-  const { data: matrixCells, isLoading: matrixLoading } = useQuery({
-    queryKey: ["rankPositionMatrix", projectId, config.id, activeDevice],
-    queryFn: () =>
-      getRankPositionMatrix({
-        data: { projectId, configId: config.id, device: activeDevice },
-      }),
-  });
   const historyAvailable = countMatrixRuns(matrixCells ?? []) >= 2;
 
-  const { data: costEstimate } = useQuery({
-    queryKey: ["rankTrackingCostEstimate", projectId, config.id],
-    queryFn: () =>
-      estimateRankCheckCost({ data: { projectId, configId: config.id } }),
-  });
-
-  // Eligible count for "Check missing rankings" — server-resolved from
-  // persisted snapshot state (CHECK_FAILED / lost / NO_RESULT / never checked),
-  // so the menu label and confirm modal never guess from the rendered table.
-  const { data: missingRankingsSummary, isLoading: missingRankingsLoading } =
-    useQuery({
-      queryKey: ["rankTrackingMissingRankings", projectId, config.id],
-      queryFn: () =>
-        getMissingRankingsSummary({
-          data: { projectId, configId: config.id },
-        }),
-    });
-
-  const [pendingCheck, setPendingCheck] = useState<{
-    count: number;
-    keywordIds?: string[];
-    missingRankings?: boolean;
-    initialStates?: MissingRankingBucket[];
-  } | null>(null);
+  const [pendingCheck, setPendingCheck] = useState<PendingRankCheck | null>(
+    null,
+  );
 
   const handleKeywordsAdded = (result: {
     added: number;
     checkTriggered: boolean;
   }) => {
-    for (const key of [
-      ["rankTrackingCostEstimate"],
-      ["rankTrackingResults"],
-      ["rankTrackingLatestRun"],
-      ["rankConfigTrend"],
-      ["rankPositionMatrix"],
-      ["rankTrackingMissingRankings"],
-    ]) {
+    RANK_DETAIL_QUERY_KEYS.forEach((key) => {
       void queryClient.invalidateQueries({
-        queryKey: [...key, projectId, config.id],
+        queryKey: [key, projectId, config.id],
       });
-    }
+    });
     setShowAddKeywords(false);
     captureClientEvent("rank_tracking:keywords_add");
-    toast.success(
-      `${result.added} keyword${result.added !== 1 ? "s" : ""} added`,
-    );
-    if (!result.checkTriggered && result.added > 0) {
-      toast.info("Use 'Check Now' to check these keywords");
-    }
+    notifyKeywordsAddedResult(result);
   };
 
   const isRunning =
@@ -188,63 +147,31 @@ export function RankTrackingDomainDetail({
   const { refresh: refreshMetrics, isRefreshing: metricsRefreshing } =
     useMetricsRefresh(projectId, config.id);
 
-  const requestCheck = (count: number, keywordIds?: string[]) => {
-    if (count < 50) {
-      startCheck({ keywordIds });
-      return;
-    }
-
-    // Large checks go through the confirm modal — but a busy click must still
-    // tell the user why nothing happened (startCheck traces+toasts the same
-    // for the direct path).
-    if (isBusy) {
-      toast.info("A rank check is already running");
-      return;
-    }
-    setPendingCheck({ count, keywordIds });
-  };
-
-  // Selected-scope check: the table passes the exact selected keyword IDs.
-  // They are the sole scope sent to the server — never expanded to all.
-  const handleCheckSelected = (keywordIds: string[]) => {
-    if (keywordIds.length === 0) return;
-    requestCheck(keywordIds.length, keywordIds);
-  };
-
-  // "Check missing" on a selection: the selected ids are sent to the server
-  // and intersected with the eligible set there; the confirm modal shows the
-  // truthful per-selection eligible count and breakdown.
-  const handleCheckMissingSelected = (keywordIds: string[]) => {
-    if (keywordIds.length === 0) return;
-    setPendingCheck({
-      count: keywordIds.length,
-      keywordIds,
-      missingRankings: true,
-    });
-  };
-  // Config-scope variant: eligible ids are resolved server-side from persisted
-  // state; the trigger intersects any selection with that set.
-  const requestMissingRankingsCheck = (
-    keywordIds?: string[],
-    initialStates?: MissingRankingBucket[],
-  ) =>
-    setPendingCheck({
-      count: keywordIds?.length ?? 0,
-      keywordIds,
-      missingRankings: true,
-      initialStates,
-    });
-
-  const handleRetryFailed = () =>
-    requestMissingRankingsCheck(undefined, ["ranking_unavailable"]);
+  const {
+    requestCheck,
+    handleCheckSelected,
+    handleCheckMissingSelected,
+    requestMissingRankingsCheck,
+    handleRetryFailed,
+  } = createRankCheckScopeHandlers({ isBusy, startCheck, setPendingCheck });
 
   const rows = resultsData?.rows;
   const run = resultsData?.run;
-  const hasBothDevices = config.devices === "both";
-  const { showDesktop, showMobile } = deviceVisibility(
+  const selectedTarget = targets?.find((t) => t.id === selectedTargetId);
+  const hasBothDevices = selectedTarget ? false : config.devices === "both";
+  const { showDesktop, showMobile } = resolveDeviceVisibility(
     config.devices,
     activeDevice,
+    selectedTarget,
   );
+
+  const handleSelectTarget = (targetId: string | undefined) => {
+    setSelectedTargetId(targetId);
+    const picked = targets?.find((t) => t.id === targetId);
+    if (picked) {
+      setActiveDevice(picked.device);
+    }
+  };
   const filtered = useMemo(
     () => applyFilters(rows ?? [], filters),
     [rows, filters],
@@ -273,12 +200,25 @@ export function RankTrackingDomainDetail({
 
       <FreePlanAlert visible={isFreePlan} />
 
+      {latestSyncBinding && (
+        <SeRankingProjectSyncBanner
+          status={latestSyncBinding.status}
+          errorMessage={latestSyncBinding.errorMessage}
+          retrying={retryingSync}
+          onRetry={onRetrySync}
+        />
+      )}
+
       {/* Results card */}
       <div className="flex-1 flex flex-col min-w-0 border border-base-300 rounded-xl bg-base-100 overflow-hidden">
         {/* Domain header */}
         <RankTrackingDetailHeader
           config={config}
           run={run}
+          targets={targets}
+          selectedTargetId={selectedTargetId}
+          onSelectedTargetChange={handleSelectTarget}
+          onManageTargets={() => setShowTargetsModal(true)}
           costEstimate={costEstimate}
           hasBothDevices={hasBothDevices}
           activeDevice={activeDevice}
@@ -306,6 +246,7 @@ export function RankTrackingDomainDetail({
             device={activeDevice}
             projectId={projectId}
             configId={config.id}
+            trackingTargetId={selectedTargetId}
           />
         )}
 
@@ -396,6 +337,9 @@ export function RankTrackingDomainDetail({
               locationCode={config.locationCode}
               locationName={config.locationName}
               serpDepth={config.serpDepth}
+              trackingTargetId={selectedTargetId}
+              targets={targets}
+              targetIdsByKeyword={targetAssignments?.targetIdsByKeyword}
               onCheckSelected={handleCheckSelected}
               onCheckMissingSelected={handleCheckMissingSelected}
               checkSelectedBusy={isBusy}
@@ -405,20 +349,17 @@ export function RankTrackingDomainDetail({
         </div>
       </div>
 
-      {/* Spec 019: the observed SERP clusters for this config and device. */}
-      <SerpClustersSection
+      <RankTrackingDetailFooter
         projectId={projectId}
-        configId={config.id}
-        device={activeDevice}
-      />
-
-      <RankCheckModals
-        pendingCheck={pendingCheck}
         config={config}
-        projectId={projectId}
+        activeDevice={activeDevice}
+        pendingCheck={pendingCheck}
         isPending={isPending}
         onRunCheck={startCheck}
-        onCancel={() => setPendingCheck(null)}
+        onCancelCheck={() => setPendingCheck(null)}
+        showTargetsModal={showTargetsModal}
+        targets={targets}
+        onCloseTargetsModal={() => setShowTargetsModal(false)}
       />
     </div>
   );

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import * as targetOps from "./rankTrackingTargetsService";
 import { AppError } from "@/server/lib/errors";
 import type {
   RankTrackingConfig,
@@ -486,4 +487,5 @@ export const RankTrackingService = {
   estimateCost,
   refreshKeywordMetrics,
   cancelRun,
+  ...targetOps,
 };

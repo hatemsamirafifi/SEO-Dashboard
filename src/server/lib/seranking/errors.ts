@@ -95,17 +95,23 @@ export function classifySeRankingHttpError(
         ? body
         : `SE Ranking API error HTTP ${status}`;
 
+  const lowerMsg = typeof msg === "string" ? msg.toLowerCase() : "";
+  const isQuotaMessage =
+    lowerMsg.includes("insufficient") ||
+    lowerMsg.includes("quota") ||
+    lowerMsg.includes("limit exceeded") ||
+    lowerMsg.includes("subscription") ||
+    lowerMsg.includes("expired") ||
+    lowerMsg.includes("exceeds limit");
+
+  if (status === 402 || isQuotaMessage) {
+    return new SeRankingCreditExhaustedError(msg, status);
+  }
   if (status === 401 || status === 403) {
     return new SeRankingAuthError(msg, status);
   }
   if (status === 429) {
     return new SeRankingRateLimitError(msg, status);
-  }
-  if (
-    status === 402 ||
-    (typeof msg === "string" && msg.toLowerCase().includes("insufficient"))
-  ) {
-    return new SeRankingCreditExhaustedError(msg, status);
   }
   if (status === 404) {
     return new SeRankingNotFoundError(msg, status);

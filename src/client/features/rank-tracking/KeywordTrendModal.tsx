@@ -8,6 +8,8 @@ import { buildCsv, downloadCsv } from "@/client/lib/csv";
 import { captureClientEvent } from "@/client/lib/posthog";
 import { getRankKeywordHistory } from "@/serverFunctions/rank-tracking";
 import type { RankKeywordHistoryPoint } from "@/serverFunctions/rank-tracking";
+import type { RankTrackingTarget } from "@/types/schemas/rank-tracking";
+import { KeywordTargetAssignPills } from "./RankTrackingTargetAssignControl";
 import { LOCATIONS } from "@/client/features/keywords/locations";
 import { formatLocationLabel } from "@/shared/keyword-locations";
 import { csvChange, DeviceRankCell } from "./RankTrackingTableParts";
@@ -38,6 +40,9 @@ export function KeywordTrendModal({
   locationCode,
   locationName,
   serpDepth,
+  trackingTargetId,
+  targets,
+  assignedTargetIds,
   onClose,
 }: {
   target: KeywordTrendTarget;
@@ -47,9 +52,13 @@ export function KeywordTrendModal({
   locationCode: number;
   locationName?: string;
   serpDepth: number;
+  trackingTargetId?: string;
+  targets?: RankTrackingTarget[];
+  assignedTargetIds?: string[];
   onClose: () => void;
 }) {
   const [sinceDays, setSinceDays] = useState(730);
+  const activeTarget = targets?.find((t) => t.id === trackingTargetId);
 
   const { data: history, isLoading } = useQuery({
     queryKey: [
@@ -58,6 +67,7 @@ export function KeywordTrendModal({
       configId,
       target.trackingKeywordId,
       sinceDays,
+      trackingTargetId ?? null,
     ],
     queryFn: () =>
       getRankKeywordHistory({
@@ -66,6 +76,7 @@ export function KeywordTrendModal({
           configId,
           trackingKeywordId: target.trackingKeywordId,
           sinceDays,
+          trackingTargetId,
         },
       }),
   });
@@ -166,14 +177,23 @@ export function KeywordTrendModal({
           </h3>
           <p className="text-xs text-base-content/60">
             {domain} &middot;{" "}
-            {locationName
-              ? formatLocationLabel(locationName, 2)
-              : (LOCATIONS[locationCode] ?? "US")}{" "}
+            {activeTarget
+              ? `${activeTarget.countryCode.toUpperCase()}${activeTarget.cityName ? ` · ${activeTarget.cityName}` : " · Countrywide"} (${activeTarget.languageCode}) · ${activeTarget.device}`
+              : locationName
+                ? formatLocationLabel(locationName, 2)
+                : (LOCATIONS[locationCode] ?? "US")}{" "}
             &middot; Position over time
           </p>
         </div>
         <TrendRangeToggle value={sinceDays} onChange={setSinceDays} />
       </div>
+
+      <KeywordTargetAssignPills
+        projectId={projectId}
+        keywordId={target.trackingKeywordId}
+        targets={targets}
+        assignedTargetIds={assignedTargetIds}
+      />
 
       {isLoading ? (
         <div className="flex items-center justify-center py-16">

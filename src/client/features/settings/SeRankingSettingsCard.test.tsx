@@ -12,6 +12,12 @@ vi.mock("@/serverFunctions/serankingSettings", () => ({
   removeSeRankingSettingsFn: vi.fn(),
 }));
 
+vi.mock("@/serverFunctions/rank-tracking-targets", () => ({
+  getSeRankingSyncStatusFn: vi.fn(),
+  migrateSeRankingAccountFn: vi.fn(),
+  retrySeRankingProjectSyncFn: vi.fn(),
+}));
+
 describe("SeRankingSettingsCard", () => {
   function renderWithQueryClient(
     ui: React.ReactElement,
@@ -171,5 +177,88 @@ describe("SeRankingSettingsCard", () => {
     );
     expect(markup).toContain("Limit: 100,000 units");
     expect(markup).toContain("Available: 100,000 units");
+  });
+
+  it("displays Project API accessibility separately when Data API credits are 0 and renders sync/migration controls", () => {
+    const mockView: SeRankingSettingsView = {
+      provider: "seranking",
+      configured: true,
+      enabled: true,
+      circuitBreakerEnabled: true,
+      maxRetries: 2,
+      priority: 1,
+      source: "organization",
+      apiKeyMasked: "••••••••••••1234",
+      scope: "organization",
+      override: null,
+      circuit: {
+        state: "closed",
+        openedAt: null,
+        expiresAt: null,
+        reason: null,
+        retryAfterMs: null,
+      },
+    };
+
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["seRankingSettings", null], mockView);
+    queryClient.setQueryData(["seRankingSyncStatus", null], {
+      accounts: [
+        {
+          id: "acc-1",
+          status: "migration_required",
+          credentialVersion: 1,
+          lastValidatedAt: "2026-11-11T10:00:00Z",
+          updatedAt: "2026-11-11T10:00:00Z",
+        },
+      ],
+      projects: [
+        {
+          projectBindingId: "pb-1",
+          localProjectId: "proj-1",
+          projectName: "Example Store",
+          projectDomain: "example.com",
+          providerAccountBindingId: "acc-1",
+          remoteSiteId: 4002,
+          status: "failed",
+          lastSuccessfulSync: null,
+          errorMessage: "Temporary rate limit",
+          updatedAt: "2026-11-11T10:00:00Z",
+          engineBindingsCount: 2,
+          keywordMappingsCount: 18,
+          activeTargetsCount: 2,
+          isLatestForProject: true,
+        },
+      ],
+      needsMigrationCount: 0,
+      failedSyncCount: 1,
+    });
+
+    const markup = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <SeRankingSettingsCard
+          initialTestResult={{
+            ok: false,
+            status: 200,
+            reason: "CREDITS_UNAVAILABLE",
+            balance: 0,
+            unitsLimit: 1000,
+            subscriptionStatus: "active",
+            projectApi: {
+              accessible: true,
+              siteCount: 2,
+              trackedKeywords: 40,
+            },
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(markup).toContain("Project API (Rank Tracking)");
+    expect(markup).toContain("Accessible");
+    expect(markup).toContain("2 site(s)");
+    expect(markup).toContain("Reconcile &amp; Migrate Projects");
+    expect(markup).toContain("Example Store");
+    expect(markup).toContain("Retry Sync");
   });
 });
