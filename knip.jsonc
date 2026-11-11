@@ -43,4 +43,10 @@
     "tailwindcss",
     "daisyui",
   ],
+  "rules": {
+    "files": "warn",
+    "exports": "warn",
+    "types": "warn",
+    "duplicates": "warn",
+  },
 }
