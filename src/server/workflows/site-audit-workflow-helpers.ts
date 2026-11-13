@@ -44,7 +44,7 @@ export async function crawlPage(
   const baseDelayMs =
     options?.retryDelayMs ?? (process.env.NODE_ENV === "test" ? 0 : 1_000);
   let attempt = 0;
-  for (; ;) {
+  for (;;) {
     const startTime = Date.now();
 
     try {
@@ -257,12 +257,7 @@ export async function crawlPage(
         error instanceof Error && error.name === "TimeoutError"
           ? "fetch_timeout"
           : "network_error";
-      console.warn(
-        "Failed to crawl:",
-        url,
-        failureReason,
-        error,
-      );
+      console.warn("Failed to crawl:", url, failureReason, error);
       return partialPageResult({
         url,
         statusCode: 0,
@@ -363,7 +358,7 @@ export async function crawlPageWithThrottle(
   url: string,
 ): Promise<ThrottledFetchResult> {
   let attempt = 0;
-  for (; ;) {
+  for (;;) {
     const started = await throttle.ready();
     if (!started) return { notFetched: true, result: null };
     const result = await crawlPage(url);

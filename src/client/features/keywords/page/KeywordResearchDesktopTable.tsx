@@ -71,12 +71,26 @@ export function KeywordResearchDesktopTable({
           />
         ),
         cell: ({ row }) => (
-          <span
-            className="block min-w-48 whitespace-normal break-words font-medium capitalize"
-            title={row.original.keyword}
-          >
-            {row.original.keyword}
-          </span>
+          <div className="flex items-center gap-1.5 min-w-48">
+            <span
+              className="whitespace-normal break-words font-medium"
+              title={row.original.keyword}
+            >
+              {row.original.keyword}
+            </span>
+            {row.original.matchType === "exact" ? (
+              <span className="badge badge-success badge-outline badge-xs shrink-0">
+                Exact
+              </span>
+            ) : row.original.isWeaklyRelated ? (
+              <span
+                className="badge badge-warning badge-outline badge-xs shrink-0"
+                title="Weakly related cross-language keyword"
+              >
+                Weak match
+              </span>
+            ) : null}
+          </div>
         ),
         meta: {
           headerClassName: "min-w-48 md:min-w-0",

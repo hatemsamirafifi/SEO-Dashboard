@@ -7,6 +7,8 @@ import {
   estimateRankCheckCredits,
   devicesCount,
   KEYWORDS_PER_BATCH,
+  QUEUED_RESULTS_WINDOW_TEXT,
+  resolveRankCheckMethod,
   SECONDS_PER_BATCH,
   type MissingRankingBucket,
   type MissingRankingsBreakdown,
@@ -60,6 +62,39 @@ export const STATE_OPTIONS: Array<{
   { key: "lost", label: "Lost" },
   { key: "no_ranking", label: "No ranking" },
 ];
+
+/**
+ * The copy under the "Check N keywords" button, resolved with the SAME
+ * method rule the workflow uses: one keyword runs live (instant ETA);
+ * more than one runs through the Standard Queue (never instant copy).
+ * Exported for unit tests so the cost/time/method contract stays pinned.
+ */
+export function runMissingRankingsCopy(input: {
+  activeCount: number;
+  devices: RankTrackingConfig["devices"];
+  serpDepth: number;
+}): { costUsd: number; method: "live" | "queued"; etaText: string } {
+  const method = resolveRankCheckMethod("manual", input.activeCount);
+  const { costUsd } = estimateRankCheckCredits(
+    input.activeCount,
+    input.devices,
+    input.serpDepth,
+    method,
+  );
+  if (input.activeCount === 0) {
+    return { costUsd, method, etaText: formatEta(0) };
+  }
+  if (method === "queued") {
+    return { costUsd, method, etaText: QUEUED_RESULTS_WINDOW_TEXT };
+  }
+  return {
+    costUsd,
+    method,
+    etaText: `Results in ~${formatEta(
+      calculateEtaSeconds(input.activeCount, input.devices),
+    )}`,
+  };
+}
 
 /**
  * Confirmation for "Check missing rankings". The eligible count and per-bucket
@@ -124,14 +159,15 @@ export function MissingRankingsConfirmModal({
     [breakdown, selectedStates],
   );
 
-  const cost = estimateRankCheckCredits(
-    activeCount,
-    devices,
-    serpDepth,
-    "live",
+  const runCopy = useMemo(
+    () =>
+      runMissingRankingsCopy({
+        activeCount,
+        devices,
+        serpDepth,
+      }),
+    [activeCount, devices, serpDepth],
   );
-  const liveTime = calculateEtaSeconds(activeCount, devices);
-  const etaText = formatEta(activeCount === 0 ? 0 : liveTime);
 
   const toggleState = (state: MissingRankingBucket) => {
     setSelectedStates((prev) =>
@@ -252,16 +288,21 @@ export function MissingRankingsConfirmModal({
                 {activeCount === 0
                   ? "No keywords selected"
                   : `Check ${activeCount} keyword${activeCount !== 1 ? "s" : ""}`}
+                {activeCount > 0 && runCopy.method === "queued" && (
+                  <span className="ml-1.5 text-xs font-normal text-base-content/50">
+                    (queued)
+                  </span>
+                )}
               </p>
               <p className="text-xs text-base-content/60">
                 {activeCount === 0
                   ? "Select at least one ranking state to check."
-                  : `Results in ~${etaText}`}
+                  : runCopy.etaText}
               </p>
             </div>
             <div className="text-right">
               <p className="font-mono font-semibold">
-                ~${cost.costUsd.toFixed(2)}
+                ~${runCopy.costUsd.toFixed(2)}
               </p>
               {isPending && <Loader2 className="size-3 animate-spin ml-auto" />}
             </div>

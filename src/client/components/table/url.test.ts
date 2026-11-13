@@ -23,7 +23,9 @@ describe("table URL helpers", () => {
   });
 
   it("safeDecodeUrlText handles non-URL text and malformed escapes gracefully", () => {
-    expect(safeDecodeUrlText("15% drop in sessions")).toBe("15% drop in sessions");
+    expect(safeDecodeUrlText("15% drop in sessions")).toBe(
+      "15% drop in sessions",
+    );
     expect(safeDecodeUrlText("%D8%B9%D9%86")).toBe("عن");
     expect(safeDecodeUrlText(null)).toBe("");
   });

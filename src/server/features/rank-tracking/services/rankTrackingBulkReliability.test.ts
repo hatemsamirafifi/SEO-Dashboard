@@ -68,8 +68,16 @@ describe("Rank Tracking Bulk Check Reliability & Regression Suite", () => {
       }
 
       // Verify classification for all 268 keywords
-      const ranked1 = classifyKeywordFromPairFacts(factsMap, "kw-ranked-1", "desktop");
-      const ranked2 = classifyKeywordFromPairFacts(factsMap, "kw-ranked-2", "desktop");
+      const ranked1 = classifyKeywordFromPairFacts(
+        factsMap,
+        "kw-ranked-1",
+        "desktop",
+      );
+      const ranked2 = classifyKeywordFromPairFacts(
+        factsMap,
+        "kw-ranked-2",
+        "desktop",
+      );
 
       expect(ranked1.eligible).toBe(false); // Exits missing rankings!
       expect(ranked1.bucket).toBeNull();
@@ -81,21 +89,33 @@ describe("Rank Tracking Bulk Check Reliability & Regression Suite", () => {
       let noRankingCount = 0;
 
       for (let i = 1; i <= 147; i++) {
-        const c = classifyKeywordFromPairFacts(factsMap, `kw-failed-${i}`, "desktop");
+        const c = classifyKeywordFromPairFacts(
+          factsMap,
+          `kw-failed-${i}`,
+          "desktop",
+        );
         expect(c.eligible).toBe(true);
         expect(c.bucket).toBe("ranking_unavailable");
         unavailableCount++;
       }
 
       for (let i = 1; i <= 8; i++) {
-        const c = classifyKeywordFromPairFacts(factsMap, `kw-lost-${i}`, "desktop");
+        const c = classifyKeywordFromPairFacts(
+          factsMap,
+          `kw-lost-${i}`,
+          "desktop",
+        );
         expect(c.eligible).toBe(true);
         expect(c.bucket).toBe("lost");
         lostCount++;
       }
 
       for (let i = 1; i <= 111; i++) {
-        const c = classifyKeywordFromPairFacts(factsMap, `kw-norank-${i}`, "desktop");
+        const c = classifyKeywordFromPairFacts(
+          factsMap,
+          `kw-norank-${i}`,
+          "desktop",
+        );
         expect(c.eligible).toBe(true);
         expect(c.bucket).toBe("no_ranking");
         noRankingCount++;
@@ -168,17 +188,17 @@ describe("Rank Tracking Bulk Check Reliability & Regression Suite", () => {
     });
 
     it("distinguishes DataForSEO 40100 (AUTH_FAILED) versus 40201 (DATAFORSEO_ACCESS_PAUSED) inside HTTP 200", () => {
-      expect(
-        defaultClassifyDataforseoTask(40100, "Authentication error"),
-      ).toBe("DATAFORSEO_AUTH_FAILED");
+      expect(defaultClassifyDataforseoTask(40100, "Authentication error")).toBe(
+        "DATAFORSEO_AUTH_FAILED",
+      );
 
       expect(
         defaultClassifyDataforseoTask(40201, "Account access paused"),
       ).toBe("DATAFORSEO_ACCESS_PAUSED");
 
-      expect(
-        defaultClassifyDataforseoTask(40200, "Insufficient credits"),
-      ).toBe("CREDITS_UNAVAILABLE");
+      expect(defaultClassifyDataforseoTask(40200, "Insufficient credits")).toBe(
+        "CREDITS_UNAVAILABLE",
+      );
     });
 
     it("does not claim mobile support for Serper", () => {
@@ -227,7 +247,11 @@ describe("Rank Tracking Bulk Check Reliability & Regression Suite", () => {
         rankingStatus: "CHECK_FAILED",
       });
 
-      const classification = classifyKeywordFromPairFacts(facts, "kw-1", "desktop");
+      const classification = classifyKeywordFromPairFacts(
+        facts,
+        "kw-1",
+        "desktop",
+      );
       expect(classification.eligible).toBe(true);
       expect(classification.bucket).toBe("ranking_unavailable");
       // Never write a false Lost transition when check failed
@@ -243,7 +267,11 @@ describe("Rank Tracking Bulk Check Reliability & Regression Suite", () => {
         rankingStatus: "NO_RESULT",
       });
 
-      const classification = classifyKeywordFromPairFacts(facts, "kw-2", "desktop");
+      const classification = classifyKeywordFromPairFacts(
+        facts,
+        "kw-2",
+        "desktop",
+      );
       expect(classification.eligible).toBe(true);
       expect(classification.bucket).toBe("lost");
     });

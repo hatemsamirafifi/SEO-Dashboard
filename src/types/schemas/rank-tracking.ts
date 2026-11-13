@@ -147,6 +147,7 @@ export const getLatestResultsSchema = z.object({
   projectId: z.string().uuid(),
   configId: z.string().uuid(),
   comparePeriod: comparePeriodSchema.optional(),
+  trackingTargetId: z.string().uuid().optional(),
 });
 
 export const getLatestRunSchema = z.object({
@@ -193,6 +194,7 @@ export const getKeywordHistorySchema = z.object({
   configId: z.string().uuid(),
   trackingKeywordId: z.string().uuid(),
   sinceDays: sinceDaysField,
+  trackingTargetId: z.string().uuid().optional(),
 });
 
 export const getConfigTrendSchema = z.object({
@@ -200,6 +202,7 @@ export const getConfigTrendSchema = z.object({
   configId: z.string().uuid(),
   device: deviceEnum,
   sinceDays: sinceDaysField,
+  trackingTargetId: z.string().uuid().optional(),
 });
 
 export const getPositionMatrixSchema = z.object({
@@ -207,4 +210,74 @@ export const getPositionMatrixSchema = z.object({
   configId: z.string().uuid(),
   device: deviceEnum,
   runLimit: z.number().int().positive().max(26).default(12),
+  trackingTargetId: z.string().uuid().optional(),
+});
+
+export interface RankTrackingTarget {
+  id: string;
+  organizationId: string;
+  localProjectId: string;
+  trackingConfigId?: string | null;
+  searchEngine: string;
+  countryCode: string;
+  regionCode?: string | null;
+  cityName?: string | null;
+  languageCode: string;
+  device: "desktop" | "mobile";
+  enabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const createTargetSchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid().optional(),
+  countryCode: z.string().min(2).max(10),
+  regionCode: z.string().optional(),
+  cityName: z.string().optional(),
+  languageCode: z.string().min(2).max(10).default("en"),
+  device: z.enum(["desktop", "mobile"]),
+});
+
+export const removeTargetSchema = z.object({
+  projectId: z.string().uuid(),
+  targetId: z.string().uuid(),
+});
+
+export const syncSeRankingSchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid(),
+  domain: z.string().min(1),
+});
+
+export const migrateAccountSchema = z.object({
+  organizationId: z.string().uuid(),
+  newApiKey: z.string().min(1),
+});
+
+export const toggleTargetSchema = z.object({
+  projectId: z.string().uuid(),
+  targetId: z.string().uuid(),
+  enabled: z.boolean(),
+});
+
+export const setKeywordTargetAssignmentsSchema = z.object({
+  projectId: z.string().uuid(),
+  targetId: z.string().uuid(),
+  keywordIds: z.array(z.string().uuid()).min(1).max(2000),
+  enabled: z.boolean(),
+});
+
+export const seRankingSyncStatusInputSchema = z.object({
+  projectId: z.string().uuid().optional(),
+});
+
+export const retrySeRankingSyncSchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid().optional(),
+});
+
+export const triggerOrgAccountMigrationSchema = z.object({
+  newApiKey: z.string().min(1).optional(),
+  projectId: z.string().uuid().optional(),
 });

@@ -2,7 +2,10 @@ import { useMemo, type MutableRefObject } from "react";
 import { ArrowUp, ArrowDown } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { makeSelectionColumn } from "@/client/components/table/AppDataTable";
-import type { RankTrackingRow } from "@/types/schemas/rank-tracking";
+import type {
+  RankTrackingRow,
+  RankTrackingTarget,
+} from "@/types/schemas/rank-tracking";
 import { formatLocationLabel } from "@/shared/keyword-locations";
 import {
   CpcCell,
@@ -248,6 +251,55 @@ function makeUpdatedColumn(
   };
 }
 
+function makeTargetsColumn(
+  targets: RankTrackingTarget[],
+  targetIdsByKeyword: Record<string, string[]>,
+): ColumnDef<RankTrackingRow> {
+  const byId = new Map(targets.map((t) => [t.id, t]));
+  return {
+    id: "targets",
+    enableSorting: false,
+    header: () => (
+      <span className="text-xs uppercase tracking-wide font-medium text-base-content/60">
+        Targets
+      </span>
+    ),
+    size: 150,
+    minSize: 100,
+    maxSize: 240,
+    cell: ({ row }) => {
+      const assignedIds =
+        targetIdsByKeyword[row.original.trackingKeywordId] ?? [];
+      if (assignedIds.length === 0) {
+        return (
+          <span className="text-[11px] text-base-content/50">All targets</span>
+        );
+      }
+      const matched = assignedIds
+        .map((id) => byId.get(id))
+        .filter((t): t is RankTrackingTarget => Boolean(t));
+      return (
+        <div className="flex flex-wrap gap-1">
+          {matched.slice(0, 2).map((t) => (
+            <span
+              key={t.id}
+              className="badge badge-xs badge-ghost border border-base-300 text-[10px]"
+            >
+              {t.countryCode.toUpperCase()}
+              {t.cityName ? `·${t.cityName}` : ""} ({t.device[0].toUpperCase()})
+            </span>
+          ))}
+          {matched.length > 2 && (
+            <span className="text-[10px] text-base-content/50">
+              +{matched.length - 2}
+            </span>
+          )}
+        </div>
+      );
+    },
+  };
+}
+
 export function useRankTrackingColumns(options: {
   showDesktop: boolean;
   showMobile: boolean;
@@ -257,6 +309,8 @@ export function useRankTrackingColumns(options: {
   locationName?: string | null;
   isChecking?: (keywordId: string) => boolean;
   serpDepth?: number;
+  targets?: RankTrackingTarget[];
+  targetIdsByKeyword?: Record<string, string[]>;
 }): ColumnDef<RankTrackingRow>[] {
   const {
     showDesktop,
@@ -267,6 +321,8 @@ export function useRankTrackingColumns(options: {
     locationName,
     isChecking,
     serpDepth,
+    targets,
+    targetIdsByKeyword,
   } = options;
   const locationLabel = locationName
     ? formatLocationLabel(locationName, 2)
@@ -285,6 +341,9 @@ export function useRankTrackingColumns(options: {
       cols.push(makeUrlColumn("mobile", domain, serpDepth));
     }
     cols.push(makeVolumeColumn(locationLabel), kdColumn, cpcColumn);
+    if (targets && targets.length > 0 && targetIdsByKeyword) {
+      cols.push(makeTargetsColumn(targets, targetIdsByKeyword));
+    }
     if (showDesktop) {
       cols.push(makeSerpColumn("desktop"));
     }
@@ -302,5 +361,7 @@ export function useRankTrackingColumns(options: {
     locationLabel,
     isChecking,
     serpDepth,
+    targets,
+    targetIdsByKeyword,
   ]);
 }

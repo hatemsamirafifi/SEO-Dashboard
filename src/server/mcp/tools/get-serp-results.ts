@@ -156,7 +156,10 @@ export const getSerpResultsTool = {
             keyword: q.keyword,
             locationCode: market.locationCode,
             languageCode: market.languageCode,
-            billingCustomer: context.billing,
+            billingCustomer: {
+              ...context.billing,
+              projectId: args.projectId,
+            },
           });
           const items = response.data;
           // Trim noise — return only essentials per item.

@@ -1,5 +1,6 @@
 import type { createDataforseoClient } from "@/server/lib/dataforseo";
 import { resolveEffectiveDataforseoConfig } from "@/server/features/settings/services/DataforseoSettingsService";
+import { resolveEffectiveSeRankingConfig } from "@/server/features/settings/services/SeRankingSettingsService";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import {
   DEFAULT_SERP_PRIORITIES,
@@ -101,6 +102,9 @@ function dataforseoProvider(client: DataforseoClient): SerpProvider {
           device: input.device,
           targetDomain: input.targetDomain,
           depth: input.depth,
+          // The account gate honors this while waiting for the slot and
+          // re-checks immediately before the paid live dispatch.
+          isCancelled: input.isCancelled,
         });
         const call: SerpProviderCall = {
           provider: "dataforseo",
@@ -169,6 +173,17 @@ export async function createRankSerpResolver(input: {
   projectId?: string | null;
   fetchFn?: typeof fetch;
 }) {
+  const seRanking = await resolveEffectiveSeRankingConfig({
+    organizationId: input.organizationId,
+    projectId: input.projectId,
+  });
+  if (seRanking?.enabled) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Legacy DataForSEO/Serper/Zenserp rank SERP resolver cannot be initialized while SE Ranking is enabled for rank tracking.",
+    );
+  }
+
   const [dataforseo, serper, zenserp] = await Promise.all([
     resolveEffectiveDataforseoConfig(input),
     resolveEffectiveSerpProviderConfig({ ...input, provider: "serper" }),

@@ -13,12 +13,14 @@ import { organicRowsForResult } from "@/server/features/serp/clustering/organicR
 import {
   fetchRankCheckTaskResult,
   MAX_TASKS_PER_POST,
+  runWithDataforseoAccountContext,
 } from "@/server/lib/dataforseo";
 import type {
   createDataforseoClient,
   PostedRankCheckTask,
   RankCheckResult,
   RankCheckTaskInput,
+  RejectedRankCheckTask,
 } from "@/server/lib/dataforseo";
 import type { RankTrackingConfig } from "@/types/schemas/rank-tracking";
 import { KEYWORDS_PER_BATCH } from "@/shared/rank-tracking";
@@ -54,6 +56,20 @@ interface CheckContext {
   runId: string;
   projectId: string;
   configId: string;
+  /**
+   * The billing customer's scope, whose effective DataForSEO settings the
+   * metered task_post ran under. Collection (task_get) binds to this scope so
+   * it resolves the SAME account that received the posts — including
+   * project-level credential overrides — instead of environment credentials.
+   * projectId may be null when the billing context carries no project.
+   */
+  billingScope: { organizationId: string; projectId: string | null };
+}
+
+/** True when the run row is cancelled (missing rows stop the check too). */
+async function isRunCancelled(runId: string): Promise<boolean> {
+  const run = await RankTrackingRepository.getRunById(runId);
+  return run?.status !== "running" && run?.status !== "pending";
 }
 
 function mapResultsToSnapshotRows(
@@ -324,6 +340,7 @@ async function checkBatchLive(
           const countryName =
             LOCATION_OPTIONS.find((option) => option.code === ctx.locationCode)
               ?.label ?? countryCode;
+          const runCancelled = () => isRunCancelled(ctx.runId);
           const normalizedInput = {
             keyword: task.keyword,
             keywordId: task.keywordId,
@@ -335,9 +352,9 @@ async function checkBatchLive(
             device: task.device,
             targetDomain: ctx.domain,
             depth: ctx.serpDepth,
-            isCancelled: async () =>
-              (await RankTrackingRepository.getRunById(ctx.runId))?.status ===
-              "cancelled",
+            // Honored by the account gate while waiting for the slot and
+            // once more immediately before the actual network dispatch.
+            isCancelled: runCancelled,
           };
           const res = ctx.rankSerp
             ? await ctx.rankSerp.search(normalizedInput)
@@ -351,6 +368,7 @@ async function checkBatchLive(
                   device: task.device,
                   targetDomain: ctx.domain,
                   depth: ctx.serpDepth,
+                  isCancelled: runCancelled,
                 })
                 .then((legacy) => ({
                   ...legacy,
@@ -596,9 +614,9 @@ export async function runLiveCheck(
 }
 
 // Poll cadence for queued tasks. Standard-priority tasks complete in ~5
-// minutes on average, so the first check waits 4 minutes; cumulative waits are
-// 4 / 6 / 8 / 10 / 12 / 15 minutes, after which stragglers fall back to the
-// live endpoint.
+// minutes on average, so the first check waits 4 minutes; cumulative waits
+// are 4 / 6 / 8 / 10 / 12 / 15 minutes, after which anything still pending is
+// recorded as uncollected (with diagnostics) — never resubmitted to Live.
 const QUEUED_POLL_INTERVALS = [
   "4 minutes",
   "2 minutes",
@@ -611,8 +629,9 @@ const QUEUED_POLL_INTERVALS = [
 /** Concurrent task_get requests within a collect step. */
 const TASK_GET_CONCURRENCY = 25;
 
-/** Max task_get calls per collect round (per-invocation subrequest budget). */
-const TASK_GETS_PER_COLLECT = 500;
+// Requests now share one account slot. Keep each durable step to two chunks
+// so serialized requests fit its timeout and earlier results stay persisted.
+const TASK_GETS_PER_COLLECT = 50;
 
 // Collect steps may issue hundreds of task_get calls, so they get more room
 // than SINGLE_ATTEMPT_STEP_CONFIG's 2-minute timeout. Unlike the metered
@@ -628,83 +647,239 @@ interface CollectRoundOutcome {
   collected: number;
   /** Tasks still in DataForSEO's queue — poll again next round. */
   stillPending: PostedRankCheckTask[];
-  /** Tasks DataForSEO failed — route to the live fallback. */
+  /** Tasks DataForSEO failed, recorded as CHECK_FAILED snapshots this round. */
   failed: PostedRankCheckTask[];
+}
+
+/**
+ * One queued keyword/device pair that will never produce a queue result,
+ * with the sanitized diagnostic to persist against it.
+ */
+interface UncollectedTaskDiagnostic {
+  task: RankCheckTaskInput;
+  reason: string;
+}
+
+/** Upper bound for a per-pair queue diagnostic kept in a snapshot row. */
+const MAX_QUEUE_DIAGNOSTIC_LENGTH = 300;
+
+/** Bound + sanitize a queue diagnostic so it is safe for a snapshot row. */
+function queueDiagnostic(reason: string): string {
+  const flattened = scrubGlobalTraceText(
+    sanitizeDataforseoMessage(reason) ??
+      "Queued rank check did not produce a result",
+  );
+  return flattened.length > MAX_QUEUE_DIAGNOSTIC_LENGTH
+    ? `${flattened.slice(0, MAX_QUEUE_DIAGNOSTIC_LENGTH)}…`
+    : flattened;
+}
+
+/** Snapshot rows for pairs that will never produce a queue result. */
+function failedQueueSnapshotRows(
+  ctx: CheckContext,
+  tasks: Array<{
+    keywordId: string;
+    keyword: string;
+    device: "desktop" | "mobile";
+  }>,
+  reasons: Map<string, string>,
+  previousPositions: Map<string, number | null>,
+) {
+  const today = new Date().toISOString().slice(0, 10);
+  return tasks.map((task) => {
+    const reason =
+      reasons.get(`${task.keywordId}:${task.device}`) ??
+      "DataForSEO task did not produce a result";
+    return {
+      runId: ctx.runId,
+      projectId: ctx.projectId,
+      configId: ctx.configId,
+      trackingKeywordId: task.keywordId,
+      keyword: task.keyword,
+      device: task.device,
+      searchEngine: "google",
+      searchType: "organic",
+      location: ctx.locationName ?? String(ctx.locationCode),
+      language: ctx.languageCode,
+      checkedDate: today,
+      position: null,
+      previousPosition:
+        previousPositions.get(`${task.keywordId}:${task.device}`) ?? null,
+      rankingStatus: "CHECK_FAILED" as const,
+      url: null,
+      serpFeatures: null,
+      provider: "dataforseo",
+      providerStatus: reason,
+      providerStatusCode: null,
+      errorMessage: reason,
+    };
+  });
+}
+
+/**
+ * Persist CHECK_FAILED snapshots (with diagnostics) for pairs that will
+ * never produce a queue result. Idempotent via the (run, keyword, device)
+ * unique index, so workflow step replays are safe.
+ */
+async function recordUncollectedPairs(
+  ctx: CheckContext,
+  diagnostics: UncollectedTaskDiagnostic[],
+): Promise<void> {
+  if (diagnostics.length === 0) return;
+  const previousPositions = await RankTrackingRepository.getLatestPositionsMap(
+    ctx.configId,
+    diagnostics.map((d) => ({
+      keywordId: d.task.keywordId,
+      device: d.task.device,
+    })),
+    { excludeRunId: ctx.runId },
+  );
+  const reasons = new Map(
+    diagnostics.map((d) => [
+      `${d.task.keywordId}:${d.task.device}`,
+      queueDiagnostic(d.reason),
+    ]),
+  );
+  await RankTrackingRepository.insertSnapshots(
+    failedQueueSnapshotRows(
+      ctx,
+      diagnostics.map((d) => d.task),
+      reasons,
+      previousPositions,
+    ),
+  );
+  // Progress for the UI; finalize recounts keywordsChecked from the DB anyway.
+  const snapshots = await RankTrackingRepository.getSnapshotsForRun(ctx.runId);
+  await RankTrackingRepository.updateRun(ctx.runId, {
+    keywordsChecked: new Set(snapshots.map((s) => s.trackingKeywordId)).size,
+  });
 }
 
 /**
  * Fetch results for queued tasks (one free task_get each), persist completed
  * snapshots, and update run progress. Transient task_get failures stay
- * pending for the next round.
+ * pending for the next round. Tasks DataForSEO reports as failed are
+ * recorded immediately as CHECK_FAILED snapshots carrying the task's status
+ * message — they are never resubmitted anywhere.
+ *
+ * The whole round runs bound to the billing scope's effective DataForSEO
+ * account (runWithDataforseoAccountContext): the metered task_post ran under
+ * that scope, so collection must ask the SAME account for the results — a
+ * project-level credential override would otherwise leave task_get reading
+ * environment credentials that never received the tasks. Collection itself
+ * stays unmetered: task_get is free at DataForSEO.
+ *
+ * Cancellation is honored at every boundary: before each task_get chunk, and
+ * inside every gated dispatch (the account gate re-checks immediately before
+ * the network call). Remaining tasks stay pending for the cancelled run's
+ * finalize step — nothing is dispatched after cancellation.
  */
 async function collectQueuedRound(
   ctx: CheckContext,
   tasks: PostedRankCheckTask[],
 ): Promise<CollectRoundOutcome> {
-  const completed: RankCheckResultWithDevice[] = [];
-  const stillPending: PostedRankCheckTask[] = [];
-  const failed: PostedRankCheckTask[] = [];
+  return runWithDataforseoAccountContext(ctx.billingScope, async () => {
+    const completed: RankCheckResultWithDevice[] = [];
+    const stillPending: PostedRankCheckTask[] = [];
+    const failed: PostedRankCheckTask[] = [];
+    const failedReasons = new Map<string, string>();
+    const runCancelled = () => isRunCancelled(ctx.runId);
 
-  for (let i = 0; i < tasks.length; i += TASK_GET_CONCURRENCY) {
-    const chunk = tasks.slice(i, i + TASK_GET_CONCURRENCY);
-    const settled = await Promise.allSettled(
-      chunk.map((task) =>
-        fetchRankCheckTaskResult({
-          taskId: task.taskId,
-          keywordId: task.keywordId,
-          keyword: task.keyword,
-          targetDomain: ctx.domain,
-        }),
-      ),
-    );
-    settled.forEach((result, index) => {
-      const task = chunk[index];
-      if (result.status === "rejected") {
-        // Transient fetch failure — try again next round.
-        console.warn(
-          `[rank-check] ${ctx.runId} task_get failed:`,
-          result.reason,
+    for (let i = 0; i < tasks.length; i += TASK_GET_CONCURRENCY) {
+      if (await runCancelled()) {
+        console.log(
+          `[rank-check] ${ctx.runId} cancellation observed between task_get chunks; leaving remaining tasks pending`,
         );
-        stillPending.push(task);
-      } else if (result.value.status === "pending") {
-        stillPending.push(task);
-      } else if (result.value.status === "failed") {
-        console.warn(
-          `[rank-check] ${ctx.runId} task ${task.taskId} failed: ${result.value.message}`,
-        );
-        failed.push(task);
-      } else {
-        completed.push({ ...result.value.result, device: task.device });
+        stillPending.push(...tasks.slice(i));
+        break;
       }
-    });
-  }
-
-  if (completed.length > 0) {
-    const previousPositions =
-      await RankTrackingRepository.getLatestPositionsMap(
-        ctx.configId,
-        completed.map((t) => ({ keywordId: t.keywordId, device: t.device })),
-        { excludeRunId: ctx.runId },
+      const chunk = tasks.slice(i, i + TASK_GET_CONCURRENCY);
+      const settled = await Promise.allSettled(
+        chunk.map((task) =>
+          fetchRankCheckTaskResult({
+            taskId: task.taskId,
+            keywordId: task.keywordId,
+            keyword: task.keyword,
+            targetDomain: ctx.domain,
+            isCancelled: runCancelled,
+          }),
+        ),
       );
-    await RankTrackingRepository.insertSnapshots(
-      mapResultsToSnapshotRows(ctx, completed, previousPositions),
-    );
-    // Organic results the provider already returned (spec 019). Isolated: a
-    // failed write never changes the rank snapshot or the run.
-    await writeOrganicRows(
-      ctx,
-      organicRowsForResults(ctx, completed, new Date().toISOString()),
-    );
-    // Progress for the UI; finalize recounts from the DB anyway.
-    const snapshots = await RankTrackingRepository.getSnapshotsForRun(
-      ctx.runId,
-    );
-    await RankTrackingRepository.updateRun(ctx.runId, {
-      keywordsChecked: new Set(snapshots.map((s) => s.trackingKeywordId)).size,
-    });
-  }
+      settled.forEach((result, index) => {
+        const task = chunk[index];
+        if (result.status === "rejected") {
+          // Transient fetch failure (or the gate's cancelled/bounded wait)
+          // — try again next round.
+          console.warn(
+            `[rank-check] ${ctx.runId} task_get failed:`,
+            result.reason,
+          );
+          stillPending.push(task);
+        } else if (result.value.status === "pending") {
+          stillPending.push(task);
+        } else if (result.value.status === "failed") {
+          console.warn(
+            `[rank-check] ${ctx.runId} task ${task.taskId} failed: ${result.value.message}`,
+          );
+          failed.push(task);
+          failedReasons.set(
+            `${task.keywordId}:${task.device}`,
+            `DataForSEO task failed: ${result.value.message}`,
+          );
+        } else {
+          completed.push({ ...result.value.result, device: task.device });
+        }
+      });
+    }
 
-  return { collected: completed.length, stillPending, failed };
+    const completedPairs = completed.map((r) => ({
+      keywordId: r.keywordId,
+      device: r.device,
+    }));
+    const failedPairs = failed.map((t) => ({
+      keywordId: t.keywordId,
+      device: t.device,
+    }));
+    const previousPositions =
+      completed.length > 0 || failed.length > 0
+        ? await RankTrackingRepository.getLatestPositionsMap(
+            ctx.configId,
+            [...completedPairs, ...failedPairs],
+            { excludeRunId: ctx.runId },
+          )
+        : new Map<string, number | null>();
+
+    if (completed.length > 0) {
+      await RankTrackingRepository.insertSnapshots(
+        mapResultsToSnapshotRows(ctx, completed, previousPositions),
+      );
+      // Organic results the provider already returned (spec 019). Isolated: a
+      // failed write never changes the rank snapshot or the run.
+      await writeOrganicRows(
+        ctx,
+        organicRowsForResults(ctx, completed, new Date().toISOString()),
+      );
+    }
+
+    if (failed.length > 0) {
+      await RankTrackingRepository.insertSnapshots(
+        failedQueueSnapshotRows(ctx, failed, failedReasons, previousPositions),
+      );
+    }
+
+    if (completed.length > 0 || failed.length > 0) {
+      // Progress for the UI; finalize recounts keywordsChecked from the DB anyway.
+      const snapshots = await RankTrackingRepository.getSnapshotsForRun(
+        ctx.runId,
+      );
+      await RankTrackingRepository.updateRun(ctx.runId, {
+        keywordsChecked: new Set(snapshots.map((s) => s.trackingKeywordId))
+          .size,
+      });
+    }
+
+    return { collected: completed.length, stillPending, failed };
+  });
 }
 
 /** Per-run accounting for the queued path, in keyword/device task units. */
@@ -713,19 +888,108 @@ export interface QueuedCheckStats {
   queueTasks: number;
   /** Task results collected from the queue within the polling window. */
   queueCollected: number;
-  /** Tasks routed to the live fallback (rejected, failed, or timed out). */
-  fallbackTasks: number;
-  /** Fallback tasks that produced a snapshot. */
-  fallbackChecked: number;
+  /** Pairs that never produced a queue result — post failures/rejections,
+   *  DataForSEO task failures, or tasks still pending when the window
+   *  closed. Recorded as CHECK_FAILED snapshots with diagnostics; never
+   *  resubmitted to the Live endpoint. */
+  uncollectedTasks: number;
+}
+
+/**
+ * Post one chunk (one metered, single-attempt step). On failure the chunk is
+ * NOT retried and NOT resubmitted to Live: its pairs are recorded as
+ * CHECK_FAILED diagnostics (in their own durable step) and the run continues
+ * so tasks already accepted by earlier chunks still get collected.
+ */
+async function postTaskChunk(
+  step: WorkflowStep,
+  ctx: CheckContext,
+  chunk: RankCheckTaskInput[],
+  postIndex: number,
+  uncollected: UncollectedTaskDiagnostic[],
+): Promise<{
+  posted: PostedRankCheckTask[];
+  rejected: RejectedRankCheckTask[];
+} | null> {
+  try {
+    return await pgStep(
+      step,
+      `post-tasks-${postIndex}`,
+      SINGLE_ATTEMPT_STEP_CONFIG,
+      async () =>
+        ctx.client.serp.rankCheckTaskPost({
+          tasks: chunk,
+          locationCode: ctx.locationCode,
+          languageCode: ctx.languageCode,
+          locationName: ctx.locationName,
+          depth: ctx.serpDepth,
+          targetDomain: ctx.domain,
+          // Honored by the account gate while waiting for the slot and once
+          // more immediately before the paid POST goes on the wire.
+          isCancelled: () => isRunCancelled(ctx.runId),
+        }),
+    );
+  } catch (error) {
+    // The post failed, was cancelled, or timed out — possibly while waiting
+    // on the account gate or the network. NO Live fallback and NO retry: a
+    // paid POST is never blindly resubmitted. Record diagnostics for the
+    // chunk and let the caller keep collecting earlier chunks' tasks.
+    console.warn(
+      `[rank-check] ${ctx.runId} post-tasks-${postIndex} failed:`,
+      error,
+    );
+    const reason = safeProviderReason(error);
+    const chunkDiagnostics = chunk.map((task) => ({
+      task,
+      reason: `task_post failed: ${reason}`,
+    }));
+    await pgStep(
+      step,
+      `record-post-failures-${postIndex}`,
+      SINGLE_ATTEMPT_STEP_CONFIG,
+      () => recordUncollectedPairs(ctx, chunkDiagnostics),
+    );
+    uncollected.push(...chunkDiagnostics);
+    return null;
+  }
+}
+
+/**
+ * Record per-entry post rejections (and unaccounted pairs from malformed
+ * response entries) as CHECK_FAILED snapshots in a durable step, so every
+ * rejected pair is visible with its reason — including when the whole run
+ * has zero pending tasks left.
+ */
+async function recordPostRejections(
+  step: WorkflowStep,
+  ctx: CheckContext,
+  postIndex: number,
+  diagnostics: UncollectedTaskDiagnostic[],
+): Promise<void> {
+  if (diagnostics.length === 0) return;
+  await pgStep(
+    step,
+    `record-post-rejections-${postIndex}`,
+    SINGLE_ATTEMPT_STEP_CONFIG,
+    () => recordUncollectedPairs(ctx, diagnostics),
+  );
 }
 
 /**
  * Check keywords via DataForSEO's standard task queue (~30% of live cost).
- * Posts every keyword/device pair as a queued task, then polls task_get for
- * ~15 minutes, writing snapshots incrementally as tasks complete. Anything
- * still unfinished after the polling window — plus tasks DataForSEO rejected
- * or failed — gets one shot at the live endpoint so a run never hangs on a
- * stuck queue. Billing happens at task_post (and per live-fallback call).
+ * Posts every keyword/device pair as a queued task (normal priority, <=100
+ * per request), then polls task_get for ~15 minutes, writing snapshots
+ * incrementally as tasks complete.
+ *
+ * Failure policy: bulk queue work NEVER falls back to the Live endpoint. A
+ * failed post chunk is recorded as CHECK_FAILED diagnostics for its pairs —
+ * and crucially, tasks ALREADY ACCEPTED by earlier chunks keep being
+ * collected (they were paid for at task_post). The same applies to tasks
+ * DataForSEO fails and to stragglers still pending when the polling window
+ * closes. An ambiguous paid POST is never blindly retried (post steps are
+ * single-attempt); a run surfaces partial/failure with per-keyword
+ * diagnostics instead of success or zero rankings. Billing happens once, at
+ * task_post.
  */
 export async function runQueuedCheck(
   step: WorkflowStep,
@@ -735,123 +999,158 @@ export async function runQueuedCheck(
 
   // Post all tasks to the queue, <=100 per request, one metered step each.
   // A failed chunk must not abort the run — earlier chunks were already
-  // charged at DataForSEO, so their results have to be collected. The failed
-  // chunk's pairs go to the live fallback instead.
+  // charged at DataForSEO, so their results have to be collected.
   let pending: PostedRankCheckTask[] = [];
-  const fallback: RankCheckTaskInput[] = [];
+  const uncollected: UncollectedTaskDiagnostic[] = [];
   for (let i = 0; i < taskInputs.length; i += MAX_TASKS_PER_POST) {
     const chunk = taskInputs.slice(i, i + MAX_TASKS_PER_POST);
     const postIndex = Math.floor(i / MAX_TASKS_PER_POST);
-    let posted: PostedRankCheckTask[];
-    try {
-      posted = await pgStep(
-        step,
-        `post-tasks-${postIndex}`,
-        SINGLE_ATTEMPT_STEP_CONFIG,
-        async () =>
-          ctx.client.serp.rankCheckTaskPost({
-            tasks: chunk,
-            locationCode: ctx.locationCode,
-            languageCode: ctx.languageCode,
-            locationName: ctx.locationName,
-            depth: ctx.serpDepth,
-            targetDomain: ctx.domain,
-          }),
+
+    // Stop posting when the run was cancelled — the remaining pairs are
+    // simply not attempted (finalize preserves the cancelled status).
+    if (await isRunCancelled(ctx.runId)) {
+      console.log(
+        `[rank-check] ${ctx.runId} cancellation observed before post-tasks-${postIndex}; halting posts`,
       );
-    } catch (error) {
-      console.warn(
-        `[rank-check] ${ctx.runId} post-tasks-${postIndex} failed:`,
-        error,
-      );
-      fallback.push(...chunk);
-      continue;
+      break;
     }
-    pending.push(...posted);
-    if (posted.length < chunk.length) {
-      const acceptedKeys = new Set(
-        posted.map((t) => `${t.keywordId}:${t.device}`),
+
+    const postedResult = await postTaskChunk(
+      step,
+      ctx,
+      chunk,
+      postIndex,
+      uncollected,
+    );
+    if (!postedResult) continue;
+
+    pending.push(...postedResult.posted);
+
+    // Pairs DataForSEO rejected at post time (per-entry status) get their
+    // own persisted diagnostics; unmappable entries are reconciled so every
+    // pair of the chunk is accounted for exactly once — accepted, rejected
+    // with a reason, or (malformed response) generically rejected.
+    const rejectedByPair = new Map(
+      postedResult.rejected
+        .filter((r) => r.task !== null)
+        .map((r) => [`${r.task!.keywordId}:${r.task!.device}`, r]),
+    );
+    const rejectionDiagnostics: UncollectedTaskDiagnostic[] = [];
+    for (const rejection of rejectedByPair.values()) {
+      const detail = rejection.statusMessage
+        ? ` ${rejection.statusMessage}`
+        : "";
+      rejectionDiagnostics.push({
+        task: rejection.task!,
+        reason: `DataForSEO rejected the task at post${rejection.statusCode ? ` (${rejection.statusCode})` : ""}:${detail}`,
+      });
+    }
+    const accountedPairs = new Set([
+      ...postedResult.posted.map((t) => `${t.keywordId}:${t.device}`),
+      ...rejectedByPair.keys(),
+    ]);
+    const unaccounted = chunk.filter(
+      (t) => !accountedPairs.has(`${t.keywordId}:${t.device}`),
+    );
+    if (unaccounted.length > 0) {
+      console.warn(
+        `[rank-check] ${ctx.runId} post-tasks-${postIndex}: ${unaccounted.length} pair(s) unaccounted after rejection entries`,
       );
-      fallback.push(
-        ...chunk.filter((t) => !acceptedKeys.has(`${t.keywordId}:${t.device}`)),
-      );
+      for (const task of unaccounted) {
+        rejectionDiagnostics.push({
+          task,
+          reason: "DataForSEO did not accept the task at post time",
+        });
+      }
+    }
+    if (rejectionDiagnostics.length > 0) {
+      await recordPostRejections(step, ctx, postIndex, rejectionDiagnostics);
+      uncollected.push(...rejectionDiagnostics);
     }
   }
 
   const stats: QueuedCheckStats = {
     queueTasks: pending.length,
     queueCollected: 0,
-    fallbackTasks: 0,
-    fallbackChecked: 0,
+    uncollectedTasks: 0,
   };
 
   // Poll until everything is collected or the ~15 minute window closes. A
-  // collect failure (past its retries) leaves that round's tasks pending for
-  // the next round — or the live fallback — instead of failing the run; the
-  // posted tasks are already paid for.
+  // collect failure (past its retries) leaves that round's tasks pending
+  // for the next round — or recorded as uncollected at window close —
+  // instead of failing the run; the posted tasks are already paid for.
   for (
     let round = 0;
     round < QUEUED_POLL_INTERVALS.length && pending.length > 0;
     round++
   ) {
-    const runCheck = await RankTrackingRepository.getRunById(ctx.runId);
-    if (runCheck?.status === "cancelled") {
+    if (await isRunCancelled(ctx.runId)) {
       break;
     }
 
     await step.sleep(`wait-${round}`, QUEUED_POLL_INTERVALS[round]);
 
-    // Cap task_gets per round so one collect step stays well inside the
-    // per-invocation subrequest limit at the 1000-keyword config ceiling.
-    const batch = pending.slice(0, TASK_GETS_PER_COLLECT);
-    const overflow = pending.slice(TASK_GETS_PER_COLLECT);
-
-    let outcome: CollectRoundOutcome;
-    try {
-      outcome = await pgStep(
-        step,
-        `collect-${round}`,
-        COLLECT_STEP_CONFIG,
-        () => collectQueuedRound(ctx, batch),
+    // Re-check after the durable sleep: a run cancelled during the wait must
+    // not wake up and dispatch a collect round.
+    if (await isRunCancelled(ctx.runId)) {
+      console.log(
+        `[rank-check] ${ctx.runId} cancellation observed after wait-${round}`,
       );
-    } catch (error) {
-      console.warn(`[rank-check] ${ctx.runId} collect-${round} failed:`, error);
-      continue;
+      break;
     }
 
-    stats.queueCollected += outcome.collected;
-    pending = [...outcome.stillPending, ...overflow];
-    fallback.push(...outcome.failed);
+    const roundTasks = pending;
+    pending = [];
+    for (
+      let offset = 0;
+      offset < roundTasks.length;
+      offset += TASK_GETS_PER_COLLECT
+    ) {
+      if (await isRunCancelled(ctx.runId)) {
+        pending.push(...roundTasks.slice(offset));
+        break;
+      }
+      const batch = roundTasks.slice(offset, offset + TASK_GETS_PER_COLLECT);
+      const batchIndex = Math.floor(offset / TASK_GETS_PER_COLLECT);
+      const stepName = `collect-${round}-${batchIndex}`;
+      let outcome: CollectRoundOutcome;
+      try {
+        outcome = await pgStep(step, stepName, COLLECT_STEP_CONFIG, () =>
+          collectQueuedRound(ctx, batch),
+        );
+      } catch (error) {
+        console.warn(`[rank-check] ${ctx.runId} ${stepName} failed:`, error);
+        pending.push(...batch);
+        continue;
+      }
+      stats.queueCollected += outcome.collected;
+      pending.push(...outcome.stillPending);
+      stats.uncollectedTasks += outcome.failed.length;
+    }
   }
 
-  // Live fallback: queued tasks that never finished, failed, or were rejected
-  // at post time. A straggler is double-billed (customer was metered the
-  // queued post cost and now the live call too — fractions of a cent).
-  // Progress isn't updated here; finalize recounts keywordsChecked from the
-  // DB.
-  const stragglers: RankCheckTaskInput[] = [...fallback, ...pending];
-  stats.fallbackTasks = stragglers.length;
-  if (stragglers.length === 0) return stats;
-
-  const runBeforeFallback = await RankTrackingRepository.getRunById(ctx.runId);
-  if (runBeforeFallback?.status === "cancelled") return stats;
-
-  console.log(
-    `[rank-check] ${ctx.runId} live fallback for ${stragglers.length} task(s)`,
-  );
-
-  for (let i = 0; i < stragglers.length; i += KEYWORDS_PER_BATCH) {
-    const batch = stragglers.slice(i, i + KEYWORDS_PER_BATCH);
-    const batchIndex = Math.floor(i / KEYWORDS_PER_BATCH);
-
-    stats.fallbackChecked += (
-      await pgStep(
-        step,
-        `fallback-batch-${batchIndex}`,
-        SINGLE_ATTEMPT_STEP_CONFIG,
-        () => checkBatchLive(ctx, batch),
-      )
-    ).written;
+  // Window closed (or nothing left). Stragglers still pending are recorded
+  // as uncollected with diagnostics — never resubmitted to the Live
+  // endpoint. Skipped entirely for a cancelled run: finalize preserves the
+  // cancelled status and counts only what was actually collected.
+  if (pending.length > 0 && !(await isRunCancelled(ctx.runId))) {
+    console.log(
+      `[rank-check] ${ctx.runId} polling window closed with ${pending.length} task(s) not collected`,
+    );
+    const stragglerDiagnostics: UncollectedTaskDiagnostic[] = pending.map(
+      (task) => ({
+        task,
+        reason:
+          "Queued task was not collected within the polling window (still in DataForSEO's queue)",
+      }),
+    );
+    await pgStep(step, "record-uncollected-tasks", COLLECT_STEP_CONFIG, () =>
+      recordUncollectedPairs(ctx, stragglerDiagnostics),
+    );
+    stats.uncollectedTasks += stragglerDiagnostics.length;
+    pending = [];
   }
 
+  stats.uncollectedTasks += uncollected.length;
   return stats;
 }

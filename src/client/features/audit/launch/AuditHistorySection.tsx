@@ -52,7 +52,12 @@ export function AuditHistorySection({
                   <td className="text-xs text-base-content/70">
                     {formatDate(audit.startedAt)}
                   </td>
-                  <td className="max-w-[220px] truncate" title={safeDecodeUrlText(audit.startUrl)}>{safeDecodeUrlText(audit.startUrl)}</td>
+                  <td
+                    className="max-w-[220px] truncate"
+                    title={safeDecodeUrlText(audit.startUrl)}
+                  >
+                    {safeDecodeUrlText(audit.startUrl)}
+                  </td>
                   <td>
                     <StatusBadge status={audit.status} />
                   </td>

@@ -11,7 +11,10 @@ import {
   updateSavedKeywordTagSchema,
   updateSavedKeywordTagsSchema,
 } from "@/types/schemas/keywords";
-import { KeywordResearchService } from "@/server/features/keywords/services/KeywordResearchService";
+import {
+  KeywordResearchService,
+  type SerpAnalysisResult,
+} from "@/server/features/keywords/services/KeywordResearchService";
 import { requireProjectContext } from "@/serverFunctions/middleware";
 import { resolveMarket } from "@/shared/keyword-locations";
 
@@ -129,7 +132,7 @@ export const refreshSavedKeywordMetrics = createServerFn({ method: "POST" })
 export const getSerpAnalysis = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(serpAnalysisSchema)
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data, context }): Promise<SerpAnalysisResult> => {
     // E2E fixture branch (spec 011, T017): deterministic analysis so the
     // mobile card view is verifiable without a live provider. Production
     // path unchanged.

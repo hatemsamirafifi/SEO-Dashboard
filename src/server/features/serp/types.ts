@@ -305,6 +305,10 @@ export type NormalizedSerpResult = {
    * rather than reporting an empty page of results.
    */
   organicResults?: SerpOrganicResult[];
+  /** Optional per-position snippet/description observed on the organic items. */
+  organicDescriptions?: Record<number, string>;
+  /** Optional normalized SERP feature families observed on page 1. */
+  observedFeatures?: SerpFeatureSet;
 };
 
 export class SerpProviderError extends Error {

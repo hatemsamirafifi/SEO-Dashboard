@@ -338,8 +338,12 @@ export function createGa4Client(options: {
           { headers: { Authorization: `Bearer ${token}` } },
         );
         if (!response.ok) return null;
-        const data = (await response.json()) as { email?: unknown };
-        return typeof data.email === "string" ? data.email : null;
+        const data: unknown = await response.json();
+        if (typeof data === "object" && data !== null && "email" in data) {
+          const rec = data as { email: unknown };
+          return typeof rec.email === "string" ? rec.email : null;
+        }
+        return null;
       } catch {
         return null;
       }

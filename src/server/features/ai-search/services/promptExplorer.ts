@@ -5,7 +5,11 @@ import type { LlmResponseResult } from "@/server/lib/dataforseoLlmSchemas";
 import { AppError } from "@/server/lib/errors";
 import { buildCacheKey, getCached, setCached } from "@/server/lib/r2-cache";
 import { assertDataforseoBudgetAvailable } from "@/server/lib/seo-data/cost-tracker";
-import { BudgetExceededError } from "@/server/lib/seo-data/errors";
+import {
+  BudgetExceededError,
+  ProviderUnavailableError,
+} from "@/server/lib/seo-data/errors";
+import { getProviderFeatureFlags } from "@/server/lib/seo-data/config";
 import { singleFlight } from "@/server/lib/seo-data/single-flight";
 import { safeHostname, safeHttpUrl } from "@/server/features/ai-search/safeUrl";
 import { AiSearchObservationRepository } from "@/server/features/ai-search/repositories/AiSearchObservationRepository";
@@ -47,6 +51,14 @@ export async function explorePrompt(
   input: PromptExplorerInput,
   billingCustomer: BillingCustomerContext,
 ): Promise<PromptExplorerResult> {
+  const flags = await getProviderFeatureFlags();
+  if (!flags.dataforseoEnabled) {
+    throw new ProviderUnavailableError(
+      "dataforseo",
+      "DataForSEO is disabled (DATAFORSEO_ENABLED=false)",
+    );
+  }
+
   const dataforseo = createDataforseoClient(billingCustomer);
   const highlightBrand = input.highlightBrand?.trim() || null;
 
@@ -182,7 +194,9 @@ async function recordAiSearchObservation(
       position: index + 1,
     }))
     .filter(
-      (citation): citation is {
+      (
+        citation,
+      ): citation is {
         url: string;
         domain: string;
         title: string | null;
@@ -367,6 +381,9 @@ function mapErrorToResult(
   model: PromptExplorerModel,
   reason: unknown,
 ): PromptExplorerModelResult {
+  if (reason instanceof ProviderUnavailableError) {
+    throw reason;
+  }
   if (reason instanceof BudgetExceededError) {
     // The self-hosted budget guard rejects the whole exploration — no model
     // was (or will be) paid. Surface the budget failure instead of silently

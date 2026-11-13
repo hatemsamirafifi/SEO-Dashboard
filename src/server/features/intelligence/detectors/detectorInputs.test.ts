@@ -596,7 +596,10 @@ describe("full-scan integration over seeded sources", () => {
     expect(
       skipped.find((o) => o.detectorKey === "ai_citation_gap")?.skipReason,
     ).toBe("required source has no committed version: ai_search");
-    for (const adsKey of ["paid_organic_query_gap", "paid_landing_page_technical_issue"]) {
+    for (const adsKey of [
+      "paid_organic_query_gap",
+      "paid_landing_page_technical_issue",
+    ]) {
       expect(
         skipped.find((o) => o.detectorKey === adsKey)?.skipReason,
       ).toContain("google_ads");

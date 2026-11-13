@@ -14,7 +14,8 @@ import type {
 } from "./samTraceReducer";
 
 /** Friendly display labels for canonical data-provider ids (unknown ids pass through). */
-const PROVIDER_DISPLAY_LABELS: Record<string, string> = {
+export const PROVIDER_DISPLAY_LABELS: Record<string, string> = {
+  seranking: "SE Ranking",
   dataforseo: "DataForSEO",
   gsc: "GSC",
   google_ads: "Google Ads",

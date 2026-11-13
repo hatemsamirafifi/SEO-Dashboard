@@ -73,6 +73,15 @@ export function KeywordResearchMobileResults({ controller }: Props) {
             keyword={controller.activeSerpKeyword}
             loading={controller.serpLoading}
             error={controller.serpError}
+            errorCorrelationId={controller.serpErrorCorrelationId}
+            status={controller.serpStatus}
+            unavailableReason={controller.serpUnavailableReason}
+            providerDiagnostics={controller.serpProviderDiagnostics}
+            provider={controller.serpProvider}
+            fetchedAt={controller.serpFetchedAt}
+            fromCache={controller.serpFromCache}
+            locationCode={controller.serpLocationCode}
+            languageCode={controller.serpLanguageCode}
             enrichmentAccountBlocked={controller.serpEnrichmentAccountBlocked}
             onRetry={() => void controller.serpQuery.refetch()}
             page={controller.serpPage}

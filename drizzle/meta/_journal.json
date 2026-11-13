@@ -543,6 +543,20 @@
       "when": 1792862080127,
       "tag": "0076_indexnow_key",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1793826533472,
+      "tag": "0077_dataforseo_account_request_slots",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1794400000000,
+      "tag": "0078_se_ranking_rank_tracking",
+      "breakpoints": true
     }
   ]
 }

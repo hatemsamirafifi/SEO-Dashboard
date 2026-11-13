@@ -362,7 +362,7 @@ async function handleOAuthConsentResponse(
     userId: context.userId,
     metadata: {
       role: (context as { role?: string }).role ?? "owner",
-    clientId: authRequest.clientId,
+      clientId: authRequest.clientId,
       organizationId: context.organizationId,
     },
     scope: scopes,

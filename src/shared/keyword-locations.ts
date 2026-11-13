@@ -538,7 +538,7 @@ export const LOCATION_OPTIONS: readonly LocationOption[] = [
  * This is the master list; the picker shows a per-country subset via
  * getLanguageOptions() below.
  */
-const LANGUAGE_OPTIONS = [
+export const LANGUAGE_OPTIONS = [
   { code: "af", label: "Afrikaans" },
   { code: "ak", label: "Akan" },
   { code: "sq", label: "Albanian" },

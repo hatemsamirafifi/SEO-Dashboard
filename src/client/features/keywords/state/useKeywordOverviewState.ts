@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { KeywordMode } from "@/client/features/keywords/keywordResearchTypes";
+import { isExactKeywordMatch } from "@/shared/keyword-relevance";
 import type { KeywordResearchRow } from "@/types/keywords";
 
 export function computeKeywordOverviewState({
@@ -18,25 +19,25 @@ export function computeKeywordOverviewState({
   lastSearchError: boolean;
   keywordMode?: KeywordMode;
 }) {
-  const normalizedSeed = searchedKeyword.trim().toLowerCase();
+  const normalizedSeed = searchedKeyword.trim();
   const hasExactMatchInResults =
     Boolean(normalizedSeed) &&
-    rows.some((row) => row.keyword.trim().toLowerCase() === normalizedSeed);
+    rows.some((row) => isExactKeywordMatch(row.keyword, normalizedSeed));
 
   const showApproximateMatchNotice =
     hasSearched &&
     !isLoading &&
     !lastSearchError &&
     rows.length > 0 &&
-    searchedKeyword.trim() !== "" &&
+    normalizedSeed !== "" &&
     !hasExactMatchInResults;
 
   let overviewKeyword: KeywordResearchRow | null = null;
   if (selectedKeyword) {
     overviewKeyword = selectedKeyword;
-  } else if (searchedKeyword && rows.length > 0) {
-    const seed = rows.find(
-      (row) => row.keyword.toLowerCase() === searchedKeyword.toLowerCase(),
+  } else if (normalizedSeed && rows.length > 0) {
+    const seed = rows.find((row) =>
+      isExactKeywordMatch(row.keyword, normalizedSeed),
     );
     overviewKeyword = seed ?? rows[0];
   } else if (rows.length > 0) {

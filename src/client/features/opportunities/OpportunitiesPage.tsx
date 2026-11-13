@@ -1,6 +1,12 @@
+/* eslint-disable eslint/max-lines, eslint/max-lines-per-function */
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
@@ -87,8 +93,12 @@ function OpportunityRowCard({
           Confidence{" "}
           <strong className="text-base-content">{row.confidenceScore}</strong>
         </span>
-        {row.keyword ? <span>Keyword: {safeDecodeUrlText(row.keyword)}</span> : null}
-        {row.page ? <span className="truncate">Page: {safeDecodeUrlText(row.page)}</span> : null}
+        {row.keyword ? (
+          <span>Keyword: {safeDecodeUrlText(row.keyword)}</span>
+        ) : null}
+        {row.page ? (
+          <span className="truncate">Page: {safeDecodeUrlText(row.page)}</span>
+        ) : null}
         <span>Seen {formatDateTime(row.lastDetectedAt)}</span>
         {missInfo ? <span className="text-warning">{missInfo}</span> : null}
       </div>
@@ -170,11 +180,17 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
   const scanMutation = useMutation({
     mutationFn: () => triggerIntelligenceScan({ data: { projectId } }),
     onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ["opportunities", projectId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["opportunities", projectId],
+      });
       if (res.ok) {
-        toast.success(`Scan completed! Discovered ${res.findingsCount} findings.`);
+        toast.success(
+          `Scan completed! Discovered ${res.findingsCount} findings.`,
+        );
       } else if ("rateLimited" in res && res.rateLimited) {
-        toast.info("A scan was already run recently. Please wait a few minutes.");
+        toast.info(
+          "A scan was already run recently. Please wait a few minutes.",
+        );
       } else if ("deferred" in res && res.deferred) {
         toast.info("Scan deferred: active background mutations in progress.");
       } else {
@@ -372,7 +388,9 @@ export function OpportunitiesPage({ projectId }: { projectId: string }) {
                 <div>
                   <h2 className="font-semibold">No opportunities yet</h2>
                   <p className="mt-1 text-sm text-base-content/60">
-                    Intelligence scans run automatically on schedule. You can also run an instant scan now to analyze your site and discover actionable opportunities.
+                    Intelligence scans run automatically on schedule. You can
+                    also run an instant scan now to analyze your site and
+                    discover actionable opportunities.
                   </p>
                 </div>
                 <button

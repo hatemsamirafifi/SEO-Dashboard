@@ -98,18 +98,24 @@ function DesktopKeywordPanel({ controller }: Props) {
     <div className="order-2 xl:order-1 flex flex-col min-w-0 gap-2 xl:basis-3/5">
       {showApproximateMatchNotice ? (
         <div
-          className="rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-sm text-base-content"
+          className="rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-sm text-base-content flex flex-wrap items-center justify-between gap-2"
           role="status"
         >
-          No exact match for{" "}
-          <span className="font-medium">"{searchedKeyword}"</span>. Showing
-          closest related keywords instead.
-          {lastUsedFallback ? (
-            <span className="text-base-content/75">
-              {" "}
-              Source: {lastResultSource} fallback.
-            </span>
-          ) : null}
+          <div>
+            No exact match for{" "}
+            <span className="font-medium">"{searchedKeyword}"</span> (exact
+            volume not reported by provider — not zero). Showing closest related
+            keywords instead.
+            {lastUsedFallback ? (
+              <span className="text-base-content/75">
+                {" "}
+                Source: {lastResultSource} fallback.
+              </span>
+            ) : null}
+          </div>
+          <span className="badge badge-warning badge-outline badge-xs shrink-0">
+            Exact metrics: Unavailable
+          </span>
         </div>
       ) : null}
       {controller.overviewKeyword ? (
@@ -379,6 +385,15 @@ function DesktopSerpPanel({ controller }: Props) {
             keyword={controller.activeSerpKeyword}
             loading={controller.serpLoading}
             error={controller.serpError}
+            errorCorrelationId={controller.serpErrorCorrelationId}
+            status={controller.serpStatus}
+            unavailableReason={controller.serpUnavailableReason}
+            providerDiagnostics={controller.serpProviderDiagnostics}
+            provider={controller.serpProvider}
+            fetchedAt={controller.serpFetchedAt}
+            fromCache={controller.serpFromCache}
+            locationCode={controller.serpLocationCode}
+            languageCode={controller.serpLanguageCode}
             enrichmentAccountBlocked={controller.serpEnrichmentAccountBlocked}
             onRetry={() => void controller.serpQuery.refetch()}
             page={controller.serpPage}

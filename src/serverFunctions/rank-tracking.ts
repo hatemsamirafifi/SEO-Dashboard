@@ -211,6 +211,7 @@ export const getLatestRankResults = createServerFn({ method: "POST" })
       data.configId,
       context.projectId,
       data.comparePeriod,
+      data.trackingTargetId,
     );
   });
 
@@ -345,6 +346,7 @@ export const getRankKeywordHistory = createServerFn({ method: "POST" })
       data.configId,
       data.trackingKeywordId,
       data.sinceDays,
+      data.trackingTargetId,
     );
   });
 
@@ -357,6 +359,7 @@ export const getRankConfigTrend = createServerFn({ method: "POST" })
       data.configId,
       data.device,
       data.sinceDays,
+      data.trackingTargetId,
     );
     // SQLite sum()/count() can return strings; coerce and derive "not ranking"
     // (position > 20 or null) as the remainder so the buckets cover every kw.
@@ -385,6 +388,7 @@ export const getRankPositionMatrix = createServerFn({ method: "POST" })
       data.configId,
       data.device,
       data.runLimit,
+      data.trackingTargetId,
     );
   });
 /**

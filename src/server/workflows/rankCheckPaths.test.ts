@@ -1,12 +1,22 @@
 /* eslint-disable max-lines */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkflowStep } from "cloudflare:workers";
-import { runLiveCheck } from "@/server/workflows/rankCheckPaths";
+import {
+  runLiveCheck,
+  runQueuedCheck,
+} from "@/server/workflows/rankCheckPaths";
+import {
+  fetchRankCheckTaskResult,
+  MAX_TASKS_PER_POST,
+} from "@/server/lib/dataforseo";
 
 // Producer contract: per-call DataForSEO failures must not vanish into a
 // generic run label. runLiveCheck keeps identical execution semantics (same
 // calls, same skips, same writes, same progress) and additionally returns the
 // first sanitized provider reason so the run record names the actual error.
+// runQueuedCheck never resubmits bulk queue work to the Live endpoint, keeps
+// collecting accepted tasks after later post failures, and persists per-pair
+// diagnostics for everything that never produced a queue result.
 
 const repoMocks = vi.hoisted(() => ({
   updateRun:
@@ -25,17 +35,23 @@ vi.mock(
   () => ({ RankTrackingRepository: repoMocks }),
 );
 vi.mock("@/server/workflows/pgStep", () => ({
-  // Execute the step body immediately; persistence is the engine's concern.
+  // Step stubs can model durable boundaries; the live-only fixtures need no engine.
   pgStep: (
-    _step: unknown,
-    _name: string,
+    step: { do?: (name: string, fn: () => unknown) => unknown },
+    name: string,
     _config: unknown,
     fn: () => unknown,
-  ) => fn(),
+  ) => (step.do ? step.do(name, fn) : fn()),
 }));
 vi.mock("@/server/lib/dataforseo", () => ({
   fetchRankCheckTaskResult: vi.fn(),
   MAX_TASKS_PER_POST: 100,
+  // Bind-to-account-context wrapper: execute immediately (binding semantics
+  // are covered by serp.test.ts).
+  runWithDataforseoAccountContext: async (
+    _scope: unknown,
+    fn: () => Promise<unknown>,
+  ) => fn(),
 }));
 
 const organicMocks = vi.hoisted(() => ({
@@ -73,6 +89,7 @@ function makeCtx(
     runId: "run_1",
     projectId: "proj_1",
     configId: "cfg_1",
+    billingScope: { organizationId: "org_1", projectId: "proj_1" },
   };
 }
 
@@ -366,6 +383,500 @@ describe("runLiveCheck provider-reason capture", () => {
       delete process.env.RANK_CHECK_CONCURRENCY;
     }
   }, 15000);
+});
+
+// ---------------------------------------------------------------------------
+// runQueuedCheck: bulk queue semantics. Bulk queue work NEVER falls back to
+// the Live endpoint; accepted tasks keep being collected after later post
+// failures; every pair that never produces a queue result is persisted as a
+// CHECK_FAILED snapshot with a diagnostic.
+// ---------------------------------------------------------------------------
+
+interface PostedTaskPayload {
+  keywordId: string;
+  keyword: string;
+  device: "desktop" | "mobile";
+  taskId: string;
+}
+
+function postResultOf(
+  tasks: Array<{
+    keywordId: string;
+    keyword: string;
+    device: "desktop" | "mobile";
+  }>,
+): {
+  posted: PostedTaskPayload[];
+  rejected: [];
+} {
+  return {
+    posted: tasks.map((task, i) => ({ ...task, taskId: `task-${i + 1}` })),
+    rejected: [],
+  };
+}
+
+function completedOutcome(task: { keywordId: string; keyword: string }) {
+  return {
+    status: "completed" as const,
+    result: {
+      keywordId: task.keywordId,
+      keyword: task.keyword,
+      position: 4,
+      url: "https://x/",
+      serpFeatures: [],
+    },
+  };
+}
+
+function makeQueuedCtx(input: {
+  keywordCount: number;
+  rankCheckTaskPost: Ctx["client"]["serp"]["rankCheckTaskPost"];
+  rankCheck?: Ctx["client"]["serp"]["rankCheck"];
+}): Ctx {
+  return {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- test-only CheckContext stub; the queued path touches client.serp.rankCheckTaskPost (and must NEVER touch rankCheck)
+    client: {
+      serp: {
+        rankCheck: input.rankCheck ?? vi.fn(),
+        rankCheckTaskPost: input.rankCheckTaskPost,
+      },
+    } as unknown as Ctx["client"],
+    keywords: Array.from({ length: input.keywordCount }, (_, i) => ({
+      id: `kw_${i + 1}`,
+      keyword: `keyword ${i + 1}`,
+    })),
+    devices: "desktop",
+    serpDepth: 100,
+    domain: "powersiment.ae",
+    locationCode: 784,
+    languageCode: "ar",
+    runId: "run_1",
+    projectId: "proj_1",
+    configId: "cfg_1",
+    billingScope: { organizationId: "org_1", projectId: "proj_1" },
+  };
+}
+
+/** Step stub with an instant sleep (collect rounds poll on it). */
+const queuedStep = {
+  do: (name: string, arg2: unknown, arg3?: unknown) => {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- step callbacks are always functions at the call sites we exercise
+    const fn = (arg3 ?? arg2) as () => unknown;
+    return Promise.resolve(fn());
+  },
+  sleep: () => Promise.resolve(),
+} as unknown as WorkflowStep;
+
+/** All CHECK_FAILED snapshots recorded so far (across every insert call). */
+function failedSnapshots(): Array<Record<string, unknown>> {
+  return repoMocks.insertSnapshots.mock.calls.flatMap(([rows]) => rows);
+}
+
+function resetQueuedMocks() {
+  repoMocks.updateRun.mockResolvedValue(undefined);
+  repoMocks.insertSnapshots.mockResolvedValue(undefined);
+  repoMocks.getLatestPositionsMap.mockResolvedValue(new Map());
+  repoMocks.getRunById.mockResolvedValue({ id: "run_1", status: "running" });
+  repoMocks.getSnapshotsForRun.mockResolvedValue([]);
+  organicMocks.insertOrganicSnapshots.mockReset();
+  organicMocks.insertOrganicSnapshots.mockResolvedValue(undefined);
+}
+
+describe("runQueuedCheck bulk queue semantics", () => {
+  beforeEach(resetQueuedMocks);
+
+  it("posts chunks and collects accepted tasks into snapshots", async () => {
+    const rankCheckTaskPost = vi.fn(
+      async ({
+        tasks,
+      }: {
+        tasks: Array<{
+          keywordId: string;
+          keyword: string;
+          device: "desktop" | "mobile";
+        }>;
+        isCancelled?: () => Promise<boolean>;
+      }) => postResultOf(tasks),
+    );
+    const ctx = makeQueuedCtx({ keywordCount: 3, rankCheckTaskPost });
+    vi.mocked(fetchRankCheckTaskResult).mockImplementation(
+      async ({ keywordId, keyword }: { keywordId: string; keyword: string }) =>
+        completedOutcome({ keywordId, keyword }),
+    );
+
+    const stats = await runQueuedCheck(queuedStep, ctx);
+
+    expect(rankCheckTaskPost).toHaveBeenCalledTimes(1);
+    expect(rankCheckTaskPost.mock.calls[0][0].isCancelled).toBeTypeOf(
+      "function",
+    );
+    expect(stats).toEqual({
+      queueTasks: 3,
+      queueCollected: 3,
+      uncollectedTasks: 0,
+    });
+    // Snapshots exist (3 collected), but none is a failure row.
+    expect(failedSnapshots().length).toBeGreaterThanOrEqual(3);
+    expect(
+      failedSnapshots().filter((row) => row.rankingStatus === "CHECK_FAILED"),
+    ).toEqual([]);
+  });
+
+  it("uses durable collect batches and preserves completed results when a later batch fails", async () => {
+    const rankCheckTaskPost = vi.fn(
+      async ({
+        tasks,
+      }: {
+        tasks: Array<{
+          keywordId: string;
+          keyword: string;
+          device: "desktop" | "mobile";
+        }>;
+      }) => postResultOf(tasks),
+    );
+    const ctx = makeQueuedCtx({ keywordCount: 120, rankCheckTaskPost });
+    vi.mocked(fetchRankCheckTaskResult).mockImplementation(
+      async ({ keywordId, keyword }: { keywordId: string; keyword: string }) =>
+        completedOutcome({ keywordId, keyword }),
+    );
+    const collectSteps: string[] = [];
+    const batchStep = {
+      sleep: () => Promise.resolve(),
+      do: (name: string, arg2: unknown, arg3?: unknown) => {
+        if (name.startsWith("collect-")) collectSteps.push(name);
+        if (name === "collect-0-1") throw new Error("One collect batch failed");
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- same workflow callback seam as queuedStep
+        const fn = (arg3 ?? arg2) as () => unknown;
+        return Promise.resolve(fn());
+      },
+    } as unknown as WorkflowStep;
+
+    const stats = await runQueuedCheck(batchStep, ctx);
+    expect(collectSteps).toEqual([
+      "collect-0-0",
+      "collect-0-1",
+      "collect-0-2",
+      "collect-1-0",
+    ]);
+    expect(stats).toEqual({
+      queueTasks: 120,
+      queueCollected: 120,
+      uncollectedTasks: 0,
+    });
+    expect(fetchRankCheckTaskResult).toHaveBeenCalledTimes(120);
+    const rows = failedSnapshots();
+    expect(rows).toHaveLength(120);
+    expect(rows.every((row) => row.rankingStatus === "RANKED")).toBe(true);
+  });
+
+  it("a thrown post batch records diagnostics, never resubmits to Live, and earlier accepted tasks are still collected", async () => {
+    // 150 keywords => chunk 0 (100 tasks) posts fine; chunk 1 (50) throws.
+    const rankCheckTaskPost = vi.fn(
+      async ({
+        tasks,
+      }: {
+        tasks: Array<{
+          keywordId: string;
+          keyword: string;
+          device: "desktop" | "mobile";
+        }>;
+      }) => {
+        if (tasks.length === MAX_TASKS_PER_POST) return postResultOf(tasks);
+        throw new Error(
+          "DataForSEO HTTP 500 on /v3/serp/google/organic/task_post: boom (50000)",
+        );
+      },
+    );
+    const liveRankCheck = vi.fn();
+    const ctx = makeQueuedCtx({
+      keywordCount: 150,
+      rankCheckTaskPost,
+      rankCheck: liveRankCheck,
+    });
+    vi.mocked(fetchRankCheckTaskResult).mockImplementation(
+      async ({ keywordId, keyword }: { keywordId: string; keyword: string }) =>
+        completedOutcome({ keywordId, keyword }),
+    );
+
+    const stats = await runQueuedCheck(queuedStep, ctx);
+
+    // The failed chunk's pairs were persisted as CHECK_FAILED diagnostics...
+    const failed = failedSnapshots().filter(
+      (row) => row.rankingStatus === "CHECK_FAILED",
+    );
+    expect(failed).toHaveLength(50);
+    expect(failed[0]?.trackingKeywordId).toBe("kw_101");
+    expect(failed[0]?.errorMessage).toContain("task_post failed");
+    // ...the LIVE endpoint was never invoked (no fallback for bulk queue)...
+    expect(liveRankCheck).not.toHaveBeenCalled();
+    // ...and the 100 tasks accepted by the first chunk were still collected.
+    expect(vi.mocked(fetchRankCheckTaskResult)).toHaveBeenCalledTimes(100);
+    expect(stats).toEqual({
+      queueTasks: 100,
+      queueCollected: 100,
+      uncollectedTasks: 50,
+    });
+  });
+
+  it("persists per-entry post rejections with the provider reason (even with zero accepted tasks)", async () => {
+    const rankCheckTaskPost = vi.fn(async () => ({
+      posted: [
+        {
+          keywordId: "kw_1",
+          keyword: "keyword 1",
+          device: "desktop" as const,
+          taskId: "task-1",
+        },
+      ],
+      rejected: [
+        {
+          task: {
+            keywordId: "kw_2",
+            keyword: "keyword 2",
+            device: "desktop" as const,
+          },
+          statusCode: 40006,
+          statusMessage: "Task Limit Exceeded",
+        },
+      ],
+    }));
+    const ctx = makeQueuedCtx({ keywordCount: 2, rankCheckTaskPost });
+    vi.mocked(fetchRankCheckTaskResult).mockImplementation(
+      async ({ keywordId, keyword }: { keywordId: string; keyword: string }) =>
+        completedOutcome({ keywordId, keyword }),
+    );
+
+    const stats = await runQueuedCheck(queuedStep, ctx);
+
+    const failed = failedSnapshots().filter(
+      (row) => row.rankingStatus === "CHECK_FAILED",
+    );
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.trackingKeywordId).toBe("kw_2");
+    expect(failed[0]?.errorMessage).toContain("rejected the task at post");
+    expect(String(failed[0]?.errorMessage)).toContain("Task Limit Exceeded");
+    expect(String(failed[0]?.errorMessage)).toContain("40006");
+    // The accepted pair was collected; the rejected one is uncollected.
+    expect(stats).toEqual({
+      queueTasks: 1,
+      queueCollected: 1,
+      uncollectedTasks: 1,
+    });
+  });
+
+  it("records a rejection-only batch even when nothing was accepted (pending stays empty)", async () => {
+    const rankCheckTaskPost = vi.fn(async () => ({
+      posted: [],
+      rejected: [
+        {
+          task: {
+            keywordId: "kw_1",
+            keyword: "keyword 1",
+            device: "desktop" as const,
+          },
+          statusCode: 40006,
+          statusMessage: "Task Limit Exceeded",
+        },
+      ],
+    }));
+    const ctx = makeQueuedCtx({ keywordCount: 1, rankCheckTaskPost });
+
+    const stats = await runQueuedCheck(queuedStep, ctx);
+
+    // pending.length === 0 skips the poll loop entirely, but the rejection
+    // still must be persisted — never dropped into stats-only accounting.
+    expect(vi.mocked(fetchRankCheckTaskResult)).not.toHaveBeenCalled();
+    const failed = failedSnapshots().filter(
+      (row) => row.rankingStatus === "CHECK_FAILED",
+    );
+    expect(failed).toHaveLength(1);
+    expect(stats).toEqual({
+      queueTasks: 0,
+      queueCollected: 0,
+      uncollectedTasks: 1,
+    });
+  });
+});
+
+describe("runQueuedCheck cancellation and collection failures", () => {
+  beforeEach(resetQueuedMocks);
+
+  it("records tasks still pending at window close as CHECK_FAILED with window diagnostics", async () => {
+    const rankCheckTaskPost = vi.fn(
+      async ({
+        tasks,
+      }: {
+        tasks: Array<{
+          keywordId: string;
+          keyword: string;
+          device: "desktop" | "mobile";
+        }>;
+      }) => postResultOf(tasks),
+    );
+    const ctx = makeQueuedCtx({ keywordCount: 1, rankCheckTaskPost });
+    vi.mocked(fetchRankCheckTaskResult).mockResolvedValue({
+      status: "pending",
+    });
+
+    const stats = await runQueuedCheck(queuedStep, ctx);
+
+    // Six poll rounds (sleeps resolve instantly), then the window closes.
+    expect(vi.mocked(fetchRankCheckTaskResult)).toHaveBeenCalledTimes(6);
+    const failed = failedSnapshots().filter(
+      (row) => row.rankingStatus === "CHECK_FAILED",
+    );
+    expect(failed).toHaveLength(1);
+    expect(String(failed[0]?.errorMessage)).toContain(
+      "not collected within the polling window",
+    );
+    expect(stats).toEqual({
+      queueTasks: 1,
+      queueCollected: 0,
+      uncollectedTasks: 1,
+    });
+  });
+
+  it("a cancelled run stops posting further chunks and dispatches nothing more", async () => {
+    // 150 keywords => 2 chunks; the run is cancelled after the first post.
+    let firstPostDone = false;
+    const rankCheckTaskPost = vi.fn(
+      async ({
+        tasks,
+      }: {
+        tasks: Array<{
+          keywordId: string;
+          keyword: string;
+          device: "desktop" | "mobile";
+        }>;
+      }) => {
+        firstPostDone = true;
+        return postResultOf(tasks);
+      },
+    );
+    repoMocks.getRunById.mockImplementation(async () => ({
+      id: "run_1",
+      status: firstPostDone ? "cancelled" : "running",
+    }));
+    const ctx = makeQueuedCtx({ keywordCount: 150, rankCheckTaskPost });
+
+    const stats = await runQueuedCheck(queuedStep, ctx);
+
+    // Only the first chunk was posted; the second was never attempted...
+    expect(rankCheckTaskPost).toHaveBeenCalledTimes(1);
+    // ...no diagnostics were invented for the unposted pairs...
+    expect(failedSnapshots()).toEqual([]);
+    // ...and no collection happened after cancellation was observed.
+    expect(vi.mocked(fetchRankCheckTaskResult)).not.toHaveBeenCalled();
+    expect(stats).toEqual({
+      queueTasks: 100,
+      queueCollected: 0,
+      uncollectedTasks: 0,
+    });
+  });
+
+  it("cancellation observed after the durable polling sleep skips the collect round", async () => {
+    const rankCheckTaskPost = vi.fn(
+      async ({
+        tasks,
+      }: {
+        tasks: Array<{
+          keywordId: string;
+          keyword: string;
+          device: "desktop" | "mobile";
+        }>;
+      }) => postResultOf(tasks),
+    );
+    // getRunById calls: (1) pre-post check, (2) pre-sleep check, (3) the
+    // post-sleep re-check — the third observation flips to cancelled.
+    let statusChecks = 0;
+    repoMocks.getRunById.mockImplementation(async () => {
+      statusChecks += 1;
+      return {
+        id: "run_1",
+        status: statusChecks >= 3 ? "cancelled" : "running",
+      };
+    });
+    const ctx = makeQueuedCtx({ keywordCount: 1, rankCheckTaskPost });
+
+    const stats = await runQueuedCheck(queuedStep, ctx);
+
+    expect(vi.mocked(fetchRankCheckTaskResult)).not.toHaveBeenCalled();
+    expect(failedSnapshots()).toEqual([]);
+    expect(stats).toEqual({
+      queueTasks: 1,
+      queueCollected: 0,
+      uncollectedTasks: 0,
+    });
+  });
+
+  it("persists DataForSEO-failed tasks with the task message and counts them uncollected", async () => {
+    const rankCheckTaskPost = vi.fn(
+      async ({
+        tasks,
+      }: {
+        tasks: Array<{
+          keywordId: string;
+          keyword: string;
+          device: "desktop" | "mobile";
+        }>;
+      }) => postResultOf(tasks),
+    );
+    const ctx = makeQueuedCtx({ keywordCount: 1, rankCheckTaskPost });
+    vi.mocked(fetchRankCheckTaskResult).mockResolvedValue({
+      status: "failed",
+      message: "task exploded",
+    });
+
+    const stats = await runQueuedCheck(queuedStep, ctx);
+
+    const failed = failedSnapshots().filter(
+      (row) => row.rankingStatus === "CHECK_FAILED",
+    );
+    expect(failed).toHaveLength(1);
+    expect(String(failed[0]?.errorMessage)).toContain(
+      "DataForSEO task failed: task exploded",
+    );
+    expect(stats).toEqual({
+      queueTasks: 1,
+      queueCollected: 0,
+      uncollectedTasks: 1,
+    });
+  });
+
+  it("a transient task_get failure stays pending and is collected on the next round", async () => {
+    const rankCheckTaskPost = vi.fn(
+      async ({
+        tasks,
+      }: {
+        tasks: Array<{
+          keywordId: string;
+          keyword: string;
+          device: "desktop" | "mobile";
+        }>;
+      }) => postResultOf(tasks),
+    );
+    const ctx = makeQueuedCtx({ keywordCount: 1, rankCheckTaskPost });
+    vi.mocked(fetchRankCheckTaskResult)
+      .mockRejectedValueOnce(new Error("transient network error"))
+      .mockImplementationOnce(
+        async ({
+          keywordId,
+          keyword,
+        }: {
+          keywordId: string;
+          keyword: string;
+        }) => completedOutcome({ keywordId, keyword }),
+      );
+
+    const stats = await runQueuedCheck(queuedStep, ctx);
+
+    expect(vi.mocked(fetchRankCheckTaskResult)).toHaveBeenCalledTimes(2);
+    expect(stats).toEqual({
+      queueTasks: 1,
+      queueCollected: 1,
+      uncollectedTasks: 0,
+    });
+  });
 });
 
 describe("runLiveCheck organic snapshot capture (spec 019)", () => {

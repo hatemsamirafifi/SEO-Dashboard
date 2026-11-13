@@ -21,10 +21,14 @@ export function normalizeKeyword(input: string): string {
 
 export function normalizeIntent(raw: string | null | undefined): KeywordIntent {
   if (!raw) return "unknown";
-  const value = raw.toLowerCase();
-  if (value.includes("inform")) return "informational";
-  if (value.includes("commerc")) return "commercial";
-  if (value.includes("transact")) return "transactional";
-  if (value.includes("navig")) return "navigational";
+  const value = raw.toLowerCase().trim();
+  if (value === "i" || value === "1" || value.includes("inform"))
+    return "informational";
+  if (value === "c" || value === "3" || value.includes("commerc"))
+    return "commercial";
+  if (value === "t" || value === "4" || value.includes("transact"))
+    return "transactional";
+  if (value === "n" || value === "2" || value.includes("navig"))
+    return "navigational";
   return "unknown";
 }

@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { getStandardErrorMessage } from "@/client/lib/error-messages";
+import {
+  getErrorCorrelationId,
+  getStandardErrorMessage,
+} from "@/client/lib/error-messages";
 import { getSerpAnalysis } from "@/serverFunctions/keywords";
 
 export function useKeywordSerpAnalysis(
@@ -30,6 +33,14 @@ export function useKeywordSerpAnalysis(
 
   const serpResults = serpQuery.data?.items ?? [];
   const serpFeatures = serpQuery.data?.features ?? null;
+  const serpStatus = serpQuery.data?.status ?? null;
+  const serpUnavailableReason = serpQuery.data?.unavailableReason ?? null;
+  const serpProviderDiagnostics = serpQuery.data?.providerDiagnostics ?? null;
+  const serpProvider = serpQuery.data?.provider ?? null;
+  const serpFetchedAt = serpQuery.data?.fetchedAt ?? null;
+  const serpFromCache = serpQuery.data?.fromCache ?? false;
+  const serpLocationCode = serpQuery.data?.locationCode ?? locationCode ?? null;
+  const serpLanguageCode = serpQuery.data?.languageCode ?? null;
   const serpEnrichmentAccountBlocked =
     serpQuery.data?.enrichmentAccountBlocked ?? null;
   const activeSerpKeyword =
@@ -37,6 +48,9 @@ export function useKeywordSerpAnalysis(
   const serpLoading = !!serpKeyword && serpQuery.isLoading;
   const serpError = serpQuery.isError
     ? getStandardErrorMessage(serpQuery.error, "Failed to load SERP data.")
+    : null;
+  const serpErrorCorrelationId = serpQuery.isError
+    ? getErrorCorrelationId(serpQuery.error)
     : null;
 
   return {
@@ -48,9 +62,18 @@ export function useKeywordSerpAnalysis(
     serpQuery,
     serpResults,
     serpFeatures,
+    serpStatus,
+    serpUnavailableReason,
+    serpProviderDiagnostics,
+    serpProvider,
+    serpFetchedAt,
+    serpFromCache,
+    serpLocationCode,
+    serpLanguageCode,
     serpEnrichmentAccountBlocked,
     activeSerpKeyword,
     serpLoading,
     serpError,
+    serpErrorCorrelationId,
   };
 }

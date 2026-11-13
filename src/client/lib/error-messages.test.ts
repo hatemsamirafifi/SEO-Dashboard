@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getErrorCode,
+  getErrorCorrelationId,
   getErrorMessage,
   getStandardErrorMessage,
 } from "@/client/lib/error-messages";
@@ -73,6 +74,27 @@ describe("coded error messages (CODE: detail)", () => {
     const bare = new Error("AUTH_CONFIG_MISSING");
     expect(getErrorCode(bare)).toBe("AUTH_CONFIG_MISSING");
     expect(getStandardErrorMessage(bare)).toContain("not configured");
+  });
+
+  it("maps coded errors carrying only a [ref: req_...] tag to standard copy + ref", () => {
+    const refOnly = new Error("DATAFORSEO_AUTH_FAILED: [ref: req_6a360518]");
+    expect(getErrorCode(refOnly)).toBe("DATAFORSEO_AUTH_FAILED");
+    const msg = getStandardErrorMessage(refOnly);
+    expect(msg).toContain("DataForSEO rejected the API key");
+    expect(msg).toContain("[ref: req_6a360518]");
+    expect(msg).not.toBe("[ref: req_6a360518]");
+    expect(getErrorCorrelationId(refOnly)).toBe("req_6a360518");
+  });
+
+  it("extracts correlation ID from error messages or returns null when absent", () => {
+    expect(
+      getErrorCorrelationId(
+        new Error("VALIDATION_ERROR: Invalid schema [ref: req_abc12345]"),
+      ),
+    ).toBe("req_abc12345");
+    expect(
+      getErrorCorrelationId(new Error("Plain error without ref")),
+    ).toBeNull();
   });
 
   it("does not treat arbitrary colon messages as coded", () => {

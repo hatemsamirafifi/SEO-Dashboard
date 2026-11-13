@@ -75,7 +75,12 @@ export function filterPages(rows: PageRow[], filters: PagesFilters) {
   const query = filters.query.trim().toLowerCase();
   return rows.filter((row) => {
     if (query) {
-      const haystack = [row.url, safeDecodeUrlText(row.url), row.title, row.metaDescription]
+      const haystack = [
+        row.url,
+        safeDecodeUrlText(row.url),
+        row.title,
+        row.metaDescription,
+      ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -111,7 +116,13 @@ export function filterPerformanceRows(
   const query = filters.query.trim().toLowerCase();
   return rows.filter((row) => {
     if (query) {
-      const haystack = [row.pageUrl, row.pageUrl ? safeDecodeUrlText(row.pageUrl) : null, row.pagePath].filter(Boolean).join(" ");
+      const haystack = [
+        row.pageUrl,
+        row.pageUrl ? safeDecodeUrlText(row.pageUrl) : null,
+        row.pagePath,
+      ]
+        .filter(Boolean)
+        .join(" ");
       if (!haystack.toLowerCase().includes(query)) return false;
     }
     if (filters.device !== "all" && row.strategy !== filters.device) {

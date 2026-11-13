@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import { RankTrackingTargetRepository } from "@/server/features/rank-tracking/repositories/RankTrackingTargetRepository";
 import { getLatestResults } from "@/server/features/rank-tracking/services/rankTrackingResults";
 import { mcpResponse } from "@/server/mcp/formatters";
 import { buildProjectMeta } from "@/server/mcp/context";
@@ -37,6 +38,13 @@ const inputSchema = {
     .describe(
       "Rank tracker config ID. If omitted, lists all rank trackers in the project.",
     ),
+  targetId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Optional tracking target ID (country/city/language/device) to scope results when trackerId is provided.",
+    ),
 } as const;
 
 type Args = z.infer<z.ZodObject<typeof inputSchema>>;
@@ -52,6 +60,7 @@ export const getRankTrackerTool = {
       .object({
         configs: z.array(looseObjectOutputSchema).optional(),
         config: looseObjectOutputSchema.optional(),
+        targets: z.array(looseObjectOutputSchema).optional(),
         results: looseObjectOutputSchema.optional(),
         ...optionalMetaOutputSchema,
       })
@@ -63,10 +72,26 @@ export const getRankTrackerTool = {
     },
   },
   handler: withMcpProjectAuth(async (args: Args, context) => {
+    const targets = await RankTrackingTargetRepository.getTargetsForProject(
+      args.projectId,
+      true,
+    );
+
     if (!args.trackerId) {
       const configs = await RankTrackingRepository.getConfigsForProject(
         args.projectId,
       );
+      const targetsSummary =
+        targets.length > 0
+          ? `\nTracking Targets (${targets.length}):\n` +
+            targets
+              .map(
+                (t) =>
+                  `- ${t.countryCode.toUpperCase()}${t.cityName ? `/${t.cityName}` : ""} (${t.languageCode}) ${t.device}`,
+              )
+              .join("\n")
+          : "";
+
       const text =
         configs.length === 0
           ? "No rank trackers configured for this project."
@@ -76,7 +101,9 @@ export const getRankTrackerTool = {
                 (c) =>
                   `- ${c.id}  ${c.domain}  loc:${c.locationCode}  schedule:${c.scheduleInterval}`,
               )
-              .join("\n");
+              .join("\n") +
+            targetsSummary;
+
       return mcpResponse({
         text,
         meta: buildProjectMeta(
@@ -84,7 +111,7 @@ export const getRankTrackerTool = {
           args.projectId,
           `/p/${args.projectId}/rank-tracking`,
         ),
-        structuredContent: { configs },
+        structuredContent: { configs, targets },
       });
     }
 
@@ -98,16 +125,29 @@ export const getRankTrackerTool = {
         meta: buildProjectMeta(context, args.projectId),
       });
     }
-    const results = await getLatestResults(args.trackerId, args.projectId);
+    const results = args.targetId
+      ? await getLatestResults(
+          args.trackerId,
+          args.projectId,
+          "7d",
+          args.targetId,
+        )
+      : await getLatestResults(args.trackerId, args.projectId);
     const text = [
       `Tracker ${config.id} (${config.domain}):`,
       `Schedule: ${config.scheduleInterval}, devices: ${config.devices}, depth: ${config.serpDepth}`,
       `Latest run: ${results.run?.lastCheckedAt ?? "never"}`,
+      targets.length > 0
+        ? `Targets: ${targets.map((t) => `${t.countryCode.toUpperCase()}${t.cityName ? `/${t.cityName}` : ""} (${t.device})`).join(", ")}`
+        : null,
       `Keywords (${results.rows.length}):`,
       results.rows.length === 0
         ? "No keywords tracked yet."
         : formatMcpTable(results.rows, RANK_RESULT_COLUMNS),
-    ].join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     return mcpResponse({
       text,
       meta: buildProjectMeta(
@@ -115,7 +155,7 @@ export const getRankTrackerTool = {
         args.projectId,
         `/p/${args.projectId}/rank-tracking/${args.trackerId}`,
       ),
-      structuredContent: { config, results },
+      structuredContent: { config, targets, results },
     });
   }),
 };

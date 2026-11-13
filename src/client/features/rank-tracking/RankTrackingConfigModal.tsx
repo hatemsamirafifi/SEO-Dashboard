@@ -345,14 +345,15 @@ function RankTrackingConfigModalContent({
         </div>
 
         {(() => {
-          // Scheduled checks run through the cheaper task queue; manual
-          // configs only ever pay the live price.
-          const { costUsd: costPerKeyword } = estimateRankCheckCredits(
-            1,
-            devices,
-            serpDepth,
-            schedule === "manual" ? "live" : "queued",
-          );
+          // All scheduled checks run through the cheaper task queue, and so
+          // do manual bulk checks; only a manual single-keyword instant
+          // check pays the live price (~3.3x the queued price at every
+          // depth). The ongoing-cost estimate uses the queued price and
+          // calls the live exception out explicitly.
+          const perKeywordCost = (method: "queued" | "live") =>
+            estimateRankCheckCredits(1, devices, serpDepth, method).costUsd;
+          const costPerKeyword = perKeywordCost("queued");
+          const livePerKeyword = perKeywordCost("live");
           const checksPerMonth =
             schedule === "daily" ? 30 : schedule === "weekly" ? 4 : 1;
           return (
@@ -363,6 +364,15 @@ function RankTrackingConfigModalContent({
                 </span>{" "}
                 per keyword per check
               </div>
+              {schedule === "manual" && (
+                <div>
+                  Single-keyword instant checks cost{" "}
+                  <span className="font-mono font-semibold text-base-content">
+                    ~${livePerKeyword.toFixed(4)}
+                  </span>{" "}
+                  (live price)
+                </div>
+              )}
               {schedule !== "manual" && (
                 <div>
                   50 keywords would cost{" "}

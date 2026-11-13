@@ -19,6 +19,17 @@ export type KeywordResearchRow = {
   cpc: number | null;
   competition: number | null;
   intent: KeywordIntent;
+  matchType?: "exact" | "phrase" | "partial" | "related";
+  relevanceScore?: number;
+  relevanceTier?: "high" | "medium" | "low";
+  isWeaklyRelated?: boolean;
+};
+
+export type SeedOverviewInfo = {
+  keyword: string;
+  exactMatchFound: boolean;
+  metricsStatus: "available" | "missing_from_provider" | "unavailable";
+  row: KeywordResearchRow | null;
 };
 
 export type SavedKeywordRow = {

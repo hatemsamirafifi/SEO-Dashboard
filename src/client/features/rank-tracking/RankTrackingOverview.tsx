@@ -34,18 +34,27 @@ export function RankTrackingOverview({
   device,
   projectId,
   configId,
+  trackingTargetId,
 }: {
   device: "desktop" | "mobile";
   projectId: string;
   configId: string;
+  trackingTargetId?: string;
 }) {
   const [sinceDays, setSinceDays] = useState(730);
 
   const { data: trend, isLoading: trendLoading } = useQuery({
-    queryKey: ["rankConfigTrend", projectId, configId, device, sinceDays],
+    queryKey: [
+      "rankConfigTrend",
+      projectId,
+      configId,
+      device,
+      sinceDays,
+      trackingTargetId ?? null,
+    ],
     queryFn: () =>
       getRankConfigTrend({
-        data: { projectId, configId, device, sinceDays },
+        data: { projectId, configId, device, sinceDays, trackingTargetId },
       }),
   });
 

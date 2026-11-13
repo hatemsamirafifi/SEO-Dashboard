@@ -136,36 +136,101 @@ function resolveTraceFailureDetails(
   };
 }
 
+type ErrorWithMeta = {
+  provider?: unknown;
+  dataforseoStatusCode?: unknown;
+  upstreamStatus?: unknown;
+  details?: { upstreamStatus?: unknown };
+};
+
+function detectFailureProvider(error: unknown): {
+  provider: string;
+  endpoint: string;
+} {
+  const rawMsg = error instanceof Error ? error.message : "";
+  const lower = rawMsg.toLowerCase();
+  const errorObj =
+    typeof error === "object" && error !== null
+      ? (error as ErrorWithMeta)
+      : null;
+  const rawProvider = errorObj?.provider;
+  if (
+    rawProvider === "seranking" ||
+    rawProvider === "SE Ranking" ||
+    lower.includes("seranking") ||
+    lower.includes("se ranking")
+  ) {
+    return { provider: "SE Ranking", endpoint: "/v1/keywords/similar" };
+  }
+  if (
+    rawProvider === "google_ads" ||
+    rawProvider === "Google Ads" ||
+    lower.includes("google ads")
+  ) {
+    return { provider: "Google Ads", endpoint: "GenerateKeywordIdeas" };
+  }
+  if (
+    lower.includes("dataforseo") ||
+    errorObj?.dataforseoStatusCode !== undefined
+  ) {
+    return {
+      provider: "DataForSEO",
+      endpoint: "v3/dataforseo_labs/google/keyword_suggestions/live",
+    };
+  }
+  return { provider: "SE Ranking", endpoint: "/v1/keywords/similar" };
+}
+
 export function recordKeywordResearchTraceFailure(
   opId: string,
   error: unknown,
   request: KeywordResearchTraceRequest,
 ): void {
   const details = resolveTraceFailureDetails(error, request);
+  const { provider, endpoint } = detectFailureProvider(error);
+  const errorObj =
+    typeof error === "object" && error !== null
+      ? (error as ErrorWithMeta)
+      : null;
+  const rawUpstream =
+    typeof errorObj?.upstreamStatus === "number"
+      ? errorObj.upstreamStatus
+      : typeof errorObj?.upstreamStatus === "string"
+        ? Number(errorObj.upstreamStatus)
+        : typeof errorObj?.details?.upstreamStatus === "string"
+          ? Number(errorObj.details.upstreamStatus)
+          : null;
+  const upstreamStatus = Number.isFinite(rawUpstream) ? rawUpstream : null;
 
   globalTraceStore.completeOperation(opId, {
     status: "failed",
     httpStatus: details.httpStatus,
-    provider: "DataForSEO",
+    provider,
     providerCalls: 1,
-    providerBreakdown: [{ provider: "DataForSEO", count: 1 }],
+    providerBreakdown: [{ provider, count: 1 }],
     providers: [
       {
-        provider: "DataForSEO",
-        endpoint: "v3/dataforseo_labs/google/keyword_suggestions/live",
-        httpStatus: details.httpStatus,
+        provider,
+        endpoint,
+        httpStatus: upstreamStatus ?? details.httpStatus,
         taskStatus: details.taskStatus,
         transport: "HTTP",
-        billing: "Paid",
-        metered: true,
+        billing: provider === "Google Ads" ? "Free" : "Paid",
+        metered: provider !== "Google Ads",
         budgetGuard: "PASS",
       },
     ],
     retry: { attempted: false, count: 0 },
-    billing: "Paid",
-    metered: true,
+    billing: provider === "Google Ads" ? "Free" : "Paid",
+    metered: provider !== "Google Ads",
     errorClass: details.errorClass,
     errorMessage: details.errorMessage,
-    metadata: details.metadata,
+    metadata: {
+      provider,
+      endpoint,
+      upstreamHttpStatus: upstreamStatus,
+      localHttpStatus: details.httpStatus,
+      ...details.metadata,
+    },
   });
 }

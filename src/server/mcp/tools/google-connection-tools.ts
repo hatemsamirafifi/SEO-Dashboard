@@ -318,8 +318,11 @@ export const setGoogleAnalyticsPropertyTool = {
         properties: { project_id: args.projectId, source: "mcp" },
       }),
     );
+    const propertyDisplayName = connection.propertyDisplayName
+      ? ` (${connection.propertyDisplayName})`
+      : "";
     return mcpResponse({
-      text: `Project ${args.projectId} is now bound to Google Analytics property ${connection.propertyId}${connection.propertyDisplayName ? ` (${connection.propertyDisplayName})` : ""} via Google account ${args.ga4AccountId}${connection.connectedAccountEmail ? ` (${connection.connectedAccountEmail})` : ""}.`,
+      text: `Project ${String(args.projectId)} is now bound to Google Analytics property ${String(connection.propertyId)}${propertyDisplayName} via Google account ${String(args.ga4AccountId)}.`,
       meta: buildProjectMeta(context, args.projectId),
       structuredContent: {
         ok: true,

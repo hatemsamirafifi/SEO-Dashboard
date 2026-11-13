@@ -135,9 +135,12 @@ async function listPropertiesForUserWithGrantStatus(userId: string) {
       try {
         const properties = await client.listProperties();
         let email: string | null = null;
-        if ("getUserInfoEmail" in client && typeof (client as any).getUserInfoEmail === "function") {
+        const clientWithEmail = client as {
+          getUserInfoEmail?: () => Promise<string>;
+        };
+        if (typeof clientWithEmail.getUserInfoEmail === "function") {
           try {
-            email = await (client as any).getUserInfoEmail();
+            email = await clientWithEmail.getUserInfoEmail();
           } catch {
             email = null;
           }
@@ -150,7 +153,8 @@ async function listPropertiesForUserWithGrantStatus(userId: string) {
           properties: properties.map((property) => ({
             propertyId: property.propertyId,
             displayName: property.displayName,
-            accountDisplayName: property.accountDisplayName ?? property.displayName,
+            accountDisplayName:
+              property.accountDisplayName ?? property.displayName,
           })),
         };
       } catch (error) {

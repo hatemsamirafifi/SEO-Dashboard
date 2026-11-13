@@ -44,7 +44,9 @@ function ViewList({ rows, projectId }: { rows: Row[]; projectId: string }) {
                 {typeLabel(row.type)}
               </span>
             </div>
-            <span className="mt-1 block font-medium">{safeDecodeUrlText(row.title)}</span>
+            <span className="mt-1 block font-medium">
+              {safeDecodeUrlText(row.title)}
+            </span>
             <span className="mt-0.5 block text-xs text-base-content/60">
               Impact {row.impactScore} · Confidence {row.confidenceScore} · Seen{" "}
               {formatDateTime(row.lastDetectedAt)}

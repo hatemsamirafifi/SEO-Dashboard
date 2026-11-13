@@ -1,5 +1,13 @@
-import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+/* eslint-disable eslint/max-lines */
+import {
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Info,
+} from "lucide-react";
 import { ExportToSheetsButton } from "@/client/components/table/ExportToSheetsButton";
+import { LOCATIONS } from "@/client/features/keywords/locations";
 import type { SerpResultItem } from "@/types/keywords";
 import { toSerpFeatureBlocks } from "@/server/features/serp/featurePresentation";
 import type { SerpFeatureSet } from "@/server/features/serp/types";
@@ -9,12 +17,39 @@ import {
   type SerpResultCardRow,
 } from "@/client/features/serp/SerpResultCards";
 
+function formatSerpProviderLabel(provider?: string | null): string | null {
+  if (!provider) return null;
+  switch (provider.toLowerCase()) {
+    case "serper":
+      return "Serper.dev";
+    case "zenserp":
+      return "Zenserp";
+    case "dataforseo":
+      return "DataForSEO";
+    case "internal":
+      return "Stored Snapshot";
+    case "cache":
+      return "Cached";
+    default:
+      return provider;
+  }
+}
+
 export function SerpAnalysisCard({
   items,
   features,
   keyword,
   loading,
   error,
+  errorCorrelationId,
+  status,
+  unavailableReason,
+  providerDiagnostics,
+  provider,
+  fetchedAt,
+  fromCache,
+  locationCode,
+  languageCode,
   enrichmentAccountBlocked,
   onRetry,
   page,
@@ -28,6 +63,15 @@ export function SerpAnalysisCard({
   keyword?: string | null;
   loading: boolean;
   error?: string | null;
+  errorCorrelationId?: string | null;
+  status?: "ok" | "unavailable" | null;
+  unavailableReason?: string | null;
+  providerDiagnostics?: Array<{ provider: string; reason: string }> | null;
+  provider?: string | null;
+  fetchedAt?: string | null;
+  fromCache?: boolean;
+  locationCode?: number | null;
+  languageCode?: string | null;
   enrichmentAccountBlocked?: "account_paused" | "billing" | null;
   onRetry?: () => void;
   page: number;
@@ -40,14 +84,39 @@ export function SerpAnalysisCard({
   if (loading) return <SerpAnalysisLoadingState />;
   if (error) {
     return (
-      <div className="rounded-lg border border-error/30 bg-error/10 p-3 text-sm text-error space-y-2">
-        <p>{error}</p>
+      <div
+        className="rounded-lg border border-error/30 bg-error/10 p-3 text-sm text-error space-y-2"
+        role="alert"
+      >
+        <div className="flex items-start gap-2">
+          <AlertCircle className="size-4 shrink-0 mt-0.5" />
+          <div className="space-y-1 min-w-0">
+            <p className="font-medium text-base-content">
+              SERP Analysis Failed
+            </p>
+            <p className="text-xs text-base-content/80 break-words">{error}</p>
+            {errorCorrelationId && !error.includes(errorCorrelationId) ? (
+              <p className="text-[11px] font-mono text-base-content/60">
+                Reference: {errorCorrelationId}
+              </p>
+            ) : null}
+          </div>
+        </div>
         {onRetry ? (
           <button className="btn btn-xs" onClick={onRetry}>
             Retry
           </button>
         ) : null}
       </div>
+    );
+  }
+  if (status === "unavailable") {
+    return (
+      <SerpAnalysisUnavailableState
+        reason={unavailableReason}
+        diagnostics={providerDiagnostics}
+        onRetry={onRetry}
+      />
     );
   }
   if (items.length === 0) return <SerpAnalysisEmptyState keyword={keyword} />;
@@ -81,6 +150,17 @@ export function SerpAnalysisCard({
       : null,
   }));
 
+  const providerLabel = formatSerpProviderLabel(provider);
+  const locationLabel = locationCode
+    ? (LOCATIONS[locationCode] ?? `Market ${locationCode}`)
+    : null;
+  const formattedFetchedAt = fetchedAt
+    ? new Date(fetchedAt).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
   return (
     <div>
       {enrichmentAccountBlocked ? (
@@ -92,9 +172,29 @@ export function SerpAnalysisCard({
           </span>
         </div>
       ) : null}
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-xs text-base-content/50">
-          {items.length} organic results
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-base-content/60">
+          <span>{items.length} organic results</span>
+          {providerLabel ? (
+            <span className="badge badge-ghost badge-xs">
+              {providerLabel}
+              {fromCache ? " (cached)" : ""}
+            </span>
+          ) : null}
+          {locationLabel ? (
+            <span className="badge badge-outline badge-xs">
+              {locationLabel}
+              {languageCode ? ` · ${languageCode.toUpperCase()}` : ""}
+            </span>
+          ) : null}
+          {formattedFetchedAt ? (
+            <span
+              className="text-[11px] text-base-content/45"
+              title={fetchedAt ?? undefined}
+            >
+              Updated {formattedFetchedAt}
+            </span>
+          ) : null}
         </div>
         <ExportToSheetsButton
           headers={["Rank", "Title", "URL", "Domain"]}
@@ -159,6 +259,11 @@ function SerpAnalysisTable({ items }: { items: SerpResultItem[] }) {
                   <span className="text-xs text-base-content/40 truncate">
                     {item.domain}
                   </span>
+                  {item.description ? (
+                    <span className="text-xs text-base-content/60 line-clamp-2">
+                      {item.description}
+                    </span>
+                  ) : null}
                   {item.metricStatus ? (
                     <CompetitorMetricsLine item={item} />
                   ) : null}
@@ -281,6 +386,54 @@ function SerpAnalysisEmptyState({ keyword }: { keyword?: string | null }) {
       <p>No SERP details available for this keyword yet.</p>
       {keyword ? (
         <p className="mt-1">Try clicking another keyword to load data.</p>
+      ) : null}
+    </div>
+  );
+}
+
+function SerpAnalysisUnavailableState({
+  reason,
+  diagnostics,
+  onRetry,
+}: {
+  reason?: string | null;
+  diagnostics?: Array<{ provider: string; reason: string }> | null;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm space-y-2.5"
+      data-testid="serp-unavailable-state"
+      role="status"
+    >
+      <div className="flex items-start gap-2">
+        <Info className="size-4 text-warning shrink-0 mt-0.5" />
+        <div className="space-y-1.5 min-w-0">
+          <p className="font-medium text-base-content">
+            Live SERP Provider Not Configured
+          </p>
+          <p className="text-xs text-base-content/75">
+            {reason ||
+              "No live SERP provider is currently active. Configure Serper.dev or Zenserp in Settings to inspect live Google search results."}
+          </p>
+          {diagnostics && diagnostics.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
+              {diagnostics.map((d) => (
+                <span
+                  key={d.provider}
+                  className="badge badge-outline badge-xs font-mono text-[10px]"
+                >
+                  {d.provider}: {d.reason}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {onRetry ? (
+        <button className="btn btn-xs btn-ghost" onClick={onRetry}>
+          Check again
+        </button>
       ) : null}
     </div>
   );

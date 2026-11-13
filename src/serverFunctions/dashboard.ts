@@ -75,9 +75,8 @@ export const getDashboardOverview = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
   .handler(async ({ context }) => {
-    const { DashboardService } = await import(
-      "@/server/features/dashboard/services/DashboardService"
-    );
+    const { DashboardService } =
+      await import("@/server/features/dashboard/services/DashboardService");
     const [legacy, intelligence] = await Promise.all([
       DashboardService.getOverview({
         projectId: context.projectId,
@@ -102,9 +101,8 @@ export const refreshDashboardBacklinkSnapshot = createServerFn({
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
   .handler(async ({ context }) => {
-    const { DashboardService } = await import(
-      "@/server/features/dashboard/services/DashboardService"
-    );
+    const { DashboardService } =
+      await import("@/server/features/dashboard/services/DashboardService");
     return DashboardService.ensureBacklinkSnapshot({
       projectId: context.projectId,
       domain: context.project.domain,
@@ -149,7 +147,10 @@ export const getDashboardInsights = createServerFn({ method: "POST" })
         context.organizationId,
       ),
       InsightRepository.listVisibleByProject(context.projectId),
-      InsightRepository.listPreferencesByProject(context.userId, context.projectId),
+      InsightRepository.listPreferencesByProject(
+        context.userId,
+        context.projectId,
+      ),
       ScanLedgerRepository.getLatestRun(context.projectId),
       ScanLedgerRepository.getLatestSuccessfulRun(context.projectId),
     ]);
@@ -206,9 +207,8 @@ export const dismissInsight = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(dismissInsightSchema)
   .handler(async ({ context, data }) => {
-    const { InsightService } = await import(
-      "@/server/features/intelligence/services/InsightService"
-    );
+    const { InsightService } =
+      await import("@/server/features/intelligence/services/InsightService");
     return InsightService.dismissInsight({
       projectId: context.projectId,
       organizationId: context.organizationId,

@@ -12,6 +12,7 @@ import {
 } from "@/server/lib/dataforseo/client";
 
 export { createDataforseoClient } from "@/server/lib/dataforseo/client";
+export { runWithDataforseoAccountContext } from "@/server/lib/dataforseo/accountContext";
 
 export {
   fetchKeywordMetricsForList,
@@ -48,6 +49,7 @@ export type {
   RankCheckResult,
   RankCheckTaskInput,
   PostedRankCheckTask,
+  RejectedRankCheckTask,
 } from "@/server/lib/dataforseo/serp";
 
 export type {

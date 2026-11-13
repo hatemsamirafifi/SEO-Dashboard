@@ -1,3 +1,4 @@
+import { SeRankingSettingsCard } from "./SeRankingSettingsCard";
 import { DataforseoSettingsSection } from "./DataforseoSettingsSection";
 import { AdditionalSerpProviderCard } from "./AdditionalSerpProviderCard";
 
@@ -8,6 +9,7 @@ export function SerpProvidersSettingsSection({
 }) {
   return (
     <div className="space-y-4">
+      <SeRankingSettingsCard projectId={projectId} />
       <DataforseoSettingsSection
         scope={projectId ? "project" : "organization"}
         projectId={projectId}

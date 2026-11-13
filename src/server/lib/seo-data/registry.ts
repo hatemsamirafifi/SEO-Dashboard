@@ -1,10 +1,12 @@
 import { DataRouter } from "./data-router";
 import { createDataforseoProvider } from "./providers/dataforseo-provider";
+import { createSerankingProvider } from "./providers/seranking-provider";
 import { createGscProvider } from "./providers/gsc-provider";
 import { createGoogleAdsProvider } from "./providers/google-ads-provider";
 import { createBingWebmasterProvider } from "./providers/bing-webmaster-provider";
 import { createLocalCrawlerProvider } from "./providers/local-crawler-provider";
 import { createInternalProvider } from "./providers/internal-provider";
+import { createSerpResolverProvider } from "./providers/serp-resolver-provider";
 
 /**
  * Singleton DataRouter with all providers registered.
@@ -22,12 +24,14 @@ export function getSeoDataRouter(): DataRouter {
 
   // Register all providers. The DataRouter checks feature flags at runtime,
   // so disabled providers are simply never tried.
+  singleton.register(createSerankingProvider());
   singleton.register(createDataforseoProvider());
   singleton.register(createGscProvider());
   singleton.register(createGoogleAdsProvider());
   singleton.register(createBingWebmasterProvider());
   singleton.register(createLocalCrawlerProvider());
   singleton.register(createInternalProvider());
+  singleton.register(createSerpResolverProvider());
 
   return singleton;
 }

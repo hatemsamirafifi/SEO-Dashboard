@@ -62,12 +62,15 @@ export function useRankRunPolling(projectId: string, configId: string) {
         let activeOps = findActiveTraces(run.id, projectId);
         if (activeOps.length === 0) {
           const adoptedOpId = `rank_run_${run.id}`;
-          const existing = globalTraceStore.getOperations(projectId).find(
-            (o) =>
-              o.operationId === adoptedOpId ||
-              o.rankCheckRunId === run.id ||
-              (o.metadata as { runId?: unknown } | undefined)?.runId === run.id,
-          );
+          const existing = globalTraceStore
+            .getOperations(projectId)
+            .find(
+              (o) =>
+                o.operationId === adoptedOpId ||
+                o.rankCheckRunId === run.id ||
+                (o.metadata as { runId?: unknown } | undefined)?.runId ===
+                  run.id,
+            );
           if (!existing) {
             globalTraceStore.startOperation({
               operationId: adoptedOpId,
@@ -86,7 +89,9 @@ export function useRankRunPolling(projectId: string, configId: string) {
               budget: "PASS",
               cache: "Not applicable",
               retry: { attempted: false, count: 0 },
-              providerCalls: Array.isArray(run.providerCalls) ? run.providerCalls.length : 0,
+              providerCalls: Array.isArray(run.providerCalls)
+                ? run.providerCalls.length
+                : 0,
               metadata: {
                 runId: run.id,
                 configId,
@@ -159,11 +164,14 @@ export function useRankRunPolling(projectId: string, configId: string) {
 
         let activeOps = findActiveTraces(run.id, projectId);
         if (activeOps.length === 0) {
-          const existingOp = globalTraceStore.getOperations(projectId).find(
-            (o) =>
-              o.rankCheckRunId === run.id ||
-              (o.metadata as { runId?: unknown } | undefined)?.runId === run.id,
-          );
+          const existingOp = globalTraceStore
+            .getOperations(projectId)
+            .find(
+              (o) =>
+                o.rankCheckRunId === run.id ||
+                (o.metadata as { runId?: unknown } | undefined)?.runId ===
+                  run.id,
+            );
           if (!existingOp) {
             const completedOpId = `rank_run_${run.id}`;
             globalTraceStore.recordOperation({
@@ -188,7 +196,9 @@ export function useRankRunPolling(projectId: string, configId: string) {
               budget: "PASS",
               cache: "Not applicable",
               retry: { attempted: false, count: 0 },
-              providerCalls: Array.isArray(run.providerCalls) ? run.providerCalls.length : 0,
+              providerCalls: Array.isArray(run.providerCalls)
+                ? run.providerCalls.length
+                : 0,
               errorMessage: run.errorMessage || undefined,
               metadata: {
                 runId: run.id,

@@ -355,6 +355,9 @@ export const rankSnapshots = pgTable(
     providerStatus: text("provider_status"),
     providerStatusCode: integer("provider_status_code"),
     errorMessage: text("error_message"),
+    trackingTargetId: text("tracking_target_id"),
+    countryCode: text("country_code"),
+    cityName: text("city_name"),
     checkedAt: timestampColumn("checked_at").notNull().default(isoNow),
     checkedDate: text("checked_date"),
     createdAt: timestampColumn("created_at").notNull().default(isoNow),
@@ -368,10 +371,20 @@ export const rankSnapshots = pgTable(
       table.device,
       table.checkedAt,
     ),
-    uniqueIndex("rank_snapshots_run_keyword_device_idx").on(
-      table.runId,
-      table.trackingKeywordId,
-      table.device,
+    uniqueIndex("rank_snapshots_run_target_kw_device_idx")
+      .on(
+        table.runId,
+        table.trackingTargetId,
+        table.trackingKeywordId,
+        table.device,
+      )
+      .where(sql`${table.trackingTargetId} IS NOT NULL`),
+    uniqueIndex("rank_snapshots_legacy_run_kw_device_idx")
+      .on(table.runId, table.trackingKeywordId, table.device)
+      .where(sql`${table.trackingTargetId} IS NULL`),
+    index("rank_snapshots_target_checked_idx").on(
+      table.trackingTargetId,
+      table.checkedAt,
     ),
     index("rank_snapshots_project_kw_checked_idx").on(
       table.projectId,
@@ -385,6 +398,232 @@ export const rankSnapshots = pgTable(
     index("rank_snapshots_project_date_idx").on(
       table.projectId,
       table.checkedDate,
+    ),
+  ],
+);
+
+// Local tracking targets for multi-country, multi-city, multi-language tracking
+export const rankTrackingTargets = pgTable(
+  "rank_tracking_targets",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    localProjectId: text("local_project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    trackingConfigId: text("tracking_config_id").references(
+      () => rankTrackingConfigs.id,
+      { onDelete: "cascade" },
+    ),
+    searchEngine: text("search_engine").notNull().default("google"),
+    countryCode: text("country_code").notNull(),
+    regionCode: text("region_code"),
+    cityName: text("city_name"),
+    languageCode: text("language_code").notNull().default("en"),
+    device: text("device", { enum: ["desktop", "mobile"] }).notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestampColumn("created_at").notNull().default(isoNow),
+    updatedAt: timestampColumn("updated_at").notNull().default(isoNow),
+  },
+  (table) => [
+    index("rank_tracking_targets_project_idx").on(
+      table.localProjectId,
+      table.enabled,
+    ),
+    index("rank_tracking_targets_config_idx").on(
+      table.trackingConfigId,
+      table.enabled,
+    ),
+    uniqueIndex("rank_tracking_targets_national_idx")
+      .on(
+        table.localProjectId,
+        table.searchEngine,
+        table.countryCode,
+        table.languageCode,
+        table.device,
+      )
+      .where(sql`${table.cityName} IS NULL`),
+    uniqueIndex("rank_tracking_targets_local_idx")
+      .on(
+        table.localProjectId,
+        table.searchEngine,
+        table.countryCode,
+        table.cityName,
+        table.languageCode,
+        table.device,
+      )
+      .where(sql`${table.cityName} IS NOT NULL`),
+  ],
+);
+
+// Mapping of locally tracked keywords to target tracking dimensions
+export const rankTrackingKeywordTargets = pgTable(
+  "rank_tracking_keyword_targets",
+  {
+    id: text("id").primaryKey(),
+    trackingKeywordId: text("tracking_keyword_id")
+      .notNull()
+      .references(() => rankTrackingKeywords.id, { onDelete: "cascade" }),
+    trackingTargetId: text("tracking_target_id")
+      .notNull()
+      .references(() => rankTrackingTargets.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestampColumn("created_at").notNull().default(isoNow),
+    updatedAt: timestampColumn("updated_at").notNull().default(isoNow),
+  },
+  (table) => [
+    uniqueIndex("rank_tracking_keyword_targets_kw_target_idx").on(
+      table.trackingKeywordId,
+      table.trackingTargetId,
+    ),
+    index("rank_tracking_keyword_targets_target_idx").on(
+      table.trackingTargetId,
+      table.enabled,
+    ),
+  ],
+);
+
+// SE Ranking Provider Account Bindings
+export const seRankingAccountBindings = pgTable(
+  "se_ranking_account_bindings",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    accountFingerprint: text("account_fingerprint").notNull(),
+    credentialVersion: integer("credential_version").notNull().default(1),
+    status: text("status", {
+      enum: ["active", "migration_required", "disconnected"],
+    })
+      .notNull()
+      .default("active"),
+    lastValidatedAt: timestampColumn("last_validated_at"),
+    createdAt: timestampColumn("created_at").notNull().default(isoNow),
+    updatedAt: timestampColumn("updated_at").notNull().default(isoNow),
+  },
+  (table) => [
+    index("se_ranking_account_bindings_org_status_idx").on(
+      table.organizationId,
+      table.status,
+    ),
+    index("se_ranking_account_bindings_fingerprint_idx").on(
+      table.accountFingerprint,
+    ),
+  ],
+);
+
+// SE Ranking Project Bindings (OpenSEO project -> remote SE Ranking site)
+export const seRankingProjectBindings = pgTable(
+  "se_ranking_project_bindings",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    localProjectId: text("local_project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    providerAccountBindingId: text("provider_account_binding_id")
+      .notNull()
+      .references(() => seRankingAccountBindings.id, { onDelete: "cascade" }),
+    remoteSiteId: integer("remote_site_id"),
+    status: text("status", {
+      enum: [
+        "pending",
+        "syncing",
+        "connected",
+        "migration_required",
+        "paused",
+        "failed",
+      ],
+    })
+      .notNull()
+      .default("pending"),
+    lastSuccessfulSync: timestampColumn("last_successful_sync"),
+    errorMessage: text("error_message"),
+    createdAt: timestampColumn("created_at").notNull().default(isoNow),
+    updatedAt: timestampColumn("updated_at").notNull().default(isoNow),
+  },
+  (table) => [
+    uniqueIndex("se_ranking_project_bindings_project_account_idx").on(
+      table.localProjectId,
+      table.providerAccountBindingId,
+    ),
+    index("se_ranking_project_bindings_project_status_idx").on(
+      table.localProjectId,
+      table.status,
+    ),
+  ],
+);
+
+// SE Ranking Search Engine Bindings (OpenSEO target -> remote site_engine_id)
+export const seRankingEngineBindings = pgTable(
+  "se_ranking_engine_bindings",
+  {
+    id: text("id").primaryKey(),
+    projectBindingId: text("project_binding_id")
+      .notNull()
+      .references(() => seRankingProjectBindings.id, { onDelete: "cascade" }),
+    trackingTargetId: text("tracking_target_id")
+      .notNull()
+      .references(() => rankTrackingTargets.id, { onDelete: "cascade" }),
+    remoteSiteEngineId: integer("remote_site_engine_id").notNull(),
+    remoteSearchEngineId: integer("remote_search_engine_id").notNull(),
+    remoteRegionId: integer("remote_region_id"),
+    remoteRegionName: text("remote_region_name"),
+    remoteLanguageCode: text("remote_language_code"),
+    syncStatus: text("sync_status", {
+      enum: ["pending", "connected", "migration_required", "failed"],
+    })
+      .notNull()
+      .default("connected"),
+    lastSuccessfulSync: timestampColumn("last_successful_sync"),
+    createdAt: timestampColumn("created_at").notNull().default(isoNow),
+    updatedAt: timestampColumn("updated_at").notNull().default(isoNow),
+  },
+  (table) => [
+    uniqueIndex("se_ranking_engine_bindings_binding_target_idx").on(
+      table.projectBindingId,
+      table.trackingTargetId,
+    ),
+    index("se_ranking_engine_bindings_site_engine_idx").on(
+      table.projectBindingId,
+      table.remoteSiteEngineId,
+    ),
+  ],
+);
+
+// SE Ranking Keyword Mappings (Local keyword -> remote keyword ID in project)
+export const seRankingKeywordMappings = pgTable(
+  "se_ranking_keyword_mappings",
+  {
+    id: text("id").primaryKey(),
+    projectBindingId: text("project_binding_id")
+      .notNull()
+      .references(() => seRankingProjectBindings.id, { onDelete: "cascade" }),
+    trackingKeywordId: text("tracking_keyword_id")
+      .notNull()
+      .references(() => rankTrackingKeywords.id, { onDelete: "cascade" }),
+    remoteKeywordId: text("remote_keyword_id").notNull(),
+    status: text("status", {
+      enum: ["synced", "pending", "failed"],
+    })
+      .notNull()
+      .default("synced"),
+    createdAt: timestampColumn("created_at").notNull().default(isoNow),
+    updatedAt: timestampColumn("updated_at").notNull().default(isoNow),
+  },
+  (table) => [
+    uniqueIndex("se_ranking_keyword_mappings_binding_kw_idx").on(
+      table.projectBindingId,
+      table.trackingKeywordId,
+    ),
+    index("se_ranking_keyword_mappings_remote_kw_idx").on(
+      table.projectBindingId,
+      table.remoteKeywordId,
     ),
   ],
 );
@@ -630,4 +869,25 @@ export const rankProviderCalls = pgTable(
       table.device,
     ),
   ],
+);
+
+// One row per DataForSEO ACCOUNT coordinating rank-check request dispatch.
+// Account identity is a SHA-256 hash of the effective DataForSEO login ONLY —
+// the same login with different API passwords resolves to the same row, and
+// no credential material (login, password, raw request bodies) is ever
+// persisted here. The row acts as a single-slot mutex across every worker,
+// project, and organization that dispatches rank-check requests through the
+// same account. Parity-matched with the SQLite twin (see
+// src/db/app.schema.ts for the full field contract).
+export const dataforseoAccountRequestSlots = pgTable(
+  "dataforseo_account_request_slots",
+  {
+    // SHA-256 hex of the effective DataForSEO login — opaque, no credentials.
+    accountHash: text("account_hash").primaryKey(),
+    // Monotonic fencing counter; bumped on every acquisition.
+    epoch: integer("epoch").notNull().default(1),
+    acquiredAt: text("acquired_at").notNull(),
+    // Earliest re-acquisition instant (ISO-8601 UTC text; lexical compare).
+    freeAt: text("free_at").notNull(),
+  },
 );

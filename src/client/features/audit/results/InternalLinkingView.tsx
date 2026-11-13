@@ -211,7 +211,8 @@ function TargetCard({ target }: { target: Target }) {
                   rel="noreferrer"
                   title={safeDecodeUrlText(suggestion.sourceUrl)}
                 >
-                  {suggestion.sourceTitle ?? safeDecodeUrlText(suggestion.sourceUrl)}
+                  {suggestion.sourceTitle ??
+                    safeDecodeUrlText(suggestion.sourceUrl)}
                 </a>
                 <span className="text-xs text-base-content/50">
                   {" "}

@@ -16,17 +16,23 @@ const { domainMock, getRunsMock, getCitationsMock } = vi.hoisted(() => ({
 vi.mock("@/server/lib/seo-data/competitor-snapshot-repository", () => ({
   getProjectDomain: domainMock,
 }));
-vi.mock("@/server/features/ai-search/repositories/AiSearchObservationRepository", () => ({
-  AiSearchObservationRepository: {
-    recordRun: vi.fn(),
-    getRunsForProject: getRunsMock,
-    getCitationsForRuns: getCitationsMock,
-  },
-}));
+vi.mock(
+  "@/server/features/ai-search/repositories/AiSearchObservationRepository",
+  () => ({
+    AiSearchObservationRepository: {
+      recordRun: vi.fn(),
+      getRunsForProject: getRunsMock,
+      getCitationsForRuns: getCitationsMock,
+    },
+  }),
+);
 
 import { defaultThresholdsFor } from "@/shared/intelligence-thresholds";
 import type { DetectorContext } from "./types";
-import type { StoredAiSearchCitation, StoredAiSearchRun } from "@/server/features/ai-search/repositories/AiSearchObservationRepository";
+import type {
+  StoredAiSearchCitation,
+  StoredAiSearchRun,
+} from "@/server/features/ai-search/repositories/AiSearchObservationRepository";
 import {
   aiCitationGapDetector,
   detectAiCitationGap,
@@ -66,7 +72,9 @@ function run(
   };
 }
 
-function input(overrides: Partial<AiCitationGapInput> = {}): AiCitationGapInput {
+function input(
+  overrides: Partial<AiCitationGapInput> = {},
+): AiCitationGapInput {
   return {
     periodFrom: "2026-10-19T00:00:00.000Z",
     periodTo: "2026-10-24T00:00:00.000Z",
@@ -87,12 +95,38 @@ function input(overrides: Partial<AiCitationGapInput> = {}): AiCitationGapInput 
  *  one has no citations, and competitor1.com appears in three runs. */
 function seededRuns(): AiCitationGapRunRow[] {
   return [
-    run("run-a", "chat_gpt", [["competitor1.com", 1], ["competitor2.com", 2]], "2026-10-24T10:00:00.000Z"),
+    run(
+      "run-a",
+      "chat_gpt",
+      [
+        ["competitor1.com", 1],
+        ["competitor2.com", 2],
+      ],
+      "2026-10-24T10:00:00.000Z",
+    ),
     run("run-b", "gemini", [["our-domain.com", 1]], "2026-10-20T10:00:00.000Z"),
-    run("run-c", "claude", [["competitor1.com", 1]], "2026-10-23T10:00:00.000Z"),
-    run("run-d", "perplexity", [["competitor1.com", 3]], "2026-10-22T10:00:00.000Z"),
+    run(
+      "run-c",
+      "claude",
+      [["competitor1.com", 1]],
+      "2026-10-23T10:00:00.000Z",
+    ),
+    run(
+      "run-d",
+      "perplexity",
+      [["competitor1.com", 3]],
+      "2026-10-22T10:00:00.000Z",
+    ),
     run("run-e", "chat_gpt", [], "2026-10-21T10:00:00.000Z"),
-    run("run-f", "gemini", [["our-domain.com", 1], ["competitor3.com", 2]], "2026-10-19T10:00:00.000Z"),
+    run(
+      "run-f",
+      "gemini",
+      [
+        ["our-domain.com", 1],
+        ["competitor3.com", 2],
+      ],
+      "2026-10-19T10:00:00.000Z",
+    ),
   ];
 }
 
@@ -191,17 +225,15 @@ describe("detectAiCitationGap", () => {
 
     // A run whose only citation is our own page, and a mixed run where we
     // were cited, are never "cited without us" findings (spec edge cases).
-    expect(
-      findings.some((finding) => finding.entity.runId === "run-b"),
-    ).toBe(false);
-    expect(
-      findings.some((finding) => finding.entity.runId === "run-f"),
-    ).toBe(false);
+    expect(findings.some((finding) => finding.entity.runId === "run-b")).toBe(
+      false,
+    );
+    expect(findings.some((finding) => finding.entity.runId === "run-f")).toBe(
+      false,
+    );
     // Domains below the frequently-cited floor never emit.
     expect(
-      findings.some(
-        (finding) => finding.entity.domain === "competitor2.com",
-      ),
+      findings.some((finding) => finding.entity.domain === "competitor2.com"),
     ).toBe(false);
   });
 
@@ -239,9 +271,30 @@ describe("detectAiCitationGap", () => {
       ctx(),
       input({
         runs: [
-          run("run-x", "chat_gpt", [["competitor1.com", 1], ["competitor1.com", 2]], "2026-10-24T10:00:00.000Z"),
-          run("run-y", "claude", [["competitor1.com", 1], ["competitor2.com", 2]], "2026-10-23T10:00:00.000Z"),
-          run("run-z", "gemini", [["competitor1.com", 1]], "2026-10-22T10:00:00.000Z"),
+          run(
+            "run-x",
+            "chat_gpt",
+            [
+              ["competitor1.com", 1],
+              ["competitor1.com", 2],
+            ],
+            "2026-10-24T10:00:00.000Z",
+          ),
+          run(
+            "run-y",
+            "claude",
+            [
+              ["competitor1.com", 1],
+              ["competitor2.com", 2],
+            ],
+            "2026-10-23T10:00:00.000Z",
+          ),
+          run(
+            "run-z",
+            "gemini",
+            [["competitor1.com", 1]],
+            "2026-10-22T10:00:00.000Z",
+          ),
           run("run-w", "perplexity", [], "2026-10-21T10:00:00.000Z"),
         ],
       }),
@@ -322,9 +375,7 @@ describe("fetchAiCitationGapInput", () => {
     const [projectId, since, limit] = getRunsMock.mock.calls[0];
     expect(projectId).toBe("project-1");
     expect(limit).toBe(200);
-    expect(Date.parse(since)).toBeGreaterThan(
-      Date.now() - 31 * 86_400_000,
-    );
+    expect(Date.parse(since)).toBeGreaterThan(Date.now() - 31 * 86_400_000);
   });
 });
 

@@ -56,10 +56,7 @@ async function insertOrganicSnapshots(rows: SerpOrganicSnapshotRow[]) {
     })),
   );
   await executeInBatches(rowsWithIds, (tx, row) =>
-    tx
-      .insert(serpOrganicSnapshots)
-      .values(row)
-      .onConflictDoNothing(),
+    tx.insert(serpOrganicSnapshots).values(row).onConflictDoNothing(),
   );
 }
 

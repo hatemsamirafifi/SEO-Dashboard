@@ -106,7 +106,7 @@ export function RankTrackingTableToolbar({
       const runChecked =
         latestRun.status === "completed"
           ? runTotal
-          : latestRun.keywordsChecked ?? 0;
+          : (latestRun.keywordsChecked ?? 0);
 
       if (runTotal > 0) {
         setCompletedBanner({

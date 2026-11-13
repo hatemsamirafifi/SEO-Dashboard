@@ -78,6 +78,31 @@ export function buildKeywordResearchQueryKey(
     : ["keywordResearch", "idle"];
 }
 
+function formatServingProviderLabel(rawProvider?: string | null): string {
+  if (!rawProvider) return "SE Ranking";
+  const p = rawProvider.toLowerCase();
+  if (p === "seranking" || p === "se ranking") return "SE Ranking";
+  if (p === "google_ads" || p === "google ads") return "Google Ads";
+  if (p === "dataforseo" || p === "data for seo") return "DataForSEO";
+  if (p === "cache") return "Cache";
+  return rawProvider;
+}
+
+function resolveServingProviderEndpoint(
+  provider: string,
+  source?: string,
+): string {
+  if (provider === "SE Ranking") {
+    return source === "related"
+      ? "/v1/keywords/related"
+      : "/v1/keywords/similar";
+  }
+  if (provider === "Google Ads") {
+    return "GenerateKeywordIdeas";
+  }
+  return "v3/dataforseo_labs/google/keyword_suggestions/live";
+}
+
 export async function keywordResearchQueryFn(request: KeywordResearchRequest) {
   const opId = globalTraceStore.startOperation({
     feature: "keyword_research",
@@ -89,7 +114,7 @@ export async function keywordResearchQueryFn(request: KeywordResearchRequest) {
     metered: true,
     budget: "PASS",
     cache: "Not applicable",
-    provider: "DataForSEO",
+    provider: "SE Ranking",
     metadata: {
       keywords: request.keywords,
       mode: request.mode,
@@ -109,20 +134,36 @@ export async function keywordResearchQueryFn(request: KeywordResearchRequest) {
       },
     });
 
+    const resultObj =
+      typeof result === "object" && result !== null
+        ? (result as {
+            provider?: string;
+            diagnostics?: { servingProvider?: string };
+          })
+        : null;
+    const providerLabel = formatServingProviderLabel(
+      resultObj?.provider ?? resultObj?.diagnostics?.servingProvider,
+    );
+    const endpoint = resolveServingProviderEndpoint(
+      providerLabel,
+      result?.source,
+    );
+
     globalTraceStore.completeOperation(opId, {
       status: "success",
       httpStatus: 200,
+      provider: providerLabel,
       providerCalls: 1,
-      providerBreakdown: [{ provider: "DataForSEO", count: 1 }],
+      providerBreakdown: [{ provider: providerLabel, count: 1 }],
       providers: [
         {
-          provider: "DataForSEO",
-          endpoint: "v3/dataforseo_labs/google/keyword_suggestions/live",
+          provider: providerLabel,
+          endpoint,
           httpStatus: 200,
           taskStatus: 20000,
           transport: "HTTP",
-          billing: "Paid",
-          metered: true,
+          billing: providerLabel === "Google Ads" ? "Free" : "Paid",
+          metered: providerLabel !== "Google Ads",
           budgetGuard: "PASS",
         },
       ],

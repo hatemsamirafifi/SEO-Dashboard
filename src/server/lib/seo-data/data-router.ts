@@ -93,18 +93,18 @@ function firstPartyMetaFromError(error: unknown): SEOFirstPartyError | null {
  * This is the deterministic provider routing policy.
  */
 const PROVIDER_PRIORITY: Record<SEODataType, string[]> = {
-  keyword_ideas: ["google_ads", "internal", "dataforseo"],
-  keyword_metrics: ["google_ads", "internal", "dataforseo"],
-  serp: ["internal", "dataforseo"],
-  domain_keywords: ["internal", "dataforseo"],
-  domain_overview: ["dataforseo", "internal"],
-  domain_pages: ["internal", "dataforseo"],
-  competitors: ["internal", "dataforseo"],
-  backlinks: ["internal", "dataforseo"],
+  keyword_ideas: ["google_ads", "seranking", "internal", "dataforseo"],
+  keyword_metrics: ["google_ads", "seranking", "internal", "dataforseo"],
+  serp: ["internal", "serp_resolver", "dataforseo"],
+  domain_keywords: ["seranking", "internal", "dataforseo"],
+  domain_overview: ["seranking", "dataforseo", "internal"],
+  domain_pages: ["seranking", "internal", "dataforseo"],
+  competitors: ["seranking", "internal", "dataforseo"],
+  backlinks: ["seranking", "internal", "dataforseo"],
   // Competitive enrichment targets are external competitor domains — never
-  // internal data. DataForSEO is the sole source (spec 007); the internal
+  // internal data. SE Ranking and DataForSEO are the sources (spec 007); the internal
   // provider's own-domain snapshots must never answer for a competitor.
-  competitive_metrics: ["dataforseo"],
+  competitive_metrics: ["seranking", "dataforseo"],
   site_audit: ["local_crawler", "dataforseo"],
   search_console: ["gsc"],
   bing_search_performance: ["bing_webmaster"],
@@ -142,16 +142,17 @@ export class DataRouter {
     const requestId = crypto.randomUUID();
     const flags = await getProviderFeatureFlags();
 
-    // If the router is disabled, find the DataForSEO provider and call it
-    // directly (backward compatibility with the pre-router behavior).
+    // If the router is disabled, call the primary enabled provider directly
     if (!flags.routerEnabled) {
-      const dfs = this.providers.get("dataforseo");
-      if (dfs && dfs.supports(request)) {
+      const primary = flags.serankingEnabled
+        ? this.providers.get("seranking")
+        : this.providers.get("dataforseo");
+      if (primary && primary.supports(request)) {
         // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- provider returns unknown; caller types it
-        const data = (await dfs.get(request)) as T;
+        const data = (await primary.get(request)) as T;
         return {
           dataType: request.dataType,
-          provider: "dataforseo",
+          provider: primary.name,
           data,
           fromCache: false,
           durationMs: Date.now() - startTime,
@@ -203,7 +204,7 @@ export class DataRouter {
               singleFlight(cacheKey, () => provider.get(request)),
             );
 
-            if (providerName !== "dataforseo") {
+            if (providerName !== "dataforseo" && providerName !== "seranking") {
               recordFreeProviderCall(providerName);
             }
 
@@ -337,6 +338,8 @@ function isProviderEnabled(
   flags: Awaited<ReturnType<typeof getProviderFeatureFlags>>,
 ): boolean {
   switch (name) {
+    case "seranking":
+      return flags.serankingEnabled;
     case "dataforseo":
       return flags.dataforseoEnabled;
     case "gsc":

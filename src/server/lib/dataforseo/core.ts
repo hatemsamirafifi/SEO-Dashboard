@@ -1,3 +1,4 @@
+/* eslint-disable eslint/max-lines */
 import {
   AiOptimizationApi,
   AppendixApi,
@@ -9,8 +10,13 @@ import {
   SerpApi,
 } from "dataforseo-client";
 import { AppError } from "@/server/lib/errors";
-import { getRequiredEnvValue } from "@/server/lib/runtime-env";
+import {
+  getOptionalEnvValue,
+  getRequiredEnvValue,
+} from "@/server/lib/runtime-env";
+import { ProviderUnavailableError } from "@/server/lib/seo-data/errors";
 import { getDataforseoContext } from "@/server/lib/dataforseo/context";
+import { parseLegacyDataforseoApiKey } from "@/server/features/settings/dataforseoCrypto";
 import type { ErrorCode } from "@/shared/error-codes";
 import { getSamTraceBus } from "@/server/features/sam/samTraceBus";
 import {
@@ -30,8 +36,8 @@ const API_BASE = "https://api.dataforseo.com";
 const MAX_DATAFORSEO_ERROR_PAYLOAD_LENGTH = 1600;
 // Safety ceiling on any live call (Lighthouse is the slowest, ~tens of seconds).
 const DATAFORSEO_REQUEST_TIMEOUT_MS = 60_000;
-// Retry idempotent reads on transient 5xx. Total attempts = retries + 1; the
-// shared request-timeout signal still caps overall wall time.
+// Retry query/retrieval calls on transient 5xx. Task creation is excluded
+// below because an ambiguous response may hide a successfully charged task.
 const DATAFORSEO_MAX_RETRIES = 2;
 const DATAFORSEO_RETRY_BACKOFF_MS = 250;
 
@@ -172,12 +178,37 @@ async function readDataforseoAppStatus(
   }
 }
 
-async function resolveAuthenticatedDataforseoBasicAuth(): Promise<string> {
+/**
+ * Resolved DataForSEO credentials for one dispatch. `authValue` is what the
+ * SDK's Authorization header carries; `login`/`password` are the credential
+ * pair when derivable (null for an unparseable raw key). `accountKey` is the
+ * ACCOUNT identity — the login, or the raw credential when no login is
+ * derivable — and is only ever consumed as the input to a SHA-256 hash (the
+ * persisted coordination identifier); it is never stored or logged itself.
+ */
+type ResolvedDataforseoCredentials = {
+  authValue: string;
+  accountKey: string;
+  login: string | null;
+  password: string | null;
+};
+
+function credentialsFromPair(
+  login: string,
+  password: string,
+): ResolvedDataforseoCredentials {
+  return {
+    authValue: Buffer.from(`${login}:${password}`).toString("base64"),
+    accountKey: login,
+    login,
+    password,
+  };
+}
+
+async function resolveAuthenticatedDataforseoCredentials(): Promise<ResolvedDataforseoCredentials> {
   const context = getDataforseoContext();
   if (context?.login && context?.password) {
-    return Buffer.from(`${context.login}:${context.password}`).toString(
-      "base64",
-    );
+    return credentialsFromPair(context.login, context.password);
   }
 
   // Dynamic fallback: resolve effective settings from DB (project -> org -> env)
@@ -189,9 +220,7 @@ async function resolveAuthenticatedDataforseoBasicAuth(): Promise<string> {
       projectId: context?.projectId,
     });
     if (effective.login && effective.password) {
-      return Buffer.from(`${effective.login}:${effective.password}`).toString(
-        "base64",
-      );
+      return credentialsFromPair(effective.login, effective.password);
     }
   } catch {
     // If DB is unavailable in pure endpoint unit test environments, fall through to raw env check
@@ -201,7 +230,17 @@ async function resolveAuthenticatedDataforseoBasicAuth(): Promise<string> {
   try {
     const rawKey = await getRequiredEnvValue("DATAFORSEO_API_KEY");
     if (rawKey?.trim()) {
-      return rawKey.trim();
+      // A base64 "login:password" key names the same account as settings
+      // credentials with that login — derive the account key from the parsed
+      // login so both coordinate on one slot. Unparseable keys fall back to
+      // hashing the raw value (still a stable, opaque single-account id).
+      const parsed = parseLegacyDataforseoApiKey(rawKey);
+      return {
+        authValue: rawKey.trim(),
+        accountKey: parsed?.login ?? rawKey.trim(),
+        login: parsed?.login ?? null,
+        password: parsed?.password ?? null,
+      };
     }
   } catch {
     // Not configured via DATAFORSEO_API_KEY
@@ -210,15 +249,55 @@ async function resolveAuthenticatedDataforseoBasicAuth(): Promise<string> {
   const envLogin = process.env.DATAFORSEO_LOGIN;
   const envPassword = process.env.DATAFORSEO_PASSWORD;
   if (envLogin?.trim() && envPassword?.trim()) {
-    return Buffer.from(`${envLogin.trim()}:${envPassword.trim()}`).toString(
-      "base64",
-    );
+    return credentialsFromPair(envLogin.trim(), envPassword.trim());
   }
 
   throw new AppError(
     "DATAFORSEO_AUTH_FAILED",
     "DataForSEO credentials are not configured. Configure them in Settings or set environment credentials.",
   );
+}
+
+async function resolveAuthenticatedDataforseoBasicAuth(): Promise<string> {
+  return (await resolveAuthenticatedDataforseoCredentials()).authValue;
+}
+
+/** SHA-256 hex digest of a UTF-8 string (64 lowercase hex chars). */
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(input),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * The account coordination binding for one rank-check dispatch: the
+ * persisted identifier (SHA-256 of the effective LOGIN — the same login with
+ * different API passwords is the same account; different logins stay
+ * independent) plus the exact credential pair the dispatch will use, so the
+ * gated SDK call can be pinned to the SAME account the slot was acquired for
+ * even if settings change while the request waits. `login`/`password` are
+ * null only for an unparseable raw key, in which case there is nothing to
+ * pin and the ambient resolution applies. Only the hash ever leaves this
+ * seam: never the login, password, or raw key.
+ */
+export interface DataforseoAccountBinding {
+  accountHash: string;
+  login: string | null;
+  password: string | null;
+}
+
+export async function resolveDataforseoAccountBinding(): Promise<DataforseoAccountBinding> {
+  const { accountKey, login, password } =
+    await resolveAuthenticatedDataforseoCredentials();
+  return {
+    accountHash: await sha256Hex(accountKey.trim()),
+    login,
+    password,
+  };
 }
 
 /** Parse JSON without throwing (used only to extract safe request metadata). */
@@ -296,6 +375,17 @@ function emitDataforseoTrace(
  */
 function createAuthenticatedFetch(classify?: DataforseoErrorClassifier) {
   return async (url: RequestInfo, init?: RequestInit): Promise<Response> => {
+    const envEnabledRaw = await getOptionalEnvValue("DATAFORSEO_ENABLED");
+    if (
+      ["false", "0"].includes(envEnabledRaw ?? "") ||
+      ["false", "0"].includes(process.env.DATAFORSEO_ENABLED ?? "")
+    ) {
+      throw new ProviderUnavailableError(
+        "dataforseo",
+        "DataForSEO is disabled (DATAFORSEO_ENABLED=false)",
+      );
+    }
+
     const basicAuth = await resolveAuthenticatedDataforseoBasicAuth();
     const headers = new Headers(init?.headers);
     headers.set("Authorization", `Basic ${basicAuth}`);
@@ -369,8 +459,11 @@ function createAuthenticatedFetch(classify?: DataforseoErrorClassifier) {
         return response;
       }
 
-      // Transient upstream 5xx on an idempotent read -> back off and retry.
-      if (response.status >= 500 && attempt < DATAFORSEO_MAX_RETRIES) {
+      if (
+        response.status >= 500 &&
+        !endpoint?.endsWith("/task_post") &&
+        attempt < DATAFORSEO_MAX_RETRIES
+      ) {
         await new Promise((resolve) =>
           setTimeout(resolve, DATAFORSEO_RETRY_BACKOFF_MS * (attempt + 1)),
         );
@@ -406,7 +499,7 @@ function createAuthenticatedFetch(classify?: DataforseoErrorClassifier) {
           ? "UPSTREAM_UNAVAILABLE"
           : response.status === 429
             ? "RATE_LIMITED"
-            : response.status === 401
+            : response.status === 401 || response.status === 403
               ? "DATAFORSEO_AUTH_FAILED"
               : response.status === 402
                 ? "PAYMENT_REQUIRED"

@@ -54,6 +54,11 @@
         "name": "SAM_CHAT",
         "class_name": "SamChatAgent",
       },
+      // Durable Object coordinator for SE Ranking distributed rate limiting (1 RPS global pacing).
+      {
+        "name": "SE_RANKING_RATE_LIMITER",
+        "class_name": "SeRankingRateLimiter",
+      },
     ],
   },
   "migrations": [

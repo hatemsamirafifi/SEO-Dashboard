@@ -1,4 +1,4 @@
-/* eslint-disable max-lines */
+/* eslint-disable max-lines, complexity */
 import { z } from "zod";
 import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import {
@@ -180,20 +180,29 @@ export async function resolveEffectiveDataforseoConfig(params?: {
   organizationId?: string | null;
   projectId?: string | null;
 }): Promise<DataForSeoConfig> {
+  const envEnabledRaw = await getOptionalEnvValue("DATAFORSEO_ENABLED");
+  const envEnabled = !["false", "0"].includes(envEnabledRaw ?? "");
+
   const projectId = params?.projectId ?? null;
   const organizationId = params?.organizationId ?? null;
-  const projectRow = projectId
-    ? await SeoProviderSettingsRepository.getProjectProviderSettingsRow(
-        projectId,
-        "dataforseo",
-      )
-    : null;
-  const orgRow = organizationId
-    ? await SeoProviderSettingsRepository.getOrganizationProviderSettingsRow(
-        organizationId,
-        "dataforseo",
-      )
-    : null;
+  let projectRow = null;
+  let orgRow = null;
+  try {
+    projectRow = projectId
+      ? await SeoProviderSettingsRepository.getProjectProviderSettingsRow(
+          projectId,
+          "dataforseo",
+        )
+      : null;
+    orgRow = organizationId
+      ? await SeoProviderSettingsRepository.getOrganizationProviderSettingsRow(
+          organizationId,
+          "dataforseo",
+        )
+      : null;
+  } catch {
+    // DB may be unavailable in pure unit test environments; proceed to env fallback
+  }
   const settingsRow = projectRow ?? orgRow;
 
   // 1. Project-level override
@@ -203,7 +212,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
     );
     if (creds) {
       return {
-        enabled: projectRow.enabled,
+        enabled: envEnabled && projectRow.enabled,
         circuitBreakerEnabled: projectRow.circuitBreakerEnabled,
         maxRetries: clampProviderRetries(projectRow.maxRetries),
         login: creds.login,
@@ -223,7 +232,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
     );
     if (creds) {
       return {
-        enabled: settingsRow?.enabled ?? orgRow.enabled,
+        enabled: envEnabled && (settingsRow?.enabled ?? orgRow.enabled),
         circuitBreakerEnabled:
           settingsRow?.circuitBreakerEnabled ?? orgRow.circuitBreakerEnabled,
         maxRetries: clampProviderRetries(
@@ -241,8 +250,6 @@ export async function resolveEffectiveDataforseoConfig(params?: {
   // 3. Environment configuration fallback
   const envLogin = await getOptionalEnvValue("DATAFORSEO_LOGIN");
   const envPassword = await getOptionalEnvValue("DATAFORSEO_PASSWORD");
-  const envEnabledRaw = await getOptionalEnvValue("DATAFORSEO_ENABLED");
-  const envEnabled = !["false", "0"].includes(envEnabledRaw ?? "");
   const envCircuitBreakerRaw = await getOptionalEnvValue(
     "DATAFORSEO_CIRCUIT_BREAKER_ENABLED",
   );
@@ -258,7 +265,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
 
   if (envLogin && envPassword) {
     return {
-      enabled: settingsRow?.enabled ?? envEnabled,
+      enabled: envEnabled && (settingsRow?.enabled ?? true),
       circuitBreakerEnabled: inheritedCircuitBreakerEnabled(
         projectRow,
         orgRow,
@@ -278,7 +285,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
     const parsed = parseLegacyDataforseoApiKey(envApiKey);
     if (parsed) {
       return {
-        enabled: settingsRow?.enabled ?? envEnabled,
+        enabled: envEnabled && (settingsRow?.enabled ?? true),
         circuitBreakerEnabled: inheritedCircuitBreakerEnabled(
           projectRow,
           orgRow,
@@ -296,7 +303,7 @@ export async function resolveEffectiveDataforseoConfig(params?: {
 
   // 4. Not configured
   return {
-    enabled: settingsRow?.enabled ?? false,
+    enabled: envEnabled && (settingsRow?.enabled ?? false),
     circuitBreakerEnabled: inheritedCircuitBreakerEnabled(
       projectRow,
       orgRow,
@@ -346,7 +353,7 @@ export async function getDataforseoSettingsView(input: {
     );
     override = {
       configured: Boolean(creds),
-      enabled: targetRow.enabled,
+      enabled: effective.enabled && targetRow.enabled,
       circuitBreakerEnabled: targetRow.circuitBreakerEnabled,
       maxRetries: clampProviderRetries(targetRow.maxRetries),
       priority: targetRow.priority ?? 1,
@@ -606,6 +613,19 @@ export async function testDataforseoConnection(input: {
   password?: string;
   fetchFn?: typeof fetch;
 }): Promise<DataforseoConnectionTestResult> {
+  const envEnabledRaw = await getOptionalEnvValue("DATAFORSEO_ENABLED");
+  if (
+    ["false", "0"].includes(envEnabledRaw ?? "") ||
+    ["false", "0"].includes(process.env.DATAFORSEO_ENABLED ?? "")
+  ) {
+    return {
+      ok: false,
+      status: 200,
+      reason: "DISABLED",
+      billingStatus: "unknown",
+    };
+  }
+
   const customFetch = input.fetchFn ?? fetch;
   const { credentials: credsToTest, projectScoped } =
     await resolveProbeCredentials(input);

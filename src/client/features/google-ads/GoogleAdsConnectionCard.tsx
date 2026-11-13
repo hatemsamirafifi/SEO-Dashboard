@@ -263,7 +263,9 @@ function AccountPicker({
                   <button
                     className="btn btn-outline btn-xs shrink-0"
                     type="button"
-                    onClick={() => void discovery.refetch()}
+                    onClick={() => {
+                      discovery.refetch();
+                    }}
                     disabled={discovery.isFetching}
                   >
                     {discovery.isFetching ? "Retrying…" : "Retry"}

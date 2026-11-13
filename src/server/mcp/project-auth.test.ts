@@ -81,7 +81,7 @@ describe("withMcpProjectAuth", () => {
           userId: "user_123",
           userEmail: "alice@example.com",
           organizationId: "org_123",
-  role: "owner",
+          role: "owner",
           clientId: "client_123",
           scopes: ["mcp"],
           audience: "https://open-seo.test/mcp",
