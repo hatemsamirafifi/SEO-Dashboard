@@ -33,6 +33,12 @@ const bindingRepoMocks = vi.hoisted(() => ({
   updateProjectBinding: vi.fn(),
 }));
 
+const dispatchRepoMocks = vi.hoisted(() => ({
+  getDispatchById: vi.fn(),
+  createDispatch: vi.fn(),
+  updateDispatch: vi.fn(),
+}));
+
 const syncServiceMocks = vi.hoisted(() => ({
   ensureProject: vi.fn(),
   ensureSearchEngines: vi.fn(),
@@ -56,6 +62,10 @@ vi.mock(
 vi.mock(
   "@/server/features/rank-tracking/repositories/SeRankingBindingRepository",
   () => ({ SeRankingBindingRepository: bindingRepoMocks }),
+);
+vi.mock(
+  "@/server/features/rank-tracking/repositories/SeRankingRecheckDispatchRepository",
+  () => ({ SeRankingRecheckDispatchRepository: dispatchRepoMocks }),
 );
 vi.mock(
   "@/server/features/rank-tracking/services/SeRankingProjectSyncService",
@@ -162,7 +172,27 @@ describe("runSeRankingCheck - Durable Async Execution & Desktop/Mobile Parsing",
       ok: true,
       status: "queued",
     });
-    projectServiceMocks.getCheckDates.mockResolvedValue([today]);
+    let checkDatesCall = 0;
+    projectServiceMocks.getCheckDates.mockImplementation(() => {
+      checkDatesCall++;
+      // Calls 1-2 are the pre-recheck baseline capture (one per engine):
+      // report no check today so the baseline omits fingerprints and the poll
+      // rounds behave exactly as before FIX 1. Poll rounds report today.
+      return Promise.resolve(checkDatesCall <= 2 ? ["2026-01-01"] : [today]);
+    });
+    dispatchRepoMocks.getDispatchById.mockResolvedValue(null);
+    dispatchRepoMocks.createDispatch.mockImplementation(async (data) => ({
+      id: data.id,
+      runId: data.runId,
+      configId: data.configId,
+      dispatchScope: data.dispatchScope,
+      status: "PENDING",
+      providerResponse: null,
+      dispatchedAt: null,
+      outcomeAt: null,
+      createdAt: data.createdAt,
+    }));
+    dispatchRepoMocks.updateDispatch.mockResolvedValue(undefined);
   });
 
   it("polls asynchronously with step.sleep across Desktop & Mobile, normalizes pos=0 to NO_RESULT, and preserves prevPos", async () => {
@@ -332,6 +362,7 @@ describe("runSeRankingCheck - Durable Async Execution & Desktop/Mobile Parsing",
 
   it("halts polling immediately when run is cancelled", async () => {
     const stepMock = { sleep: vi.fn(async () => {}) } as any;
+    projectServiceMocks.getPositions.mockResolvedValue([]); // never observed
     // Active for dispatch check, then cancelled during sleep
     repoMocks.getRunById
       .mockResolvedValueOnce({ id: "run-async-1", status: "running" })
@@ -353,6 +384,7 @@ describe("runSeRankingCheck - Durable Async Execution & Desktop/Mobile Parsing",
     });
 
     expect(projectServiceMocks.getPositions).not.toHaveBeenCalled();
+    expect(stepMock.sleep).not.toHaveBeenCalled();
     expect(outcome.checkedCount).toBe(0);
     const inserted = repoMocks.insertSnapshots.mock.calls[0]?.[0] as any[];
     expect(inserted).toHaveLength(2);
@@ -365,8 +397,11 @@ describe("runSeRankingCheck - Durable Async Execution & Desktop/Mobile Parsing",
     let dateCall = 0;
     projectServiceMocks.getCheckDates.mockImplementation(async () => {
       dateCall++;
-      // First engine check-dates call has only yesterday; subsequent rounds include today
-      return dateCall <= 2 ? ["2026-01-01"] : ["2026-01-01", today];
+      // Calls 1-2: pre-recheck baseline capture (one per engine) — no check
+      // today yet. Calls 3-4: poll round 0 — still no check today, so
+      // getPositions is skipped entirely. Calls 5+: poll round 1 — today's
+      // check date arrived and the observation is collected.
+      return dateCall <= 4 ? ["2026-01-01"] : ["2026-01-01", today];
     });
     projectServiceMocks.getPositions.mockResolvedValue([
       {
@@ -407,6 +442,7 @@ describe("runSeRankingCheck - Durable Async Execution & Desktop/Mobile Parsing",
         id: 1,
         runId: "r1",
         trackingKeywordId: "kw-1",
+        trackingTargetId: null,
         keyword: "seo",
         device: "desktop",
         position: null,
@@ -418,6 +454,7 @@ describe("runSeRankingCheck - Durable Async Execution & Desktop/Mobile Parsing",
         providerStatus: "cancelled",
         providerStatusCode: null,
         errorMessage: "Cancelled",
+        completionConfidence: null,
         checkedAt: "2026-11-11T10:00:00Z",
       },
       7,

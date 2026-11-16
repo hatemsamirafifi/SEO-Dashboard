@@ -26,6 +26,7 @@ describe("Rank Tracking Provider Error Semantic Safeguards", () => {
     id: 1,
     runId: "run_1",
     trackingKeywordId: "kw_1",
+    trackingTargetId: null,
     keyword: "test keyword",
     device: "desktop",
     position: null,
@@ -39,6 +40,7 @@ describe("Rank Tracking Provider Error Semantic Safeguards", () => {
     providerStatusCode: 40201,
     errorMessage:
       "DataForSEO task error (40201): We noticed some unusual activity in your DataForSEO account",
+    completionConfidence: null,
     checkedAt: "2026-09-14T12:00:00.000Z",
   };
 

@@ -1,15 +1,21 @@
+/* eslint-disable complexity, max-lines-per-function */
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCustomer } from "autumn-js/react";
 import { useRankRunCancel } from "./useRankRunCancel";
 import { ArrowLeft } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 import { getCustomerPlanStatus } from "@/client/features/billing/plan-detection";
 import { captureClientEvent } from "@/client/lib/posthog";
+import { getSchedulerStatus } from "@/serverFunctions/rank-tracking";
+import { APPROVED_PILOT_CONFIG_ID } from "@/shared/rank-tracking";
 import { FreePlanAlert } from "./FreePlanAlert";
 import { ConfigAlerts } from "./ConfigAlerts";
-import { RankTrackingDetailHeader } from "./RankTrackingDetailHeader";
+import {
+  RankTrackingDetailHeader,
+  type DeviceViewFilter,
+} from "./RankTrackingDetailHeader";
 import { RankTrackingOverview } from "./RankTrackingOverview";
 import { RankTrackingTable } from "./RankTrackingTable";
 import {
@@ -81,10 +87,17 @@ export function RankTrackingDomainDetail({
         ? "30d"
         : "7d",
   );
-  const [activeDevice, setActiveDevice] = useState<"desktop" | "mobile">(
-    config.devices === "mobile" ? "mobile" : "desktop",
+  const [deviceFilter, setDeviceFilter] = useState<DeviceViewFilter>(
+    config.devices === "both"
+      ? "all"
+      : config.devices === "mobile"
+        ? "mobile"
+        : "desktop",
   );
   const [viewMode, setViewMode] = useState<"table" | "history">("table");
+
+  const matrixDevice: "desktop" | "mobile" =
+    deviceFilter === "mobile" ? "mobile" : "desktop";
 
   const {
     resultsData,
@@ -103,7 +116,7 @@ export function RankTrackingDomainDetail({
     projectId,
     configId: config.id,
     comparePeriod,
-    activeDevice,
+    activeDevice: matrixDevice,
     selectedTargetId,
   });
 
@@ -144,6 +157,16 @@ export function RankTrackingDomainDetail({
     onSuccess: () => setPendingCheck(null),
   });
 
+  const schedulerQuery = useQuery({
+    queryKey: ["rankTrackingSchedulerStatus", projectId],
+    queryFn: () => getSchedulerStatus({ data: { projectId } }),
+    refetchInterval: 30000,
+  });
+
+  const handleReadOnlySync = () => {
+    startCheck({ readOnlySync: true });
+  };
+
   const { refresh: refreshMetrics, isRefreshing: metricsRefreshing } =
     useMetricsRefresh(projectId, config.id);
 
@@ -158,18 +181,40 @@ export function RankTrackingDomainDetail({
   const rows = resultsData?.rows;
   const run = resultsData?.run;
   const selectedTarget = targets?.find((t) => t.id === selectedTargetId);
-  const hasBothDevices = selectedTarget ? false : config.devices === "both";
+  const targetsHaveBoth =
+    targets && targets.length > 0
+      ? targets.some((t) => t.device === "desktop") &&
+        targets.some((t) => t.device === "mobile")
+      : false;
+  const hasBothDevices = config.devices === "both" || targetsHaveBoth;
   const { showDesktop, showMobile } = resolveDeviceVisibility(
     config.devices,
-    activeDevice,
+    deviceFilter,
     selectedTarget,
+    hasBothDevices,
   );
 
   const handleSelectTarget = (targetId: string | undefined) => {
     setSelectedTargetId(targetId);
-    const picked = targets?.find((t) => t.id === targetId);
-    if (picked) {
-      setActiveDevice(picked.device);
+    if (targetId) {
+      const picked = targets?.find((t) => t.id === targetId);
+      if (picked) {
+        setDeviceFilter(picked.device);
+      }
+    } else {
+      if (hasBothDevices) {
+        setDeviceFilter("all");
+      }
+    }
+  };
+
+  const handleDeviceFilterChange = (nextFilter: DeviceViewFilter) => {
+    setDeviceFilter(nextFilter);
+    if (selectedTargetId) {
+      const picked = targets?.find((t) => t.id === selectedTargetId);
+      if (picked && (nextFilter === "all" || picked.device !== nextFilter)) {
+        setSelectedTargetId(undefined);
+      }
     }
   };
   const filtered = useMemo(
@@ -221,12 +266,20 @@ export function RankTrackingDomainDetail({
           onManageTargets={() => setShowTargetsModal(true)}
           costEstimate={costEstimate}
           hasBothDevices={hasBothDevices}
-          activeDevice={activeDevice}
-          onActiveDeviceChange={setActiveDevice}
+          activeDevice={deviceFilter}
+          onActiveDeviceChange={handleDeviceFilterChange}
           comparePeriod={comparePeriod}
           onComparePeriodChange={setComparePeriod}
           onEdit={onEdit}
           onToggleAddKeywords={() => setShowAddKeywords((c) => !c)}
+          onReadOnlySync={
+            config.id === APPROVED_PILOT_CONFIG_ID
+              ? handleReadOnlySync
+              : undefined
+          }
+          checkBusy={isBusy || isPending}
+          schedulerRunning={schedulerQuery.data?.schedulerRunning}
+          schedulerConfigured={schedulerQuery.data?.schedulerConfigured}
         />
 
         {showAddKeywords && (
@@ -243,7 +296,7 @@ export function RankTrackingDomainDetail({
         {/* Portfolio overview */}
         {(rows?.length ?? 0) > 0 && (
           <RankTrackingOverview
-            device={activeDevice}
+            device={deviceFilter === "mobile" ? "mobile" : "desktop"}
             projectId={projectId}
             configId={config.id}
             trackingTargetId={selectedTargetId}
@@ -259,6 +312,11 @@ export function RankTrackingDomainDetail({
           latestRun={latestRun}
           onCancelRun={handleCancelRun}
           isCancelling={isCancelling}
+          onReadOnlySync={
+            config.id === APPROVED_PILOT_CONFIG_ID
+              ? handleReadOnlySync
+              : undefined
+          }
           keywordCount={filtered.length}
           viewMode={effectiveViewMode}
           onViewModeChange={setViewMode}
@@ -352,7 +410,7 @@ export function RankTrackingDomainDetail({
       <RankTrackingDetailFooter
         projectId={projectId}
         config={config}
-        activeDevice={activeDevice}
+        activeDevice={deviceFilter === "mobile" ? "mobile" : "desktop"}
         pendingCheck={pendingCheck}
         isPending={isPending}
         onRunCheck={startCheck}
@@ -360,6 +418,13 @@ export function RankTrackingDomainDetail({
         showTargetsModal={showTargetsModal}
         targets={targets}
         onCloseTargetsModal={() => setShowTargetsModal(false)}
+        isSeRanking={
+          costEstimate?.provider === "seranking" ||
+          costEstimate?.pricingModel === "subscription_quota" ||
+          Boolean(latestSyncBinding)
+        }
+        targetCount={costEstimate?.targetCount}
+        totalChecks={costEstimate?.totalChecks}
       />
     </div>
   );

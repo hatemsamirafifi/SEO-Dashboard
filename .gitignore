@@ -58,3 +58,9 @@ tsconfig.tsbuildinfo
 # Local workspace utilities
 scripts/sync_conversations.*
 scratch/
+
+# Local database backups
+backups/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

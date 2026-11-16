@@ -132,10 +132,10 @@ describe("getRankTrackerTool", () => {
     expect(result.structuredContent.targets).toHaveLength(1);
     expect(result.structuredContent.results.rows).toHaveLength(1);
     expect(result.content[0].text).toContain("best seo tool");
-    expect(result.content[0].text).toContain("US (desktop)");
+    expect(result.content[0].text).toContain("US (en) desktop");
   });
 
-  it("forwards optional targetId to getLatestResults when filtering a specific market/device target", async () => {
+  it("forwards optional targetId and defaults comparePeriod to 'previous'", async () => {
     targetRepoMocks.getTargetsForProject.mockResolvedValue([]);
     repoMocks.getConfigById.mockResolvedValue({
       id: "cfg-1",
@@ -152,6 +152,39 @@ describe("getRankTrackerTool", () => {
     const targetUuid = "11111111-1111-4111-8111-111111111111";
     await getRankTrackerTool.handler(
       { projectId: "proj-1", trackerId: "cfg-1", targetId: targetUuid },
+      {} as any,
+    );
+
+    expect(resultsMocks.getLatestResults).toHaveBeenCalledWith(
+      "cfg-1",
+      "proj-1",
+      "previous",
+      targetUuid,
+    );
+  });
+
+  it("forwards explicit comparePeriod when requested", async () => {
+    targetRepoMocks.getTargetsForProject.mockResolvedValue([]);
+    repoMocks.getConfigById.mockResolvedValue({
+      id: "cfg-1",
+      domain: "example.com",
+      devices: "both",
+      serpDepth: 100,
+      scheduleInterval: "weekly",
+    });
+    resultsMocks.getLatestResults.mockResolvedValue({
+      run: { id: "run-2", lastCheckedAt: "2026-11-11T12:00:00Z" },
+      rows: [],
+    });
+
+    const targetUuid = "11111111-1111-4111-8111-111111111111";
+    await getRankTrackerTool.handler(
+      {
+        projectId: "proj-1",
+        trackerId: "cfg-1",
+        targetId: targetUuid,
+        comparePeriod: "7d",
+      },
       {} as any,
     );
 

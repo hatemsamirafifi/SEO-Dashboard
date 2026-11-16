@@ -46,9 +46,18 @@ const seRankingExecutionMocks = vi.hoisted(() => ({
   runSeRankingCheck: vi.fn(),
 }));
 
+const targetRepoMocks = vi.hoisted(() => ({
+  getTargetsForConfig: vi.fn().mockResolvedValue([]),
+  getTargetsForProject: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock(
   "@/server/features/rank-tracking/repositories/RankTrackingRepository",
   () => ({ RankTrackingRepository: repoMocks }),
+);
+vi.mock(
+  "@/server/features/rank-tracking/repositories/RankTrackingTargetRepository",
+  () => ({ RankTrackingTargetRepository: targetRepoMocks }),
 );
 vi.mock("@/server/workflows/rankCheckPaths", () => pathsMocks);
 vi.mock("@/server/lib/dataforseo", () => dataforseoMocks);
@@ -113,8 +122,18 @@ describe("RankCheckWorkflow - SE Ranking Execution", () => {
     });
 
     repoMocks.getSnapshotsForRun.mockResolvedValue([
-      { trackingKeywordId: "kw-1", rankingStatus: "RANKED", rankPosition: 5 },
-      { trackingKeywordId: "kw-2", rankingStatus: "RANKED", rankPosition: 12 },
+      {
+        trackingKeywordId: "kw-1",
+        rankingStatus: "RANKED",
+        rankPosition: 5,
+        completionConfidence: "CONFIRMED",
+      },
+      {
+        trackingKeywordId: "kw-2",
+        rankingStatus: "RANKED",
+        rankPosition: 12,
+        completionConfidence: "LIKELY_COMPLETE",
+      },
     ]);
 
     const workflow = new RankCheckWorkflow({} as any, {} as any);

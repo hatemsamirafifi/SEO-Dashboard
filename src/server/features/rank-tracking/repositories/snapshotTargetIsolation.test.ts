@@ -78,8 +78,11 @@ describe("snapshotQueries trackingTargetId isolation", () => {
         tracking_target_id text,
         country_code text,
         city_name text,
+        completion_confidence text,
+        observation_source text,
         checked_at text NOT NULL,
         checked_date text,
+        imported_at text,
         created_at text DEFAULT (current_timestamp) NOT NULL,
         updated_at text DEFAULT (current_timestamp) NOT NULL
       )

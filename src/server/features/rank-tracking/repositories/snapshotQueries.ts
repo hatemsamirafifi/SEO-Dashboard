@@ -7,10 +7,6 @@ import {
   gte,
   inArray,
   isNull,
-  lt,
-  lte,
-  max,
-  min,
   ne,
   or,
   sql,
@@ -18,6 +14,17 @@ import {
 import { db } from "@/db";
 import { rankCheckRuns, rankSnapshots } from "@/db/schema";
 import { toSqliteTimestamp } from "@/server/features/rank-tracking/rankTrackingTimestamps";
+
+/**
+ * SQL fragment excluding UNVERIFIED snapshots from valid-snapshot queries.
+ * An UNVERIFIED row (completion_confidence = 'UNVERIFIED') is a same-day
+ * observation identical to the pre-recheck baseline — it may be stale data
+ * from an earlier run, never a fresh ranking. It must never surface as a
+ * valid position, affect position changes/history trends, or feed SAM/
+ * detector recommendations. Inlined as raw SQL so no extra bound parameter
+ * is added (D1 caps parameters at 100 per statement).
+ */
+const EXCLUDE_UNVERIFIED = sql`(${rankSnapshots.completionConfidence} IS NULL OR ${rankSnapshots.completionConfidence} != 'UNVERIFIED')`;
 
 function completedRunIdsForConfig(configId: string) {
   return db
@@ -93,6 +100,7 @@ export async function getLatestPositionsMap(
         isNull(rankSnapshots.rankingStatus),
         ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
       ),
+      EXCLUDE_UNVERIFIED,
     ];
     if (options?.excludeRunId) {
       validSnapshotConditions.push(
@@ -100,8 +108,9 @@ export async function getLatestPositionsMap(
       );
     }
     if (options?.beforeDate) {
+      const beforeDay = options.beforeDate.slice(0, 10);
       validSnapshotConditions.push(
-        lt(rankSnapshots.checkedAt, options.beforeDate),
+        sql`((${rankSnapshots.checkedDate} is not null and ${rankSnapshots.checkedDate} < ${beforeDay}) or (${rankSnapshots.checkedDate} is null and ${rankSnapshots.checkedAt} < ${options.beforeDate}))`,
       );
     }
     if (options?.trackingTargetId) {
@@ -110,46 +119,50 @@ export async function getLatestPositionsMap(
       );
     }
 
-    const grouped = db
-      .select({
-        trackingTargetId: rankSnapshots.trackingTargetId,
-        trackingKeywordId: rankSnapshots.trackingKeywordId,
-        device: rankSnapshots.device,
-        targetCheckedAt: max(rankSnapshots.checkedAt).as("target_checked_at"),
-      })
-      .from(rankSnapshots)
-      .where(and(...validSnapshotConditions))
-      .groupBy(
-        rankSnapshots.trackingTargetId,
-        rankSnapshots.trackingKeywordId,
-        rankSnapshots.device,
-      )
-      .as("grouped");
+    const ranked = db.$with("ranked").as(
+      db
+        .select({
+          trackingTargetId: rankSnapshots.trackingTargetId,
+          trackingKeywordId: rankSnapshots.trackingKeywordId,
+          device: rankSnapshots.device,
+          position: rankSnapshots.position,
+          rn: sql<number>`row_number() over (
+            partition by coalesce(${rankSnapshots.trackingTargetId}, 'none'), ${rankSnapshots.trackingKeywordId}, ${rankSnapshots.device}
+            order by
+              coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10)) desc,
+              case
+                when ${rankSnapshots.completionConfidence} = 'CONFIRMED' then 3
+                when ${rankSnapshots.completionConfidence} = 'LIKELY_COMPLETE' then 2
+                else 1
+              end desc,
+              case
+                when ${rankSnapshots.observationSource} = 'daily_sync' then 2
+                when ${rankSnapshots.providerStatus} like '%SE Ranking daily position import%' then 2
+                else 1
+              end desc,
+              case
+                when ${rankSnapshots.rankingStatus} in ('RANKED', 'NO_RESULT') then 2
+                when ${rankSnapshots.rankingStatus} is null then 1
+                else 0
+              end desc,
+              ${rankSnapshots.checkedAt} desc,
+              ${rankSnapshots.id} desc
+          )`.as("rn"),
+        })
+        .from(rankSnapshots)
+        .where(and(...validSnapshotConditions)),
+    );
 
     const rows = await db
+      .with(ranked)
       .select({
-        trackingTargetId: rankSnapshots.trackingTargetId,
-        trackingKeywordId: rankSnapshots.trackingKeywordId,
-        device: rankSnapshots.device,
-        position: rankSnapshots.position,
+        trackingTargetId: ranked.trackingTargetId,
+        trackingKeywordId: ranked.trackingKeywordId,
+        device: ranked.device,
+        position: ranked.position,
       })
-      .from(rankSnapshots)
-      .innerJoin(
-        grouped,
-        and(
-          or(
-            eq(rankSnapshots.trackingTargetId, grouped.trackingTargetId),
-            and(
-              isNull(rankSnapshots.trackingTargetId),
-              isNull(grouped.trackingTargetId),
-            ),
-          ),
-          eq(rankSnapshots.trackingKeywordId, grouped.trackingKeywordId),
-          eq(rankSnapshots.device, grouped.device),
-          eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
-        ),
-      )
-      .where(and(...validSnapshotConditions));
+      .from(ranked)
+      .where(sql`ranked.rn = 1`);
 
     for (const row of rows) {
       if (row.trackingTargetId) {
@@ -175,35 +188,96 @@ export async function getKeywordHistory(
   sinceDays: number,
   trackingTargetId?: string,
 ) {
+  const cutoffDate = cutoffTimestamp(sinceDays).slice(0, 10);
   const conditions = [
     inArray(rankSnapshots.runId, completedRunIdsForConfig(configId)),
     eq(rankSnapshots.trackingKeywordId, trackingKeywordId),
-    gte(rankSnapshots.checkedAt, cutoffTimestamp(sinceDays)),
+    sql`coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10)) >= ${cutoffDate}`,
+    EXCLUDE_UNVERIFIED,
+    or(
+      isNull(rankSnapshots.rankingStatus),
+      and(
+        ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+        ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+      ),
+    ),
   ];
   if (trackingTargetId) {
     conditions.push(eq(rankSnapshots.trackingTargetId, trackingTargetId));
   }
 
+  const candidates = db.$with("candidates").as(
+    db
+      .select({
+        id: rankSnapshots.id,
+        trackingTargetId: rankSnapshots.trackingTargetId,
+        countryCode: rankSnapshots.countryCode,
+        cityName: rankSnapshots.cityName,
+        language: rankSnapshots.language,
+        device: rankSnapshots.device,
+        checkedAt: rankSnapshots.checkedAt,
+        checkedDate: rankSnapshots.checkedDate,
+        importedAt: rankSnapshots.importedAt,
+        observationSource: rankSnapshots.observationSource,
+        position: rankSnapshots.position,
+        previousPosition: rankSnapshots.previousPosition,
+        rankingStatus: rankSnapshots.rankingStatus,
+        url: rankSnapshots.url,
+        providerStatus: rankSnapshots.providerStatus,
+        errorMessage: rankSnapshots.errorMessage,
+        obsDate:
+          sql<string>`coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10))`.as(
+            "obs_date",
+          ),
+        rn: sql<number>`row_number() over (
+          partition by coalesce(${rankSnapshots.trackingTargetId}, 'none'), ${rankSnapshots.trackingKeywordId}, ${rankSnapshots.device}, coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10))
+          order by
+            case
+              when ${rankSnapshots.completionConfidence} = 'CONFIRMED' then 3
+              when ${rankSnapshots.completionConfidence} = 'LIKELY_COMPLETE' then 2
+              else 1
+            end desc,
+            case
+              when ${rankSnapshots.observationSource} = 'daily_sync' then 2
+              when ${rankSnapshots.providerStatus} like '%SE Ranking daily position import%' then 2
+              else 1
+            end desc,
+            case
+              when ${rankSnapshots.rankingStatus} in ('RANKED', 'NO_RESULT') then 2
+              when ${rankSnapshots.rankingStatus} is null then 1
+              else 0
+            end desc,
+            ${rankSnapshots.checkedAt} desc,
+            ${rankSnapshots.id} desc
+        )`.as("rn"),
+      })
+      .from(rankSnapshots)
+      .where(and(...conditions)),
+  );
+
   return db
+    .with(candidates)
     .select({
-      id: rankSnapshots.id,
-      trackingTargetId: rankSnapshots.trackingTargetId,
-      countryCode: rankSnapshots.countryCode,
-      cityName: rankSnapshots.cityName,
-      language: rankSnapshots.language,
-      device: rankSnapshots.device,
-      checkedAt: rankSnapshots.checkedAt,
-      checkedDate: rankSnapshots.checkedDate,
-      position: rankSnapshots.position,
-      previousPosition: rankSnapshots.previousPosition,
-      rankingStatus: rankSnapshots.rankingStatus,
-      url: rankSnapshots.url,
-      providerStatus: rankSnapshots.providerStatus,
-      errorMessage: rankSnapshots.errorMessage,
+      id: candidates.id,
+      trackingTargetId: candidates.trackingTargetId,
+      countryCode: candidates.countryCode,
+      cityName: candidates.cityName,
+      language: candidates.language,
+      device: candidates.device,
+      checkedAt: candidates.checkedAt,
+      checkedDate: candidates.checkedDate,
+      importedAt: candidates.importedAt,
+      observationSource: candidates.observationSource,
+      position: candidates.position,
+      previousPosition: candidates.previousPosition,
+      rankingStatus: candidates.rankingStatus,
+      url: candidates.url,
+      providerStatus: candidates.providerStatus,
+      errorMessage: candidates.errorMessage,
     })
-    .from(rankSnapshots)
-    .where(and(...conditions))
-    .orderBy(asc(rankSnapshots.checkedAt));
+    .from(candidates)
+    .where(sql`candidates.rn = 1`)
+    .orderBy(asc(sql`candidates.obs_date`), asc(candidates.checkedAt));
 }
 
 /**
@@ -251,9 +325,27 @@ export async function getConfigTrend(
         runId: sql<string>`date_list.run_id`.as("run_id"),
         trackingKeywordId: rankSnapshots.trackingKeywordId,
         position: rankSnapshots.position,
-        rn: sql<number>`row_number() over (partition by date_list.check_date, ${rankSnapshots.trackingKeywordId} order by ${rankSnapshots.checkedAt} desc)`.as(
-          "rn",
-        ),
+        rn: sql<number>`row_number() over (
+          partition by date_list.check_date, ${rankSnapshots.trackingKeywordId}, coalesce(${rankSnapshots.trackingTargetId}, 'none')
+          order by
+            case
+              when ${rankSnapshots.completionConfidence} = 'CONFIRMED' then 3
+              when ${rankSnapshots.completionConfidence} = 'LIKELY_COMPLETE' then 2
+              else 1
+            end desc,
+            case
+              when ${rankSnapshots.observationSource} = 'daily_sync' then 2
+              when ${rankSnapshots.providerStatus} like '%SE Ranking daily position import%' then 2
+              else 1
+            end desc,
+            case
+              when ${rankSnapshots.rankingStatus} in ('RANKED', 'NO_RESULT') then 2
+              when ${rankSnapshots.rankingStatus} is null then 1
+              else 0
+            end desc,
+            ${rankSnapshots.checkedAt} desc,
+            ${rankSnapshots.id} desc
+        )`.as("rn"),
       })
       .from(dateList)
       .innerJoin(
@@ -264,7 +356,7 @@ export async function getConfigTrend(
           ...(trackingTargetId
             ? [eq(rankSnapshots.trackingTargetId, trackingTargetId)]
             : []),
-          sql`${rankSnapshots.checkedAt} <= date_list.latest_run_at`,
+          sql`coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10)) <= date_list.check_date`,
         ),
       )
       .innerJoin(
@@ -275,12 +367,15 @@ export async function getConfigTrend(
         ),
       )
       .where(
-        or(
-          isNull(rankSnapshots.rankingStatus),
-          and(
-            ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
-            ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+        and(
+          or(
+            isNull(rankSnapshots.rankingStatus),
+            and(
+              ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+              ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+            ),
           ),
+          EXCLUDE_UNVERIFIED,
         ),
       ),
   );
@@ -352,6 +447,7 @@ export async function getPositionMatrix(
             ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
           ),
         ),
+        EXCLUDE_UNVERIFIED,
       ),
     )
     .orderBy(asc(rankCheckRuns.startedAt));
@@ -387,67 +483,117 @@ export async function getSnapshotsForConfig(
       ),
     );
 
-  const aggFn = opts.order === "latest" ? max : min;
-
   const conditions = [inArray(rankSnapshots.runId, candidateRunIds)];
   if (opts.beforeDate) {
-    conditions.push(lte(rankSnapshots.checkedAt, opts.beforeDate));
+    const beforeDay = opts.beforeDate.slice(0, 10);
+    conditions.push(
+      sql`((${rankSnapshots.checkedDate} is not null and ${rankSnapshots.checkedDate} <= ${beforeDay}) or (${rankSnapshots.checkedDate} is null and ${rankSnapshots.checkedAt} <= ${opts.beforeDate}))`,
+    );
   }
   if (opts.trackingTargetId) {
     conditions.push(eq(rankSnapshots.trackingTargetId, opts.trackingTargetId));
   }
   if (opts.validOnly) {
-    const validCond = or(
-      isNull(rankSnapshots.rankingStatus),
-      and(
-        ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
-        ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+    const validCond = and(
+      or(
+        isNull(rankSnapshots.rankingStatus),
+        and(
+          ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+          ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+        ),
       ),
+      EXCLUDE_UNVERIFIED,
     );
     if (validCond) {
       conditions.push(validCond);
     }
   }
 
-  const grouped = db
-    .select({
-      trackingKeywordId: rankSnapshots.trackingKeywordId,
-      device: rankSnapshots.device,
-      targetCheckedAt: aggFn(rankSnapshots.checkedAt).as("target_checked_at"),
-    })
-    .from(rankSnapshots)
-    .where(and(...conditions))
-    .groupBy(rankSnapshots.trackingKeywordId, rankSnapshots.device)
-    .as("grouped");
+  const aggOrder = opts.order === "latest" ? sql`desc` : sql`asc`;
+
+  const ranked = db.$with("ranked").as(
+    db
+      .select({
+        id: rankSnapshots.id,
+        runId: rankSnapshots.runId,
+        trackingKeywordId: rankSnapshots.trackingKeywordId,
+        trackingTargetId: rankSnapshots.trackingTargetId,
+        keyword: rankSnapshots.keyword,
+        device: rankSnapshots.device,
+        position: rankSnapshots.position,
+        previousPosition: rankSnapshots.previousPosition,
+        rankingStatus: rankSnapshots.rankingStatus,
+        url: rankSnapshots.url,
+        serpFeatures: rankSnapshots.serpFeatures,
+        provider: rankSnapshots.provider,
+        providerStatus: rankSnapshots.providerStatus,
+        providerStatusCode: rankSnapshots.providerStatusCode,
+        errorMessage: rankSnapshots.errorMessage,
+        completionConfidence: rankSnapshots.completionConfidence,
+        observationSource: rankSnapshots.observationSource,
+        countryCode: rankSnapshots.countryCode,
+        cityName: rankSnapshots.cityName,
+        language: rankSnapshots.language,
+        checkedAt: rankSnapshots.checkedAt,
+        checkedDate: rankSnapshots.checkedDate,
+        importedAt: rankSnapshots.importedAt,
+        rn: sql<number>`row_number() over (
+          partition by coalesce(${rankSnapshots.trackingTargetId}, 'none'), ${rankSnapshots.trackingKeywordId}, ${rankSnapshots.device}
+          order by
+            coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10)) ${aggOrder},
+            case
+              when ${rankSnapshots.completionConfidence} = 'CONFIRMED' then 3
+              when ${rankSnapshots.completionConfidence} = 'LIKELY_COMPLETE' then 2
+              else 1
+            end desc,
+            case
+              when ${rankSnapshots.observationSource} = 'daily_sync' then 2
+              when ${rankSnapshots.providerStatus} like '%SE Ranking daily position import%' then 2
+              else 1
+            end desc,
+            case
+              when ${rankSnapshots.rankingStatus} in ('RANKED', 'NO_RESULT') then 2
+              when ${rankSnapshots.rankingStatus} is null then 1
+              else 0
+            end desc,
+            ${rankSnapshots.checkedAt} ${aggOrder},
+            coalesce(${rankSnapshots.importedAt}, '') ${aggOrder},
+            ${rankSnapshots.id} ${aggOrder}
+        )`.as("rn"),
+      })
+      .from(rankSnapshots)
+      .where(and(...conditions)),
+  );
 
   return db
+    .with(ranked)
     .select({
-      id: rankSnapshots.id,
-      runId: rankSnapshots.runId,
-      trackingKeywordId: rankSnapshots.trackingKeywordId,
-      keyword: rankSnapshots.keyword,
-      device: rankSnapshots.device,
-      position: rankSnapshots.position,
-      previousPosition: rankSnapshots.previousPosition,
-      rankingStatus: rankSnapshots.rankingStatus,
-      url: rankSnapshots.url,
-      serpFeatures: rankSnapshots.serpFeatures,
-      provider: rankSnapshots.provider,
-      providerStatus: rankSnapshots.providerStatus,
-      providerStatusCode: rankSnapshots.providerStatusCode,
-      errorMessage: rankSnapshots.errorMessage,
-      checkedAt: rankSnapshots.checkedAt,
+      id: ranked.id,
+      runId: ranked.runId,
+      trackingKeywordId: ranked.trackingKeywordId,
+      trackingTargetId: ranked.trackingTargetId,
+      keyword: ranked.keyword,
+      device: ranked.device,
+      position: ranked.position,
+      previousPosition: ranked.previousPosition,
+      rankingStatus: ranked.rankingStatus,
+      url: ranked.url,
+      serpFeatures: ranked.serpFeatures,
+      provider: ranked.provider,
+      providerStatus: ranked.providerStatus,
+      providerStatusCode: ranked.providerStatusCode,
+      errorMessage: ranked.errorMessage,
+      completionConfidence: ranked.completionConfidence,
+      observationSource: ranked.observationSource,
+      countryCode: ranked.countryCode,
+      cityName: ranked.cityName,
+      language: ranked.language,
+      checkedAt: ranked.checkedAt,
+      checkedDate: ranked.checkedDate,
+      importedAt: ranked.importedAt,
     })
-    .from(rankSnapshots)
-    .innerJoin(
-      grouped,
-      and(
-        eq(rankSnapshots.trackingKeywordId, grouped.trackingKeywordId),
-        eq(rankSnapshots.device, grouped.device),
-        eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
-      ),
-    )
-    .where(and(...conditions));
+    .from(ranked)
+    .where(sql`ranked.rn = 1`);
 }
 
 export async function getLatestSnapshotsForKeywords(
@@ -523,24 +669,143 @@ export async function getEarliestSnapshotsForKeywords(
           ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
         ),
       ),
+      EXCLUDE_UNVERIFIED,
     ];
 
-    const grouped = db
-      .select({
-        trackingKeywordId: rankSnapshots.trackingKeywordId,
-        device: rankSnapshots.device,
-        targetCheckedAt: min(rankSnapshots.checkedAt).as("target_checked_at"),
-      })
-      .from(rankSnapshots)
-      .where(and(...validConditions))
-      .groupBy(rankSnapshots.trackingKeywordId, rankSnapshots.device)
-      .as("grouped");
+    const ranked = db.$with("ranked").as(
+      db
+        .select({
+          id: rankSnapshots.id,
+          runId: rankSnapshots.runId,
+          trackingKeywordId: rankSnapshots.trackingKeywordId,
+          trackingTargetId: rankSnapshots.trackingTargetId,
+          keyword: rankSnapshots.keyword,
+          device: rankSnapshots.device,
+          position: rankSnapshots.position,
+          previousPosition: rankSnapshots.previousPosition,
+          rankingStatus: rankSnapshots.rankingStatus,
+          url: rankSnapshots.url,
+          serpFeatures: rankSnapshots.serpFeatures,
+          provider: rankSnapshots.provider,
+          providerStatus: rankSnapshots.providerStatus,
+          providerStatusCode: rankSnapshots.providerStatusCode,
+          errorMessage: rankSnapshots.errorMessage,
+          completionConfidence: rankSnapshots.completionConfidence,
+          observationSource: rankSnapshots.observationSource,
+          countryCode: rankSnapshots.countryCode,
+          cityName: rankSnapshots.cityName,
+          language: rankSnapshots.language,
+          checkedAt: rankSnapshots.checkedAt,
+          checkedDate: rankSnapshots.checkedDate,
+          importedAt: rankSnapshots.importedAt,
+          rn: sql<number>`row_number() over (
+            partition by coalesce(${rankSnapshots.trackingTargetId}, 'none'), ${rankSnapshots.trackingKeywordId}, ${rankSnapshots.device}
+            order by
+              coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10)) asc,
+              case
+                when ${rankSnapshots.completionConfidence} = 'CONFIRMED' then 3
+                when ${rankSnapshots.completionConfidence} = 'LIKELY_COMPLETE' then 2
+                else 1
+              end desc,
+              case
+                when ${rankSnapshots.observationSource} = 'daily_sync' then 2
+                when ${rankSnapshots.providerStatus} like '%SE Ranking daily position import%' then 2
+                else 1
+              end desc,
+              case
+                when ${rankSnapshots.rankingStatus} in ('RANKED', 'NO_RESULT') then 2
+                when ${rankSnapshots.rankingStatus} is null then 1
+                else 0
+              end desc,
+              ${rankSnapshots.checkedAt} asc,
+              coalesce(${rankSnapshots.importedAt}, '') asc,
+              ${rankSnapshots.id} asc
+          )`.as("rn"),
+        })
+        .from(rankSnapshots)
+        .where(and(...validConditions)),
+    );
 
     const rows = await db
+      .with(ranked)
+      .select({
+        id: ranked.id,
+        runId: ranked.runId,
+        trackingKeywordId: ranked.trackingKeywordId,
+        trackingTargetId: ranked.trackingTargetId,
+        keyword: ranked.keyword,
+        device: ranked.device,
+        position: ranked.position,
+        previousPosition: ranked.previousPosition,
+        rankingStatus: ranked.rankingStatus,
+        url: ranked.url,
+        serpFeatures: ranked.serpFeatures,
+        provider: ranked.provider,
+        providerStatus: ranked.providerStatus,
+        providerStatusCode: ranked.providerStatusCode,
+        errorMessage: ranked.errorMessage,
+        completionConfidence: ranked.completionConfidence,
+        observationSource: ranked.observationSource,
+        countryCode: ranked.countryCode,
+        cityName: ranked.cityName,
+        language: ranked.language,
+        checkedAt: ranked.checkedAt,
+        checkedDate: ranked.checkedDate,
+        importedAt: ranked.importedAt,
+      })
+      .from(ranked)
+      .where(sql`ranked.rn = 1`);
+
+    allResults.push(...rows);
+  }
+
+  return allResults;
+}
+
+/**
+ * Authoritative daily valid snapshot series for a config, deduplicated per
+ * (target, keyword, device, provider, obsDate) and ordered newest observation
+ * date first. Used to resolve comparable previous observations without
+ * cross-provider, cross-target, or same-day import-order contamination.
+ */
+export async function getValidDailySnapshotsForConfig(
+  configId: string,
+  trackingTargetId?: string,
+) {
+  const completedRunIds = db
+    .select({ id: rankCheckRuns.id })
+    .from(rankCheckRuns)
+    .where(
+      and(
+        eq(rankCheckRuns.configId, configId),
+        inArray(rankCheckRuns.status, ["completed", "partial"]),
+      ),
+    );
+
+  const conditions = [
+    inArray(rankSnapshots.runId, completedRunIds),
+    EXCLUDE_UNVERIFIED,
+    or(
+      isNull(rankSnapshots.rankingStatus),
+      and(
+        ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+        ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+      ),
+    ),
+  ];
+  if (trackingTargetId) {
+    conditions.push(eq(rankSnapshots.trackingTargetId, trackingTargetId));
+  }
+
+  const obsDateExpr = sql<string>`coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10))`;
+
+  const daily = db.$with("daily").as(
+    db
       .select({
         id: rankSnapshots.id,
         runId: rankSnapshots.runId,
         trackingKeywordId: rankSnapshots.trackingKeywordId,
+        trackingTargetId: rankSnapshots.trackingTargetId,
         keyword: rankSnapshots.keyword,
         device: rankSnapshots.device,
         position: rankSnapshots.position,
@@ -552,21 +817,75 @@ export async function getEarliestSnapshotsForKeywords(
         providerStatus: rankSnapshots.providerStatus,
         providerStatusCode: rankSnapshots.providerStatusCode,
         errorMessage: rankSnapshots.errorMessage,
+        completionConfidence: rankSnapshots.completionConfidence,
+        observationSource: rankSnapshots.observationSource,
+        countryCode: rankSnapshots.countryCode,
+        cityName: rankSnapshots.cityName,
+        language: rankSnapshots.language,
         checkedAt: rankSnapshots.checkedAt,
+        checkedDate: rankSnapshots.checkedDate,
+        importedAt: rankSnapshots.importedAt,
+        obsDate: obsDateExpr.as("obs_date"),
+        rn: sql<number>`row_number() over (
+          partition by
+            coalesce(${rankSnapshots.trackingTargetId}, 'none'),
+            ${rankSnapshots.trackingKeywordId},
+            ${rankSnapshots.device},
+            ${rankSnapshots.provider},
+            coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10))
+          order by
+            case
+              when ${rankSnapshots.completionConfidence} = 'CONFIRMED' then 3
+              when ${rankSnapshots.completionConfidence} = 'LIKELY_COMPLETE' then 2
+              else 1
+            end desc,
+            case
+              when ${rankSnapshots.observationSource} = 'daily_sync' then 2
+              when ${rankSnapshots.providerStatus} like '%SE Ranking daily position import%' then 2
+              else 1
+            end desc,
+            case
+              when ${rankSnapshots.rankingStatus} in ('RANKED', 'NO_RESULT') then 2
+              when ${rankSnapshots.rankingStatus} is null then 1
+              else 0
+            end desc,
+            ${rankSnapshots.checkedAt} desc,
+            coalesce(${rankSnapshots.importedAt}, '') desc,
+            ${rankSnapshots.id} desc
+        )`.as("rn"),
       })
       .from(rankSnapshots)
-      .innerJoin(
-        grouped,
-        and(
-          eq(rankSnapshots.trackingKeywordId, grouped.trackingKeywordId),
-          eq(rankSnapshots.device, grouped.device),
-          eq(rankSnapshots.checkedAt, grouped.targetCheckedAt),
-        ),
-      )
-      .where(and(...validConditions));
+      .where(and(...conditions)),
+  );
 
-    allResults.push(...rows);
-  }
-
-  return allResults;
+  return db
+    .with(daily)
+    .select({
+      id: daily.id,
+      runId: daily.runId,
+      trackingKeywordId: daily.trackingKeywordId,
+      trackingTargetId: daily.trackingTargetId,
+      keyword: daily.keyword,
+      device: daily.device,
+      position: daily.position,
+      previousPosition: daily.previousPosition,
+      rankingStatus: daily.rankingStatus,
+      url: daily.url,
+      serpFeatures: daily.serpFeatures,
+      provider: daily.provider,
+      providerStatus: daily.providerStatus,
+      providerStatusCode: daily.providerStatusCode,
+      errorMessage: daily.errorMessage,
+      completionConfidence: daily.completionConfidence,
+      observationSource: daily.observationSource,
+      countryCode: daily.countryCode,
+      cityName: daily.cityName,
+      language: daily.language,
+      checkedAt: daily.checkedAt,
+      checkedDate: daily.checkedDate,
+      importedAt: daily.importedAt,
+    })
+    .from(daily)
+    .where(sql`daily.rn = 1`)
+    .orderBy(desc(sql`daily.obs_date`), desc(daily.checkedAt), desc(daily.id));
 }

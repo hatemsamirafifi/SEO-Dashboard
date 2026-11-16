@@ -1,12 +1,18 @@
+/* eslint-disable max-lines */
 import {
   and,
   count,
   desc,
   eq,
+  gte,
   inArray,
   isNotNull,
   isNull,
+  like,
   lte,
+  ne,
+  or,
+  sql,
 } from "drizzle-orm";
 import type { InferInsertModel } from "drizzle-orm";
 import { db } from "@/db";
@@ -24,6 +30,7 @@ import {
   getLatestValidSnapshotsForKeywords,
   getSnapshotsBeforeDate,
   getEarliestSnapshotsForKeywords,
+  getValidDailySnapshotsForConfig,
   getKeywordHistory,
   getConfigTrend,
   getPositionMatrix,
@@ -141,6 +148,7 @@ async function getDueConfigsWithOrganization(nowIso: string) {
       serpDepth: rankTrackingConfigs.serpDepth,
       scheduleInterval: rankTrackingConfigs.scheduleInterval,
       nextCheckAt: rankTrackingConfigs.nextCheckAt,
+      lastCheckedAt: rankTrackingConfigs.lastCheckedAt,
       organizationId: projects.organizationId,
     })
     .from(rankTrackingConfigs)
@@ -153,6 +161,245 @@ async function getDueConfigsWithOrganization(nowIso: string) {
       ),
     )
     .limit(50);
+}
+
+async function countPersistedPairsForOrgSince(
+  organizationId: string,
+  sinceIso: string,
+): Promise<number> {
+  const rows = await db
+    .select({ total: count() })
+    .from(rankSnapshots)
+    .innerJoin(projects, eq(rankSnapshots.projectId, projects.id))
+    .where(
+      and(
+        eq(projects.organizationId, organizationId),
+        gte(rankSnapshots.checkedAt, sinceIso),
+      ),
+    );
+  return rows[0]?.total ?? 0;
+}
+
+async function countPersistedPairsForProjectSince(
+  projectId: string,
+  sinceIso: string,
+): Promise<number> {
+  const rows = await db
+    .select({ total: count() })
+    .from(rankSnapshots)
+    .where(
+      and(
+        eq(rankSnapshots.projectId, projectId),
+        gte(rankSnapshots.checkedAt, sinceIso),
+      ),
+    );
+  return rows[0]?.total ?? 0;
+}
+
+async function countInFlightReservedPairsForOrg(
+  organizationId: string,
+): Promise<number> {
+  const rows = await db
+    .select({
+      keywordsTotal: rankCheckRuns.keywordsTotal,
+      devices: rankTrackingConfigs.devices,
+    })
+    .from(rankCheckRuns)
+    .innerJoin(projects, eq(rankCheckRuns.projectId, projects.id))
+    .innerJoin(
+      rankTrackingConfigs,
+      eq(rankCheckRuns.configId, rankTrackingConfigs.id),
+    )
+    .where(
+      and(
+        eq(projects.organizationId, organizationId),
+        inArray(rankCheckRuns.status, ["pending", "running"]),
+      ),
+    );
+
+  let total = 0;
+  for (const r of rows) {
+    const deviceMultiplier = r.devices === "both" ? 2 : 1;
+    total += (r.keywordsTotal || 0) * deviceMultiplier;
+  }
+  return total;
+}
+
+async function countInFlightReservedPairsForProject(
+  projectId: string,
+): Promise<number> {
+  const rows = await db
+    .select({
+      keywordsTotal: rankCheckRuns.keywordsTotal,
+      devices: rankTrackingConfigs.devices,
+    })
+    .from(rankCheckRuns)
+    .innerJoin(
+      rankTrackingConfigs,
+      eq(rankCheckRuns.configId, rankTrackingConfigs.id),
+    )
+    .where(
+      and(
+        eq(rankCheckRuns.projectId, projectId),
+        inArray(rankCheckRuns.status, ["pending", "running"]),
+      ),
+    );
+
+  let total = 0;
+  for (const r of rows) {
+    const deviceMultiplier = r.devices === "both" ? 2 : 1;
+    total += (r.keywordsTotal || 0) * deviceMultiplier;
+  }
+  return total;
+}
+
+async function findExistingSnapshotForObservation(input: {
+  configId: string;
+  trackingKeywordId: string;
+  trackingTargetId?: string | null;
+  device: "desktop" | "mobile";
+  dateStr: string;
+  source?: "daily_import" | "any";
+}): Promise<typeof rankSnapshots.$inferSelect | null> {
+  const conditions = [
+    eq(rankSnapshots.configId, input.configId),
+    eq(rankSnapshots.trackingKeywordId, input.trackingKeywordId),
+    eq(rankSnapshots.device, input.device),
+  ];
+
+  if (input.source === "daily_import") {
+    // Use observationSource as the authoritative provenance field, independent
+    // of completionConfidence. Only treat pre-migration legacy NULL/'legacy' rows
+    // as daily imports when their providerStatus explicitly matches daily sync
+    // output so legacy manual CONFIRMED snapshots are never misclassified.
+    conditions.push(
+      eq(rankSnapshots.checkedDate, input.dateStr),
+      or(
+        eq(rankSnapshots.observationSource, "daily_sync"),
+        and(
+          or(
+            isNull(rankSnapshots.observationSource),
+            eq(rankSnapshots.observationSource, "legacy"),
+          ),
+          like(
+            rankSnapshots.providerStatus,
+            "%SE Ranking daily position import%",
+          ),
+        ),
+      )!,
+    );
+  } else {
+    conditions.push(
+      or(
+        eq(rankSnapshots.checkedDate, input.dateStr),
+        like(rankSnapshots.checkedAt, `${input.dateStr}%`),
+        and(
+          gte(rankSnapshots.checkedAt, `${input.dateStr}T00:00:00.000Z`),
+          lte(rankSnapshots.checkedAt, `${input.dateStr}T23:59:59.999Z`),
+        ),
+      )!,
+    );
+  }
+
+  if (input.trackingTargetId !== undefined) {
+    if (input.trackingTargetId === null) {
+      conditions.push(isNull(rankSnapshots.trackingTargetId));
+    } else {
+      conditions.push(
+        eq(rankSnapshots.trackingTargetId, input.trackingTargetId),
+      );
+    }
+  }
+
+  const rows = await db
+    .select()
+    .from(rankSnapshots)
+    .where(and(...conditions))
+    .orderBy(desc(rankSnapshots.checkedAt), desc(rankSnapshots.id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function getLatestSnapshotDateForKeywordTarget(input: {
+  configId: string;
+  trackingKeywordId: string;
+  trackingTargetId?: string | null;
+  device: "desktop" | "mobile";
+}): Promise<string | null> {
+  const conditions = [
+    eq(rankSnapshots.configId, input.configId),
+    eq(rankSnapshots.trackingKeywordId, input.trackingKeywordId),
+    eq(rankSnapshots.device, input.device),
+    eq(rankSnapshots.provider, "seranking"),
+    or(
+      isNull(rankSnapshots.rankingStatus),
+      and(
+        ne(rankSnapshots.rankingStatus, "CHECK_FAILED"),
+        ne(rankSnapshots.rankingStatus, "NOT_CHECKED"),
+      ),
+    ),
+    sql`(${rankSnapshots.completionConfidence} IS NULL OR ${rankSnapshots.completionConfidence} != 'UNVERIFIED')`,
+  ];
+  if (input.trackingTargetId) {
+    conditions.push(eq(rankSnapshots.trackingTargetId, input.trackingTargetId));
+  }
+  const rows = await db
+    .select({
+      checkedDate: rankSnapshots.checkedDate,
+      checkedAt: rankSnapshots.checkedAt,
+    })
+    .from(rankSnapshots)
+    .where(and(...conditions))
+    .orderBy(
+      desc(
+        sql`coalesce(${rankSnapshots.checkedDate}, substr(${rankSnapshots.checkedAt}, 1, 10))`,
+      ),
+      desc(rankSnapshots.id),
+    )
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return null;
+  if (row.checkedDate && /^\d{4}-\d{2}-\d{2}$/.test(row.checkedDate)) {
+    return row.checkedDate;
+  }
+  if (row.checkedAt) {
+    return String(row.checkedAt).slice(0, 10);
+  }
+  return null;
+}
+
+async function countRunsForOrgSince(
+  organizationId: string,
+  sinceIso: string,
+): Promise<number> {
+  const rows = await db
+    .select({ total: count() })
+    .from(rankCheckRuns)
+    .innerJoin(projects, eq(rankCheckRuns.projectId, projects.id))
+    .where(
+      and(
+        eq(projects.organizationId, organizationId),
+        gte(rankCheckRuns.startedAt, sinceIso),
+      ),
+    );
+  return rows[0]?.total ?? 0;
+}
+
+async function countRunsForProjectSince(
+  projectId: string,
+  sinceIso: string,
+): Promise<number> {
+  const rows = await db
+    .select({ total: count() })
+    .from(rankCheckRuns)
+    .where(
+      and(
+        eq(rankCheckRuns.projectId, projectId),
+        gte(rankCheckRuns.startedAt, sinceIso),
+      ),
+    );
+  return rows[0]?.total ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,11 +419,12 @@ async function tryCreateRun(data: {
   configId: string;
   projectId: string;
   keywordsTotal: number;
+  trigger?: "manual" | "scheduled";
   isSubsetRun?: boolean;
 }): Promise<boolean> {
   const inserted = await db
     .insert(rankCheckRuns)
-    .values({ ...data, status: "pending" })
+    .values({ ...data, trigger: data.trigger ?? "manual", status: "pending" })
     .onConflictDoNothing()
     .returning({ id: rankCheckRuns.id });
   return inserted.length > 0;
@@ -206,6 +454,46 @@ async function getLatestRunForConfig(configId: string) {
     .orderBy(desc(rankCheckRuns.startedAt))
     .limit(1);
   return rows[0] ?? null;
+}
+
+async function getLatestScheduledRunForConfig(configId: string) {
+  const rows = await db
+    .select()
+    .from(rankCheckRuns)
+    .where(
+      and(
+        eq(rankCheckRuns.configId, configId),
+        eq(rankCheckRuns.trigger, "scheduled"),
+        inArray(rankCheckRuns.status, ["completed", "partial"]),
+      ),
+    )
+    .orderBy(desc(rankCheckRuns.startedAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function getLatestScheduledRunsForConfigs(configIds: string[]) {
+  const result = new Map<string, typeof rankCheckRuns.$inferSelect>();
+  if (configIds.length === 0) return result;
+
+  const rows = await db
+    .select()
+    .from(rankCheckRuns)
+    .where(
+      and(
+        inArray(rankCheckRuns.configId, configIds),
+        eq(rankCheckRuns.trigger, "scheduled"),
+        inArray(rankCheckRuns.status, ["completed", "partial"]),
+      ),
+    )
+    .orderBy(desc(rankCheckRuns.startedAt));
+
+  for (const row of rows) {
+    if (!result.has(row.configId)) {
+      result.set(row.configId, row);
+    }
+  }
+  return result;
 }
 
 /**
@@ -245,9 +533,7 @@ async function getActiveRunForConfig(configId: string) {
 // ---------------------------------------------------------------------------
 
 async function insertSnapshots(
-  snapshots: Array<
-    Omit<InferInsertModel<typeof rankSnapshots>, "id" | "checkedAt">
-  >,
+  snapshots: Array<Omit<InferInsertModel<typeof rankSnapshots>, "id">>,
 ) {
   // Target the partial unique indexes explicitly so primary-key drift never gets
   // swallowed while target-aware multi-country observations and legacy rows are
@@ -256,25 +542,40 @@ async function insertSnapshots(
   // currently emits invalid SQL (`DO NOTHING WHERE ...`), whereas
   // `onConflictDoUpdate({ target, targetWhere, set })` emits valid
   // `ON CONFLICT (...) WHERE ... DO UPDATE SET ...` in both SQLite and PG.
-  await executeInBatches(snapshots, (tx, snapshot) =>
-    snapshot.trackingTargetId !== null &&
-    snapshot.trackingTargetId !== undefined
+  await executeInBatches(snapshots, (tx, snapshot) => {
+    const normalizedSnapshot =
+      snapshot.trackingTargetId !== null &&
+      snapshot.trackingTargetId !== undefined &&
+      !snapshot.checkedDate
+        ? {
+            ...snapshot,
+            checkedDate:
+              typeof snapshot.checkedAt === "string" &&
+              snapshot.checkedAt.length >= 10
+                ? snapshot.checkedAt.slice(0, 10)
+                : new Date().toISOString().slice(0, 10),
+          }
+        : snapshot;
+
+    return normalizedSnapshot.trackingTargetId !== null &&
+      normalizedSnapshot.trackingTargetId !== undefined
       ? tx
           .insert(rankSnapshots)
-          .values(snapshot)
+          .values(normalizedSnapshot)
           .onConflictDoUpdate({
             target: [
               rankSnapshots.runId,
               rankSnapshots.trackingTargetId,
               rankSnapshots.trackingKeywordId,
               rankSnapshots.device,
+              rankSnapshots.checkedDate,
             ],
             targetWhere: isNotNull(rankSnapshots.trackingTargetId),
-            set: { trackingKeywordId: snapshot.trackingKeywordId },
+            set: { trackingKeywordId: normalizedSnapshot.trackingKeywordId },
           })
       : tx
           .insert(rankSnapshots)
-          .values(snapshot)
+          .values(normalizedSnapshot)
           .onConflictDoUpdate({
             target: [
               rankSnapshots.runId,
@@ -282,9 +583,9 @@ async function insertSnapshots(
               rankSnapshots.device,
             ],
             targetWhere: isNull(rankSnapshots.trackingTargetId),
-            set: { trackingKeywordId: snapshot.trackingKeywordId },
-          }),
-  );
+            set: { trackingKeywordId: normalizedSnapshot.trackingKeywordId },
+          });
+  });
 }
 
 async function getSnapshotsForRun(runId: string) {
@@ -444,6 +745,8 @@ export const RankTrackingRepository = {
   updateRun,
   getRunById,
   getLatestRunForConfig,
+  getLatestScheduledRunForConfig,
+  getLatestScheduledRunsForConfigs,
   getRecentRunsForConfig,
   getActiveRunForConfig,
   insertSnapshots,
@@ -460,9 +763,18 @@ export const RankTrackingRepository = {
   getLatestValidSnapshotsForKeywords,
   getSnapshotsBeforeDate,
   getEarliestSnapshotsForKeywords,
+  getValidDailySnapshotsForConfig,
   getKeywordHistory,
   getConfigTrend,
   getPositionMatrix,
   getLatestPositionsMap,
   getLatestRankingFactsForConfig,
+  countRunsForOrgSince,
+  countRunsForProjectSince,
+  countPersistedPairsForOrgSince,
+  countPersistedPairsForProjectSince,
+  countInFlightReservedPairsForOrg,
+  countInFlightReservedPairsForProject,
+  findExistingSnapshotForObservation,
+  getLatestSnapshotDateForKeywordTarget,
 };

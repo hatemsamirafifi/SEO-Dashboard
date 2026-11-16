@@ -46,12 +46,54 @@ export type RankCheckTriggerResult =
       selectedStates?: MissingRankingBucket[];
     };
 
+export type RankTrackingAttemptStatus =
+  | "COMPLETED"
+  | "PENDING"
+  | "TIMED_OUT_UNVERIFIED"
+  | "PROVIDER_FAILED"
+  | "CANCELLED";
+
+export type RankComparisonMethod =
+  | "previous_comparable_observation"
+  | "period_lookback"
+  | "earliest_available_baseline"
+  | "none";
+
 export interface RankTrackingDeviceResult {
   position: number | null;
   previousPosition: number | null;
   rankingUrl: string | null;
   serpFeatures: string[];
   checkedAt?: string | null;
+  checkedDate?: string | null;
+  importedAt?: string | null;
+  observationSource?:
+    | "manual_recheck"
+    | "daily_sync"
+    | "scheduled_check"
+    | "baseline"
+    | "legacy"
+    | null;
+  trackingTargetId?: string | null;
+  targetLabel?: string | null;
+  countryCode?: string | null;
+  cityName?: string | null;
+  language?: string | null;
+  previousComparablePosition?: number | null;
+  previousObservationDate?: string | null;
+  previousObservationProvider?: string | null;
+  previousObservationSource?:
+    | "manual_recheck"
+    | "daily_sync"
+    | "scheduled_check"
+    | "baseline"
+    | "legacy"
+    | null;
+  positionChange?: number | null;
+  comparisonMethod?: RankComparisonMethod;
+  periodBaselinePosition?: number | null;
+  periodBaselineDate?: string | null;
+  periodBaselineProvider?: string | null;
   status?: "not_checked" | "ranked" | "not_ranking" | "failed" | "checking";
   rankingStatus?:
     | "RANKED"
@@ -59,12 +101,16 @@ export interface RankTrackingDeviceResult {
     | "CHECK_FAILED"
     | "NOT_CHECKED"
     | null;
+  attemptStatus?: RankTrackingAttemptStatus;
   latestValidPosition?: number | null;
   errorCode?: string | null;
   errorMessage?: string | null;
   providerStatus?: string | null;
   providerStatusCode?: number | null;
   provider?: string | null;
+  completionConfidence?: "CONFIRMED" | "LIKELY_COMPLETE" | "UNVERIFIED" | null;
+  providerChange?: number | null;
+  landingPageDate?: string | null;
 }
 
 export interface RankTrackingRow {
@@ -126,6 +172,7 @@ export const triggerCheckSchema = z.object({
   /** Optional filter to restrict check to specific missing ranking states. */
   missingRankingStates: z.array(missingRankingBucketSchema).optional(),
   operationId: z.string().optional(),
+  readOnlySync: z.boolean().optional(),
 });
 
 export const missingRankingsSummarySchema = z.object({
@@ -140,7 +187,13 @@ export const cancelRankCheckSchema = z.object({
   runId: z.string().uuid(),
 });
 
-export const comparePeriodSchema = z.enum(["1d", "7d", "30d", "90d"]);
+export const comparePeriodSchema = z.enum([
+  "previous",
+  "1d",
+  "7d",
+  "30d",
+  "90d",
+]);
 export type ComparePeriod = z.infer<typeof comparePeriodSchema>;
 
 export const getLatestResultsSchema = z.object({
@@ -158,6 +211,7 @@ export const getLatestRunSchema = z.object({
 export const estimateCostSchema = z.object({
   projectId: z.string().uuid(),
   configId: z.string().uuid(),
+  keywordIds: z.array(z.string().uuid()).max(2000).optional(),
 });
 
 export const addKeywordsSchema = z.object({

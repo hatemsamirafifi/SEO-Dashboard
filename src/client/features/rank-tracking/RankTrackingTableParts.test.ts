@@ -139,6 +139,82 @@ describe("DeviceRankCell — disambiguating position '-'", () => {
     expect(html).toContain("bg-success/20");
   });
 
+  it("renders '#35 → #46' with warning badge when ranking declined (11-position drop, lower number is better)", () => {
+    const result: RankTrackingDeviceResult = {
+      position: 46,
+      previousPosition: 35,
+      rankingUrl: "https://sports-ms.com/الخدمات/ملاعب-متعددة-الأغراض/",
+      serpFeatures: [],
+      checkedAt: "2026-11-13 21:50:04",
+      status: "ranked",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(DeviceRankCell, { result }),
+    );
+
+    // Direction must be old (35) -> new (46)
+    expect(html).toContain("#35");
+    expect(html).toContain("→");
+    expect(html).toContain("#46");
+
+    // Previous #35 appears before current #46
+    const pos35Index = html.indexOf("#35");
+    const arrowIndex = html.indexOf("→");
+    const pos46Index = html.indexOf("#46");
+    expect(pos35Index).toBeLessThan(arrowIndex);
+    expect(arrowIndex).toBeLessThan(pos46Index);
+
+    // Semantics: 35 -> 46 is a decline (worse), must have warning badge, not success
+    expect(html).toContain("bg-warning/20");
+    expect(html).not.toContain("bg-success/20");
+
+    // Tooltip reflects truthful historical progression
+    expect(html).toContain('title="OpenSEO historical: #35 → #46"');
+  });
+
+  it("does not infer a previous provider rank when providerChange is 0 (Task 3)", () => {
+    const result: RankTrackingDeviceResult = {
+      position: 46,
+      previousPosition: 35,
+      providerChange: 0,
+      rankingUrl: "https://sports-ms.com/الخدمات/ملاعب-متعددة-الأغراض/",
+      serpFeatures: [],
+      checkedAt: "2026-11-13 21:50:04",
+      status: "ranked",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(DeviceRankCell, { result }),
+    );
+
+    // Must NOT infer #46 -> #46 from change=0 alone
+    expect(html).not.toContain("#46 → #46");
+    expect(html).toContain(
+      "OpenSEO historical: #35 → #46 | SE Ranking daily change: 0 (prior baseline unavailable)",
+    );
+  });
+
+  it("renders previous provider rank when providerChange is non-zero (Desktop -12)", () => {
+    const result: RankTrackingDeviceResult = {
+      position: 62,
+      previousPosition: 37,
+      providerChange: -12,
+      rankingUrl: "https://sports-ms.com/",
+      serpFeatures: [],
+      checkedAt: "2026-11-13 17:38:38",
+      status: "ranked",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(DeviceRankCell, { result }),
+    );
+
+    expect(html).toContain(
+      "OpenSEO historical: #37 → #62 | SE Ranking daily: #50 → #62 (-12)",
+    );
+  });
+
   it("renders '#5 → lost' when previous ranking was dropped", () => {
     const result: RankTrackingDeviceResult = {
       position: null,
@@ -351,5 +427,100 @@ describe("UpdatedCell and getLatestCheckedAt", () => {
       React.createElement(UpdatedCell, { value: "2026-11-01 00:00:00" }),
     );
     expect(validHtml).toContain("Nov 1, 2026");
+  });
+
+  describe("RankTrackingAttemptStatus rendering", () => {
+    it("renders TIMED_OUT_UNVERIFIED with latest valid position and amber badge", () => {
+      const result: RankTrackingDeviceResult = {
+        position: null,
+        previousPosition: 50,
+        latestValidPosition: 62,
+        rankingUrl: null,
+        serpFeatures: [],
+        checkedAt: "2026-11-13 21:50:04",
+        status: "failed",
+        rankingStatus: "CHECK_FAILED",
+        attemptStatus: "TIMED_OUT_UNVERIFIED",
+        errorMessage:
+          "SE Ranking queued recheck did not produce a completed observation within the polling window",
+      };
+
+      const html = renderToStaticMarkup(
+        React.createElement(DeviceRankCell, { result }),
+      );
+
+      expect(html).toContain("#62");
+      expect(html).toContain("Unverified recheck");
+      expect(html).toContain("bg-warning/20");
+      expect(html).toContain("text-warning");
+      expect(html).not.toContain("Ranking unavailable");
+      expect(html).toContain("Last valid: #62");
+    });
+
+    it("renders TIMED_OUT_UNVERIFIED without latest valid position", () => {
+      const result: RankTrackingDeviceResult = {
+        position: null,
+        previousPosition: null,
+        latestValidPosition: null,
+        rankingUrl: null,
+        serpFeatures: [],
+        checkedAt: "2026-11-13 21:50:04",
+        status: "failed",
+        rankingStatus: "CHECK_FAILED",
+        attemptStatus: "TIMED_OUT_UNVERIFIED",
+        errorMessage:
+          "SE Ranking queued recheck did not produce a completed observation within the polling window",
+      };
+
+      const html = renderToStaticMarkup(
+        React.createElement(DeviceRankCell, { result }),
+      );
+
+      expect(html).toContain("Unverified recheck");
+      expect(html).toContain("bg-warning/20");
+      expect(html).not.toContain("Ranking unavailable");
+    });
+
+    it("renders CANCELLED status badge", () => {
+      const result: RankTrackingDeviceResult = {
+        position: null,
+        previousPosition: null,
+        rankingUrl: null,
+        serpFeatures: [],
+        checkedAt: null,
+        status: "not_checked",
+        rankingStatus: "NOT_CHECKED",
+        attemptStatus: "CANCELLED",
+        errorMessage: "Cancelled by user",
+      };
+
+      const html = renderToStaticMarkup(
+        React.createElement(DeviceRankCell, { result }),
+      );
+
+      expect(html).toContain("Cancelled");
+      expect(html).not.toContain("Ranking unavailable");
+    });
+
+    it("renders PROVIDER_FAILED with red error badge", () => {
+      const result: RankTrackingDeviceResult = {
+        position: null,
+        previousPosition: null,
+        rankingUrl: null,
+        serpFeatures: [],
+        checkedAt: "2026-11-13 21:50:04",
+        status: "failed",
+        rankingStatus: "CHECK_FAILED",
+        attemptStatus: "PROVIDER_FAILED",
+        errorMessage: "Provider 500 error",
+      };
+
+      const html = renderToStaticMarkup(
+        React.createElement(DeviceRankCell, { result }),
+      );
+
+      expect(html).toContain("Ranking unavailable");
+      expect(html).toContain("bg-error/20");
+    });
   });
 });

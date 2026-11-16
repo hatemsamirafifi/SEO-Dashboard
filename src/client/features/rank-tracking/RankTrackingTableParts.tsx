@@ -98,6 +98,40 @@ export function DeviceRankCell({
     );
   }
 
+  if (result.attemptStatus === "TIMED_OUT_UNVERIFIED") {
+    const unverifiedTooltip = result.latestValidPosition
+      ? `Last valid: #${result.latestValidPosition} (Recheck unverified: no new observation within polling window)`
+      : result.errorMessage ||
+        result.providerStatus ||
+        "Recheck unverified: no new observation within polling window";
+    return (
+      <span
+        className="inline-flex items-center gap-1.5"
+        title={unverifiedTooltip}
+      >
+        {result.latestValidPosition != null && (
+          <span className="font-mono text-xs font-semibold text-base-content/80">
+            #{result.latestValidPosition}
+          </span>
+        )}
+        <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold bg-warning/20 text-warning">
+          Unverified recheck
+        </span>
+      </span>
+    );
+  }
+
+  if (result.attemptStatus === "CANCELLED") {
+    return (
+      <span
+        className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-base-200 text-base-content/50"
+        title={result.errorMessage || "Check cancelled"}
+      >
+        Cancelled
+      </span>
+    );
+  }
+
   if (status === "failed" || result.rankingStatus === "CHECK_FAILED") {
     const errorMsg =
       (result.errorCode ? getErrorMessage(result.errorCode) : null) ||
@@ -159,7 +193,27 @@ export function DeviceRankCell({
 
   // First check — no previous data
   if (previousPosition === null) {
-    return <span className="font-mono font-semibold">#{position}</span>;
+    const meaningfulProviderChange =
+      result.providerChange !== undefined &&
+      result.providerChange !== null &&
+      result.providerChange !== 0;
+    const providerSign =
+      meaningfulProviderChange && result.providerChange! > 0
+        ? `+${result.providerChange}`
+        : `${result.providerChange}`;
+    const providerPrev =
+      meaningfulProviderChange && typeof position === "number"
+        ? position + result.providerChange!
+        : null;
+    const tooltip = meaningfulProviderChange
+      ? `Current: #${position} (Provider daily: #${providerPrev} → #${position} [${providerSign}])`
+      : undefined;
+
+    return (
+      <span className="font-mono font-semibold" title={tooltip}>
+        #{position}
+      </span>
+    );
   }
 
   // Both exist — show old → new with colored badge
@@ -168,8 +222,24 @@ export function DeviceRankCell({
   if (change > 0) badgeClass = "bg-success/20 text-success";
   if (change < 0) badgeClass = "bg-warning/20 text-warning";
 
+  let titleTooltip: string | undefined = undefined;
+  if (result.providerChange !== undefined && result.providerChange !== null) {
+    if (result.providerChange !== 0) {
+      const providerPrev = position! + result.providerChange;
+      const providerSign =
+        result.providerChange > 0
+          ? `+${result.providerChange}`
+          : `${result.providerChange}`;
+      titleTooltip = `OpenSEO historical: #${previousPosition} → #${position} | SE Ranking daily: #${providerPrev} → #${position} (${providerSign})`;
+    } else {
+      titleTooltip = `OpenSEO historical: #${previousPosition} → #${position} | SE Ranking daily change: 0 (prior baseline unavailable)`;
+    }
+  } else if (previousPosition !== position) {
+    titleTooltip = `OpenSEO historical: #${previousPosition} → #${position}`;
+  }
+
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <span className="inline-flex items-center gap-1.5" title={titleTooltip}>
       <span className="font-mono text-xs text-base-content/40 w-6 text-right">
         #{previousPosition}
       </span>
@@ -217,13 +287,25 @@ export function DeviceUrlCell({
     }
     return <span className="text-base-content/40 text-xs">-</span>;
   }
+
+  const observationDate =
+    result.checkedDate ??
+    (result.checkedAt ? result.checkedAt.slice(0, 10) : null);
+  const isHistoricalLandingPage =
+    result.landingPageDate &&
+    observationDate &&
+    result.landingPageDate !== observationDate;
+  const urlTooltip = isHistoricalLandingPage
+    ? `${safeDecode(result.rankingUrl)} (Landing page observed: ${result.landingPageDate})`
+    : safeDecode(result.rankingUrl);
+
   return (
     <a
       href={toFullUrl(result.rankingUrl, domain)}
       target="_blank"
       rel="noopener noreferrer"
       className="link link-hover block w-full max-w-full break-words [overflow-wrap:anywhere] line-clamp-3 text-xs leading-relaxed"
-      title={safeDecode(result.rankingUrl)}
+      title={urlTooltip}
     >
       {toPath(result.rankingUrl)}
     </a>

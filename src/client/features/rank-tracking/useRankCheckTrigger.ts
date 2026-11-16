@@ -25,6 +25,7 @@ interface CheckTriggerVariables {
   missingRankingStates?: MissingRankingBucket[];
   traceOperationId?: string;
   signal?: AbortSignal;
+  readOnlySync?: boolean;
 }
 
 export type RankCheckOperation =
@@ -78,6 +79,7 @@ export function useRankCheckTrigger({
           missingRankings: opts.missingRankings,
           missingRankingStates: opts.missingRankingStates,
           operationId: opts.traceOperationId,
+          readOnlySync: opts.readOnlySync,
         },
         signal: opts.signal,
       }),
@@ -252,6 +254,7 @@ export function useRankCheckTrigger({
     keywordIds?: string[];
     missingRankings?: boolean;
     missingRankingStates?: MissingRankingBucket[];
+    readOnlySync?: boolean;
   }) => {
     // If missing rankings is requested but 0 states are selected (Clear all),
     // no server check or trace should be initiated.

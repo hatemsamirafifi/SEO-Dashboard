@@ -10,6 +10,9 @@ export function RankCheckModals({
   isPending,
   onRunCheck,
   onCancel,
+  isSeRanking,
+  targetCount,
+  totalChecks,
 }: {
   pendingCheck: {
     count: number;
@@ -26,6 +29,9 @@ export function RankCheckModals({
     missingRankingStates?: MissingRankingBucket[];
   }) => void;
   onCancel: () => void;
+  isSeRanking?: boolean;
+  targetCount?: number;
+  totalChecks?: number;
 }) {
   if (!pendingCheck) return null;
   if (!pendingCheck.missingRankings) {
@@ -37,6 +43,9 @@ export function RankCheckModals({
         isPending={isPending}
         onRunNow={() => onRunCheck({ keywordIds: pendingCheck.keywordIds })}
         onCancel={onCancel}
+        isSeRanking={isSeRanking}
+        targetCount={targetCount}
+        totalChecks={totalChecks}
       />
     );
   }
@@ -49,6 +58,7 @@ export function RankCheckModals({
       serpDepth={config.serpDepth}
       isPending={isPending}
       initialStates={pendingCheck.initialStates}
+      isSeRanking={isSeRanking}
       onRunNow={(_count, keywordIds, missingRankingStates) =>
         onRunCheck({
           keywordIds,

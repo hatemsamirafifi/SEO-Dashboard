@@ -50,7 +50,9 @@ describe("RankTrackingRepository.insertSnapshots partial conflict targets", () =
     await client.execute(
       `CREATE TABLE rank_tracking_configs (id text PRIMARY KEY)`,
     );
-    await client.execute(`CREATE TABLE rank_check_runs (id text PRIMARY KEY)`);
+    await client.execute(
+      `CREATE TABLE rank_check_runs (id text PRIMARY KEY, trigger text DEFAULT 'manual' NOT NULL)`,
+    );
     await client.execute(`
       CREATE TABLE rank_snapshots (
         id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -73,17 +75,20 @@ describe("RankTrackingRepository.insertSnapshots partial conflict targets", () =
         provider_status text,
         provider_status_code integer,
         error_message text,
+        completion_confidence text,
+        observation_source text,
         tracking_target_id text,
         country_code text,
         city_name text,
         checked_at text DEFAULT (current_timestamp) NOT NULL,
         checked_date text,
+        imported_at text,
         created_at text DEFAULT (current_timestamp) NOT NULL,
         updated_at text DEFAULT (current_timestamp) NOT NULL
       )
     `);
     await client.execute(
-      `CREATE UNIQUE INDEX rank_snapshots_run_target_kw_device_idx ON rank_snapshots (run_id, tracking_target_id, tracking_keyword_id, device) WHERE tracking_target_id IS NOT NULL`,
+      `CREATE UNIQUE INDEX rank_snapshots_run_target_kw_device_idx ON rank_snapshots (run_id, tracking_target_id, tracking_keyword_id, device, checked_date) WHERE tracking_target_id IS NOT NULL`,
     );
     await client.execute(
       `CREATE UNIQUE INDEX rank_snapshots_legacy_run_kw_device_idx ON rank_snapshots (run_id, tracking_keyword_id, device) WHERE tracking_target_id IS NULL`,

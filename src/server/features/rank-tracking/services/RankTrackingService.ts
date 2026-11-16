@@ -1,6 +1,13 @@
+/* eslint-disable max-lines */
 import { env } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { projects } from "@/db/schema";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import { RankTrackingTargetRepository } from "@/server/features/rank-tracking/repositories/RankTrackingTargetRepository";
+import { SeRankingBindingRepository } from "@/server/features/rank-tracking/repositories/SeRankingBindingRepository";
+import { resolveEffectiveSeRankingConfig } from "@/server/features/settings/services/SeRankingSettingsService";
 import * as targetOps from "./rankTrackingTargetsService";
 import { AppError } from "@/server/lib/errors";
 import type {
@@ -12,10 +19,17 @@ import {
   reconcileActiveRankCheckRun,
 } from "./rankCheckRunGuards";
 import {
+  APPROVED_PILOT_CONFIG_ID,
+  APPROVED_PILOT_PROJECT_ID,
+  APPROVED_PILOT_KEYWORD_IDS,
+} from "./scheduledRankChecks";
+import {
   computeNextCheckAt,
+  devicesCount,
   isScheduledRankTrackingInterval,
   MAX_KEYWORDS_PER_CONFIG,
   MAX_CONFIGS_PER_PROJECT,
+  resolveEligibleNextCheckAt,
   type MissingRankingBucket,
   type MissingRankingsBreakdown,
 } from "@/shared/rank-tracking";
@@ -260,8 +274,21 @@ async function triggerCheck(input: {
   missingRankings?: boolean;
   missingRankingStates?: MissingRankingBucket[];
   operationId?: string;
+  readOnlySync?: boolean;
 }): Promise<RankCheckTriggerResult> {
   const config = await getValidatedConfig(input.configId, input.projectId);
+
+  if (input.readOnlySync) {
+    if (
+      config.id !== APPROVED_PILOT_CONFIG_ID ||
+      input.projectId !== APPROVED_PILOT_PROJECT_ID
+    ) {
+      throw new AppError(
+        "FORBIDDEN",
+        `Only approved pilot configuration ${APPROVED_PILOT_CONFIG_ID} is authorized for read-only sync`,
+      );
+    }
+  }
 
   const keywords = await RankTrackingRepository.getKeywordsForConfig(config.id);
   if (keywords.length === 0) {
@@ -314,6 +341,10 @@ async function triggerCheck(input: {
     effectiveKeywordIds = resolution.eligibleIds;
   }
 
+  if (input.readOnlySync) {
+    effectiveKeywordIds = [...APPROVED_PILOT_KEYWORD_IDS];
+  }
+
   const runResult = await beginRankCheckRun({
     workflow: env.RANK_CHECK_WORKFLOW,
     config,
@@ -328,10 +359,13 @@ async function triggerCheck(input: {
       ? effectiveKeywordIds.length
       : keywords.length,
     keywordIds: effectiveKeywordIds,
+    // Always record manual/API invocations as "manual" even when readOnlySync=true,
+    // so manual read-only imports never advance or block scheduled weekly cadence.
     trigger: "manual",
     workflowStartErrorMessage: "Failed to start rank check workflow",
     missingRankings: input.missingRankings ?? false,
     missingRankingStates: input.missingRankingStates,
+    readOnlySync: input.readOnlySync ?? false,
   });
 
   if (runResult.ok) {
@@ -358,6 +392,47 @@ async function triggerCheck(input: {
     ...runResult,
     operationId: input.operationId,
   };
+}
+
+async function triggerReadOnlySync(input: {
+  configId: string;
+  projectId: string;
+  billingCustomer: BillingCustomerContext;
+  keywordIds?: string[];
+}): Promise<RankCheckTriggerResult> {
+  const config = await getValidatedConfig(input.configId, input.projectId);
+
+  if (
+    config.id !== APPROVED_PILOT_CONFIG_ID ||
+    input.projectId !== APPROVED_PILOT_PROJECT_ID
+  ) {
+    throw new AppError(
+      "FORBIDDEN",
+      `Only approved pilot configuration ${APPROVED_PILOT_CONFIG_ID} is authorized for read-only sync`,
+    );
+  }
+
+  const requestedKeywordIds = await validateSelectedKeywordIds(
+    config.id,
+    input.keywordIds ?? [...APPROVED_PILOT_KEYWORD_IDS],
+  );
+  const effectiveKeywordIds = requestedKeywordIds ?? [
+    ...APPROVED_PILOT_KEYWORD_IDS,
+  ];
+
+  return beginRankCheckRun({
+    workflow: env.RANK_CHECK_WORKFLOW,
+    config,
+    projectId: input.projectId,
+    billingCustomer: input.billingCustomer,
+    keywordsTotal: effectiveKeywordIds.length,
+    keywordIds: effectiveKeywordIds,
+    // Manual HTTP trigger (`POST /api/rank-tracking/read-only-sync`): keep cadence
+    // separate from cron-initiated `scheduled` runs while preserving readOnlySync=true.
+    trigger: "manual",
+    workflowStartErrorMessage: "Failed to start read-only sync workflow",
+    readOnlySync: true,
+  });
 }
 
 async function getLatestRun(configId: string, projectId: string) {
@@ -388,11 +463,122 @@ async function getLatestRun(configId: string, projectId: string) {
 // Cost estimation
 // ---------------------------------------------------------------------------
 
-async function estimateCost(configId: string, projectId: string) {
+export type RankTrackingEstimateCostResult = {
+  provider: "seranking" | "dataforseo";
+  pricingModel: "subscription_quota" | "per_serp_usd";
+  costUsd: number | null;
+  costCredits: number | null;
+  keywordCount: number;
+  targetCount: number;
+  totalChecks: number;
+  devicesCount: number;
+  method: "queued" | "live";
+};
+
+async function estimateCost(
+  configId: string,
+  projectId: string,
+  organizationId?: string,
+  keywordIds?: string[],
+): Promise<RankTrackingEstimateCostResult> {
   const config = await getValidatedConfig(configId, projectId);
-  const keywordCount =
-    await RankTrackingRepository.getKeywordCountForConfig(configId);
-  return formatRankTrackingCost(config, keywordCount);
+  const allKeywords =
+    await RankTrackingRepository.getKeywordsForConfig(configId);
+  const scopedKeywords =
+    keywordIds && keywordIds.length > 0
+      ? allKeywords.filter((k) => keywordIds.includes(k.id))
+      : allKeywords;
+  const keywordCount = scopedKeywords.length;
+
+  let effectiveOrgId = organizationId;
+  if (!effectiveOrgId) {
+    const proj = await db
+      .select({ organizationId: projects.organizationId })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    effectiveOrgId = proj[0]?.organizationId;
+  }
+
+  const seConfig = await resolveEffectiveSeRankingConfig({
+    organizationId: effectiveOrgId ?? undefined,
+    projectId,
+  });
+  let isSeRanking = Boolean(seConfig.enabled);
+
+  if (!isSeRanking) {
+    const binding =
+      await SeRankingBindingRepository.getProjectBindingByLocalProject(
+        projectId,
+      );
+    if (binding && binding.status !== "failed" && binding.remoteSiteId) {
+      isSeRanking = true;
+    }
+  }
+
+  const targets = await RankTrackingTargetRepository.getTargetsForConfig(
+    configId,
+    true,
+  );
+  const targetCount =
+    targets.length > 0 ? targets.length : devicesCount(config.devices);
+
+  let totalChecks = 0;
+  if (targets.length > 0) {
+    const ktAssignments =
+      await RankTrackingTargetRepository.getKeywordTargetsForTargets(
+        targets.map((t) => t.id),
+        false,
+      );
+    const kwAssignmentMap = new Map<string, Map<string, boolean>>();
+    for (const row of ktAssignments) {
+      let perTarget = kwAssignmentMap.get(row.trackingKeywordId);
+      if (!perTarget) {
+        perTarget = new Map<string, boolean>();
+        kwAssignmentMap.set(row.trackingKeywordId, perTarget);
+      }
+      perTarget.set(row.trackingTargetId, row.enabled);
+    }
+
+    for (const kw of scopedKeywords) {
+      const explicitTargets = kwAssignmentMap.get(kw.id);
+      for (const target of targets) {
+        if (
+          explicitTargets &&
+          explicitTargets.size > 0 &&
+          explicitTargets.get(target.id) !== true
+        ) {
+          continue;
+        }
+        totalChecks++;
+      }
+    }
+  } else {
+    totalChecks = keywordCount * devicesCount(config.devices);
+  }
+
+  if (isSeRanking) {
+    return {
+      provider: "seranking" as const,
+      pricingModel: "subscription_quota" as const,
+      costUsd: null,
+      costCredits: null,
+      keywordCount,
+      targetCount,
+      totalChecks,
+      devicesCount: devicesCount(config.devices),
+      method: "queued" as const,
+    };
+  }
+
+  const baseCost = formatRankTrackingCost(config, keywordCount, totalChecks);
+  return {
+    provider: "dataforseo" as const,
+    pricingModel: "per_serp_usd" as const,
+    ...baseCost,
+    targetCount,
+    totalChecks,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -476,12 +662,54 @@ async function cancelRun(input: {
   return { ok: true, runId: run.id, status: "cancelled" };
 }
 
+async function withEligibleNextCheckAt<
+  T extends {
+    id: string;
+    scheduleInterval: RankTrackingConfig["scheduleInterval"];
+    isActive: boolean;
+    nextCheckAt: string | null;
+  },
+>(items: T[]): Promise<T[]> {
+  if (items.length === 0) return items;
+  const scheduledRuns =
+    await RankTrackingRepository.getLatestScheduledRunsForConfigs(
+      items.map((item) => item.id),
+    );
+  return items.map((item) => {
+    const latestScheduled = scheduledRuns.get(item.id);
+    const lastScheduledAt =
+      latestScheduled?.completedAt ?? latestScheduled?.startedAt ?? null;
+    return {
+      ...item,
+      nextCheckAt: resolveEligibleNextCheckAt({
+        scheduleInterval: item.scheduleInterval,
+        isActive: item.isActive,
+        nextCheckAt: item.nextCheckAt,
+        lastScheduledAt,
+      }),
+    };
+  });
+}
+
+async function getConfigsForProject(projectId: string) {
+  const configs = await RankTrackingRepository.getConfigsForProject(projectId);
+  return withEligibleNextCheckAt(configs);
+}
+
+async function getConfigSummaries(projectId: string) {
+  const summaries = await RankTrackingRepository.getConfigSummaries(projectId);
+  return withEligibleNextCheckAt(summaries);
+}
+
 export const RankTrackingService = {
+  getConfigsForProject,
+  getConfigSummaries,
   createConfig,
   updateConfig,
   addKeywords,
   removeKeywords,
   triggerCheck,
+  triggerReadOnlySync,
   getMissingRankingsSummary,
   getLatestRun,
   estimateCost,
