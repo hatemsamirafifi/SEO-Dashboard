@@ -44,6 +44,7 @@ function makeRunRow(overrides: Partial<RunRow> = {}): RunRow {
     status: "running",
     keywordsTotal: 27,
     keywordsChecked: 0,
+    trigger: "manual",
     isSubsetRun: false,
     errorMessage: null,
     startedAt: new Date().toISOString(),

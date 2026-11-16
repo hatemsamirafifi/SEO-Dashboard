@@ -50,7 +50,10 @@ describe("SE Ranking Non-Destructive Synchronization", () => {
 
       if (path.includes("/project-management/keywords")) {
         if (method === "POST") {
-          return (options.body?.keywords || []).map((k: any, i: number) => ({
+          const list = Array.isArray(options.body)
+            ? options.body
+            : options.body?.keywords || [];
+          return list.map((k: any, i: number) => ({
             id: 7000 + i,
             name: k.keyword,
           }));

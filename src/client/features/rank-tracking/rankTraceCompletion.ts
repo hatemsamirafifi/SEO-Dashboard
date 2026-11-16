@@ -169,7 +169,10 @@ export interface RankRowForTrace {
     checkedAt?: string | null;
     status?: string | null;
     rankingStatus?: string | null;
+    attemptStatus?: string | null;
+    completionConfidence?: string | null;
     errorMessage?: string | null;
+    providerStatus?: string | null;
     providerStatusCode?: number | null;
     provider?: string | null;
   } | null;
@@ -179,7 +182,10 @@ export interface RankRowForTrace {
     checkedAt?: string | null;
     status?: string | null;
     rankingStatus?: string | null;
+    attemptStatus?: string | null;
+    completionConfidence?: string | null;
     errorMessage?: string | null;
+    providerStatus?: string | null;
     providerStatusCode?: number | null;
     provider?: string | null;
   } | null;

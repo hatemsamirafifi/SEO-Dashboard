@@ -55,7 +55,19 @@ export interface AddKeywordsParams {
     keyword: string;
     groupId?: number;
     targetUrl?: string;
+    siteEngineIds?: number[];
   }>;
+}
+
+export interface UpdateKeywordParams {
+  siteId: number;
+  keywordId: string | number;
+  keyword: string;
+  groupId?: number;
+  targetUrl?: string;
+  isStrict?: 0 | 1;
+  comment?: string;
+  siteEngineIds: number[];
 }
 
 export interface RecheckParams {
@@ -176,7 +188,26 @@ async function addSiteSearchEngine(
       },
     );
 
-    return seRankingSiteEngineSchema.parse(res);
+    const parsed = seRankingSiteEngineSchema.safeParse(res);
+    if (parsed.success) return parsed.data;
+    const resObj = res ?? {};
+    return {
+      siteEngineId: Number(resObj.site_engine_id ?? resObj.id ?? 0),
+      searchEngineId: Number(
+        resObj.search_engine_id ?? resObj.se_id ?? params.searchEngineId,
+      ),
+      name: typeof resObj.name === "string" ? resObj.name : "",
+      regionId: Number(resObj.region_id ?? params.regionId ?? 0),
+      regionName:
+        typeof resObj.region_name === "string"
+          ? resObj.region_name
+          : (params.regionName ?? ""),
+      langCode:
+        typeof resObj.lang_code === "string"
+          ? resObj.lang_code
+          : (params.langCode ?? ""),
+      device: typeof resObj.device === "string" ? resObj.device : "",
+    };
   } catch (error) {
     throw classifyProjectApiError(error, "engine_create");
   }
@@ -201,6 +232,19 @@ async function listKeywords(
   return parseAddedKeywordsPayload(raw);
 }
 
+function backfillParsedKeywords(
+  parsed: SeRankingProjectKeyword[],
+  batch: Array<{ keyword: string; siteEngineIds?: number[] }>,
+) {
+  if (parsed.length === 0 || !parsed.every((p) => !p.keyword)) return;
+  for (let j = 0; j < parsed.length && j < batch.length; j++) {
+    parsed[j].keyword = batch[j].keyword;
+    if (batch[j].siteEngineIds && parsed[j].siteEngineIds.length === 0) {
+      parsed[j].siteEngineIds = batch[j].siteEngineIds!;
+    }
+  }
+}
+
 async function addKeywords(
   client: SeRankingClient,
   params: AddKeywordsParams,
@@ -212,14 +256,14 @@ async function addKeywords(
 
   for (let i = 0; i < params.keywords.length; i += BATCH_SIZE) {
     const batch = params.keywords.slice(i, i + BATCH_SIZE);
-    const payload = {
-      site_id: params.siteId,
-      keywords: batch.map((kw) => ({
-        keyword: kw.keyword,
-        group_id: kw.groupId,
-        target_url: kw.targetUrl,
-      })),
-    };
+    const payload = batch.map((kw) => ({
+      keyword: kw.keyword,
+      ...(kw.groupId !== undefined ? { group_id: kw.groupId } : {}),
+      ...(kw.targetUrl !== undefined ? { target_url: kw.targetUrl } : {}),
+      ...(kw.siteEngineIds && kw.siteEngineIds.length > 0
+        ? { site_engine_ids: kw.siteEngineIds }
+        : {}),
+    }));
 
     try {
       const res = await client.request<unknown>(
@@ -230,13 +274,60 @@ async function addKeywords(
           body: payload,
         },
       );
-      results.push(...parseAddedKeywordsPayload(res));
+      const parsed = parseAddedKeywordsPayload(res);
+      backfillParsedKeywords(parsed, batch);
+      results.push(...parsed);
     } catch (error) {
       throw classifyProjectApiError(error, "keyword_sync");
     }
   }
 
+  if (results.length === 0 && params.keywords.length > 0) {
+    const remoteList = await listKeywords(client, params.siteId);
+    const remoteMap = new Map<string, SeRankingProjectKeyword>();
+    for (const rk of remoteList) {
+      remoteMap.set(rk.keyword.trim().toLowerCase(), rk);
+    }
+    for (const kw of params.keywords) {
+      const found = remoteMap.get(kw.keyword.trim().toLowerCase());
+      if (found) results.push(found);
+    }
+  }
+
   return results;
+}
+
+async function updateKeyword(
+  client: SeRankingClient,
+  params: UpdateKeywordParams,
+): Promise<{ ok: boolean }> {
+  const numericKeywordId =
+    typeof params.keywordId === "number"
+      ? params.keywordId
+      : toNumericRemoteKeywordId(params.keywordId);
+
+  const payload = {
+    keyword: params.keyword,
+    ...(params.groupId !== undefined ? { group_id: params.groupId } : {}),
+    ...(params.targetUrl !== undefined ? { target_url: params.targetUrl } : {}),
+    ...(params.isStrict !== undefined ? { is_strict: params.isStrict } : {}),
+    ...(params.comment !== undefined ? { comment: params.comment } : {}),
+    site_engine_ids: params.siteEngineIds,
+  };
+
+  try {
+    await client.request<unknown>("/project-management/keywords", {
+      method: "PATCH",
+      params: {
+        site_id: params.siteId,
+        keyword_id: numericKeywordId,
+      },
+      body: payload,
+    });
+    return { ok: true };
+  } catch (error) {
+    throw classifyProjectApiError(error, "keyword_sync");
+  }
 }
 
 async function recheckPositions(
@@ -347,6 +438,7 @@ export const SeRankingProjectService = {
   addSiteSearchEngine,
   listKeywords,
   addKeywords,
+  updateKeyword,
   recheckPositions,
   getCheckDates,
   getPositions,

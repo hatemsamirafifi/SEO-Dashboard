@@ -5,7 +5,10 @@ import type {
   RankCheckTriggerResult,
   RankTrackingConfig,
 } from "@/types/schemas/rank-tracking";
-import type { MissingRankingBucket } from "@/shared/rank-tracking";
+import {
+  parseUtcTimestampMs,
+  type MissingRankingBucket,
+} from "@/shared/rank-tracking";
 
 type RunRow = Awaited<ReturnType<typeof RankTrackingRepository.getRunById>>;
 
@@ -161,6 +164,7 @@ export async function beginRankCheckRun(input: {
   workflowStartErrorMessage: string;
   missingRankings?: boolean;
   missingRankingStates?: MissingRankingBucket[];
+  readOnlySync?: boolean;
 }): Promise<RankCheckTriggerResult> {
   // At most two attempts: once normally, once after clearing a stale blocker.
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -170,6 +174,7 @@ export async function beginRankCheckRun(input: {
       configId: input.config.id,
       projectId: input.projectId,
       keywordsTotal: input.keywordsTotal,
+      trigger: input.trigger,
       isSubsetRun: (input.keywordIds?.length ?? 0) > 0,
     });
 
@@ -192,6 +197,7 @@ export async function beginRankCheckRun(input: {
             keywordIds: input.keywordIds,
             missingRankings: input.missingRankings ?? false,
             missingRankingStates: input.missingRankingStates,
+            readOnlySync: input.readOnlySync ?? false,
           },
         });
       } catch (error) {
@@ -221,10 +227,11 @@ export async function beginRankCheckRun(input: {
     }
 
     if (attempt === 0) {
+      const startedMs = parseUtcTimestampMs(blocker.startedAt);
       const staleReason = await getStaleRankCheckRunReason({
         run: blocker,
         runId: blocker.id,
-        ageMs: Date.now() - new Date(blocker.startedAt).getTime(),
+        ageMs: Number.isFinite(startedMs) ? Date.now() - startedMs : 0,
       });
       if (staleReason) {
         await failRunIfActive(blocker.id, staleReason, blocker);
@@ -251,10 +258,11 @@ export async function reconcileActiveRankCheckRun(run: NonNullable<RunRow>) {
     return null;
   }
 
+  const startedMs = parseUtcTimestampMs(run.startedAt);
   const staleReason = await getStaleRankCheckRunReason({
     runId: run.id,
     run,
-    ageMs: Date.now() - new Date(run.startedAt).getTime(),
+    ageMs: Number.isFinite(startedMs) ? Date.now() - startedMs : 0,
   });
   if (!staleReason) return null;
 

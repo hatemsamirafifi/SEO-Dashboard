@@ -118,6 +118,7 @@ export function MissingRankingsConfirmModal({
   onRunNow,
   onCancel,
   initialStates,
+  isSeRanking,
 }: {
   configId: string;
   projectId: string;
@@ -132,6 +133,7 @@ export function MissingRankingsConfirmModal({
   ) => void;
   onCancel: () => void;
   initialStates?: MissingRankingBucket[];
+  isSeRanking?: boolean;
 }) {
   const [selectedStates, setSelectedStates] = useState<MissingRankingBucket[]>(
     initialStates ?? ["ranking_unavailable", "lost", "no_ranking"],
@@ -301,9 +303,15 @@ export function MissingRankingsConfirmModal({
               </p>
             </div>
             <div className="text-right">
-              <p className="font-mono font-semibold">
-                ~${runCopy.costUsd.toFixed(2)}
-              </p>
+              {isSeRanking ? (
+                <span className="font-mono text-xs font-semibold text-primary">
+                  Subscription quota
+                </span>
+              ) : (
+                <p className="font-mono font-semibold">
+                  ~${runCopy.costUsd.toFixed(2)}
+                </p>
+              )}
               {isPending && <Loader2 className="size-3 animate-spin ml-auto" />}
             </div>
           </button>

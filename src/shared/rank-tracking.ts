@@ -9,6 +9,27 @@ import type { RankTrackingConfig } from "@/types/schemas/rank-tracking";
 // Cost constants
 // ---------------------------------------------------------------------------
 
+/** Scheduled Pilot Constants (Single source of truth for pilot scope vs capacity) */
+export const APPROVED_PILOT_CONFIG_ID = "2971425d-d350-4ee3-89b2-c83567c87713";
+export const APPROVED_PILOT_PROJECT_ID = "367587e1-0c77-4d58-a2f8-7d7a171adfcb";
+export const APPROVED_PILOT_KEYWORD_IDS = [
+  "28131aad-fe42-43b6-bfdb-5fe0d7e046a3", // إنشاء ملاعب متعددة الأغراض
+  "4bb3e3ac-3c10-464f-ae90-6c7b13b9c984", // ملعب كرة قدم خماسي
+  "728c64ca-83f0-4bf7-8470-b4deea18595a", // مساحة ملعب خماسي
+  "2edf9ce7-4ed0-4bae-b7b5-c1ce19bc3305", // ملاعب الخماسي
+  "88c5e577-1bc7-4b58-863e-265f60fb3924", // تكلفة ملعب خماسي
+  "26b1d63b-f304-42c1-9916-4552a290ee20", // ترتان صناعي
+] as const;
+export const APPROVED_PILOT_KEYWORD_ID = APPROVED_PILOT_KEYWORD_IDS[0];
+export const APPROVED_PILOT_REMOTE_SITE_ID = 13188608;
+export const APPROVED_PILOT_REMOTE_KEYWORD_ID = "24606031";
+export const APPROVED_PILOT_DESKTOP_ENGINE_ID = 539194;
+export const APPROVED_PILOT_MOBILE_ENGINE_ID = 545914;
+export const APPROVED_PILOT_TARGET_IDS = [
+  "e06e6d4a-59cb-4a5a-960e-d8910552f735", // Desktop
+  "911aa14a-b8a7-4c06-8b5d-365ed93ae03b", // Mobile
+] as const;
+
 /** DataForSEO Live API: cost of first page (10 results) */
 const LIVE_BASE_PAGE_COST_USD = 0.002;
 
@@ -96,8 +117,12 @@ export function estimateRankCheckCredits(
   devices: RankTrackingConfig["devices"],
   depth: number,
   method: RankCheckMethod,
+  totalChecksOverride?: number,
 ) {
-  const totalChecks = keywordCount * devicesCount(devices);
+  const totalChecks =
+    typeof totalChecksOverride === "number"
+      ? totalChecksOverride
+      : keywordCount * devicesCount(devices);
   const costUsd = roundUsdForBilling(
     totalChecks * costPerSerpAtDepth(depth, method) * SEO_DATA_COST_MARKUP,
   );
@@ -137,28 +162,55 @@ function endOfMonthWithTime(source: Date, monthOffset = 0): Date {
   return endOfMonth;
 }
 
+/** Minimum spacing between completed/partial weekly scheduled runs (6 days). */
+export const WEEKLY_SCHEDULE_MIN_SPACING_MS = 6 * 86_400_000;
+
+/**
+ * Parse an ISO-8601 or SQLite UTC datetime string (`YYYY-MM-DD HH:MM:SS`)
+ * into UTC epoch milliseconds without shifting by host local timezone.
+ */
+export function parseUtcTimestampMs(
+  timestamp: string | null | undefined,
+): number {
+  if (!timestamp) return Number.NaN;
+  const trimmed = timestamp.trim();
+  if (!trimmed) return Number.NaN;
+
+  // SQLite `datetime('now')` omits timezone designators; normalize to explicit UTC (`Z`).
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/.test(trimmed)) {
+    return Date.parse(`${trimmed.replace(" ", "T")}Z`);
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(trimmed)) {
+    return Date.parse(`${trimmed}Z`);
+  }
+  return Date.parse(trimmed);
+}
+
 /**
  * Compute the next check time for a scheduled config.
  *
  * If `previousNextCheckAt` is provided, advances from that anchor by the
- * interval until the result is in the future. This prevents schedule drift
- * when runs are delayed (e.g., a weekly config due Monday that fires on
- * Wednesday will still schedule the next check for the following Monday).
+ * interval until the result is strictly in the future and at least
+ * `minEligibleMs` (when supplied, e.g. the 6-day weekly minimum spacing
+ * boundary). This prevents schedule drift when runs are delayed and prevents
+ * landing on an intermediate date that the spacing guard would immediately skip.
  *
  * Otherwise a random hour (04–09 UTC) and minute are chosen.
  */
 export function computeNextCheckAt(
   interval: ScheduledRankTrackingInterval,
   previousNextCheckAt?: string | null,
+  options?: { nowMs?: number; minEligibleMs?: number },
 ): string {
-  const now = Date.now();
+  const now = options?.nowMs ?? Date.now();
+  const minEligibleMs = options?.minEligibleMs ?? 0;
 
   if (interval === "monthly") {
     if (previousNextCheckAt) {
       const anchor = new Date(previousNextCheckAt);
       let monthOffset = 1;
       let nextDate = endOfMonthWithTime(anchor, monthOffset);
-      while (nextDate.getTime() <= now) {
+      while (nextDate.getTime() <= now || nextDate.getTime() < minEligibleMs) {
         monthOffset += 1;
         nextDate = endOfMonthWithTime(anchor, monthOffset);
       }
@@ -167,9 +219,9 @@ export function computeNextCheckAt(
 
     const hour = 4 + Math.floor(Math.random() * 6);
     const minute = Math.floor(Math.random() * 60);
-    const nextDate = endOfMonthWithTime(new Date());
+    const nextDate = endOfMonthWithTime(new Date(now));
     nextDate.setUTCHours(hour, minute, 0, 0);
-    if (nextDate.getTime() <= now) {
+    if (nextDate.getTime() <= now || nextDate.getTime() < minEligibleMs) {
       const followingMonth = endOfMonthWithTime(nextDate, 1);
       followingMonth.setUTCHours(hour, minute, 0, 0);
       return followingMonth.toISOString();
@@ -180,18 +232,63 @@ export function computeNextCheckAt(
   const daysAhead = interval === "daily" ? 1 : 7;
 
   if (previousNextCheckAt) {
-    const anchor = new Date(previousNextCheckAt).getTime();
+    const anchorMs = parseUtcTimestampMs(previousNextCheckAt);
+    const anchor = Number.isFinite(anchorMs)
+      ? anchorMs
+      : new Date(previousNextCheckAt).getTime();
     const intervalMs = daysAhead * 86_400_000;
-    const steps = Math.floor(Math.max(0, now - anchor) / intervalMs) + 1;
-    return new Date(anchor + steps * intervalMs).toISOString();
+    const minTargetExclusiveMs = Math.max(now, minEligibleMs - 1);
+    const steps =
+      Math.floor(Math.max(0, minTargetExclusiveMs - anchor) / intervalMs) + 1;
+    let candidate = anchor + steps * intervalMs;
+    while (candidate <= now || candidate < minEligibleMs) {
+      candidate += intervalMs;
+    }
+    return new Date(candidate).toISOString();
   }
 
-  const nextDate = new Date();
+  const nextDate = new Date(Math.max(now, minEligibleMs));
   nextDate.setUTCDate(nextDate.getUTCDate() + daysAhead);
   const hour = 4 + Math.floor(Math.random() * 6);
   const minute = Math.floor(Math.random() * 60);
   nextDate.setUTCHours(hour, minute, 0, 0);
   return nextDate.toISOString();
+}
+
+/**
+ * Returns the next genuinely eligible scheduled execution timestamp for a
+ * config, accounting for the weekly 6-day minimum spacing guard driven ONLY by
+ * prior `trigger = 'scheduled'` runs (manual checks & manual imports excluded).
+ */
+export function resolveEligibleNextCheckAt(input: {
+  scheduleInterval: RankTrackingConfig["scheduleInterval"];
+  isActive: boolean;
+  nextCheckAt: string | null;
+  lastScheduledAt?: string | null;
+  nowMs?: number;
+}): string | null {
+  if (!input.isActive || !input.nextCheckAt) {
+    return input.nextCheckAt;
+  }
+  if (input.scheduleInterval !== "weekly" || !input.lastScheduledAt) {
+    return input.nextCheckAt;
+  }
+
+  const lastScheduledMs = parseUtcTimestampMs(input.lastScheduledAt);
+  const nextCheckMs = parseUtcTimestampMs(input.nextCheckAt);
+  if (!Number.isFinite(lastScheduledMs) || !Number.isFinite(nextCheckMs)) {
+    return input.nextCheckAt;
+  }
+
+  const minEligibleMs = lastScheduledMs + WEEKLY_SCHEDULE_MIN_SPACING_MS;
+  if (nextCheckMs >= minEligibleMs) {
+    return input.nextCheckAt;
+  }
+
+  return computeNextCheckAt("weekly", input.nextCheckAt, {
+    nowMs: input.nowMs ?? Date.now(),
+    minEligibleMs,
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -148,6 +148,7 @@ describe("Live and Paused-Account Rank Check Verification", () => {
       id: 1,
       runId: "live_run_paused_1",
       trackingKeywordId: "kw_live_1",
+      trackingTargetId: null,
       keyword: "seo agency dubai",
       device: "desktop",
       position: null,
@@ -159,6 +160,7 @@ describe("Live and Paused-Account Rank Check Verification", () => {
       providerStatus: reason,
       providerStatusCode: parsedCode,
       errorMessage: reason,
+      completionConfidence: null,
       checkedAt: new Date().toISOString(),
     };
 

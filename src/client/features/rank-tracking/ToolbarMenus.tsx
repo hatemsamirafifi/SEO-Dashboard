@@ -95,6 +95,7 @@ function missingCountLabel(count: number | null): string {
 export function MoreMenu({
   onCheckNow,
   onCheckMissingRankings,
+  onReadOnlySync,
   missingRankingsCount,
   checkBusy,
   checkDisabled,
@@ -104,6 +105,7 @@ export function MoreMenu({
 }: {
   onCheckNow: () => void;
   onCheckMissingRankings: () => void;
+  onReadOnlySync?: () => void;
   missingRankingsCount: number | null;
   checkBusy: boolean;
   checkDisabled: boolean;
@@ -116,6 +118,19 @@ export function MoreMenu({
       icon={<MoreHorizontal className="size-4" />}
       title="More actions"
     >
+      {onReadOnlySync && (
+        <MenuItem
+          icon={
+            <RefreshCw
+              className={`size-3.5 ${checkBusy ? "animate-spin" : ""}`}
+            />
+          }
+          label={checkBusy ? "Syncing..." : "Sync SE Ranking (Read-Only)"}
+          description="Fetch daily positions from SE Ranking without initiating a paid check (0 credits)"
+          onClick={onReadOnlySync}
+          disabled={checkBusy}
+        />
+      )}
       {!checkDisabled && (
         <MenuItem
           icon={<Play className="size-3.5" />}

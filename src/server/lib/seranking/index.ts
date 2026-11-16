@@ -14,6 +14,7 @@ export * from "./backlinks";
 export * from "./projectSchemas";
 export * from "./projectCatalog";
 export * from "./projectAccess";
+export * from "./projectParsers";
 export * from "./project";
 
 export function createSeRankingClient(

@@ -59,6 +59,9 @@ services:
       #   CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true docker compose -f compose.dev.yaml up
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-false}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-false}
+      # Scheduler and pilot flags flow from .env.docker via env_file.
+      # Default fallback allowlist:
+      SCHEDULED_PILOT_CONFIG_ALLOWLIST: ${SCHEDULED_PILOT_CONFIG_ALLOWLIST:-2971425d-d350-4ee3-89b2-c83567c87713}
     ports:
       - "127.0.0.1:${PORT:-3001}:${PORT:-3001}"
     volumes:
@@ -71,6 +74,16 @@ services:
       - ./.wrangler:/app/.wrangler
       # pnpm store cache: faster cold installs/rebuilds.
       - open_seo_dev_pnpm_store:/pnpm/store
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:'' + (process.env.PORT || ''3001'') + ''/api/internal/cron/status'', { headers: { ''x-local-scheduler-key'': process.env.LOCAL_SCHEDULER_SECRET || '''' } }).then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 25
+      start_period: 120s
     # Allow services to keep the container running for interactive shells:
     # `docker compose -f compose.dev.yaml exec open-seo-dev sh` then
     # `pnpm test`, `pnpm lint`, etc. from inside the container.
@@ -82,6 +95,26 @@ services:
     # interactive keybindings (b/e/t/h) need `docker compose exec` + a real
     # TTY, and vite disables ANSI colors in logs.
     tty: false
+
+  open-seo-scheduler:
+    container_name: openseo-scheduler
+    image: open-seo-dev:local
+    restart: unless-stopped
+    init: true
+    depends_on:
+      open-seo-dev:
+        condition: service_healthy
+    env_file:
+      - path: .env.docker
+        required: false
+    environment:
+      APP_URL: http://open-seo-dev:${PORT:-3001}
+      SCHEDULER_INTERVAL_SECONDS: ${SCHEDULER_INTERVAL_SECONDS:-900}
+    volumes:
+      # Isolated mount: only the standalone scheduler script is mounted into the container.
+      - ./scripts/docker-scheduler.mjs:/app/scripts/docker-scheduler.mjs:ro
+    working_dir: /app
+    command: ["node", "scripts/docker-scheduler.mjs"]
 
 volumes:
   open_seo_dev_node_modules:

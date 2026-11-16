@@ -201,7 +201,12 @@ export async function fetchCannibalizationInput(
       );
       const urlsByKeyword = new Map<string, Set<string>>();
       for (const snap of snapshots) {
-        if (snap.rankingStatus !== "RANKED" || !snap.url) continue;
+        if (
+          snap.rankingStatus !== "RANKED" ||
+          !snap.url ||
+          snap.completionConfidence === "UNVERIFIED"
+        )
+          continue;
         const key = canonicalKeyword(snap.keyword);
         let urls = urlsByKeyword.get(key);
         if (!urls) {

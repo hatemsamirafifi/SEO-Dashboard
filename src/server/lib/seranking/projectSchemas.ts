@@ -96,21 +96,23 @@ export type SeRankingSystemEngine = z.infer<typeof seRankingSystemEngineSchema>;
 // Project Search Engine Configuration
 export const seRankingSiteEngineSchema = z
   .object({
-    site_engine_id: z.coerce.number().int().positive().optional(),
-    id: z.coerce.number().int().positive().optional(),
-    search_engine_id: z.coerce.number().int().positive(),
-    name: z.string().optional(),
-    region_id: z.coerce.number().optional().default(0),
-    region_name: z.string().optional(),
-    lang_code: z.string().optional(),
-    device: z.string().optional(),
+    site_engine_id: z.coerce.number().int().positive().nullable().optional(),
+    id: z.coerce.number().int().positive().nullable().optional(),
+    search_engine_id: z.coerce.number().int().positive().nullable().optional(),
+    se_id: z.coerce.number().int().positive().nullable().optional(),
+    engine_id: z.coerce.number().int().positive().nullable().optional(),
+    name: z.string().nullable().optional(),
+    region_id: z.coerce.number().nullable().optional().default(0),
+    region_name: z.string().nullable().optional(),
+    lang_code: z.string().nullable().optional(),
+    device: z.string().nullable().optional(),
   })
   .passthrough()
   .transform((data) => ({
     siteEngineId: data.site_engine_id ?? data.id ?? 0,
-    searchEngineId: data.search_engine_id,
+    searchEngineId: data.search_engine_id ?? data.se_id ?? data.engine_id ?? 0,
     name: data.name ?? "",
-    regionId: data.region_id,
+    regionId: data.region_id ?? 0,
     regionName: data.region_name ?? "",
     langCode: data.lang_code ?? "",
     device: data.device ?? "",
@@ -122,51 +124,118 @@ export type SeRankingSiteEngine = z.infer<typeof seRankingSiteEngineSchema>;
 export const seRankingProjectKeywordSchema = z
   .object({
     id: seRemoteKeywordIdSchema,
-    name: z.string().optional(),
-    keyword: z.string().optional(),
-    group_id: z.coerce.number().optional(),
-    target_url: z.string().optional(),
+    name: z.string().nullable().optional(),
+    keyword: z.string().nullable().optional(),
+    group_id: z.coerce.number().nullable().optional(),
+    target_url: z.string().nullable().optional(),
+    site_engine_ids: z.array(z.coerce.number()).nullable().optional(),
   })
   .passthrough()
   .transform((data) => ({
     id: data.id,
     keyword: data.name ?? data.keyword ?? "",
-    groupId: data.group_id,
-    targetUrl: data.target_url,
+    groupId: data.group_id ?? undefined,
+    targetUrl: data.target_url ?? undefined,
+    siteEngineIds: data.site_engine_ids ?? [],
   }));
 
-export type SeRankingProjectKeyword = z.infer<
-  typeof seRankingProjectKeywordSchema
->;
+export type SeRankingProjectKeyword = {
+  id: string;
+  keyword: string;
+  groupId?: number;
+  targetUrl?: string;
+  siteEngineIds: number[];
+};
 
-function extractLandingUrl(raw: unknown): string | null {
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-  if (Array.isArray(raw)) {
-    for (const item of raw) {
-      const candidate = extractLandingUrl(item);
-      if (candidate) return candidate;
-    }
-    return null;
-  }
-  if (raw && typeof raw === "object") {
-    const rec = raw as Record<string, unknown>;
-    if (typeof rec.url === "string" && rec.url.trim().length > 0) {
-      return rec.url.trim();
-    }
-    if (
-      typeof rec.landing_page === "string" &&
-      rec.landing_page.trim().length > 0
-    ) {
-      return rec.landing_page.trim();
-    }
-  }
-  return null;
+export interface ExtractedLandingPage {
+  url: string | null;
+  date: string | null;
 }
 
-function normalizeSerpFeatures(raw: unknown): string[] {
+/**
+ * Extracts landing page URL and its observation date, matching against targetDate
+ * when multiple dated landing page records exist in SE Ranking.
+ */
+export function extractLandingPage(
+  raw: unknown,
+  targetDate?: string,
+): ExtractedLandingPage {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return { url: trimmed.length > 0 ? trimmed : null, date: null };
+  }
+
+  if (Array.isArray(raw)) {
+    const withDates: Array<{ url: string; date: string }> = [];
+    const withoutDates: string[] = [];
+
+    for (const entry of raw) {
+      if (typeof entry === "string") {
+        const trimmed = entry.trim();
+        if (trimmed) withoutDates.push(trimmed);
+      } else if (entry && typeof entry === "object") {
+        const rec = entry as Record<string, unknown>;
+        const u =
+          typeof rec.url === "string" && rec.url.trim().length > 0
+            ? rec.url.trim()
+            : typeof rec.landing_page === "string" &&
+                rec.landing_page.trim().length > 0
+              ? rec.landing_page.trim()
+              : null;
+        const d = typeof rec.date === "string" ? rec.date.slice(0, 10) : null;
+        if (u && d) {
+          withDates.push({ url: u, date: d });
+        } else if (u) {
+          withoutDates.push(u);
+        }
+      }
+    }
+
+    if (withDates.length > 0) {
+      if (targetDate) {
+        const exact = withDates.find((item) => item.date === targetDate);
+        if (exact) return exact;
+
+        const prior = withDates
+          .filter((item) => item.date <= targetDate)
+          .toSorted((a, b) => a.date.localeCompare(b.date))
+          .at(-1);
+        if (prior) return prior;
+      }
+      return withDates.toSorted((a, b) => a.date.localeCompare(b.date)).at(-1)!;
+    }
+
+    if (withoutDates.length > 0) {
+      return { url: withoutDates[0], date: null };
+    }
+
+    return { url: null, date: null };
+  }
+
+  if (raw && typeof raw === "object") {
+    const rec = raw as Record<string, unknown>;
+    const u =
+      typeof rec.url === "string" && rec.url.trim().length > 0
+        ? rec.url.trim()
+        : typeof rec.landing_page === "string" &&
+            rec.landing_page.trim().length > 0
+          ? rec.landing_page.trim()
+          : null;
+    const d = typeof rec.date === "string" ? rec.date.slice(0, 10) : null;
+    return { url: u && u.length > 0 ? u : null, date: d };
+  }
+
+  return { url: null, date: null };
+}
+
+export function extractLandingUrl(
+  raw: unknown,
+  targetDate?: string,
+): string | null {
+  return extractLandingPage(raw, targetDate).url;
+}
+
+export function normalizeSerpFeatures(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const features: string[] = [];
   for (const entry of raw) {
@@ -183,11 +252,13 @@ function normalizeSerpFeatures(raw: unknown): string[] {
   return features;
 }
 
-const sePositionEntrySchema = z
+export const sePositionEntrySchema = z
   .object({
     date: z.string().optional(),
     pos: z.coerce.number().nullable().optional(),
     position: z.coerce.number().nullable().optional(),
+    depth: z.coerce.number().nullable().optional(),
+    is_checked: z.coerce.number().nullable().optional(),
     change: z.coerce.number().nullable().optional(),
     landing_page: z.string().nullable().optional(),
     landing_pages: z.unknown().optional(),
@@ -208,6 +279,9 @@ export const seRankingPositionItemSchema = z
     keyword: z.string().optional(),
     position: z.coerce.number().nullable().optional(),
     pos: z.coerce.number().nullable().optional(),
+    depth: z.coerce.number().nullable().optional(),
+    is_checked: z.coerce.number().nullable().optional(),
+    change: z.coerce.number().nullable().optional(),
     landing_page: z.string().nullable().optional(),
     landing_pages: z.unknown().optional(),
     url: z.string().nullable().optional(),
@@ -236,136 +310,3 @@ export const seRankingSiteEnginePositionsSchema = z
 export type SeRankingSiteEnginePositions = z.infer<
   typeof seRankingSiteEnginePositionsSchema
 >;
-
-export interface NormalizedSeRankingObservation {
-  observed: boolean;
-  /** Positive integer rank position, or null when unranked (including pos=0). */
-  position: number | null;
-  url: string | null;
-  serpFeatures: string[];
-  observedDate: string | null;
-}
-
-function normalizePosValue(rawPos: number | null | undefined): number | null {
-  if (rawPos === null || rawPos === undefined || !Number.isFinite(rawPos)) {
-    return null;
-  }
-  // SE Ranking represents "not in top SERP results" as 0.
-  if (rawPos <= 0) return null;
-  return Math.trunc(rawPos);
-}
-
-/**
- * Extracts a single per-keyword ranking observation from GET /sites/positions
- * for a given check date (`YYYY-MM-DD`). Prevents pending/missing observations from
- * being misclassified as NO_RESULT, and converts SE Ranking `pos: 0` to `null`.
- */
-export function extractPositionObservation(
-  item: SeRankingPositionItem,
-  targetDate?: string,
-): NormalizedSeRankingObservation {
-  // 1. Inspect `positions` array or date-keyed object (official GET /sites/positions format)
-  if (Array.isArray(item.positions)) {
-    const entries: SeRankingPositionEntry[] = [];
-    for (const rawEntry of item.positions) {
-      const parsed = sePositionEntrySchema.safeParse(rawEntry);
-      if (parsed.success) entries.push(parsed.data);
-    }
-
-    const match = targetDate
-      ? entries.find((e) => e.date?.slice(0, 10) === targetDate)
-      : entries.at(-1);
-
-    if (match) {
-      const rawPos = match.pos ?? match.position;
-      const entryFeatures = normalizeSerpFeatures(match.serp_features);
-      return {
-        observed: rawPos !== undefined && rawPos !== null,
-        position: normalizePosValue(rawPos),
-        url:
-          extractLandingUrl(match.landing_page) ??
-          extractLandingUrl(match.landing_pages) ??
-          extractLandingUrl(match.url) ??
-          extractLandingUrl(item.landing_page) ??
-          extractLandingUrl(item.url),
-        serpFeatures:
-          entryFeatures.length > 0 ? entryFeatures : item.serpFeaturesList,
-        observedDate: match.date?.slice(0, 10) ?? targetDate ?? null,
-      };
-    }
-
-    // If positions array exists cleanly for other dates but not targetDate, check is still pending.
-    if (targetDate) {
-      return {
-        observed: false,
-        position: null,
-        url: null,
-        serpFeatures: [],
-        observedDate: null,
-      };
-    }
-  } else if (item.positions && typeof item.positions === "object") {
-    const entries = Object.entries(item.positions);
-    const chosen = targetDate
-      ? entries.find(([key]) => key.slice(0, 10) === targetDate)
-      : entries.toSorted(([a], [b]) => a.localeCompare(b)).at(-1);
-    if (chosen) {
-      const [dateKey, rawEntry] = chosen;
-      const parsed = sePositionEntrySchema.safeParse(rawEntry);
-      if (parsed.success) {
-        const rawPos = parsed.data.pos ?? parsed.data.position;
-        const entryFeatures = normalizeSerpFeatures(parsed.data.serp_features);
-        return {
-          observed: rawPos !== undefined && rawPos !== null,
-          position: normalizePosValue(rawPos),
-          url:
-            extractLandingUrl(parsed.data.landing_page) ??
-            extractLandingUrl(parsed.data.landing_pages) ??
-            extractLandingUrl(parsed.data.url),
-          serpFeatures:
-            entryFeatures.length > 0 ? entryFeatures : item.serpFeaturesList,
-          observedDate: dateKey.slice(0, 10),
-        };
-      }
-    }
-    if (targetDate) {
-      return {
-        observed: false,
-        position: null,
-        url: null,
-        serpFeatures: [],
-        observedDate: null,
-      };
-    }
-  }
-
-  // 2. Direct/flat fallback item shape (when item carries position/pos at top level)
-  const flatDate = item.date?.slice(0, 10);
-  if (targetDate && flatDate && flatDate !== targetDate) {
-    return {
-      observed: false,
-      position: null,
-      url: null,
-      serpFeatures: [],
-      observedDate: null,
-    };
-  }
-
-  const flatPos = item.position !== undefined ? item.position : item.pos;
-  const hasFlatObservation =
-    flatPos !== undefined ||
-    item.landing_page !== undefined ||
-    item.url !== undefined ||
-    item.date !== undefined;
-
-  return {
-    observed: hasFlatObservation,
-    position: normalizePosValue(flatPos),
-    url:
-      extractLandingUrl(item.landing_page) ??
-      extractLandingUrl(item.landing_pages) ??
-      extractLandingUrl(item.url),
-    serpFeatures: item.serpFeaturesList,
-    observedDate: flatDate ?? targetDate ?? null,
-  };
-}

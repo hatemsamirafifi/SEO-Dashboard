@@ -16,7 +16,9 @@ export default defineConfig(({ mode }) => {
       : 3001;
   const showDevtools = env.VITE_SHOW_DEVTOOLS !== "false";
   const allowedHosts = [
+    "open-seo-dev",
     env.ALLOWED_HOST,
+    process.env.ALLOWED_HOST,
     env.BETTER_AUTH_URL ? new URL(env.BETTER_AUTH_URL).hostname : undefined,
   ].filter((host): host is string => Boolean(host));
   const emitSourcemaps = env.POSTHOG_SOURCEMAPS === "true";

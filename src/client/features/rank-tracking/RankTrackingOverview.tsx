@@ -76,7 +76,12 @@ export function RankTrackingOverview({
     <div className="px-4 pt-4 pb-4">
       <div className="rounded-lg border border-base-300 p-3 space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-medium">Position distribution</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-medium">Position distribution</span>
+            <span className="text-xs text-base-content/50 capitalize font-normal">
+              ({device})
+            </span>
+          </div>
           <TrendRangeToggle value={sinceDays} onChange={setSinceDays} />
         </div>
 

@@ -307,6 +307,9 @@ export const rankCheckRuns = sqliteTable(
       .default("pending"),
     keywordsTotal: integer("keywords_total").notNull().default(0),
     keywordsChecked: integer("keywords_checked").notNull().default(0),
+    trigger: text("trigger", { enum: ["manual", "scheduled"] })
+      .notNull()
+      .default("manual"),
     isSubsetRun: integer("is_subset_run", { mode: "boolean" })
       .notNull()
       .default(false),
@@ -360,6 +363,23 @@ export const rankSnapshots = sqliteTable(
     providerStatus: text("provider_status"),
     providerStatusCode: integer("provider_status_code"),
     errorMessage: text("error_message"),
+    // Attribution certainty for provider-day-level data (SE Ranking rechecks).
+    // CONFIRMED = safely attributable to this run; LIKELY_COMPLETE = new data
+    // vs the pre-recheck baseline but day-level granularity leaves residual
+    // ambiguity; UNVERIFIED = identical to the pre-recheck baseline, so the
+    // observation may be stale same-day data. Legacy rows are NULL.
+    completionConfidence: text("completion_confidence", {
+      enum: ["CONFIRMED", "LIKELY_COMPLETE", "UNVERIFIED"],
+    }),
+    observationSource: text("observation_source", {
+      enum: [
+        "manual_recheck",
+        "daily_sync",
+        "scheduled_check",
+        "baseline",
+        "legacy",
+      ],
+    }),
     trackingTargetId: text("tracking_target_id"),
     countryCode: text("country_code"),
     cityName: text("city_name"),
@@ -367,6 +387,7 @@ export const rankSnapshots = sqliteTable(
       .notNull()
       .default(sql`(current_timestamp)`),
     checkedDate: text("checked_date"),
+    importedAt: text("imported_at"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(current_timestamp)`),
@@ -388,6 +409,7 @@ export const rankSnapshots = sqliteTable(
         table.trackingTargetId,
         table.trackingKeywordId,
         table.device,
+        table.checkedDate,
       )
       .where(sql`${table.trackingTargetId} IS NOT NULL`),
     uniqueIndex("rank_snapshots_legacy_run_kw_device_idx")
@@ -660,6 +682,46 @@ export const seRankingKeywordMappings = sqliteTable(
       table.projectBindingId,
       table.remoteKeywordId,
     ),
+  ],
+);
+
+// Durable dispatch ledger for paid SE Ranking recheck POSTs. One row per
+// (run, config, scoped keyword/engine set). The recheck endpoint is not
+// idempotent and SE Ranking exposes no check-job ID, so this record is the
+// only guard against re-billing the same recheck after a workflow restart or
+// step retry: PENDING → DISPATCHED → CONFIRMED | OUTCOME_UNKNOWN | REJECTED.
+export const seRankingRecheckDispatch = sqliteTable(
+  "se_ranking_recheck_dispatch",
+  {
+    // Deterministic key: `${runId}:${configId}:${dispatchScope}`
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => rankCheckRuns.id, { onDelete: "cascade" }),
+    configId: text("config_id").notNull(),
+    // JSON: sorted list of { siteEngineId, remoteKeywordId } pairs sent to the
+    // recheck endpoint (null siteEngineId = engine-less keyword recheck).
+    dispatchScope: text("dispatch_scope").notNull(),
+    status: text("status", {
+      enum: [
+        "PENDING",
+        "DISPATCHED",
+        "OUTCOME_UNKNOWN",
+        "CONFIRMED",
+        "REJECTED",
+      ],
+    })
+      .notNull()
+      .default("PENDING"),
+    dispatchedAt: integer("dispatched_at"),
+    outcomeAt: integer("outcome_at"),
+    // Sanitized provider response summary (JSON; never contains credentials).
+    providerResponse: text("provider_response"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("se_ranking_recheck_dispatch_run_idx").on(table.runId),
+    index("se_ranking_recheck_dispatch_config_idx").on(table.configId),
   ],
 );
 
