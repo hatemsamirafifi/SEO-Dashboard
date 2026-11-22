@@ -312,6 +312,15 @@ const dataEnv = {
   // Alchemy reconciles worker vars on every deploy, so the telemetry opt-out
   // must live in the env file — a dashboard-set var would be wiped.
   OPENSEO_TELEMETRY_DISABLED: optionalVar("OPENSEO_TELEMETRY_DISABLED"),
+  // Scheduled Rank Tracking Pilot (read-only sync): disabled by default across all deployments.
+  // The operator must explicitly provide SCHEDULED_RANK_TRACKING_PILOT_ENABLED="true" in the stage
+  // env-file to activate scheduled cron rank tracking.
+  SCHEDULED_RANK_TRACKING_PILOT_ENABLED: optionalVar(
+    "SCHEDULED_RANK_TRACKING_PILOT_ENABLED",
+  ),
+  SCHEDULED_PILOT_CONFIG_ALLOWLIST: optionalVar(
+    "SCHEDULED_PILOT_CONFIG_ALLOWLIST",
+  ),
 };
 
 export default Alchemy.Stack(

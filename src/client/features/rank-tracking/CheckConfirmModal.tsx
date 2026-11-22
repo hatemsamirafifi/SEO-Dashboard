@@ -50,6 +50,9 @@ export function CheckConfirmModal({
   isPending,
   onRunNow,
   onCancel,
+  isSeRanking,
+  targetCount,
+  totalChecks: totalChecksProp,
 }: {
   keywordCount: number;
   devices: RankTrackingConfig["devices"];
@@ -57,14 +60,17 @@ export function CheckConfirmModal({
   isPending: boolean;
   onRunNow: () => void;
   onCancel: () => void;
+  isSeRanking?: boolean;
+  targetCount?: number;
+  totalChecks?: number;
 }) {
   const { costUsd, etaText, method } = runNowCopy({
     keywordCount,
     devices,
     serpDepth,
   });
-  const dc = devicesCount(devices);
-  const totalChecks = keywordCount * dc;
+  const dc = targetCount ?? devicesCount(devices);
+  const totalChecks = totalChecksProp ?? keywordCount * dc;
 
   return (
     <Modal
@@ -78,8 +84,12 @@ export function CheckConfirmModal({
           {keywordCount !== 1 ? "s" : ""}
         </h3>
         <p className="text-sm text-base-content/60 mt-1">
-          {keywordCount} keywords &times; {dc} device
-          {dc !== 1 ? "s" : ""} = {totalChecks} SERP checks
+          {keywordCount} {keywordCount === 1 ? "keyword" : "keywords"}
+          {dc > 1
+            ? ` across ${dc} ${targetCount ? "targets" : "devices"}`
+            : ""}{" "}
+          = {totalChecks} checks
+          {isSeRanking ? " (subscription quota)" : " SERP checks"}
         </p>
       </div>
 
@@ -94,16 +104,24 @@ export function CheckConfirmModal({
         <div className="flex-1">
           <p className="font-medium">
             Run Now
-            {method === "queued" && (
+            {(isSeRanking || method === "queued") && (
               <span className="ml-1.5 text-xs font-normal text-base-content/50">
                 (queued)
               </span>
             )}
           </p>
-          <p className="text-xs text-base-content/60">{etaText}</p>
+          <p className="text-xs text-base-content/60">
+            {isSeRanking ? QUEUED_RESULTS_WINDOW_TEXT : etaText}
+          </p>
         </div>
         <div className="text-right">
-          <p className="font-mono font-semibold">~${costUsd.toFixed(2)}</p>
+          {isSeRanking ? (
+            <span className="font-mono text-xs font-semibold text-primary">
+              Subscription quota
+            </span>
+          ) : (
+            <p className="font-mono font-semibold">~${costUsd.toFixed(2)}</p>
+          )}
           {isPending && <Loader2 className="size-3 animate-spin ml-auto" />}
         </div>
       </button>

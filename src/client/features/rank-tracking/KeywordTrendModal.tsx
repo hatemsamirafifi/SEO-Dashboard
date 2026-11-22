@@ -27,6 +27,29 @@ const DEVICE_STYLE: Record<
   mobile: { label: "Mobile", color: "#14b8a6" },
 };
 
+function getObservationDateMs(point: {
+  checkedAt: string;
+  checkedDate?: string | null;
+}): number {
+  if (point.checkedDate && /^\d{4}-\d{2}-\d{2}$/.test(point.checkedDate)) {
+    return new Date(`${point.checkedDate}T00:00:00.000Z`).getTime();
+  }
+  return new Date(point.checkedAt).getTime();
+}
+
+function formatObservationDateLabel(row: {
+  checkedAt: string;
+  checkedDate?: string | null;
+}): string {
+  if (row.checkedDate && /^\d{4}-\d{2}-\d{2}$/.test(row.checkedDate)) {
+    return new Date(`${row.checkedDate}T00:00:00.000Z`).toLocaleDateString(
+      undefined,
+      { timeZone: "UTC" },
+    );
+  }
+  return new Date(row.checkedAt).toLocaleDateString();
+}
+
 export interface KeywordTrendTarget {
   trackingKeywordId: string;
   keyword: string;
@@ -116,7 +139,7 @@ export function KeywordTrendModal({
     const keys = new Set<string>();
     for (const p of points) {
       if (p.position === null) {
-        keys.add(`${new Date(p.checkedAt).getTime()}:${p.device}`);
+        keys.add(`${getObservationDateMs(p)}:${p.device}`);
       }
     }
     return keys;
@@ -126,7 +149,7 @@ export function KeywordTrendModal({
 
   const exportRows = () =>
     historyRows.map((r) => [
-      new Date(r.checkedAt).toISOString(),
+      r.checkedDate ?? new Date(r.checkedAt).toISOString(),
       DEVICE_STYLE[r.device].label,
       r.rankingStatus ?? (r.position !== null ? "RANKED" : ""),
       r.position ?? "",
@@ -254,8 +277,15 @@ export function KeywordTrendModal({
                     r.position !== null && r.previousPosition === null;
                   return (
                     <tr key={`${r.device}-${r.checkedAt}-${idx}`}>
-                      <td className="whitespace-nowrap text-xs">
-                        {new Date(r.checkedAt).toLocaleDateString()}
+                      <td
+                        className="whitespace-nowrap text-xs"
+                        title={
+                          r.importedAt
+                            ? `Observation date: ${r.checkedDate ?? r.checkedAt} | Imported at: ${r.importedAt}`
+                            : undefined
+                        }
+                      >
+                        {formatObservationDateLabel(r)}
                       </td>
                       {devices.length > 1 && (
                         <td className="text-xs">
@@ -440,7 +470,7 @@ function buildChartData(
 ): ChartRow[] {
   const byTime = new Map<number, ChartRow>();
   for (const p of points) {
-    const ts = new Date(p.checkedAt).getTime();
+    const ts = getObservationDateMs(p);
     const row = byTime.get(ts) ?? { checkedAt: ts };
     row[p.device] = p.position === null ? serpDepth : p.position;
     byTime.set(ts, row);
@@ -452,6 +482,8 @@ interface HistoryRow {
   id?: number;
   device: "desktop" | "mobile";
   checkedAt: string;
+  checkedDate?: string | null;
+  importedAt?: string | null;
   position: number | null;
   previousPosition: number | null;
   rankingStatus?: string | null;
@@ -480,6 +512,8 @@ function buildHistoryRows(points: RankKeywordHistoryPoint[]): HistoryRow[] {
       id: p.id,
       device: p.device,
       checkedAt: p.checkedAt,
+      checkedDate: p.checkedDate ?? null,
+      importedAt: p.importedAt ?? null,
       position: p.position,
       previousPosition: resolvedPrev,
       rankingStatus: p.rankingStatus,

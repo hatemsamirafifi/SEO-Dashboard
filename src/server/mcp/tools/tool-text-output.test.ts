@@ -287,9 +287,14 @@ describe("MCP tool text output (service-backed tools)", () => {
 
     const out = text(result);
     expect(out).toContain(
-      "keyword | desktop | prev (desktop) | mobile | prev (mobile)",
+      "keyword | target | device | pos | obs date | prev comparable | prev date | movement | provider delta | provider | provenance | method | url | status",
     );
-    expect(out).toContain("seo tools | 3 | 5 | 7 | —");
+    expect(out).toContain(
+      "seo tools | desktop | desktop | 3 | — | 5 | — | +2 | — | — | — | previous_comparable_observation | — | —",
+    );
+    expect(out).toContain(
+      "seo tools | mobile | mobile | 7 | — | — | — | — | — | — | — | none | — | —",
+    );
   });
 
   it("get_ranked_keywords renders nested provider rows as a text table", async () => {

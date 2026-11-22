@@ -557,6 +557,20 @@
       "when": 1794400000000,
       "tag": "0078_se_ranking_rank_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "6",
+      "when": 1794400000001,
+      "tag": "0079_se_ranking_recheck_dispatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "6",
+      "when": 1794400000002,
+      "tag": "0080_rank_observation_provenance_and_trigger",
+      "breakpoints": true
     }
   ]
 }

@@ -107,8 +107,9 @@ export function notifyKeywordsAddedResult(result: {
 
 export function resolveDeviceVisibility(
   devices: RankTrackingConfig["devices"],
-  activeDevice: "desktop" | "mobile",
+  activeDevice: "desktop" | "mobile" | "all",
   selectedTarget?: RankTrackingTarget,
+  hasBothDevicesParam?: boolean,
 ): { showDesktop: boolean; showMobile: boolean } {
   if (selectedTarget) {
     return {
@@ -116,7 +117,11 @@ export function resolveDeviceVisibility(
       showMobile: selectedTarget.device === "mobile",
     };
   }
-  if (devices === "both") {
+  const hasBoth = hasBothDevicesParam ?? devices === "both";
+  if (hasBoth) {
+    if (activeDevice === "all") {
+      return { showDesktop: true, showMobile: true };
+    }
     return {
       showDesktop: activeDevice === "desktop",
       showMobile: activeDevice === "mobile",
@@ -139,6 +144,9 @@ export function RankTrackingDetailFooter({
   showTargetsModal,
   targets,
   onCloseTargetsModal,
+  isSeRanking,
+  targetCount,
+  totalChecks,
 }: {
   projectId: string;
   config: RankTrackingConfig;
@@ -154,6 +162,9 @@ export function RankTrackingDetailFooter({
   showTargetsModal: boolean;
   targets?: RankTrackingTarget[];
   onCloseTargetsModal: () => void;
+  isSeRanking?: boolean;
+  targetCount?: number;
+  totalChecks?: number;
 }) {
   return (
     <>
@@ -170,6 +181,9 @@ export function RankTrackingDetailFooter({
         isPending={isPending}
         onRunCheck={onRunCheck}
         onCancel={onCancelCheck}
+        isSeRanking={isSeRanking}
+        targetCount={targetCount}
+        totalChecks={totalChecks}
       />
 
       {showTargetsModal && (

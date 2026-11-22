@@ -71,7 +71,35 @@ function buildFailedDeviceChild(
   failedDevice: NonNullable<RankRowForTrace["desktop"]>,
   run: RankRunForTrace,
 ): GlobalTraceKeywordChild {
-  const childErrMsg = failedDevice.errorMessage || run.errorMessage;
+  if (failedDevice.attemptStatus === "CANCELLED") {
+    return {
+      keywordId: id,
+      keyword: row?.keyword,
+      status: "cancelled",
+      rankingStatus: "CANCELLED",
+      provider: providerLabel(
+        failedDevice.provider ??
+          row?.desktop?.provider ??
+          row?.mobile?.provider,
+      ),
+      error: failedDevice.errorMessage
+        ? scrubGlobalTraceText(failedDevice.errorMessage)
+        : "Cancelled before check",
+    };
+  }
+
+  const isUnverified =
+    failedDevice.attemptStatus === "TIMED_OUT_UNVERIFIED" ||
+    failedDevice.completionConfidence === "UNVERIFIED";
+
+  const defaultMsg = isUnverified
+    ? "Recheck unverified: no new observation within polling window"
+    : "Rank check attempt failed";
+
+  const childErrMsg =
+    failedDevice.errorMessage ||
+    failedDevice.providerStatus ||
+    run.errorMessage;
   const hasProviderMarker = childErrMsg
     ? PROVIDER_MARKER_RE.test(childErrMsg)
     : false;
@@ -92,9 +120,7 @@ function buildFailedDeviceChild(
     ),
     httpStatus,
     taskStatus,
-    error: childErrMsg
-      ? scrubGlobalTraceText(childErrMsg)
-      : "Rank check attempt failed",
+    error: childErrMsg ? scrubGlobalTraceText(childErrMsg) : defaultMsg,
   };
 }
 

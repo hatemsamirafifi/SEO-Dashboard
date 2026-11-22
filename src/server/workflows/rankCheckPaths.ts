@@ -64,6 +64,7 @@ interface CheckContext {
    * projectId may be null when the billing context carries no project.
    */
   billingScope: { organizationId: string; projectId: string | null };
+  trigger?: "manual" | "scheduled";
 }
 
 /** True when the run row is cancelled (missing rows stop the check too). */
@@ -103,6 +104,8 @@ function mapResultsToSnapshotRows(
       providerStatus: isRanked ? "Ok" : "No ranking found",
       providerStatusCode: 20000,
       errorMessage: null,
+      observationSource:
+        ctx.trigger === "scheduled" ? "scheduled_check" : "manual_recheck",
     };
   });
 }
@@ -468,6 +471,8 @@ async function checkBatchLive(
             : `No ranking found in top ${r.inspectedDepth}`,
           providerStatusCode: r.calls.at(-1)?.httpStatus ?? null,
           errorMessage: null,
+          observationSource:
+            ctx.trigger === "scheduled" ? "scheduled_check" : "manual_recheck",
         });
       } else {
         console.error(
@@ -515,6 +520,8 @@ async function checkBatchLive(
           providerStatus: reason,
           providerStatusCode: lastDispatchedCall?.httpStatus ?? statusCode,
           errorMessage: reason,
+          observationSource:
+            ctx.trigger === "scheduled" ? "scheduled_check" : "manual_recheck",
         });
       }
     }
@@ -684,7 +691,7 @@ function failedQueueSnapshotRows(
   }>,
   reasons: Map<string, string>,
   previousPositions: Map<string, number | null>,
-) {
+): Array<Omit<InferInsertModel<typeof rankSnapshots>, "id">> {
   const today = new Date().toISOString().slice(0, 10);
   return tasks.map((task) => {
     const reason =
@@ -712,6 +719,8 @@ function failedQueueSnapshotRows(
       providerStatus: reason,
       providerStatusCode: null,
       errorMessage: reason,
+      observationSource:
+        ctx.trigger === "scheduled" ? "scheduled_check" : "manual_recheck",
     };
   });
 }

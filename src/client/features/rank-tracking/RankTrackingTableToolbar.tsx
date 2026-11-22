@@ -26,6 +26,7 @@ export function RankTrackingTableToolbar({
   onCopyKeywords,
   onCheckNow,
   onCheckMissingRankings,
+  onReadOnlySync,
   missingRankingsCount,
   missingRankingsLoading,
   onRefreshMetrics,
@@ -60,6 +61,7 @@ export function RankTrackingTableToolbar({
   onCopyKeywords: () => void;
   onCheckNow: () => void;
   onCheckMissingRankings: () => void;
+  onReadOnlySync?: () => void;
   missingRankingsCount: number | null;
   missingRankingsLoading: boolean;
   onRefreshMetrics: () => void;
@@ -278,6 +280,7 @@ export function RankTrackingTableToolbar({
       <MoreMenu
         onCheckNow={onCheckNow}
         onCheckMissingRankings={onCheckMissingRankings}
+        onReadOnlySync={onReadOnlySync}
         missingRankingsCount={
           missingRankingsLoading ? null : missingRankingsCount
         }

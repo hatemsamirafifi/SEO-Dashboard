@@ -8,7 +8,7 @@ import { seRankingSubscriptionSchema } from "./schemas";
 import type { SeRankingConfig, SeRankingSubscription } from "./types";
 
 export type RequestOptions = {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   params?: Record<string, string | number | boolean | undefined | null>;
   body?: unknown;
   signal?: AbortSignal;

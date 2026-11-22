@@ -9,8 +9,11 @@ import {
 import { resolveEffectiveSeRankingConfig } from "@/server/features/settings/services/SeRankingSettingsService";
 import { SeRankingBindingRepository } from "../repositories/SeRankingBindingRepository";
 import { RankTrackingTargetRepository } from "../repositories/RankTrackingTargetRepository";
-import { RankTrackingRepository } from "../repositories/RankTrackingRepository";
 import { runAccountMigration } from "./seRankingAccountMigrationService";
+import {
+  syncTrackedKeywords as syncTrackedKeywordsImpl,
+  type SyncTrackedKeywordsParams,
+} from "./seRankingKeywordSyncService";
 
 export function computeAccountFingerprint(apiKey: string): string {
   return createHash("sha256").update(apiKey.trim()).digest("hex");
@@ -69,6 +72,7 @@ async function ensureProject(params: {
   projectName?: string;
   apiKey?: string;
   client?: ReturnType<typeof createSeRankingClient>;
+  readOnlySync?: boolean;
 }) {
   let apiKey = params.apiKey;
   if (!apiKey) {
@@ -160,6 +164,12 @@ async function ensureProject(params: {
     if (matchedSite) {
       remoteSiteId = matchedSite.id;
     } else {
+      if (params.readOnlySync) {
+        throw new AppError(
+          "FORBIDDEN",
+          `Remote SE Ranking site does not exist for domain ${params.domain}; site creation is strictly forbidden in readOnlySync mode.`,
+        );
+      }
       const createdSite = await SeRankingProjectService.createSite(client, {
         url: `https://${params.domain}`,
         title: params.projectName || params.domain,
@@ -222,6 +232,7 @@ async function ensureSearchEngines(params: {
   remoteSiteId: number;
   client: ReturnType<typeof createSeRankingClient>;
   targetIds?: string[];
+  readOnlySync?: boolean;
 }) {
   let targets = await RankTrackingTargetRepository.getTargetsForProject(
     params.localProjectId,
@@ -259,9 +270,10 @@ async function ensureSearchEngines(params: {
     let siteEngineId: number | null = null;
     if (
       existingBinding?.remoteSiteEngineId &&
-      remoteEngines.some(
-        (re) => re.siteEngineId === existingBinding.remoteSiteEngineId,
-      )
+      (remoteEngines.length === 0 ||
+        remoteEngines.some(
+          (re) => re.siteEngineId === existingBinding.remoteSiteEngineId,
+        ))
     ) {
       siteEngineId = existingBinding.remoteSiteEngineId;
     }
@@ -287,6 +299,12 @@ async function ensureSearchEngines(params: {
     }
 
     if (!siteEngineId) {
+      if (params.readOnlySync) {
+        throw new AppError(
+          "FORBIDDEN",
+          `Remote SE Ranking search engine for target ${target.id} (${target.countryCode}/${target.device}) does not exist; engine addition is strictly forbidden in readOnlySync mode.`,
+        );
+      }
       const added = await SeRankingProjectService.addSiteSearchEngine(
         params.client,
         {
@@ -322,95 +340,8 @@ async function ensureSearchEngines(params: {
   return results;
 }
 
-async function syncTrackedKeywords(params: {
-  localProjectId: string;
-  configId: string;
-  projectBindingId: string;
-  remoteSiteId: number;
-  client: ReturnType<typeof createSeRankingClient>;
-}) {
-  const localKeywords = await RankTrackingRepository.getKeywordsForConfig(
-    params.configId,
-  );
-  if (localKeywords.length === 0) return [];
-
-  const [existingMappings, remoteKeywords] = await Promise.all([
-    SeRankingBindingRepository.getKeywordMappingsForProject(
-      params.projectBindingId,
-    ),
-    SeRankingProjectService.listKeywords(params.client, params.remoteSiteId),
-  ]);
-
-  const remoteMap = new Map<string, string>();
-  for (const rk of remoteKeywords) {
-    remoteMap.set(rk.keyword.trim().toLowerCase(), rk.id);
-  }
-
-  const missingKeywords: Array<{ id: string; keyword: string }> = [];
-  const mappingsToUpsert = [];
-  const nowIso = new Date().toISOString();
-
-  for (const kw of localKeywords) {
-    const normalized = kw.keyword.trim().toLowerCase();
-    const existingMapping = existingMappings.find(
-      (m) => m.trackingKeywordId === kw.id,
-    );
-    const remoteId = remoteMap.get(normalized);
-
-    if (remoteId !== undefined) {
-      if (
-        !existingMapping ||
-        existingMapping.remoteKeywordId !== remoteId ||
-        existingMapping.status !== "synced"
-      ) {
-        mappingsToUpsert.push({
-          id: existingMapping?.id || crypto.randomUUID(),
-          projectBindingId: params.projectBindingId,
-          trackingKeywordId: kw.id,
-          remoteKeywordId: remoteId,
-          status: "synced" as const,
-          createdAt: existingMapping?.createdAt || nowIso,
-          updatedAt: nowIso,
-        });
-      }
-      continue;
-    }
-
-    missingKeywords.push(kw);
-  }
-
-  if (missingKeywords.length > 0) {
-    const added = await SeRankingProjectService.addKeywords(params.client, {
-      siteId: params.remoteSiteId,
-      keywords: missingKeywords.map((k) => ({ keyword: k.keyword })),
-    });
-
-    for (const addedKw of added) {
-      const normalizedAdded = addedKw.keyword.trim().toLowerCase();
-      const local = missingKeywords.find(
-        (k) => k.keyword.trim().toLowerCase() === normalizedAdded,
-      );
-      if (local) {
-        mappingsToUpsert.push({
-          id: crypto.randomUUID(),
-          projectBindingId: params.projectBindingId,
-          trackingKeywordId: local.id,
-          remoteKeywordId: addedKw.id,
-          status: "synced" as const,
-          createdAt: nowIso,
-          updatedAt: nowIso,
-        });
-      }
-    }
-  }
-
-  if (mappingsToUpsert.length > 0) {
-    await SeRankingBindingRepository.bulkUpsertKeywordMappings(
-      mappingsToUpsert,
-    );
-  }
-
-  return mappingsToUpsert;
+async function syncTrackedKeywords(params: SyncTrackedKeywordsParams) {
+  return syncTrackedKeywordsImpl(params);
 }
 
 async function migrateAccount(params: {

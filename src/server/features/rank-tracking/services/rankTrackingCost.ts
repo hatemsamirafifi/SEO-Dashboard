@@ -9,6 +9,7 @@ import type { RankTrackingConfig } from "@/types/schemas/rank-tracking";
 export function formatRankTrackingCost(
   config: Pick<RankTrackingConfig, "devices" | "serpDepth">,
   keywordCount: number,
+  totalChecksOverride?: number,
 ) {
   // Estimates the cost of a manual "check now" for the config's full keyword
   // set. The method is resolved from the SAME rule the workflow uses
@@ -23,6 +24,7 @@ export function formatRankTrackingCost(
     config.devices,
     config.serpDepth,
     method,
+    totalChecksOverride,
   );
   return {
     costUsd,

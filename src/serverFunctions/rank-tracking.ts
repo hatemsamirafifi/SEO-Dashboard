@@ -33,6 +33,8 @@ export interface RankKeywordHistoryPoint {
   device: "desktop" | "mobile";
   checkedAt: string;
   checkedDate?: string | null;
+  importedAt?: string | null;
+  observationSource?: string | null;
   position: number | null;
   previousPosition?: number | null;
   rankingStatus?:
@@ -77,14 +79,14 @@ export const getRankTrackingConfigs = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(getConfigsSchema)
   .handler(async ({ context }) => {
-    return RankTrackingRepository.getConfigsForProject(context.projectId);
+    return RankTrackingService.getConfigsForProject(context.projectId);
   });
 
 export const getRankTrackingConfigSummaries = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(getConfigsSchema)
   .handler(async ({ context }) => {
-    return RankTrackingRepository.getConfigSummaries(context.projectId);
+    return RankTrackingService.getConfigSummaries(context.projectId);
   });
 
 export const createRankTrackingConfig = createServerFn({ method: "POST" })
@@ -157,6 +159,7 @@ export const triggerRankCheck = createServerFn({ method: "POST" })
       missingRankings: data.missingRankings,
       missingRankingStates: data.missingRankingStates,
       operationId: data.operationId,
+      readOnlySync: data.readOnlySync,
     });
 
     if (result.ok) {
@@ -226,7 +229,12 @@ export const estimateRankCheckCost = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(estimateCostSchema)
   .handler(async ({ data, context }) => {
-    return RankTrackingService.estimateCost(data.configId, context.projectId);
+    return RankTrackingService.estimateCost(
+      data.configId,
+      context.projectId,
+      context.organizationId,
+      data.keywordIds,
+    );
   });
 
 export const addTrackingKeywords = createServerFn({ method: "POST" })
@@ -405,4 +413,24 @@ export const getSerpClusters = createServerFn({ method: "POST" })
       configId: data.configId,
       device: data.device,
     });
+  });
+
+export interface SchedulerStatusResponse {
+  schedulerConfigured: boolean;
+  schedulerRunning: boolean;
+  lastTickAt: string | null;
+  lastTickSuccess: boolean;
+  lastTickError: string | null;
+  totalTicks: number;
+  allowlist: string[];
+  cadence: string;
+}
+
+export const getSchedulerStatus = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(getConfigsSchema)
+  .handler(async (): Promise<SchedulerStatusResponse> => {
+    const { getSchedulerHeartbeatStatus } =
+      await import("@/server/features/rank-tracking/services/schedulerHeartbeat");
+    return getSchedulerHeartbeatStatus();
   });

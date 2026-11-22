@@ -9,26 +9,19 @@ import {
   optionalMetaOutputSchema,
 } from "@/server/mcp/output-schemas";
 import { withMcpProjectAuth } from "@/server/mcp/project-auth";
-import {
-  formatMcpTable,
-  readPath,
-  type McpTableColumn,
-} from "@/server/mcp/table";
+import { formatMcpTable } from "@/server/mcp/table";
 import { projectIdSchema } from "@/server/mcp/schemas";
-
-const RANK_RESULT_COLUMNS: McpTableColumn<unknown>[] = [
-  { header: "keyword", value: (row) => readPath(row, "keyword") },
-  { header: "desktop", value: (row) => readPath(row, "desktop", "position") },
-  {
-    header: "prev (desktop)",
-    value: (row) => readPath(row, "desktop", "previousPosition"),
-  },
-  { header: "mobile", value: (row) => readPath(row, "mobile", "position") },
-  {
-    header: "prev (mobile)",
-    value: (row) => readPath(row, "mobile", "previousPosition"),
-  },
-];
+import {
+  comparePeriodSchema,
+  type ComparePeriod,
+} from "@/types/schemas/rank-tracking";
+import {
+  enrichRankResults,
+  formatTargetLabel,
+  RANK_RESULT_COLUMNS,
+  toFlattenedRankRows,
+  type TargetRow,
+} from "./get-rank-tracker-format";
 
 const inputSchema = {
   projectId: projectIdSchema,
@@ -45,6 +38,11 @@ const inputSchema = {
     .describe(
       "Optional tracking target ID (country/city/language/device) to scope results when trackerId is provided.",
     ),
+  comparePeriod: comparePeriodSchema
+    .optional()
+    .describe(
+      "Comparison period. Defaults to 'previous' (immediately preceding comparable same-provider, same-target observation). Use '7d', '30d', or '90d' only when an explicit multi-day historical baseline is requested.",
+    ),
 } as const;
 
 type Args = z.infer<z.ZodObject<typeof inputSchema>>;
@@ -54,7 +52,7 @@ export const getRankTrackerTool = {
   config: {
     title: "Get rank tracker",
     description:
-      "Read-only access to rank tracker configs and their latest results. With `trackerId`, returns config + latest snapshot per keyword. Without it, lists all trackers in the project. Uses no credits — reads from OpenSEO state, no DataForSEO call. To trigger a new check, use the dashboard.",
+      "Read-only access to rank tracker configs and their latest results. With `trackerId`, returns config, targets, and the latest observation per keyword/device alongside its previous comparable same-provider, same-target observation (`previousComparablePosition`, `previousObservationDate`, `positionChange` where positive = improvement and negative = decline). SE Ranking's `providerChange` is kept separate from OpenSEO's `positionChange`. Period baselines (`periodBaselinePosition`) are separate from the immediately previous observation. Uses no credits — reads from OpenSEO state, no DataForSEO or paid SE Ranking call. To trigger a new check, use the dashboard.",
     inputSchema,
     outputSchema: z
       .object({
@@ -62,6 +60,7 @@ export const getRankTrackerTool = {
         config: looseObjectOutputSchema.optional(),
         targets: z.array(looseObjectOutputSchema).optional(),
         results: looseObjectOutputSchema.optional(),
+        targetResults: z.array(looseObjectOutputSchema).optional(),
         ...optionalMetaOutputSchema,
       })
       .passthrough(),
@@ -84,12 +83,7 @@ export const getRankTrackerTool = {
       const targetsSummary =
         targets.length > 0
           ? `\nTracking Targets (${targets.length}):\n` +
-            targets
-              .map(
-                (t) =>
-                  `- ${t.countryCode.toUpperCase()}${t.cityName ? `/${t.cityName}` : ""} (${t.languageCode}) ${t.device}`,
-              )
-              .join("\n")
+            targets.map((t) => `- ${t.id}  ${formatTargetLabel(t)}`).join("\n")
           : "";
 
       const text =
@@ -125,25 +119,114 @@ export const getRankTrackerTool = {
         meta: buildProjectMeta(context, args.projectId),
       });
     }
-    const results = args.targetId
+
+    const effectiveComparePeriod: ComparePeriod =
+      args.comparePeriod ?? "previous";
+    const configTargets = targets.filter(
+      (t) => !t.trackingConfigId || t.trackingConfigId === config.id,
+    );
+    const targetById = new Map(targets.map((t) => [t.id, t]));
+    const desktopTargets = configTargets.filter((t) => t.device === "desktop");
+    const mobileTargets = configTargets.filter((t) => t.device === "mobile");
+    const singleTargetByDevice: Partial<
+      Record<"desktop" | "mobile", TargetRow>
+    > = {
+      desktop: desktopTargets.length === 1 ? desktopTargets[0] : undefined,
+      mobile: mobileTargets.length === 1 ? mobileTargets[0] : undefined,
+    };
+
+    const hasMultipleTargetsSameDevice =
+      !args.targetId && (desktopTargets.length > 1 || mobileTargets.length > 1);
+
+    if (hasMultipleTargetsSameDevice) {
+      const perTarget = await Promise.all(
+        configTargets.map(async (target) => {
+          const raw = await getLatestResults(
+            args.trackerId!,
+            args.projectId,
+            effectiveComparePeriod,
+            target.id,
+          );
+          const enriched = enrichRankResults(raw, targetById, {
+            [target.device]: target,
+          });
+          return {
+            target,
+            results: enriched,
+            flattened: toFlattenedRankRows(enriched.rows, target.device),
+          };
+        }),
+      );
+
+      const primaryResults = perTarget[0]?.results ?? { rows: [], run: null };
+      const allFlattened = perTarget.flatMap((entry) => entry.flattened);
+      const text = [
+        `Tracker ${config.id} (${config.domain}):`,
+        `Schedule: ${config.scheduleInterval}, devices: ${config.devices}, depth: ${config.serpDepth}, comparison: ${effectiveComparePeriod}`,
+        `Latest run: ${primaryResults.run?.lastCheckedAt ?? "never"}`,
+        `Targets: ${configTargets.map((t) => formatTargetLabel(t)).join(", ")}`,
+        `Observations (${allFlattened.length}):`,
+        allFlattened.length === 0
+          ? "No keywords tracked yet."
+          : formatMcpTable(allFlattened, RANK_RESULT_COLUMNS),
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      return mcpResponse({
+        text,
+        meta: buildProjectMeta(
+          context,
+          args.projectId,
+          `/p/${args.projectId}/rank-tracking/${args.trackerId}`,
+        ),
+        structuredContent: {
+          config,
+          targets: configTargets,
+          results: primaryResults,
+          targetResults: perTarget.map((p) => ({
+            target: p.target,
+            results: p.results,
+          })),
+        },
+      });
+    }
+
+    const rawResults = args.targetId
       ? await getLatestResults(
           args.trackerId,
           args.projectId,
-          "7d",
+          effectiveComparePeriod,
           args.targetId,
         )
-      : await getLatestResults(args.trackerId, args.projectId);
+      : await getLatestResults(
+          args.trackerId,
+          args.projectId,
+          effectiveComparePeriod,
+        );
+
+    const results = enrichRankResults(
+      rawResults,
+      targetById,
+      singleTargetByDevice,
+    );
+    const scopedTarget = args.targetId
+      ? targetById.get(args.targetId)
+      : undefined;
+    const flattened = toFlattenedRankRows(results.rows, scopedTarget?.device);
+    const displayTargets = configTargets.length > 0 ? configTargets : targets;
+
     const text = [
       `Tracker ${config.id} (${config.domain}):`,
-      `Schedule: ${config.scheduleInterval}, devices: ${config.devices}, depth: ${config.serpDepth}`,
+      `Schedule: ${config.scheduleInterval}, devices: ${config.devices}, depth: ${config.serpDepth}, comparison: ${effectiveComparePeriod}`,
       `Latest run: ${results.run?.lastCheckedAt ?? "never"}`,
-      targets.length > 0
-        ? `Targets: ${targets.map((t) => `${t.countryCode.toUpperCase()}${t.cityName ? `/${t.cityName}` : ""} (${t.device})`).join(", ")}`
+      displayTargets.length > 0
+        ? `Targets: ${displayTargets.map((t) => formatTargetLabel(t)).join(", ")}`
         : null,
       `Keywords (${results.rows.length}):`,
-      results.rows.length === 0
+      flattened.length === 0
         ? "No keywords tracked yet."
-        : formatMcpTable(results.rows, RANK_RESULT_COLUMNS),
+        : formatMcpTable(flattened, RANK_RESULT_COLUMNS),
     ]
       .filter(Boolean)
       .join("\n");
@@ -155,7 +238,7 @@ export const getRankTrackerTool = {
         args.projectId,
         `/p/${args.projectId}/rank-tracking/${args.trackerId}`,
       ),
-      structuredContent: { config, targets, results },
+      structuredContent: { config, targets: displayTargets, results },
     });
   }),
 };

@@ -1,7 +1,16 @@
-import { and, eq, inArray, isNotNull, max, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, max, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { rankCheckRuns, rankSnapshots } from "@/db/schema";
 import type { DeviceRankingFacts } from "@/shared/rank-tracking";
+
+/**
+ * SQL fragment excluding UNVERIFIED snapshots: a same-day observation
+ * identical to the pre-recheck baseline may be stale data from an earlier
+ * run, never a fresh ranking, and must never mask a failed state as a fresh
+ * ranking or backfill a previousPosition. Inlined as raw SQL so no extra
+ * bound parameter is added (D1 caps parameters at 100 per statement).
+ */
+const EXCLUDE_UNVERIFIED = sql`(${rankSnapshots.completionConfidence} IS NULL OR ${rankSnapshots.completionConfidence} != 'UNVERIFIED')`;
 
 interface LatestFactRow {
   trackingKeywordId: string;
@@ -9,14 +18,16 @@ interface LatestFactRow {
   position: number | null;
   previousPosition: number | null;
   rankingStatus: "RANKED" | "NO_RESULT" | "CHECK_FAILED" | "NOT_CHECKED" | null;
+  completionConfidence: string | null;
 }
 
 function factFromRow(row: LatestFactRow): DeviceRankingFacts {
+  const isUnverified = row.completionConfidence === "UNVERIFIED";
   return {
     hasSnapshot: true,
-    position: row.position,
+    position: isUnverified ? null : row.position,
     previousPosition: row.previousPosition,
-    rankingStatus: row.rankingStatus,
+    rankingStatus: isUnverified ? "CHECK_FAILED" : row.rankingStatus,
   };
 }
 
@@ -98,6 +109,7 @@ async function selectLatestFactRows(
       position: rankSnapshots.position,
       previousPosition: rankSnapshots.previousPosition,
       rankingStatus: rankSnapshots.rankingStatus,
+      completionConfidence: rankSnapshots.completionConfidence,
     })
     .from(rankSnapshots)
     .innerJoin(
@@ -115,6 +127,7 @@ async function selectLatestFactRows(
       rankSnapshots.position,
       rankSnapshots.previousPosition,
       rankSnapshots.rankingStatus,
+      rankSnapshots.completionConfidence,
     );
 }
 
@@ -187,6 +200,7 @@ async function backfillPreviousPositionsForLostKeywords(
       inArray(rankSnapshots.runId, validRunIds),
       inArray(rankSnapshots.trackingKeywordId, chunk),
       isNotNull(rankSnapshots.position),
+      EXCLUDE_UNVERIFIED,
     ];
 
     const grouped = db

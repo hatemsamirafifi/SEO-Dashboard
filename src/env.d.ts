@@ -43,6 +43,13 @@ declare namespace Cloudflare {
     // DataForSEO API Basic auth value (base64 of login:password)
     DATAFORSEO_API_KEY: string;
 
+    // Scheduled Rank Tracking Pilot configuration
+    SCHEDULED_RANK_TRACKING_PILOT_ENABLED?: string;
+    SCHEDULED_PILOT_CONFIG_ALLOWLIST?: string;
+    ALLOW_LOCAL_PILOT_OPERATOR_SYNC?: string;
+    LOCAL_OPERATOR_SYNC_SECRET?: string;
+    LOCAL_SCHEDULER_SECRET?: string;
+
     // AI provider keys for the in-app agents (onboarding uses OpenRouter;
     // SAM can use any configured provider). Keys are server-side deployment
     // secrets — never stored in the app DB, never returned to the client.

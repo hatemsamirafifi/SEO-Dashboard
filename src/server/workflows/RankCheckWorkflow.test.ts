@@ -141,6 +141,7 @@ interface WorkflowEventPayload {
 async function runWorkflow(params: {
   keywordIds?: string[];
   trigger?: "manual" | "scheduled";
+  devices?: "both" | "desktop" | "mobile";
 }) {
   const { RankCheckWorkflow } = await import("./RankCheckWorkflow");
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine ctor args are unused by the workflow body
@@ -169,7 +170,7 @@ async function runWorkflow(params: {
     domain: "acme.com",
     locationCode: 2840,
     languageCode: "en",
-    devices: "both",
+    devices: params.devices ?? "both",
     serpDepth: 20,
     trigger: params.trigger ?? "manual",
     keywordIds: params.keywordIds,
@@ -350,6 +351,34 @@ describe("RankCheckWorkflow scope enforcement", () => {
       expect.objectContaining({
         status: "completed",
         keywordsChecked: 2,
+      }),
+    );
+  });
+
+  it("enforces target-level completion: a completed keyword on Mobile does NOT imply Desktop completed", async () => {
+    const selected = ["keyword_1"];
+    repoMocks.getSnapshotsForRun.mockResolvedValue([
+      {
+        trackingKeywordId: "keyword_1",
+        device: "mobile",
+        rankingStatus: "RANKED",
+        position: 46,
+      },
+      {
+        trackingKeywordId: "keyword_1",
+        device: "desktop",
+        rankingStatus: "CHECK_FAILED",
+        position: null,
+      },
+    ]);
+
+    await runWorkflow({ keywordIds: selected, devices: "both" });
+
+    expect(repoMocks.updateRun).toHaveBeenCalledWith(
+      "run_1",
+      expect.objectContaining({
+        status: "partial",
+        keywordsChecked: 0,
       }),
     );
   });

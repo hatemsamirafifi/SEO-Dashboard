@@ -23,9 +23,12 @@ type RankSnapshotRow = Awaited<
   ReturnType<typeof RankTrackingRepository.getSnapshotsForRun>
 >[number];
 
-/** CHECK_FAILED / NOT_CHECKED snapshots are noise, never input. */
+/** CHECK_FAILED / NOT_CHECKED / UNVERIFIED snapshots are noise, never input. */
 function isUsableSnapshot(snap: RankSnapshotRow): boolean {
-  return snap.rankingStatus === "RANKED" || snap.rankingStatus === "NO_RESULT";
+  return (
+    (snap.rankingStatus === "RANKED" || snap.rankingStatus === "NO_RESULT") &&
+    snap.completionConfidence !== "UNVERIFIED"
+  );
 }
 
 export type RankDropPair = {
