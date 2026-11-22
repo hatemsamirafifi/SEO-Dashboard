@@ -238,13 +238,22 @@ async function disconnect(input: {
 
 /** Pass-through of GSC `searchAnalytics.query` for a project's connected property. */
 async function getPerformance(
-  input: GscPerformanceInput,
+  input: GscPerformanceInput & { organizationId?: string },
 ): Promise<GscPerformanceResult> {
   const connection = await GscConnectionRepository.getByProjectId(
     input.projectId,
   );
-  if (!connection) {
+  if (
+    !connection ||
+    (input.organizationId && connection.organizationId !== input.organizationId)
+  ) {
     throw new GscNotConnectedError(input.projectId);
+  }
+  if (input.organizationId && !connection.gscAccountId) {
+    throw new AppError(
+      "FORBIDDEN",
+      "Reconnect the project's verified Search Console property.",
+    );
   }
   const request = buildSearchAnalyticsRequest(input);
   const client = createGscClient({

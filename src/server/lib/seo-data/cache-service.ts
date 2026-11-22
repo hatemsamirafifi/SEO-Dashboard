@@ -6,7 +6,7 @@ import {
 } from "@/server/lib/r2-cache";
 import { getCacheTtl } from "./config";
 import { resolvePlannerCacheIdentity } from "./providers/google-ads-planner-access";
-import type { SEODataRequest } from "./types";
+import type { SEODataDiagnostics, SEODataRequest } from "./types";
 import { z, type ZodTypeAny } from "zod";
 
 /**
@@ -42,6 +42,14 @@ const KEYWORD_CACHE_ENVELOPE_SCHEMA = z
     provider: z.string(),
     fetchedAt: z.iso.datetime(),
     data: z.unknown(),
+    diagnostics: z
+      .object({
+        endpoint: z.string().optional(),
+        upstreamTotal: z.number().nullable().optional(),
+        rawItemCount: z.number().optional(),
+        parsedItemCount: z.number().optional(),
+      })
+      .optional(),
   })
   .passthrough();
 
@@ -55,7 +63,13 @@ function readKeywordEnvelope<T>(
   maxAgeSeconds: number | undefined,
 ):
   | { ok: false }
-  | { ok: true; data: T; cacheProvider: string; fetchedAt: string } {
+  | {
+      ok: true;
+      data: T;
+      cacheProvider: string;
+      fetchedAt: string;
+      diagnostics?: SEODataDiagnostics;
+    } {
   const envelope = KEYWORD_CACHE_ENVELOPE_SCHEMA.safeParse(raw);
   if (!envelope.success) return { ok: false };
   if (envelope.data.seoCacheVersion !== KEYWORD_CACHE_VERSION) {
@@ -78,6 +92,7 @@ function readKeywordEnvelope<T>(
     data: payload.data as T,
     cacheProvider: envelope.data.provider,
     fetchedAt: envelope.data.fetchedAt,
+    diagnostics: envelope.data.diagnostics,
   };
 }
 
@@ -140,7 +155,11 @@ async function buildKey(request: SEODataRequest): Promise<string> {
   // keyword_ideas results are the market's (project-agnostic), while
   // refresh-style keyword_metrics reads stay scoped to the requesting
   // project's persisted snapshot.
-  if (KEYWORD_CACHE_DATA_TYPES.has(request.dataType)) {
+  if (request.onlyProvider) {
+    params.onlyProvider = request.onlyProvider;
+  }
+  if (request.excludeDataforseo) params.excludeDataforseo = true;
+  if (KEYWORD_CACHE_DATA_TYPES.has(request.dataType) && !request.onlyProvider) {
     params.planner = await resolvePlannerCacheIdentity({
       projectId: request.billingCustomer.projectId,
       organizationId: request.billingCustomer.organizationId,
@@ -181,19 +200,54 @@ async function get<T>(
  * serving provider's name (and, when known, its fetch timestamp) so cached
  * entries stay attributable. Non-keyword types store the raw payload.
  */
+/** Short TTL (5 minutes) for legitimate empty keyword_ideas arrays so
+ *  empty results do not poison the cache for 7 days. */
+export const NEGATIVE_KEYWORD_IDEAS_TTL_SECONDS = 5 * 60;
+
+function isEmptyKeywordIdeas(data: unknown, provider?: string): boolean {
+  if (Array.isArray(data)) return data.length === 0;
+  return (
+    provider === "google_ads" &&
+    typeof data === "object" &&
+    data !== null &&
+    "ideas" in data &&
+    Array.isArray(data.ideas) &&
+    data.ideas.length === 0
+  );
+}
+
 async function set(
   request: SEODataRequest,
   key: string,
   data: unknown,
-  precedents?: { provider: string; fetchedAt?: string },
+  precedents?: {
+    provider: string;
+    fetchedAt?: string;
+    diagnostics?: SEODataDiagnostics;
+  },
 ): Promise<void> {
-  const ttl = await getCacheTtl(request.dataType);
+  // Never cache null, undefined, or non-object/non-array malformed payloads.
+  if (data === null || data === undefined || typeof data !== "object") {
+    return;
+  }
+
+  let ttl = await getCacheTtl(request.dataType);
+  if (
+    request.dataType === "keyword_ideas" &&
+    isEmptyKeywordIdeas(data, precedents?.provider)
+  ) {
+    ttl = Math.min(ttl, NEGATIVE_KEYWORD_IDEAS_TTL_SECONDS);
+  }
+
   const payload = KEYWORD_CACHE_DATA_TYPES.has(request.dataType)
     ? {
         seoCacheVersion: KEYWORD_CACHE_VERSION,
         provider: precedents?.provider ?? "unknown",
         fetchedAt: precedents?.fetchedAt ?? new Date().toISOString(),
         data,
+        ...(precedents?.diagnostics
+          ? { diagnostics: precedents.diagnostics }
+          : {}),
       }
     : data;
   await setCached(key, payload, ttl);
@@ -215,6 +269,7 @@ export type SeoCacheQueryResult<T> = {
   /** Cached provenance — set only for keyword data types served from cache. */
   cacheProvider?: string;
   fetchedAt?: string;
+  diagnostics?: SEODataDiagnostics;
 };
 
 async function getOrFetch<T>(
@@ -230,13 +285,26 @@ async function getOrFetch<T>(
     const envelopeHit = KEYWORD_CACHE_DATA_TYPES.has(request.dataType)
       ? readKeywordEnvelope<T>(raw, schema, maxAgeSeconds)
       : { ok: false as const };
-    if (envelopeHit.ok) {
+    if (
+      envelopeHit.ok &&
+      (!request.excludeDataforseo ||
+        envelopeHit.cacheProvider !== "dataforseo") &&
+      !(
+        request.dataType === "keyword_ideas" &&
+        isEmptyKeywordIdeas(envelopeHit.data, envelopeHit.cacheProvider) &&
+        Date.now() - Date.parse(envelopeHit.fetchedAt) >=
+          NEGATIVE_KEYWORD_IDEAS_TTL_SECONDS * 1000
+      ) &&
+      (!request.onlyProvider ||
+        envelopeHit.cacheProvider === request.onlyProvider)
+    ) {
       return {
         data: envelopeHit.data,
         fromCache: true,
         key,
         cacheProvider: envelopeHit.cacheProvider,
         fetchedAt: envelopeHit.fetchedAt,
+        diagnostics: envelopeHit.diagnostics,
       };
     }
     if (!KEYWORD_CACHE_DATA_TYPES.has(request.dataType)) {

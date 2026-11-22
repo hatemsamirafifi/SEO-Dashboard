@@ -17,6 +17,7 @@ import {
 import { getProviderFeatureFlags } from "./config";
 import { traceCacheDecision, traceProviderCall } from "./trace";
 import type {
+  SEODataDiagnostics,
   SEODataProvider,
   SEODataRequest,
   SEODataResponse,
@@ -24,6 +25,28 @@ import type {
   SEOFirstPartyError,
 } from "./types";
 import type { ZodTypeAny } from "zod";
+
+const providerDiagnosticsMap = new WeakMap<object, SEODataDiagnostics>();
+
+/** Attach safe, non-sensitive diagnostics to a provider's returned payload
+ *  without mutating the cached JSON shape. */
+export function attachProviderDiagnostics(
+  payload: unknown,
+  diagnostics: SEODataDiagnostics,
+): void {
+  if (typeof payload === "object" && payload !== null) {
+    providerDiagnosticsMap.set(payload, diagnostics);
+  }
+}
+
+function getProviderDiagnostics(
+  payload: unknown,
+): SEODataDiagnostics | undefined {
+  if (typeof payload === "object" && payload !== null) {
+    return providerDiagnosticsMap.get(payload);
+  }
+  return undefined;
+}
 
 /** The serving provider's fetch timestamp when the payload itself carries
  *  one (planner envelopes do; legacy DFS wraps it under `_meta`). */
@@ -143,21 +166,36 @@ export class DataRouter {
     const flags = await getProviderFeatureFlags();
 
     // If the router is disabled, call the primary enabled provider directly
-    if (!flags.routerEnabled) {
+    if (!flags.routerEnabled && !request.onlyProvider) {
       const primary = flags.serankingEnabled
         ? this.providers.get("seranking")
-        : this.providers.get("dataforseo");
+        : flags.dataforseoEnabled && !request.excludeDataforseo
+          ? this.providers.get("dataforseo")
+          : undefined;
       if (primary && primary.supports(request)) {
         // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- provider returns unknown; caller types it
         const data = (await primary.get(request)) as T;
+        const diagnostics = getProviderDiagnostics(data);
         return {
           dataType: request.dataType,
           provider: primary.name,
           data,
           fromCache: false,
           durationMs: Date.now() - startTime,
+          attemptedProviders: [primary.name],
+          ...(diagnostics !== undefined ? { diagnostics } : {}),
         };
       }
+    }
+
+    if (
+      request.onlyProvider &&
+      !isProviderEnabled(request.onlyProvider, flags)
+    ) {
+      throw new ProviderUnavailableError(
+        request.onlyProvider,
+        "Provider is disabled.",
+      );
     }
 
     // 1. Cache check
@@ -171,7 +209,15 @@ export class DataRouter {
       provider: string | null;
       fetchedAt: string | undefined;
       firstPartyFailure: SEOFirstPartyError | null;
-    } = { provider: null, fetchedAt: undefined, firstPartyFailure: null };
+      attemptedProviders: string[];
+      diagnostics: SEODataDiagnostics | undefined;
+    } = {
+      provider: null,
+      fetchedAt: undefined,
+      firstPartyFailure: null,
+      attemptedProviders: [],
+      diagnostics: undefined,
+    };
 
     // Keyword flows honor the caller's maxAgeSeconds against the cached
     // envelope's fetch timestamp (0 = always fresh; undefined falls back to
@@ -181,7 +227,9 @@ export class DataRouter {
       request,
       schema,
       async (cacheKey) => {
-        const priority = PROVIDER_PRIORITY[request.dataType] ?? [];
+        const priority = request.onlyProvider
+          ? [request.onlyProvider]
+          : PROVIDER_PRIORITY[request.dataType];
         let lastError: unknown = null;
         // The FIRST provider's real failure (402/429/5xx/network) must survive
         // the walk: when a later fallback provider merely has no data
@@ -192,6 +240,8 @@ export class DataRouter {
         let primaryError: unknown = null;
 
         for (const providerName of priority) {
+          if (request.excludeDataforseo && providerName === "dataforseo")
+            continue;
           // Skip disabled providers
           if (!isProviderEnabled(providerName, flags)) continue;
 
@@ -200,24 +250,30 @@ export class DataRouter {
           if (!provider.supports(request)) continue;
 
           try {
-            const data = await traceProviderCall(providerName, () =>
-              singleFlight(cacheKey, () => provider.get(request)),
-            );
-
-            if (providerName !== "dataforseo" && providerName !== "seranking") {
-              recordFreeProviderCall(providerName);
-            }
+            const data = await singleFlight(cacheKey, async () => {
+              serving.attemptedProviders.push(providerName);
+              const payload = await traceProviderCall(providerName, () =>
+                provider.get(request),
+              );
+              if (
+                providerName !== "dataforseo" &&
+                providerName !== "seranking"
+              ) {
+                recordFreeProviderCall(providerName);
+              }
+              await SeoCacheService.set(request, cacheKey, payload, {
+                provider: providerName,
+                fetchedAt:
+                  payloadFetchedAt(payload) ?? new Date().toISOString(),
+                diagnostics: getProviderDiagnostics(payload),
+              });
+              return payload;
+            });
 
             serving.provider = providerName;
-            serving.fetchedAt = payloadFetchedAt(data);
-
-            // Cache the result (fire-and-forget is the caller's job via
-            // waitUntil; here we await to ensure persistence within the
-            // request lifecycle).
-            await SeoCacheService.set(request, cacheKey, data, {
-              provider: providerName,
-              fetchedAt: serving.fetchedAt,
-            });
+            serving.fetchedAt =
+              payloadFetchedAt(data) ?? new Date().toISOString();
+            serving.diagnostics = getProviderDiagnostics(data);
 
             // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- provider returns unknown; caller types it
             return data as T;
@@ -315,6 +371,10 @@ export class DataRouter {
       data: cacheResult.data,
       fromCache: cacheResult.fromCache,
       durationMs: Date.now() - startTime,
+      attemptedProviders: cacheResult.fromCache
+        ? []
+        : serving.attemptedProviders,
+      diagnostics: cacheResult.diagnostics ?? serving.diagnostics,
       ...(fetchedAt !== undefined ? { fetchedAt } : {}),
       ...(firstPartyError !== undefined ? { firstPartyError } : {}),
     };

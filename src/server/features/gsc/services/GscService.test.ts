@@ -55,7 +55,9 @@ const mocks = vi.hoisted(() => {
     createGscClient: vi.fn((opts: GscClientOptions) => ({
       listSites: () => listSites(opts),
       getUserInfoEmail: () => getUserInfoEmail(opts),
-      querySearchAnalytics: () => querySearchAnalytics(opts),
+      querySearchAnalytics: vi.fn((..._args: unknown[]) =>
+        querySearchAnalytics(opts),
+      ),
     })),
     upsert: vi.fn(),
     getByProjectId: vi.fn(),
@@ -376,6 +378,47 @@ describe("GscService.getPerformance", () => {
       userId: "u1",
       gscAccountId: "sub-a",
     });
+  });
+
+  it("limits scoped keyword research to the connected property's organization and country", async () => {
+    mocks.getByProjectId.mockResolvedValue({
+      organizationId: "org-one",
+      connectedByUserId: "u1",
+      gscAccountId: "sub-a",
+      siteUrl: "sc-domain:project-one.test",
+    });
+    const { GscService } = await import("./GscService");
+    const input = {
+      projectId: "project-one",
+      startDate: "2026-01-01",
+      endDate: "2026-01-31",
+      filters: [
+        { dimension: "country", operator: "equals", expression: "sau" },
+      ],
+    } as const;
+    await expect(
+      GscService.getPerformance({
+        ...input,
+        filters: [...input.filters],
+        organizationId: "org-two",
+      }),
+    ).rejects.toThrow();
+    expect(mocks.createGscClient).not.toHaveBeenCalled();
+    await GscService.getPerformance({
+      ...input,
+      filters: [...input.filters],
+      organizationId: "org-one",
+    });
+    expect(mocks.getByProjectId).toHaveBeenCalledWith("project-one");
+    expect(
+      mocks.createGscClient.mock.results[0]?.value.querySearchAnalytics,
+    ).toHaveBeenCalledWith(
+      "sc-domain:project-one.test",
+      expect.objectContaining({
+        dimensions: ["query"],
+        dimensionFilterGroups: [{ groupType: "and", filters: input.filters }],
+      }),
+    );
   });
 
   it("passes undefined for the legacy null-account fallback", async () => {

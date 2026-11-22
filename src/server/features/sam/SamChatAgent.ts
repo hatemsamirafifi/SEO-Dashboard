@@ -2,9 +2,11 @@
 import { Think } from "@cloudflare/think";
 import type {
   ChatResponseResult,
+  PrepareStepContext,
   Session,
   StepContext,
   StreamableResult,
+  ToolCallDecision,
   TurnConfig,
   TurnContext,
 } from "@cloudflare/think";
@@ -17,7 +19,10 @@ import { handleRewindRequest } from "@/server/features/sam/samRewind";
 import { SamSessionRepository } from "@/server/features/sam/SamSessionRepository";
 import { SamProjectMemoryRepository } from "@/server/features/sam/SamProjectMemoryRepository";
 import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
-import { buildSamSystemPrompt } from "@/server/features/sam/samSystemPrompt";
+import {
+  buildSamSystemPrompt,
+  samReplyLanguageInstruction,
+} from "@/server/features/sam/samSystemPrompt";
 import {
   deriveTitle,
   firstUserText,
@@ -29,7 +34,10 @@ import {
   createToolRecoveryState,
   type ToolRecoveryState,
 } from "@/server/features/sam/samToolRecovery";
-import { getSamTraceBus } from "@/server/features/sam/samTraceBus";
+import {
+  createSamTraceBus,
+  runWithSamTraceBus,
+} from "@/server/features/sam/samTraceBus";
 import {
   createTraceFlushScheduler,
   handleTraceHttpRequest,
@@ -38,12 +46,21 @@ import {
 } from "@/server/features/sam/samTraceBroadcast";
 import { buildSamTurnModel } from "@/server/features/sam/samTurnModel";
 import { guardSamInferenceResult } from "@/server/features/sam/samStreamErrorGuard";
+import { requireSamCompletion } from "@/server/features/sam/samStreamCompletion";
+import { createSamGeneration } from "@/server/features/sam/samGenerationModel";
+import {
+  classifySamTask,
+  SAM_FALLBACK_OUTPUT,
+  samBroadKeywordReport,
+  samGenerationLimits,
+  samGenerationStep,
+  type SamTask,
+} from "@/server/features/sam/samGenerationPolicy";
 import {
   DEFAULT_MAX_STEPS,
   DEFAULT_MAX_TOOL_CALLS,
   parsePollConfig,
   parsePositiveIntEnv,
-  toolCallCap,
 } from "@/server/features/sam/samTurnControls";
 import { resolveSamEffectiveConfig } from "@/server/features/sam/samEffectiveConfig";
 import {
@@ -117,6 +134,15 @@ export class SamChatAgent extends Think {
   private turnMonthlyRemaining: number | null = null;
   private turnProviderId: AiProviderId = "openrouter";
   private turnModelId: string | null = null;
+  private turnLimits: { maxSteps: number; maxToolCalls: number } | null = null;
+  private turnReplyInArabic = false;
+  private generation: ReturnType<typeof createSamGeneration> | null = null;
+  private turnTask: SamTask = "standard";
+  private broadKeywordReport = false;
+  private turnPhase = "context";
+  private executedToolCalls = 0;
+  private modelSteps = 0;
+  private modelToolCalls = 0;
 
   // Per-conversation tool dedup + logging. Created lazily on the first turn
   // (needs the session's project id); survives across turns of the same
@@ -135,9 +161,13 @@ export class SamChatAgent extends Think {
 
   // Debug Trace (Phase DT): the coalescing flush scheduler broadcasts the
   // current-turn snapshot to connected clients (samTraceBroadcast.ts).
-  private traceFlush = createTraceFlushScheduler({
-    broadcast: (message) => this.broadcast(message),
-  });
+  private traceBus = createSamTraceBus();
+  private traceFlush = createTraceFlushScheduler(
+    {
+      broadcast: (message) => this.broadcast(message),
+    },
+    this.traceBus,
+  );
 
   // Record the app origin for the deep links tools attach to responses,
   // derived from the requests this DO serves instead of env config. DO storage
@@ -173,6 +203,7 @@ export class SamChatAgent extends Think {
       getEnvValueSync(this.env, "AI_AGENT_MODEL") ??
       getEnvValueSync(this.env, provider.envModel) ??
       provider.defaultModelId;
+    this.turnModelId = modelId;
     return provider.buildModel(apiKey, modelId);
   }
 
@@ -189,7 +220,7 @@ export class SamChatAgent extends Think {
   protected override _transformInferenceResult(
     result: StreamableResult,
   ): StreamableResult {
-    return guardSamInferenceResult(
+    const guarded = guardSamInferenceResult(
       { provider: this.turnProviderId, model: this.turnModelId },
       result,
       // Tool-input rejections (Phase V) never reach execute(), so the
@@ -203,7 +234,7 @@ export class SamChatAgent extends Think {
       (tool) => {
         this.turnRecovery?.recordInputRejection(tool);
         if (tool) {
-          const bus = getSamTraceBus();
+          const bus = this.traceBus;
           bus.push({ event: "model_attempt", toolName: tool });
           // Only emit gate_blocked when the rejection actually blocks the
           // tool — one correction is allowed before blocking.
@@ -219,6 +250,12 @@ export class SamChatAgent extends Think {
         }
       },
     );
+    const arabic = this.turnReplyInArabic;
+    return {
+      ...guarded,
+      toUIMessageStream: (options) =>
+        requireSamCompletion(guarded.toUIMessageStream(options), arabic),
+    };
   }
 
   configureSession(session: Session): Session {
@@ -323,9 +360,28 @@ export class SamChatAgent extends Think {
     };
   }
 
-  async beforeTurn(_ctx: TurnContext): Promise<TurnConfig> {
+  async beforeTurn(turnContext: TurnContext): Promise<TurnConfig> {
     this.turnCostUsd = 0;
     this.turnMonthlyRemaining = null;
+    this.turnLimits = null;
+    this.turnPhase = "context";
+    this.generation = null;
+    this.executedToolCalls = 0;
+    this.modelSteps = 0;
+    this.modelToolCalls = 0;
+    const replyLanguage = turnContext.body?.samReplyLanguage;
+    const latestUser = turnContext.messages.findLast(
+      (message) => message.role === "user",
+    );
+    const latestText =
+      typeof latestUser?.content === "string"
+        ? latestUser.content
+        : latestUser?.content.find((part) => part.type === "text")?.text;
+    this.turnTask = classifySamTask(latestText ?? "");
+    this.broadKeywordReport = samBroadKeywordReport(latestText ?? "");
+    this.turnReplyInArabic =
+      replyLanguage === "ar" ||
+      (replyLanguage !== "en" && /\p{Script=Arabic}/u.test(latestText ?? ""));
     return withPgClient(async (): Promise<TurnConfig> => {
       const ctx = await this.loadSamContext();
       if (!ctx) {
@@ -372,6 +428,7 @@ export class SamChatAgent extends Think {
         sessionId: this.name,
         projectId: ctx.project.id,
       });
+      this.toolTracker.beginTurn();
       this.auditPolls ??= createPollCoordinator();
       // Fresh per-turn failure state: a tool that exhausted its retry budget
       // in an earlier turn is callable again now.
@@ -380,7 +437,7 @@ export class SamChatAgent extends Think {
       // Debug Trace: a fresh event scope per user turn. The AI identity is
       // set right after the effective config resolves below (before any tool
       // can run).
-      getSamTraceBus().startTurn();
+      this.traceBus.startTurn();
 
       // Effective settings (Phase S): provider-aware resolution across
       // project row → organization row → environment, INCLUDING stored
@@ -394,15 +451,15 @@ export class SamChatAgent extends Think {
         organizationId,
       });
       this.turnProviderId = effective.provider;
-      this.turnModelId = effective.model;
+      this.turnModelId = effective.model ?? this.turnModelId;
 
       // Debug Trace: the effective AI identity (never hardcoded — exactly
       // what this turn's model calls will use). Data providers are tracked
       // separately, per tool event.
       const aiAdapter = AiProviderRegistry.get(effective.provider);
-      getSamTraceBus().setAi({
+      this.traceBus.setAi({
         provider: aiAdapter.displayName,
-        model: effective.model,
+        model: this.turnModelId,
       });
       // Broadcast the initial turn state immediately so the trace panel
       // displays the effective AI provider/model right away.
@@ -416,40 +473,60 @@ export class SamChatAgent extends Think {
         getEnvValueSync(this.env, "AI_AGENT_MAX_TOOL_CALLS"),
         DEFAULT_MAX_TOOL_CALLS,
       );
+      const readEnv = (key: string) => getEnvValueSync(this.env, key);
+      const poll = parsePollConfig(readEnv);
+      const generationLimits = samGenerationLimits(readEnv);
 
       // Tool schemas are costly to build: samChatTools statically imports every
       // MCP tool module (each builds zod input/output schemas at module
       // scope), and evaluating that graph at worker startup pushes toward the
       // 400ms CPU limit. Load the toolset per turn instead, when a turn
       // actually needs it.
+      this.turnPhase = "tool-import";
       const { buildSamMcpTools } =
         await import("@/server/features/sam/samChatTools");
+      this.turnPhase = "tool-build";
+      const tools = buildSamMcpTools(
+        authContext,
+        { id: ctx.project.id, domain: ctx.project.domain },
+        this.toolTracker,
+        { poll, pollCoordinator: this.auditPolls, recovery: this.turnRecovery },
+      );
+      this.turnPhase = "tool-trace";
+      for (const name of Object.keys(tools)) {
+        const tool = tools[name];
+        const execute = tool.execute;
+        if (execute) {
+          tools[name] = {
+            ...tool,
+            execute: (args, options): unknown =>
+              runWithSamTraceBus(this.traceBus, (): unknown =>
+                execute(args, options),
+              ),
+          };
+        }
+      }
       const turn: TurnConfig = {
-        tools: buildSamMcpTools(
-          authContext,
-          {
-            id: ctx.project.id,
-            domain: ctx.project.domain,
-          },
-          this.toolTracker,
-          {
-            poll: parsePollConfig((key) => getEnvValueSync(this.env, key)),
-            pollCoordinator: this.auditPolls,
-            recovery: this.turnRecovery,
-          },
-        ),
+        system: `${turnContext.system}\n\n${samReplyLanguageInstruction(replyLanguage)}`,
+        tools,
         // SAM is meant to run complex multi-step work in one turn (site-read
         // intake plus a full research chain, multi-competitor sweeps), so give
-        // it generous headroom — cost is bounded by per-step metering, the
-        // tool-call cap below, and the model stopping on its own.
+        // it generous headroom and reserve a final step in beforeStep.
         maxSteps,
-        maxOutputTokens: 6000,
+        maxOutputTokens: SAM_FALLBACK_OUTPUT,
+        maxRetries: 0,
+        timeout: generationLimits.maxTurnMs,
+        sendReasoning: false,
+        // Think's watchdog also covers tools. Let the audit poller report its
+        // own timeout before treating a silent stream as interrupted.
+        chatStreamStallTimeoutMs: Math.max(
+          180_000,
+          poll.timeoutMs + 30_000,
+          generationLimits.maxTurnMs + 5000,
+        ),
       };
 
-      // Bounded loop: stop the turn once the tool-call budget is spent, so a
-      // runaway model can't fan out unbounded paid calls.
-      turn.stopWhen = [toolCallCap(maxToolCalls)];
-
+      this.turnPhase = "model";
       if (effective.model) {
         // The effective provider is authoritative: missing credential is a
         // hard, visible failure. Implementation lives in samTurnModel.ts
@@ -463,16 +540,59 @@ export class SamChatAgent extends Think {
         }
       }
 
+      this.turnLimits = { maxSteps, maxToolCalls };
+      this.generation = createSamGeneration({
+        provider: this.turnProviderId,
+        model: this.turnModelId,
+        task: this.turnTask,
+        limits: generationLimits,
+        trace: (event) => {
+          this.traceBus.push(event);
+          this.traceFlush.request();
+        },
+        billRecovery: (metadata) => {
+          this.turnCostUsd += estimateProviderCost(
+            this.turnProviderId,
+            metadata,
+          );
+        },
+      });
+      this.turnPhase = "inference";
       return turn;
     });
   }
 
+  override beforeStep(ctx: PrepareStepContext) {
+    if (!this.turnLimits || !this.generation) return;
+    const { reserved, stage } = samGenerationStep(
+      ctx,
+      this.turnLimits,
+      this.turnTask,
+      this.generation.remainingOutput(),
+      this.broadKeywordReport,
+    );
+    return { ...reserved, model: this.generation.wrap(ctx.model, stage) };
+  }
+
+  override beforeToolCall(): ToolCallDecision | void {
+    if (!this.turnLimits) return;
+    if (this.executedToolCalls >= this.turnLimits.maxToolCalls) {
+      return {
+        action: "block",
+        reason:
+          "The turn reached its tool budget. Synthesize the available evidence and state any material gaps.",
+      };
+    }
+    this.executedToolCalls += 1;
+  }
+
   onStepFinish(ctx: StepContext): void {
-    // Real USD cost when the provider publishes it (OpenRouter), else 0.
     this.turnCostUsd += estimateProviderCost(
       this.turnProviderId,
       ctx.providerMetadata,
     );
+    this.modelSteps += 1;
+    this.modelToolCalls += ctx.toolCalls.length;
     // Debug Trace: steps are the natural mid-turn flush point — each model
     // step boundary is also when new tool parts become visible, so the trace
     // panel updates in step-cadence rather than per event.
@@ -480,6 +600,23 @@ export class SamChatAgent extends Think {
   }
 
   async onChatResponse(result: ChatResponseResult): Promise<void> {
+    if (this.generation) {
+      this.traceBus.push({
+        event: "generation_terminal",
+        metadata: {
+          status:
+            result.status === "completed" &&
+            !result.message.parts.some(
+              (part) => part.type === "text" && part.text.trim(),
+            )
+              ? "paused"
+              : result.status,
+          modelSteps: this.modelSteps,
+          toolCalls: this.modelToolCalls,
+          recoveryAttempts: this.generation.recoveryAttempts(),
+        },
+      });
+    }
     // Debug Trace: synchronous final flush — the last tool events (fallback/completion)
     // land with zero delay.
     this.traceFlush.flushNow();
@@ -554,27 +691,73 @@ export class SamChatAgent extends Think {
       this.turnProviderId,
       this.turnModelId ?? undefined,
     );
+    const detail =
+      error &&
+      typeof error === "object" &&
+      "message" in error &&
+      typeof error.message === "string"
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "";
+    const stack =
+      error &&
+      typeof error === "object" &&
+      "stack" in error &&
+      typeof error.stack === "string"
+        ? error.stack
+        : "";
+    const source = stack.match(
+      /(?:\/app\/)?src\/[a-z0-9/_$.-]+\.tsx?:\d+(?::\d+)?/i,
+    )?.[0];
+    const resourceLimit =
+      /memory|time limit|resources|quota|exceeded|cpu time/i.test(detail);
+    const cause = /no usable credential|not configured.*api.?key/i.test(detail)
+      ? "missing-credential"
+      : /module|import/i.test(detail)
+        ? "module-loading"
+        : /base url/i.test(detail)
+          ? "base-url"
+          : /timeout/i.test(detail)
+            ? "timeout"
+            : undefined;
     console.error(
       JSON.stringify({
         type: "sam-turn-error",
         stage: ctx?.stage,
+        phase: this.turnPhase,
+        cause,
+        source,
+        resourceLimit,
+        errorKind:
+          error instanceof TypeError
+            ? "type-error"
+            : error instanceof ReferenceError
+              ? "reference-error"
+              : undefined,
         code: normalized.code,
         provider: normalized.provider,
         model: normalized.model,
       }),
     );
+    const message =
+      this.turnPhase === "tool-import"
+        ? this.turnReplyInArabic
+          ? "تعذّر تحميل أدوات سام. أعد المحاولة بعد لحظة."
+          : "SAM could not load the SEO tools. Wait a moment and try again."
+        : normalized.message;
     if (ctx?.messagesPersisted) {
       void this.addMessages([
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          parts: [{ type: "text", text: normalized.message }],
+          parts: [{ type: "text", text: message }],
         },
       ]).catch(() => {
         // Never let note-persistence fail the error path.
       });
     }
-    return new Error(normalized.message);
+    return new Error(message);
   }
 
   /**
@@ -603,14 +786,14 @@ export class SamChatAgent extends Think {
     ctx: ConnectionContext,
   ): Promise<void> {
     await super.onConnect?.(connection, ctx);
-    sendTraceSnapshotOnConnect(connection);
+    sendTraceSnapshotOnConnect(connection, this.traceBus);
   }
 
   override async onMessage(
     connection: Connection,
     message: WSMessage,
   ): Promise<void> {
-    if (handleTraceWebSocketMessage(connection, message)) return;
+    if (handleTraceWebSocketMessage(connection, message, this.traceBus)) return;
     await super.onMessage?.(connection, message);
   }
 
@@ -621,7 +804,7 @@ export class SamChatAgent extends Think {
   // /get-messages before delegating here. The implementation lives in
   // samRewind.ts (lint budget).
   async onRequest(request: Request): Promise<Response> {
-    const trace = handleTraceHttpRequest(request);
+    const trace = handleTraceHttpRequest(request, this.traceBus);
     if (trace) return trace;
     // The rewind helper needs the protected waitUntilStable; bind it here so
     // the helper sees a plain async function (lint-safe structural typing).

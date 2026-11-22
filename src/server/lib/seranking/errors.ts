@@ -104,14 +104,17 @@ export function classifySeRankingHttpError(
     lowerMsg.includes("expired") ||
     lowerMsg.includes("exceeds limit");
 
-  if (status === 402 || isQuotaMessage) {
+  if (status === 429) {
+    return new SeRankingRateLimitError(msg, status);
+  }
+  if (
+    status === 402 ||
+    ((status === 400 || status === 403) && isQuotaMessage)
+  ) {
     return new SeRankingCreditExhaustedError(msg, status);
   }
   if (status === 401 || status === 403) {
     return new SeRankingAuthError(msg, status);
-  }
-  if (status === 429) {
-    return new SeRankingRateLimitError(msg, status);
   }
   if (status === 404) {
     return new SeRankingNotFoundError(msg, status);

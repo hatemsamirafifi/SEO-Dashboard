@@ -143,18 +143,29 @@ export class GoogleAdsMalformedResponseError extends Error {
   }
 }
 export class GoogleAdsApiError extends Error {
+  readonly requestId = crypto.randomUUID();
+
   constructor(
     public readonly status: number,
     message: string,
     /** Canonical google.ads ErrorCode name (e.g.
      *  "AuthorizationError.CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION").
-     *  Built ONLY from enum-style upstream keys/values (see
+     *  Selected from the fixed allowlist (see
      *  sanitizeGoogleAdsErrorCode) so arbitrary response text can never be
      *  re-exposed. */
     public readonly googleAdsErrorCode?: string,
   ) {
     super(message);
     this.name = "GoogleAdsApiError";
+  }
+}
+
+class GoogleAdsTransportError extends Error {
+  readonly requestId = crypto.randomUUID();
+
+  constructor() {
+    super("Google Ads transport failed.");
+    this.name = "GoogleAdsTransportError";
   }
 }
 
@@ -284,39 +295,28 @@ function normalizeCustomer(
   };
 }
 
-/** Google JSON error body shape (enough to sanitize safely; any value that
- *  fails the enum-style allowlist is dropped entirely). */
-const googleErrorBodySchema = z
-  .object({
-    error: z
-      .object({
-        details: z
-          .array(
-            z
-              .object({
-                errors: z
-                  .array(
-                    z
-                      .object({
-                        errorCode: z.record(z.string(), z.unknown()).optional(),
-                      })
-                      .passthrough(),
-                  )
-                  .optional(),
-              })
-              .passthrough(),
-          )
-          .optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough();
+/** Google JSON error shape. Retain only fields used to select a known code. */
+const googleErrorBodySchema = z.object({
+  error: z
+    .object({
+      details: z
+        .array(
+          z.object({
+            errors: z
+              .array(
+                z.object({
+                  errorCode: z.record(z.string(), z.unknown()).optional(),
+                }),
+              )
+              .optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+});
 
-/** Upstream errorCode entries look like { authorizationError: "NAME..." }.
- *  Only the enum path re-enters app state: the key must look like
- *  "XxxError" and the value must be an UPPER_SNAKE enum literal. Anything
- *  else (HTML fragments, interpolations) is discarded. */
+/** Allow only known enum values. Arbitrary upstream text can look like an enum. */
 function sanitizeGoogleAdsErrorCode(
   errorCode: Record<string, unknown> | undefined,
 ): string | undefined {
@@ -324,11 +324,10 @@ function sanitizeGoogleAdsErrorCode(
   for (const [key, value] of entries) {
     // Canonical google.ads error enum names are CamelCase
     // ("AuthorizationError.UPPER_SNAKE"); upstream keys are lowerCamel.
-    if (!/^[A-Za-z]+Error$/.test(key)) continue;
     const canonicalKey = `${key.charAt(0).toUpperCase()}${key.slice(1)}`;
     if (typeof value !== "string") continue;
-    if (!/^[A-Z][A-Z0-9_]*$/.test(value)) continue;
-    return `${canonicalKey}.${value}`;
+    const code = `${canonicalKey}.${value}`;
+    if (SAFE_PROVIDER_ERROR_CODES.has(code)) return code;
   }
   return undefined;
 }
@@ -359,20 +358,17 @@ async function readErrorBody(response: Response): Promise<unknown> {
 
 async function parseApiError(response: Response): Promise<never> {
   const body = await readErrorBody(response);
-  console.error(
-    "[GoogleAdsApiError]",
-    response.status,
-    JSON.stringify(body, null, 2),
-  );
   const parsed = googleErrorBodySchema.safeParse(body);
   const upstreamErrorCode = parsed.success
     ? parsed.data.error?.details?.[0]?.errors?.[0]?.errorCode
     : undefined;
-  throw new GoogleAdsApiError(
+  const error = new GoogleAdsApiError(
     response.status,
     `Google Ads API error (${response.status}).`,
     sanitizeGoogleAdsErrorCode(upstreamErrorCode),
   );
+  console.warn("[GoogleAdsApiError]", googleAdsErrorDiagnostics(error));
+  throw error;
 }
 
 function parseSearchResponse(
@@ -457,6 +453,11 @@ export function createGoogleAdsClient(options: {
       loginCustomerId?: string | null;
     },
   ): Promise<Response> {
+    if (import.meta.env.MODE === "e2e") {
+      throw new GoogleAdsRequestError(
+        "Google Ads transport is disabled in browser tests.",
+      );
+    }
     const token = await getToken();
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
@@ -469,11 +470,22 @@ export function createGoogleAdsClient(options: {
         request.loginCustomerId,
       );
     }
-    const response = await fetch(`${BASE_URL}${path}`, {
-      method: request.method,
-      headers,
-      ...(request.body ? { body: JSON.stringify(request.body) } : {}),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}${path}`, {
+        method: request.method,
+        headers,
+        redirect: "error",
+        ...(request.body ? { body: JSON.stringify(request.body) } : {}),
+      });
+    } catch {
+      const error = new GoogleAdsTransportError();
+      console.warn(
+        "[GoogleAdsTransportError]",
+        googleAdsErrorDiagnostics(error),
+      );
+      throw error;
+    }
     if (!response.ok) await parseApiError(response);
     return response;
   }
@@ -942,6 +954,41 @@ const OAUTH_TOKEN_ERROR_CODES = new Set([
   "AuthenticationError.OAUTH_TOKEN_REVOKED",
   "AuthenticationError.OAUTH_TOKEN_DISABLED",
 ]);
+
+const SAFE_PROVIDER_ERROR_CODES = new Set([
+  ...RESTRICTED_ERROR_CODES,
+  ...SERVICE_ACCESS_DENIED_ERROR_CODES,
+  ...CLOUD_ACCESS_ERROR_CODES,
+  ...OAUTH_TOKEN_ERROR_CODES,
+  "AuthorizationError.CUSTOMER_NOT_ENABLED",
+  "AuthorizationError.USER_PERMISSION_DENIED",
+  "GeoTargetConstantSuggestionError.LOCATION_NAME_SIZE_LIMIT",
+  "QuotaError.EXCESSIVE_LONG_TERM_QUERY_RESOURCE_CONSUMPTION",
+  "QuotaError.EXCESSIVE_SHORT_TERM_QUERY_RESOURCE_CONSUMPTION",
+  "QuotaError.RESOURCE_EXHAUSTED",
+  "QuotaError.RESOURCE_TEMPORARILY_EXHAUSTED",
+]);
+
+/** Whitelist log fields. Request IDs are generated locally, never read from
+ * upstream bodies or headers. Unknown errors may contain account or DB data. */
+export function googleAdsErrorDiagnostics(error: unknown) {
+  if (error instanceof GoogleAdsTransportError) {
+    return { errorCategory: "TRANSPORT_FAILURE", requestId: error.requestId };
+  }
+  const errorCategory = classifyGoogleAdsError(error).errorClass;
+  if (!(error instanceof GoogleAdsApiError)) {
+    return { errorCategory, requestId: crypto.randomUUID() };
+  }
+  const code = error.googleAdsErrorCode;
+  return {
+    httpStatus: error.status,
+    errorCategory,
+    requestId: error.requestId,
+    ...(code && SAFE_PROVIDER_ERROR_CODES.has(code)
+      ? { providerCode: code }
+      : {}),
+  };
+}
 
 /** 5xx statuses worth another attempt; 501/505 are not transient. */
 const RETRYABLE_HTTP_STATUSES = new Set([500, 502, 503, 504]);

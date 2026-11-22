@@ -372,3 +372,27 @@ html[data-theme="openseo-dark"] .alert-success {
 html[data-theme="openseo-dark"] .alert-error {
   @apply border-error/60 bg-error/20;
 }
+
+.sam-bidi-markdown {
+  text-align: start;
+  overflow-wrap: anywhere;
+
+  pre {
+    overflow-wrap: normal;
+  }
+
+  /* Keep mixed-language items beside their marker at the list's start. */
+  li:dir(ltr) > :is(div, p) {
+    text-align: left;
+  }
+
+  li:dir(rtl) > :is(div, p) {
+    text-align: right;
+  }
+
+  li > div {
+    display: inline-block;
+    inline-size: 100%;
+    vertical-align: top;
+  }
+}

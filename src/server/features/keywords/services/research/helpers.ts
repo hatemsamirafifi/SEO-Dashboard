@@ -1,13 +1,6 @@
-import type { KeywordIntent, MonthlySearch } from "@/types/keywords";
+import type { KeywordIntent, KeywordResearchRow } from "@/types/keywords";
 
-export type EnrichedKeyword = {
-  keyword: string;
-  searchVolume: number | null;
-  trend: MonthlySearch[];
-  cpc: number | null;
-  competition: number | null;
-  keywordDifficulty: number | null;
-  intent: KeywordIntent;
+export type EnrichedKeyword = KeywordResearchRow & {
   // First-party (Google Ads) additions, present only when the planner
   // supplied the metric — consumers detect availability with `in row`.
   lowTopOfPageBid?: number;

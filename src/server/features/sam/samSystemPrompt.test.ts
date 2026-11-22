@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildSamSystemPrompt } from "./samSystemPrompt";
+import {
+  buildSamSystemPrompt,
+  samReplyLanguageInstruction,
+} from "./samSystemPrompt";
 
 const project = {
   projectId: "p1",
@@ -50,5 +53,27 @@ describe("buildSamSystemPrompt — in-app tool guidance (Phase U7)", () => {
     // The tool surface is defined in samChatTools.ts; the system prompt must
     // not pretend it doesn't exist — just that SAM itself must not call it.
     expect(prompt).not.toMatch(/whoami (is|has been) removed/i);
+  });
+});
+
+describe("SAM reply language", () => {
+  it.each([undefined, "auto", "unknown", { toString: "inject" }])(
+    "uses the latest request language for the Auto default (%j)",
+    (value) => {
+      const instruction = samReplyLanguageInstruction(value);
+      expect(instruction).toContain("language of the latest user request");
+      expect(instruction).toContain("explicit request");
+      expect(instruction).toContain("project research language");
+    },
+  );
+
+  it.each([
+    ["ar", "Arabic"],
+    ["en", "English"],
+  ])("adds a language instruction for %s", (preference, name) => {
+    const instruction = samReplyLanguageInstruction(preference);
+    expect(instruction).toContain(`Write your reply in ${name}.`);
+    expect(instruction).not.toContain("language of the latest user request");
+    expect(instruction).toContain("Preserve literal URLs");
   });
 });

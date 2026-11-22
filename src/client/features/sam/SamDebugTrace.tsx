@@ -1,3 +1,5 @@
+import { SamGenerationTrace } from "./SamGenerationTrace";
+import { BidiText } from "@/client/components/chat/bidiText";
 /* eslint-disable max-lines */
 import { memo, useMemo, useState } from "react";
 import {
@@ -143,13 +145,17 @@ const DataforseoDiagnosticsBlock = memo(function DataforseoDiagnosticsBlock({
         {diagnostics.dataforseoMessage ? (
           <>
             <span className="text-base-content/45">Message:</span>
-            <span className="break-all">{diagnostics.dataforseoMessage}</span>
+            <span dir="auto" className="wrap-anywhere">
+              <BidiText text={diagnostics.dataforseoMessage} />
+            </span>
           </>
         ) : null}
         {request ? (
           <>
             <span className="text-base-content/45">Request:</span>
-            <span className="break-all font-mono text-[10px]">{request}</span>
+            <span dir="ltr" className="break-all font-mono text-[10px]">
+              {request}
+            </span>
           </>
         ) : null}
         {diagnostics.responseShape ? (
@@ -173,20 +179,20 @@ const AttemptLine = memo(function AttemptLine({
   attempt: TraceToolView["attempts"][number];
 }) {
   return (
-    <div className="flex flex-col gap-0.5 border-l-2 border-base-300 pl-2 text-[11px] leading-relaxed text-base-content/60">
+    <div className="flex flex-col gap-0.5 border-s-2 border-base-300 ps-2 text-[11px] leading-relaxed text-base-content/60">
       <span>
         {attempt.gate === "block" ? "⛔" : "✓"} model attempt #{attempt.index} —
         gate: {attempt.gate === "block" ? "BLOCK" : (attempt.gate ?? "—")}
       </span>
       {attempt.gate === "block" ? (
-        <span className="pl-3">handler=0 · provider=0</span>
+        <span className="ps-3">handler=0 · provider=0</span>
       ) : (
         <>
           {attempt.handlerExecuted ? (
-            <span className="pl-3">✓ handler executed</span>
+            <span className="ps-3">✓ handler executed</span>
           ) : null}
           {attempt.providerCalls.map((call, i) => (
-            <span key={i} className="pl-3">
+            <span key={i} className="ps-3">
               {call.ok ? "✓" : "✕"} {call.provider}
               {call.ok
                 ? call.durationMs !== null && call.durationMs !== undefined
@@ -217,7 +223,7 @@ const AttemptLine = memo(function AttemptLine({
               />
             ))}
           {attempt.outcome?.kind === "success" ? (
-            <span className="pl-3">
+            <span className="ps-3">
               ✓ final success
               {attempt.outcome.durationMs
                 ? ` (${attempt.outcome.durationMs}ms)`
@@ -225,7 +231,7 @@ const AttemptLine = memo(function AttemptLine({
             </span>
           ) : null}
           {attempt.outcome?.kind === "error" ? (
-            <span className="pl-3">
+            <span className="ps-3">
               ✕ failed — class={errorClassLabel(attempt.outcome.errorCode)}
               {attempt.outcome.httpStatus
                 ? ` · HTTP ${attempt.outcome.httpStatus}`
@@ -273,14 +279,14 @@ const ToolRow = memo(function ToolRow({
     <div className="rounded-md bg-base-200/60 px-2.5 py-2">
       <button
         type="button"
-        className="flex w-full items-start gap-1.5 text-left"
+        className="flex w-full items-start gap-1.5 text-start"
         onClick={() => setExpanded((open) => !open)}
       >
         <span className="mt-0.5 shrink-0">
           {expanded ? (
             <ChevronDown className="size-3 text-base-content/40" />
           ) : (
-            <ChevronRight className="size-3 text-base-content/40" />
+            <ChevronRight className="size-3 text-base-content/40 rtl:rotate-180" />
           )}
         </span>
         <span
@@ -517,7 +523,7 @@ export function SamDebugTrace({
           {open ? (
             <ChevronDown className="size-3" />
           ) : (
-            <ChevronRight className="size-3" />
+            <ChevronRight className="size-3 rtl:rotate-180" />
           )}
         </button>
         <button
@@ -543,6 +549,8 @@ export function SamDebugTrace({
               {view.ai.model ?? "model unavailable"}
             </span>
           </div>
+
+          {frame ? <SamGenerationTrace events={frame.events} /> : null}
 
           {/* Filters */}
           <div className="flex gap-1 border-b border-base-300 px-2 py-1">

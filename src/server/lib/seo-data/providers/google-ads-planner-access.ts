@@ -17,11 +17,10 @@
 import {
   createGoogleAdsClient,
   classifyGoogleAdsError,
+  GoogleAdsRequestError,
 } from "@/server/lib/googleAdsClient";
-import {
-  GoogleAdsConnectionRepository,
-  type GoogleAdsConnection,
-} from "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository";
+import { AppError } from "@/server/lib/errors";
+import type { GoogleAdsConnection } from "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository";
 import {
   LOCATION_OPTIONS,
   getIsoCountryCode,
@@ -29,11 +28,20 @@ import {
 import type { SEODataRequest, SEOFirstPartyError } from "../types";
 import { ProviderUnavailableError, ProviderUnsupportedError } from "../errors";
 
-const PROVIDER_NAME = "google_ads";
+import {
+  authorizePlannerResearchFallback,
+  getPlannerConnectionForBilling,
+  GOOGLE_ADS_PLANNER_CACHE_CONTRACT,
+  reservePlannerResearchSlot,
+  type PlannerBillingContext,
+} from "./google-ads-planner-fallback";
 
-/** Bumped whenever the normalized planner payload shape changes so cache
- *  entries written by an older mapping self-heal to a miss. */
-export const GOOGLE_ADS_PLANNER_CACHE_CONTRACT = "v26-planner";
+export {
+  getPlannerConnectionForBilling,
+  GOOGLE_ADS_PLANNER_CACHE_CONTRACT,
+} from "./google-ads-planner-fallback";
+
+const PROVIDER_NAME = "google_ads";
 
 /** The planner scope a cache entry was produced under: two requests share a
  *  cache entry only when the identity matches exactly (customer + login
@@ -49,31 +57,7 @@ export type GoogleAdsPlannerCacheIdentity = {
   contract: string;
 };
 
-export type PlannerBillingContext = {
-  projectId?: string;
-  organizationId: string;
-};
-
 type PlannerClient = ReturnType<typeof createGoogleAdsClient>;
-
-/** Connection lookup that can never throw: a billing context without a
- *  projectId and any repository failure resolve to "no planner identity".
- *  Callers distinguish only "connected" vs "not connected" â€” internal
- *  connection errors must not break the first-party walk, they surface the
- *  DataForSEO fallback. */
-export async function getPlannerConnectionForBilling(
-  context: PlannerBillingContext,
-): Promise<GoogleAdsConnection | null> {
-  try {
-    if (!context.projectId) return null;
-    return await GoogleAdsConnectionRepository.getByProjectId(
-      context.projectId,
-      context.organizationId,
-    );
-  } catch {
-    return null;
-  }
-}
 
 /** Pure mapping from a connection row to its cache identity; null becomes
  *  the `{customer: null, ...}` identity so unconnected requests still get a
@@ -164,7 +148,8 @@ async function resolveGeoTarget(
       countryCode: getIsoCountryCode(option.code).toUpperCase(),
       countryName: option.label,
     });
-  } catch {
+  } catch (error) {
+    if (!(error instanceof GoogleAdsRequestError)) throw error;
     // Ambiguous/unknown/absent geo resolution is a market this project's
     // planner cannot serve â€” fail into a fallback with a clear reason
     // instead of researching a silently substituted geo.
@@ -210,7 +195,8 @@ async function resolveLanguage(
       languageCode,
       loginCustomerId: connection.loginCustomerId,
     });
-  } catch {
+  } catch (error) {
+    if (!(error instanceof GoogleAdsRequestError)) throw error;
     // Unknown or non-targetable language: the planner never researches a
     // language silently substituted with English, so this market framing
     // cannot be served first-party.
@@ -330,9 +316,13 @@ export async function fetchPlannerKeywordIdeas(
   request: SEODataRequest,
 ): Promise<GoogleAdsPlannerIdeaEnvelope> {
   return withFirstPartyMeta(async () => {
-    const connection = await getPlannerConnectionForBilling(
-      request.billingCustomer,
-    );
+    const isResearchFallback = request.onlyProvider === PROVIDER_NAME;
+    const authorization = isResearchFallback
+      ? await authorizePlannerResearchFallback(request.billingCustomer)
+      : null;
+    const connection =
+      authorization?.connection ??
+      (await getPlannerConnectionForBilling(request.billingCustomer));
     if (!connection) {
       throw new ProviderUnavailableError(
         PROVIDER_NAME,
@@ -349,6 +339,16 @@ export async function fetchPlannerKeywordIdeas(
       );
     }
 
+    if (authorization) {
+      if (authorization.scope !== request.constraints?.plannerScope) {
+        throw new AppError(
+          "FORBIDDEN",
+          "The connected Google Ads account changed.",
+        );
+      }
+      await reservePlannerResearchSlot(connection.customerId);
+    }
+
     const client = buildClient(connection);
     const geo = await resolveGeoTarget(
       client,
@@ -362,6 +362,10 @@ export async function fetchPlannerKeywordIdeas(
     );
 
     const limit = request.constraints?.limit;
+    const maxResults =
+      typeof limit === "number" && Number.isInteger(limit) && limit > 0
+        ? limit
+        : undefined;
     const result = await client.generateKeywordIdeas({
       customerId: connection.customerId,
       keywords: [seed].slice(0, GOOGLE_ADS_PLANNER_SEED_LIMIT),
@@ -369,11 +373,15 @@ export async function fetchPlannerKeywordIdeas(
       language,
       currencyCode: connection.currencyCode,
       loginCustomerId: connection.loginCustomerId,
-      maxResults:
-        typeof limit === "number" && Number.isInteger(limit) && limit > 0
-          ? limit
-          : undefined,
+      ...(isResearchFallback ? { maxPages: 1, pageSize: maxResults } : {}),
+      maxResults,
     });
+    if (isResearchFallback && result.ideas.length === 0 && result.partial) {
+      throw new ProviderUnavailableError(
+        PROVIDER_NAME,
+        "Keyword Planner returned incomplete data.",
+      );
+    }
 
     return {
       source: result.source,

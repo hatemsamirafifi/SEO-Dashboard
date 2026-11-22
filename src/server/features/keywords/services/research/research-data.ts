@@ -31,7 +31,34 @@ type FetchResearchRowsParams = {
   // Attribute the DataForSEO spend to a specific feature (e.g. "onboarding");
   // defaults to the path-derived feature when omitted.
   creditFeature?: CreditFeature;
+  onlyProvider?: "seranking";
 };
+
+function mapMonthlySearches(
+  entries:
+    | {
+        year?: number | null;
+        month?: number | null;
+        search_volume?: number | null;
+      }[]
+    | null
+    | undefined,
+): MonthlySearch[] {
+  return (entries ?? []).flatMap(({ year, month, search_volume }) =>
+    typeof year === "number" &&
+    Number.isInteger(year) &&
+    year > 0 &&
+    typeof month === "number" &&
+    Number.isInteger(month) &&
+    month >= 1 &&
+    month <= 12 &&
+    typeof search_volume === "number" &&
+    Number.isFinite(search_volume) &&
+    search_volume >= 0
+      ? [{ year, month, searchVolume: search_volume }]
+      : [],
+  );
+}
 
 export function mapKeywordDataItems(
   items: LabsKeywordDataItem[],
@@ -57,11 +84,7 @@ export function mapKeywordDataItems(
     rows.push({
       keyword: normalized,
       searchVolume: keywordInfo?.search_volume ?? null,
-      trend: (keywordInfo?.monthly_searches ?? []).map((entry) => ({
-        year: entry.year ?? 0,
-        month: entry.month ?? 0,
-        searchVolume: entry.search_volume ?? 0,
-      })),
+      trend: mapMonthlySearches(keywordInfo?.monthly_searches),
       cpc: item.keyword_info?.cpc ?? null,
       competition: item.keyword_info?.competition ?? null,
       keywordDifficulty: item.keyword_properties?.keyword_difficulty ?? null,
@@ -93,11 +116,7 @@ export function mapAdsKeywordItems(
     rows.push({
       keyword: normalized,
       searchVolume: item.search_volume ?? null,
-      trend: (item.monthly_searches ?? []).map((entry) => ({
-        year: entry.year ?? 0,
-        month: entry.month ?? 0,
-        searchVolume: entry.search_volume ?? 0,
-      })),
+      trend: mapMonthlySearches(item.monthly_searches),
       cpc: item.cpc ?? null,
       competition:
         item.competition_index != null ? item.competition_index / 100 : null,
@@ -188,6 +207,18 @@ function mapResearchIdeasPayload(data: unknown): {
  *  `rawPlannerRecords` carries the unflattened canonical keyword-group
  *  records the persistence hook needs (the rows array alone has already
  *  flattened close variants). */
+export type FetchResearchRowsDiagnostics = {
+  fromCache: boolean;
+  servingProvider: string;
+  attemptedProviders: string[];
+  endpoint: string | null;
+  upstreamTotal: number | null;
+  rawItemCount: number | null;
+  parsedItemCount: number | null;
+  mappedRowCount: number;
+  fetchedAt?: string;
+};
+
 export type GoogleAdsResearchRows = {
   rows: EnrichedKeyword[];
   provider: string;
@@ -196,11 +227,13 @@ export type GoogleAdsResearchRows = {
   /** The R2-validated first-party envelope for the persistence hook; null
    *  for DFS-served payloads and for envelopes that fail cache re-parse. */
   plannerEnvelope: ParsedPlannerEnvelope | null;
+  diagnostics?: FetchResearchRowsDiagnostics;
 };
 
 export type FetchResearchRowsResult = {
   rows: EnrichedKeyword[];
   provider: string;
+  diagnostics?: FetchResearchRowsDiagnostics;
 };
 
 export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
@@ -264,16 +297,18 @@ export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
       const historyTrend = Array.isArray(item.history_trend)
         ? (item.history_trend as Array<{ date?: string; volume?: number }>)
         : [];
-      const trend: MonthlySearch[] = historyTrend.map((t) => {
-        const parts = String(t?.date ?? "")
-          .split("-")
-          .map(Number);
-        return {
-          year: parts[0] || 0,
-          month: parts[1] || 0,
-          searchVolume: Number(t?.volume) || 0,
-        };
-      });
+      const trend = mapMonthlySearches(
+        historyTrend.map((t) => {
+          const [year, month] = String(t?.date ?? "")
+            .split("-")
+            .map(Number);
+          return {
+            year,
+            month,
+            search_volume: t?.volume,
+          };
+        }),
+      );
       const rawIntent =
         typeof item.intent === "string"
           ? item.intent
@@ -304,11 +339,7 @@ export function mapGenericKeywordItems(items: unknown): EnrichedKeyword[] {
     rows.push({
       keyword: normalized,
       searchVolume: keywordInfo?.search_volume ?? null,
-      trend: (keywordInfo?.monthly_searches ?? []).map((entry) => ({
-        year: entry.year ?? 0,
-        month: entry.month ?? 0,
-        searchVolume: entry.search_volume ?? 0,
-      })),
+      trend: mapMonthlySearches(keywordInfo?.monthly_searches),
       cpc: labsItem.keyword_info?.cpc ?? null,
       competition: labsItem.keyword_info?.competition ?? null,
       keywordDifficulty:
@@ -341,12 +372,33 @@ export async function fetchGoogleAdsResearchRows(
   const payload = mapResearchIdeasPayload(data);
   const servedFirstParty =
     typeof data === "object" && data !== null && !Array.isArray(data);
+  const fromCache = Boolean(response.fromCache);
+  const attemptedProviders = Array.isArray(response.attemptedProviders)
+    ? response.attemptedProviders
+    : fromCache
+      ? []
+      : response.provider
+        ? [response.provider]
+        : [];
+  const rawItemCount =
+    response.diagnostics?.rawItemCount ??
+    (Array.isArray(data) ? data.length : payload.records.length);
   return {
     rows: payload.rows,
     provider: response.provider,
     rawPlannerRecords: payload.records,
     servedFirstParty,
     plannerEnvelope: parseStoredPlannerEnvelope(data),
+    diagnostics: {
+      fromCache,
+      servingProvider: response.provider,
+      attemptedProviders,
+      endpoint: response.diagnostics?.endpoint ?? null,
+      upstreamTotal: response.diagnostics?.upstreamTotal ?? null,
+      rawItemCount,
+      parsedItemCount: response.diagnostics?.parsedItemCount ?? null,
+      mappedRowCount: payload.rows.length,
+    },
   };
 }
 
@@ -355,7 +407,9 @@ export async function fetchResearchRowsBySource(
   billingCustomer: BillingCustomerContext,
 ): Promise<FetchResearchRowsResult> {
   const constraints = {
-    source: params.source satisfies KeywordIdeasSource,
+    source: (params.onlyProvider === "seranking" && params.source === "ideas"
+      ? "suggestions"
+      : params.source) satisfies KeywordIdeasSource,
     limit: params.resultLimit,
     ...(params.source === "related" ? { depth: 1 } : {}),
     includeClickstreamData: params.includeClickstreamData,
@@ -368,30 +422,52 @@ export async function fetchResearchRowsBySource(
     languageCode: params.languageCode,
     billingCustomer,
     creditFeature: params.creditFeature,
+    onlyProvider: params.onlyProvider,
     constraints,
   };
 
   const response = await getSeoDataRouter().route(request);
   const rawData = response.data !== undefined ? response.data : response;
   const provider = response.provider ?? "seranking";
+  const fromCache = Boolean(response.fromCache);
+  const attemptedProviders = Array.isArray(response.attemptedProviders)
+    ? response.attemptedProviders
+    : fromCache
+      ? []
+      : provider
+        ? [provider]
+        : [];
 
-  if (params.source === "ideas") {
-    // Check if it's first-party Google Ads envelope
-    if (
-      typeof rawData === "object" &&
-      rawData !== null &&
-      !Array.isArray(rawData) &&
-      ("ideas" in rawData || "keywords" in rawData)
-    ) {
-      return {
-        rows: mapResearchIdeasPayload(rawData).rows,
-        provider,
-      };
-    }
+  let rows: EnrichedKeyword[];
+  if (
+    params.source === "ideas" &&
+    typeof rawData === "object" &&
+    rawData !== null &&
+    !Array.isArray(rawData) &&
+    ("ideas" in rawData || "keywords" in rawData)
+  ) {
+    rows = mapResearchIdeasPayload(rawData).rows;
+  } else {
+    rows = mapGenericKeywordItems(rawData);
   }
 
+  const rawItemCount =
+    response.diagnostics?.rawItemCount ??
+    (Array.isArray(rawData) ? rawData.length : null);
+
   return {
-    rows: mapGenericKeywordItems(rawData),
+    rows,
     provider,
+    diagnostics: {
+      fromCache,
+      servingProvider: provider,
+      attemptedProviders,
+      endpoint: response.diagnostics?.endpoint ?? null,
+      upstreamTotal: response.diagnostics?.upstreamTotal ?? null,
+      rawItemCount,
+      parsedItemCount: response.diagnostics?.parsedItemCount ?? null,
+      mappedRowCount: rows.length,
+      fetchedAt: response.fetchedAt,
+    },
   };
 }

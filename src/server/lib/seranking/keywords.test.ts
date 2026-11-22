@@ -1,13 +1,24 @@
 import { describe, it, expect, vi } from "vitest";
 import type { SeRankingClient } from "./client";
+import { classifySeRankingHttpError, SeRankingValidationError } from "./errors";
 import {
   getSimilarKeywords,
   getRelatedKeywords,
   getLongTailKeywords,
   getExportKeywords,
+  getKeywordDiscoveryMeta,
 } from "./keywords";
 
 describe("SE Ranking Keywords Endpoints", () => {
+  it("distinguishes HTTP 429 rate limits from exhausted credits", () => {
+    expect(
+      classifySeRankingHttpError(429, { message: "Rate limit exceeded" }).name,
+    ).toBe("SeRankingRateLimitError");
+    expect(
+      classifySeRankingHttpError(402, { message: "Insufficient credits" }).name,
+    ).toBe("SeRankingCreditExhaustedError");
+  });
+
   const createMockClient = (responseData: unknown) => {
     const request = vi.fn().mockResolvedValue(responseData);
     return {
@@ -154,5 +165,47 @@ describe("SE Ranking Keywords Endpoints", () => {
 
     expect(items[0].keyword).toBe("عطور رجالية");
     expect(items[0].volume).toBe(2400);
+  });
+
+  it("records upstreamTotal=0 and empty counts for genuine empty upstream responses", async () => {
+    const mockClient = createMockClient({
+      total: 0,
+      keywords: [],
+    });
+
+    const items = await getSimilarKeywords(mockClient, {
+      keyword: "إنشاء ملاعب صناعية",
+      source: "eg",
+      limit: 10,
+    });
+
+    expect(items).toEqual([]);
+    expect(getKeywordDiscoveryMeta(items)).toEqual({
+      endpoint: "/v1/keywords/similar",
+      upstreamTotal: 0,
+      rawItemCount: 0,
+      parsedItemCount: 0,
+    });
+  });
+
+  it("throws SeRankingValidationError on malformed or unrecognized upstream shapes instead of returning []", async () => {
+    const malformedPayloads: unknown[] = [
+      null,
+      "<html>502 Bad Gateway</html>",
+      { error: "unexpected" },
+      { total: 10 },
+      { total: 10, keywords: [] },
+    ];
+
+    for (const payload of malformedPayloads) {
+      const mockClient = createMockClient(payload);
+      await expect(
+        getSimilarKeywords(mockClient, {
+          keyword: "إنشاء ملاعب صناعية",
+          source: "eg",
+          limit: 10,
+        }),
+      ).rejects.toBeInstanceOf(SeRankingValidationError);
+    }
   });
 });

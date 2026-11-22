@@ -1,8 +1,26 @@
 import { z } from "zod";
 
+// Vendor numeric strings are accepted. Blank strings, booleans and invalid
+// values carry no measurement and must not become a measured zero.
+const optionalKeywordMetric = z
+  .unknown()
+  .transform((value) => {
+    const measurement =
+      typeof value === "number"
+        ? value
+        : typeof value === "string" && value.trim()
+          ? Number(value)
+          : NaN;
+    return Number.isFinite(measurement) && measurement >= 0
+      ? measurement
+      : null;
+  })
+  .optional()
+  .default(null);
+
 export const seRankingHistoryTrendItemSchema = z.object({
   date: z.string(),
-  volume: z.coerce.number().default(0),
+  volume: optionalKeywordMetric,
 });
 
 export const seRankingHistoryTrendSchema = z
@@ -13,13 +31,18 @@ export const seRankingHistoryTrendSchema = z
       return Object.entries(val as Record<string, unknown>).map(
         ([date, volume]) => ({
           date,
-          volume: Number(volume) || 0,
+          volume,
         }),
       );
     }
     return [];
   }, z.array(seRankingHistoryTrendItemSchema))
-  .catch([]);
+  .catch([])
+  .transform((items) =>
+    items.flatMap(({ date, volume }) =>
+      volume === null ? [] : [{ date, volume }],
+    ),
+  );
 
 export function mapSeRankingIntent(raw: unknown): string | null {
   if (raw == null) return null;
@@ -122,10 +145,10 @@ export const seRankingKeywordExportItemSchema = z
 export const seRankingKeywordSuggestionItemSchema = z
   .object({
     keyword: z.string().trim().min(1),
-    volume: z.coerce.number().nullable().optional().default(null),
-    cpc: z.coerce.number().nullable().optional().default(null),
-    competition: z.coerce.number().nullable().optional().default(null),
-    difficulty: z.coerce.number().nullable().optional().default(null),
+    volume: optionalKeywordMetric,
+    cpc: optionalKeywordMetric,
+    competition: optionalKeywordMetric,
+    difficulty: optionalKeywordMetric,
     intent: z.unknown().optional().transform(mapSeRankingIntent),
     intents: z.unknown().optional(),
     history_trend: seRankingHistoryTrendSchema,

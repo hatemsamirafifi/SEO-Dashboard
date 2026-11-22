@@ -19,6 +19,8 @@ export const KEYWORD_RESEARCH_HEADERS = [
   "Competition",
   "Score",
   "Intent",
+  "Sources",
+  "CPC currency",
 ];
 
 export function keywordResearchExportRow(row: KeywordResearchRow): CsvValue[] {
@@ -29,6 +31,8 @@ export function keywordResearchExportRow(row: KeywordResearchRow): CsvValue[] {
     row.competition ?? "",
     row.keywordDifficulty ?? "",
     row.intent,
+    row.attribution?.map(({ source }) => source).join(", ") ?? "",
+    row.cpcCurrencyCode ?? "",
   ];
 }
 
@@ -110,7 +114,11 @@ export function useSaveAndExportActions(params: SaveExportActionParams) {
 
   const confirmSave = () => {
     const metrics = rows
-      .filter((row) => selectedRows.has(row.keyword))
+      .filter(
+        (row) =>
+          selectedRows.has(row.keyword) &&
+          (!row.attribution || row.attribution[0]?.source === "seranking"),
+      )
       .map((row) => ({
         keyword: row.keyword,
         searchVolume: row.searchVolume,

@@ -1,4 +1,8 @@
 import {
+  firstTextDirection,
+  type TextDirection,
+} from "@/client/components/chat/bidiText";
+import {
   useLayoutEffect,
   useRef,
   useState,
@@ -252,11 +256,13 @@ export function ChatGate({
 export function ChatComposer({
   busy,
   onSend,
+  placeholderDirection,
   placeholder = "Ask Sam about your strategy or OpenSEO…",
 }: {
   busy: boolean;
   onSend: (text: string) => void;
   placeholder?: string;
+  placeholderDirection?: TextDirection;
 }) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -283,7 +289,11 @@ export function ChatComposer({
   }
 
   function handleKey(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
       event.preventDefault();
       submit();
     }
@@ -297,11 +307,17 @@ export function ChatComposer({
       <textarea
         ref={textareaRef}
         value={value}
+        dir={
+          placeholderDirection &&
+          (firstTextDirection(value) ?? placeholderDirection)
+        }
+        lang={!value && placeholderDirection === "rtl" ? "ar" : undefined}
+        aria-label={placeholder}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={handleKey}
         rows={1}
         placeholder={placeholder}
-        className="max-h-40 flex-1 resize-none border-0 bg-transparent px-1 py-1 text-sm leading-relaxed outline-none placeholder:text-base-content/50 focus:outline-none"
+        className="max-h-40 min-w-0 flex-1 resize-none border-0 bg-transparent px-1 py-1 text-start text-sm leading-relaxed outline-none placeholder:text-base-content/50 focus:outline-none"
       />
       <button
         type="submit"

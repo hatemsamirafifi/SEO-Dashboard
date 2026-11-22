@@ -3,6 +3,7 @@ import { googleAdsConnections } from "@/db/schema";
 import { GoogleAdsSyncRepository } from "../repositories/GoogleAdsSyncRepository";
 import { GoogleAdsSyncService } from "./GoogleAdsSyncService";
 import { GOOGLE_ADS_SYNC_MIN_INTERVAL_MS } from "./googleAdsSyncUtils";
+import { googleAdsErrorDiagnostics } from "@/server/lib/googleAdsClient";
 
 /** Cron entry for the Google Ads durable sync. Like the GA4 cron, each
  *  connected project is checked for an active run and a 6h floor before the
@@ -23,7 +24,10 @@ export async function runScheduledGoogleAdsSync(): Promise<void> {
       })
       .from(googleAdsConnections);
   } catch (err) {
-    console.error("[cron:google-ads] Failed to list connected projects:", err);
+    console.error(
+      "[cron:google-ads] Failed to list connected projects",
+      googleAdsErrorDiagnostics(err),
+    );
     return;
   }
 
@@ -60,7 +64,7 @@ export async function runScheduledGoogleAdsSync(): Promise<void> {
         continue;
       }
       console.log(
-        `[cron:google-ads] Starting Google Ads sync for project ${conn.projectId} (customer ${conn.customerId})`,
+        `[cron:google-ads] Starting Google Ads sync for project ${conn.projectId}`,
       );
       const result = await GoogleAdsSyncService.runSync({
         projectId: conn.projectId,
@@ -84,7 +88,7 @@ export async function runScheduledGoogleAdsSync(): Promise<void> {
     } catch (err) {
       console.error(
         `[cron:google-ads] Uncaught error syncing project ${conn.projectId}:`,
-        err,
+        googleAdsErrorDiagnostics(err),
       );
     }
   }

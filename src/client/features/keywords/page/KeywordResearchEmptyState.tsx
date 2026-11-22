@@ -25,6 +25,10 @@ function NoResultsState({
 }) {
   const { lastSearchKeyword, lastSearchLocationCode } = controller;
   const currentMode = controller.controlsForm.getFieldValue("mode");
+  const hasProviderIssue = controller.researchDiagnostics?.sourceAttempts.some(
+    ({ status }) =>
+      status && !["available", "no_coverage", "skipped"].includes(status),
+  );
 
   return (
     <div className="pt-1">
@@ -32,10 +36,14 @@ function NoResultsState({
         <Globe className="size-10 mx-auto text-base-content/40" />
         <div className="space-y-2">
           <p className="text-lg font-semibold text-base-content">
-            Not enough keyword data for this query yet
+            {hasProviderIssue
+              ? "Some keyword sources could not complete the search"
+              : "No matching keyword opportunities"}
           </p>
           <p className="text-sm text-base-content/70">
-            We could not find keyword opportunities for
+            {hasProviderIssue
+              ? "Available sources returned no opportunities for"
+              : "No opportunities were found for"}
             <span className="font-medium text-base-content">
               {` "${lastSearchKeyword}" `}
             </span>

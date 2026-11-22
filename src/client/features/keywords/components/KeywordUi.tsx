@@ -50,7 +50,13 @@ export function OverviewStats({ keyword }: { keyword: KeywordResearchRow }) {
         <div className="flex items-center gap-1.5">
           <span className="text-base-content/50">CPC</span>
           <span className="font-semibold tabular-nums">
-            {keyword.cpc == null ? "—" : `$${keyword.cpc.toFixed(2)}`}
+            {keyword.cpc == null
+              ? "—"
+              : keyword.cpcCurrencyCode === undefined
+                ? `$${keyword.cpc.toFixed(2)}`
+                : [keyword.cpc.toFixed(2), keyword.cpcCurrencyCode]
+                    .filter(Boolean)
+                    .join(" ")}
           </span>
         </div>
         <div className="flex items-center gap-1.5">

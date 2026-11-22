@@ -35,7 +35,10 @@ export function applyKeywordFiltersAndSort(params: {
       return false;
     }
 
-    if (selectedIntents.length > 0 && !selectedIntents.includes(row.intent)) {
+    if (
+      selectedIntents.length > 0 &&
+      !selectedIntents.includes(row.intent ?? "unknown")
+    ) {
       return false;
     }
 

@@ -15,6 +15,7 @@ import {
 import { GoogleAdsPlannerKeywordRepository } from "@/server/features/google-ads/repositories/GoogleAdsPlannerKeywordRepository";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import type { RefreshSavedKeywordMetricsInput } from "@/types/schemas/keywords";
+import { getKeywordResearchCountry } from "@/shared/keyword-research-sources";
 
 // Cap concurrent D1 upserts per group. A project can accumulate thousands of
 // saved keywords in one location/language, and fanning out one promise each
@@ -77,12 +78,12 @@ async function recordPlannerMetricsObservation(
       },
       records: envelope.records,
     });
-  } catch (error) {
+  } catch {
     // A recording failure must not break the refresh flow itself; the next
     // refresh re-records deterministically.
     console.error(
       "keywords.refreshSavedKeywordMetrics.record-first-party-observation:",
-      error,
+      { errorCategory: "PERSISTENCE_FAILURE", requestId: crypto.randomUUID() },
     );
   }
 }
@@ -118,6 +119,9 @@ export async function refreshSavedKeywordMetrics(
       locationCode,
       languageCode,
       billingCustomer,
+      ...(getKeywordResearchCountry(locationCode, languageCode)
+        ? { excludeDataforseo: true }
+        : {}),
       creditFeature: "keyword_research",
       constraints: { projectId: input.projectId },
     });

@@ -1,5 +1,10 @@
 import type { StreamableResult } from "@cloudflare/think";
 import {
+  SAM_BUDGET_EXHAUSTED,
+  SAM_BUDGET_REJECTED,
+  SAM_GENERATION_TIMEOUT,
+} from "./samGenerationPolicy";
+import {
   normalizeProviderError,
   type AIProviderErrorCode,
 } from "@/server/features/ai/providerErrors";
@@ -58,6 +63,15 @@ export function createStreamErrorNormalizer(input: {
   const notifiedToolRejections = new Set<string>();
 
   return (error: unknown) => {
+    if (error instanceof Error) {
+      if (error.name === "TimeoutError") return SAM_GENERATION_TIMEOUT;
+      if (
+        error.message === SAM_BUDGET_EXHAUSTED ||
+        error.message === SAM_BUDGET_REJECTED
+      ) {
+        return error.message;
+      }
+    }
     // Preserve Think's own in-stream sentinel strings: these are protocol
     // messages (not provider payloads) the client and recovery machinery key
     // on, and normalizing them would corrupt the recovery contract.

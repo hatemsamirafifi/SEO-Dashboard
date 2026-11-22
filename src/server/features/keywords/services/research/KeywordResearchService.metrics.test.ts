@@ -4,6 +4,8 @@
 import type { SerpLiveItem } from "@/server/lib/dataforseo";
 import type { KeywordMetricRow } from "@/server/lib/dataforseo/keyword-metrics";
 import type { SEODataRequest } from "@/server/lib/seo-data";
+import { getSerpAnalysis } from "./serp";
+import { refreshSavedKeywordMetrics } from "./refresh-metrics";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -82,7 +84,6 @@ function metricRow(keyword: string, searchVolume: number): KeywordMetricRow {
 }
 
 beforeEach(() => {
-  vi.resetModules();
   mocks.seoDataRouter.route.mockReset();
   mocks.createDataforseoClient.mockClear();
   mocks.repository.upsertKeywordMetric.mockClear();
@@ -111,7 +112,6 @@ describe("getSerpAnalysis", () => {
     mocks.seoDataRouter.route.mockResolvedValue(
       routerResponse("serp", serpItems),
     );
-    const { getSerpAnalysis } = await import("./serp");
 
     const result = await getSerpAnalysis(
       {
@@ -143,7 +143,6 @@ describe("getSerpAnalysis", () => {
     mocks.seoDataRouter.route.mockResolvedValue(
       routerResponse("serp", [serpItems[1]]),
     );
-    const { getSerpAnalysis } = await import("./serp");
 
     const result = await getSerpAnalysis(
       {
@@ -188,7 +187,6 @@ describe("refreshSavedKeywordMetrics", () => {
         metricRow("rank tracker", 1200),
       ]),
     );
-    const { refreshSavedKeywordMetrics } = await import("./refresh-metrics");
 
     const result = await refreshSavedKeywordMetrics(
       { projectId: "project_1" },
@@ -233,7 +231,6 @@ describe("refreshSavedKeywordMetrics", () => {
     mocks.seoDataRouter.route.mockResolvedValue(
       routerResponse("keyword_metrics", [metricRow("seo tools", 2400)]),
     );
-    const { refreshSavedKeywordMetrics } = await import("./refresh-metrics");
 
     await refreshSavedKeywordMetrics(
       { projectId: "project_1" },

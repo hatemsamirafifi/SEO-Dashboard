@@ -14,6 +14,7 @@ import { db } from "@/db";
 import { runBatch } from "@/db/runBatch";
 import {
   keywordMetrics,
+  projects,
   savedKeywordTagAssignments,
   savedKeywords,
 } from "@/db/schema";
@@ -340,6 +341,54 @@ async function listSavedKeywordRowsByKeywords(params: {
 const QUERY_CHUNK_SIZE = 80;
 const DELETE_CHUNK_SIZE = 90;
 
+/** Read project-owned keyword candidates for a single market. The legacy
+ * metrics table has no provider provenance, so use only its keyword text. */
+async function listResearchOpportunities(params: {
+  projectId: string;
+  organizationId: string;
+  locationCode: number;
+  languageCode: string;
+  limit: number;
+}) {
+  const [saved, observed] = await Promise.all([
+    db
+      .select({
+        keyword: savedKeywords.keyword,
+        observedAt: savedKeywords.createdAt,
+      })
+      .from(savedKeywords)
+      .innerJoin(projects, eq(projects.id, savedKeywords.projectId))
+      .where(
+        and(
+          eq(savedKeywords.projectId, params.projectId),
+          eq(projects.organizationId, params.organizationId),
+          eq(savedKeywords.locationCode, params.locationCode),
+          eq(savedKeywords.languageCode, params.languageCode),
+        ),
+      )
+      .orderBy(desc(savedKeywords.createdAt), asc(savedKeywords.keyword))
+      .limit(params.limit),
+    db
+      .select({
+        keyword: keywordMetrics.keyword,
+        observedAt: keywordMetrics.fetchedAt,
+      })
+      .from(keywordMetrics)
+      .innerJoin(projects, eq(projects.id, keywordMetrics.projectId))
+      .where(
+        and(
+          eq(keywordMetrics.projectId, params.projectId),
+          eq(projects.organizationId, params.organizationId),
+          eq(keywordMetrics.locationCode, params.locationCode),
+          eq(keywordMetrics.languageCode, params.languageCode),
+        ),
+      )
+      .orderBy(desc(keywordMetrics.fetchedAt), asc(keywordMetrics.keyword))
+      .limit(params.limit),
+  ]);
+  return [...saved, ...observed];
+}
+
 async function removeSavedKeywords(
   savedKeywordIds: string[],
   projectId: string,
@@ -366,6 +415,7 @@ export const KeywordResearchRepository = {
   countSavedKeywords,
   saveKeywordsToProject,
   listSavedKeywordsByProject,
+  listResearchOpportunities,
   addTagsToSavedKeywords: SavedKeywordTagsRepository.addTagsToSavedKeywords,
   replaceTagsForSavedKeywords:
     SavedKeywordTagsRepository.replaceTagsForSavedKeywords,

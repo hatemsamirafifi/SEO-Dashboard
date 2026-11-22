@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect } from "react";
 import { Loader2, Plus, Wrench } from "lucide-react";
 import { createSamSession } from "@/serverFunctions/sam";
 import {
@@ -10,7 +10,12 @@ import {
 import { useSamAccess } from "./useSamAccess";
 import { SamAutopilotTab } from "./SamAutopilotTab";
 import { SamSetupGate } from "./SamSetupGate";
+import {
+  SamLanguageSettings,
+  useSamLanguageSettings,
+} from "./SamLanguageSettings";
 import { SamConversation } from "./SamConversation";
+import { SamActionPlansTab } from "./actions/SamActionPlansTab";
 
 /**
  * The SAM route's content: the active conversation, full-width. The chat
@@ -21,13 +26,27 @@ import { SamConversation } from "./SamConversation";
 export function SamChat({
   projectId,
   activeSessionId,
+  activeTab,
 }: {
   projectId: string;
   activeSessionId: string | undefined;
+  activeTab?: "chat" | "actions" | "autopilot";
 }) {
+  const preferences = useSamLanguageSettings();
+  const { direction, replyLanguage } = preferences;
   const navigate = useNavigate();
   const access = useSamAccess(projectId);
-  const [tab, setTab] = useState<"chat" | "autopilot">("chat");
+  const tab = activeTab ?? "chat";
+  const setTab = (nextTab: "chat" | "actions" | "autopilot") =>
+    void navigate({
+      to: "/p/$projectId/sam",
+      params: { projectId },
+      search: (prev) => ({
+        ...prev,
+        tab: nextTab === "chat" ? undefined : nextTab,
+      }),
+      replace: true,
+    });
   const sessionsQuery = useQuery(samSessionsQueryOptions(projectId));
   const sessions = sessionsQuery.data ?? [];
 
@@ -59,19 +78,42 @@ export function SamChat({
   }, [activeSessionId, firstSessionId, goToSession]);
 
   const tabBar = (
-    <div className="flex justify-center gap-1 border-b border-base-300 px-4 py-2">
-      {(["chat", "autopilot"] as const).map((value) => (
-        <button
-          key={value}
-          type="button"
-          onClick={() => setTab(value)}
-          className={`btn btn-xs ${tab === value ? "btn-primary" : "btn-ghost"}`}
-        >
-          {value === "chat" ? "Chat" : "Autopilot"}
-        </button>
-      ))}
+    <div
+      dir={direction}
+      className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-b border-base-300 px-4 py-2"
+    >
+      <div className="flex flex-wrap justify-center gap-1">
+        {(
+          [
+            { key: "chat", label: "Chat" },
+            { key: "actions", label: "Action Plans" },
+            { key: "autopilot", label: "Autopilot" },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setTab(item.key)}
+            className={`btn btn-xs ${tab === item.key ? "btn-primary" : "btn-ghost"}`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <SamLanguageSettings {...preferences} />
     </div>
   );
+
+  if (tab === "actions") {
+    return (
+      <div dir={direction} className="flex h-full flex-col">
+        {tabBar}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <SamActionPlansTab projectId={projectId} />
+        </div>
+      </div>
+    );
+  }
 
   // Autopilot runs deterministic engine reads plus local summary shaping, so
   // it stays available even when the chat provider key is missing.
@@ -92,13 +134,16 @@ export function SamChat({
   // skeleton while the check is in flight.
   if (access.showSetupGate) {
     return (
-      <div className="overflow-auto px-4 py-4 md:px-6 md:py-6">
-        <div className="mx-auto max-w-3xl">
-          <SamSetupGate
-            errorMessage={access.errorMessage}
-            isRefetching={access.isRefetching}
-            onRetry={access.onRetry}
-          />
+      <div className="flex h-full flex-col">
+        {tabBar}
+        <div className="overflow-auto px-4 py-4 md:px-6 md:py-6">
+          <div className="mx-auto max-w-3xl">
+            <SamSetupGate
+              errorMessage={access.errorMessage}
+              isRefetching={access.isRefetching}
+              onRetry={access.onRetry}
+            />
+          </div>
         </div>
       </div>
     );
@@ -124,6 +169,8 @@ export function SamChat({
               key={activeSessionId}
               projectId={projectId}
               sessionId={activeSessionId}
+              direction={direction}
+              replyLanguage={replyLanguage}
             />
           </Suspense>
         </div>

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MissingRankingBucket } from "@/shared/rank-tracking";
+import { RankTrackingService } from "./RankTrackingService";
 import {
   activeConfig,
   billingCustomer,
@@ -64,11 +65,10 @@ function runStartCall(): BeginRunCall {
   return first;
 }
 
-async function triggerMissing(input?: {
+function triggerMissing(input?: {
   keywordIds?: string[];
   missingRankingStates?: MissingRankingBucket[];
 }) {
-  const { RankTrackingService } = await import("./RankTrackingService");
   return RankTrackingService.triggerCheck({
     configId: "config_1",
     projectId: "project_1",

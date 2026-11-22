@@ -12,6 +12,12 @@ import type {
   ResearchSource,
   ResultLimit,
 } from "@/client/features/keywords/keywordResearchTypes";
+import {
+  KEYWORD_SOURCE_LABELS,
+  KEYWORD_SOURCE_STATUS_LABELS,
+} from "@/shared/keyword-research-sources";
+import type { ResearchDiagnostics } from "@/server/features/keywords/services/research/research";
+import type { GlobalTraceProviderCall } from "@/shared/globalTraceTypes";
 
 type AddSearchFn = (
   keyword: string,
@@ -43,6 +49,44 @@ type KeywordResearchRequest = {
 };
 
 export const KEYWORD_RESEARCH_STALE_TIME_MS = 24 * 60 * 60 * 1000;
+const PARTIAL_RESEARCH_STALE_TIME_MS = 5 * 60 * 1000;
+
+function traceResearchSources(diagnostics: ResearchDiagnostics) {
+  const counts = new Map<string, number>();
+  const providers: GlobalTraceProviderCall[] = [];
+  for (const attempt of diagnostics.sourceAttempts) {
+    if (!attempt.provider || !attempt.status) continue;
+    const provider = KEYWORD_SOURCE_LABELS[attempt.provider];
+    const executed =
+      attempt.attemptedProviders?.includes(attempt.provider) === true;
+    if (executed) counts.set(provider, (counts.get(provider) ?? 0) + 1);
+    providers.push({
+      provider,
+      endpoint: attempt.endpoint ?? undefined,
+      statusMessage:
+        KEYWORD_SOURCE_STATUS_LABELS[attempt.status] +
+        (attempt.fromCache ? " · cached" : ""),
+      skipReason: attempt.reason,
+      resultCount: attempt.rowCount,
+      dispatched: executed
+        ? true
+        : attempt.fromCache || attempt.status === "skipped"
+          ? false
+          : undefined,
+      billing: attempt.provider === "seranking" ? "Paid" : "Free",
+      metered: executed && attempt.provider === "seranking",
+      budgetGuard: attempt.status === "credit_limit" ? "BLOCKED" : undefined,
+    });
+  }
+  return {
+    providers,
+    providerBreakdown: Array.from(counts, ([provider, count]) => ({
+      provider,
+      count,
+    })),
+    providerCalls: [...counts.values()].reduce((sum, count) => sum + count, 0),
+  };
+}
 
 export function buildKeywordResearchRequest(
   input: KeywordResearchRequestInput,
@@ -110,11 +154,7 @@ export async function keywordResearchQueryFn(request: KeywordResearchRequest) {
     source: "Keyword Research page",
     projectId: request.projectId,
     status: "running",
-    billing: "Paid",
-    metered: true,
-    budget: "PASS",
     cache: "Not applicable",
-    provider: "SE Ranking",
     metadata: {
       keywords: request.keywords,
       mode: request.mode,
@@ -133,6 +173,39 @@ export async function keywordResearchQueryFn(request: KeywordResearchRequest) {
         clickstream: request.clickstream,
       },
     });
+
+    if (result.diagnostics?.coverage) {
+      const sources = traceResearchSources(result.diagnostics);
+      const attempts = result.diagnostics.sourceAttempts;
+      const blocked = attempts.some(({ status }) => status === "credit_limit");
+      globalTraceStore.completeOperation(opId, {
+        status: "success",
+        httpStatus: 200,
+        provider:
+          result.diagnostics.servingProviders
+            ?.map((name) => KEYWORD_SOURCE_LABELS[name])
+            .join(", ") || undefined,
+        ...sources,
+        cache: attempts.some(({ fromCache }) => fromCache === false)
+          ? "MISS"
+          : attempts.some(({ fromCache }) => fromCache === true)
+            ? "HIT"
+            : "Not applicable",
+        metered: sources.providers.some(({ metered }) => metered),
+        budget: blocked ? "BLOCKED" : undefined,
+        counters: { results: result.rows.length },
+        metadata: {
+          keywords: request.keywords,
+          mode: request.mode,
+          locationCode: request.locationCode,
+          coverage: result.diagnostics.coverage,
+          sourceAttempts: attempts,
+          skippedProviders: result.diagnostics.skippedProviders,
+          confirmedCreditsUsed: result.diagnostics.confirmedCreditsUsed,
+        },
+      });
+      return result;
+    }
 
     const resultObj =
       typeof result === "object" && result !== null
@@ -220,7 +293,15 @@ export function useKeywordResearchData(
       return keywordResearchQueryFn(request);
     },
     enabled: request !== null,
-    staleTime: KEYWORD_RESEARCH_STALE_TIME_MS,
+    staleTime: (query) => {
+      const result = query.state.data;
+      return result &&
+        (result.rows.length === 0 ||
+          result.usedFallback ||
+          result.diagnostics?.coverage === "partial")
+        ? PARTIAL_RESEARCH_STALE_TIME_MS
+        : KEYWORD_RESEARCH_STALE_TIME_MS;
+    },
     gcTime: KEYWORD_RESEARCH_STALE_TIME_MS,
     retry: false,
     refetchOnReconnect: false,

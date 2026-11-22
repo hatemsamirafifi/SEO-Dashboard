@@ -15,6 +15,7 @@ import {
   traceEnrichmentRun,
 } from "@/server/features/serp/serpEnrichment";
 import { normalizeKeyword } from "./helpers";
+import { getKeywordResearchCountry } from "@/shared/keyword-research-sources";
 
 type SerpAnalysisReason = "no_organic_results" | "provider_unavailable";
 
@@ -80,6 +81,10 @@ async function getSerpLiveAnalysis(
   billingCustomer: BillingCustomerContext,
 ): Promise<SerpAnalysisResult> {
   const keyword = normalizeKeyword(input.keyword);
+  const excludeDataforseo = !!getKeywordResearchCountry(
+    input.locationCode,
+    input.languageCode,
+  );
 
   let data: SerpLiveItem[];
   let provider: string;
@@ -96,6 +101,7 @@ async function getSerpLiveAnalysis(
       locationCode: input.locationCode,
       languageCode: input.languageCode,
       billingCustomer,
+      ...(excludeDataforseo ? { excludeDataforseo } : {}),
     });
     data = routeResult.data;
     provider = routeResult.provider;
@@ -124,7 +130,8 @@ async function getSerpLiveAnalysis(
   const itemProvider = readItemMetaString(data, "_provider");
   const itemFetchedAt = readItemMetaString(data, "_fetchedAt");
   const resolvedProvider =
-    itemProvider ?? (provider === "provider" ? "dataforseo" : provider);
+    itemProvider ??
+    (provider === "provider" && !excludeDataforseo ? "dataforseo" : provider);
   const resolvedFetchedAt =
     itemFetchedAt ?? routerFetchedAt ?? new Date().toISOString();
 
@@ -171,6 +178,7 @@ async function getSerpLiveAnalysis(
           domain: item.domain,
         })),
         billingCustomer,
+        ...(excludeDataforseo ? { excludeDataforseo } : {}),
       });
       const byIdentity = new Map(
         enriched.targets.map((entry) => [entry.target.identity, entry.metrics]),

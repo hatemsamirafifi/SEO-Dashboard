@@ -69,6 +69,12 @@ export class SeRankingClient {
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    if (import.meta.env.MODE === "e2e") {
+      throw new SeRankingError(
+        "SE Ranking transport is disabled in browser tests.",
+        503,
+      );
+    }
     const method = options.method ?? "GET";
     const url = this.buildUrl(path, options.params);
     const bodyStr = options.body ? JSON.stringify(options.body) : undefined;

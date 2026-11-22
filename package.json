@@ -36,6 +36,7 @@
     "db:generate": "npm run db:generate:d1 && npm run db:generate:pg",
     "db:generate:d1": "drizzle-kit generate",
     "db:generate:pg": "drizzle-kit generate --config drizzle-pg.config.ts",
+    "db:migrate:status": "node scripts/local-d1-migration-guard.mjs --check",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:prod": "wrangler d1 migrations apply DB --remote",
     "db:migrate:pg": "drizzle-kit migrate --config drizzle-pg.config.ts",

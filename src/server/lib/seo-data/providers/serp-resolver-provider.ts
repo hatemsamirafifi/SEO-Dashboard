@@ -224,6 +224,12 @@ export function createSerpResolverProvider(): SEODataProvider {
     },
 
     async get(request: SEODataRequest): Promise<SerpLiveItem[]> {
+      if (import.meta.env.MODE === "e2e") {
+        throw new ProviderUnavailableError(
+          "serp_resolver",
+          "Live SERP transport is disabled in browser tests.",
+        );
+      }
       const keyword = request.keyword?.trim();
       if (!keyword) {
         throw new ProviderUnsupportedError(
@@ -299,6 +305,7 @@ export function createSerpResolverProvider(): SEODataProvider {
       );
 
       if (
+        !request.excludeDataforseo &&
         dataforseo.enabled &&
         dataforseo.configured &&
         dfsPriority < bestHttpPriority
@@ -383,17 +390,23 @@ export function createSerpResolverProvider(): SEODataProvider {
         }
 
         if (error instanceof SerpProvidersUnavailableError) {
-          if (!dataforseo.enabled || !dataforseo.configured) {
+          if (
+            request.excludeDataforseo ||
+            !dataforseo.enabled ||
+            !dataforseo.configured
+          ) {
             const dispatchedAppErr = toDispatchedAppError(error);
             if (dispatchedAppErr) {
               throw dispatchedAppErr;
             }
           }
-          const dfsReason = !dataforseo.enabled
-            ? "DISABLED"
-            : !dataforseo.configured
-              ? "MISSING_CREDENTIALS"
-              : "AVAILABLE";
+          const dfsReason = request.excludeDataforseo
+            ? "Excluded from keyword research"
+            : !dataforseo.enabled
+              ? "DISABLED"
+              : !dataforseo.configured
+                ? "MISSING_CREDENTIALS"
+                : "AVAILABLE";
           const diagnostics: SerpProviderDiagnostic[] = [
             { provider: "DataForSEO", reason: dfsReason },
             ...error.providerDiagnostics,

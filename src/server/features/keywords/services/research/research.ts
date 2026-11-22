@@ -3,12 +3,17 @@ import { AppError } from "@/server/lib/errors";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import type { CreditFeature } from "@/shared/billing-credit-features";
 import { KeywordResearchRepository } from "@/server/features/keywords/repositories/KeywordResearchRepository";
-import type { KeywordResearchRow, SeedOverviewInfo } from "@/types/keywords";
+import type {
+  KeywordOpportunitySource,
+  KeywordResearchRow,
+  KeywordResearchSourceStatus,
+  SeedOverviewInfo,
+} from "@/types/keywords";
 import type { ResolvedResearchKeywordsInput } from "@/types/schemas/keywords";
 import { getKeywordDataProvider } from "@/shared/keyword-locations";
 import {
   annotateAndSortKeywordRows,
-  isExactKeywordMatch,
+  keywordOpportunityKey,
   normalizeArabicKeyword,
 } from "@/shared/keyword-relevance";
 import {
@@ -21,6 +26,8 @@ import { type EnrichedKeyword, normalizeKeyword } from "./helpers";
 import {
   fetchGoogleAdsResearchRows,
   fetchResearchRowsBySource,
+  type FetchResearchRowsDiagnostics,
+  type FetchResearchRowsResult,
 } from "./research-data";
 import {
   AUTO_KEYWORD_SOURCES,
@@ -32,11 +39,24 @@ import {
   type ResearchSource,
 } from "./selection";
 import { getProviderFeatureFlags } from "@/server/lib/seo-data/config";
+import { getKeywordResearchCountry } from "@/shared/keyword-research-sources";
 
 export type SourceAttempt = {
   source: ResearchSource;
   rowCount: number;
   nonSeedCount: number;
+  fromCache?: boolean;
+  servingProvider?: string | null;
+  attemptedProviders?: string[];
+  endpoint?: string | null;
+  upstreamTotal?: number | null;
+  rawItemCount?: number | null;
+  parsedItemCount?: number | null;
+  mappedRowCount?: number;
+  provider?: KeywordOpportunitySource;
+  status?: KeywordResearchSourceStatus;
+  reason?: string;
+  fetchedAt?: string;
 };
 
 export type ResearchDiagnostics = {
@@ -46,6 +66,8 @@ export type ResearchDiagnostics = {
   registeredProviders?: string[];
   enabledProviders?: string[];
   attemptedProvider?: string | null;
+  attemptedProviders?: string[];
+  fromCache?: boolean;
   servingProvider?: string | null;
   skippedProviders?: { provider: string; reason: string }[];
   effectiveConfig?: {
@@ -58,7 +80,36 @@ export type ResearchDiagnostics = {
   providerReturnedData?: string | null;
   errorStage?: string | null;
   confirmedCreditsUsed?: number | null;
+  coverage?: "sufficient" | "partial" | "empty";
+  servingProviders?: KeywordOpportunitySource[];
 };
+
+function summarizeAttempts(attempts: SourceAttempt[]) {
+  const attemptedProviders = [
+    ...new Set(attempts.flatMap((attempt) => attempt.attemptedProviders ?? [])),
+  ];
+  return {
+    attemptedProviders,
+    attemptedProvider: attemptedProviders[0] ?? null,
+    fromCache:
+      attempts.length > 0 &&
+      attempts.every((attempt) => attempt.fromCache === true),
+  };
+}
+
+function buildSourceAttempt(
+  source: ResearchSource,
+  rows: EnrichedKeyword[],
+  seedKeyword: string,
+  diagnostics?: FetchResearchRowsDiagnostics,
+): SourceAttempt {
+  return {
+    ...diagnostics,
+    source,
+    rowCount: rows.length,
+    nonSeedCount: countNonSeedKeywords(rows, seedKeyword),
+  };
+}
 
 export type ResearchResult = {
   provider: string;
@@ -81,7 +132,7 @@ async function fetchRowsFromSource(
   seedKeyword: string,
   billingCustomer: BillingCustomerContext,
   creditFeature?: CreditFeature,
-): Promise<{ rows: EnrichedKeyword[]; provider: string }> {
+): Promise<FetchResearchRowsResult> {
   return fetchResearchRowsBySource(
     {
       source,
@@ -118,7 +169,7 @@ async function fetchAutoRows(
       continue;
     }
 
-    let sourceResult: { rows: EnrichedKeyword[]; provider: string } = {
+    let sourceResult: FetchResearchRowsResult = {
       rows: [],
       provider: "unknown",
     };
@@ -136,6 +187,8 @@ async function fetchAutoRows(
         source,
         rowCount: 0,
         nonSeedCount: 0,
+        fromCache: false,
+        mappedRowCount: 0,
       });
 
       // Task 6: Prevent failed validation, auth, or credit errors from triggering repeated paid calls
@@ -162,7 +215,7 @@ async function fetchAutoRows(
       continue;
     }
 
-    const { rows, provider } = sourceResult;
+    const { rows, provider, diagnostics: fetchDiag } = sourceResult;
     if (provider && provider !== "unknown") {
       servingProvider = provider;
     }
@@ -175,11 +228,7 @@ async function fetchAutoRows(
       accumulatedRows.push(row);
     }
 
-    attempts.push({
-      source,
-      rowCount: rows.length,
-      nonSeedCount: countNonSeedKeywords(rows, seedKeyword),
-    });
+    attempts.push(buildSourceAttempt(source, rows, seedKeyword, fetchDiag));
 
     lastSource = source;
 
@@ -196,6 +245,7 @@ async function fetchAutoRows(
           requestedMode: "auto",
           threshold: MIN_NON_SEED_FOR_AUTO,
           sourceAttempts: attempts,
+          ...summarizeAttempts(attempts),
           servingProvider: servingProvider ?? "seranking",
           providerReturnedData: servingProvider ?? "seranking",
         },
@@ -214,6 +264,7 @@ async function fetchAutoRows(
         requestedMode: "auto",
         threshold: MIN_NON_SEED_FOR_AUTO,
         sourceAttempts: attempts,
+        ...summarizeAttempts(attempts),
         servingProvider: servingProvider ?? "seranking",
         providerReturnedData: servingProvider ?? "seranking",
       },
@@ -234,6 +285,7 @@ async function fetchAutoRows(
       requestedMode: "auto",
       threshold: MIN_NON_SEED_FOR_AUTO,
       sourceAttempts: attempts,
+      ...summarizeAttempts(attempts),
       servingProvider: servingProvider ?? "seranking",
       providerReturnedData: servingProvider ?? null,
     },
@@ -247,18 +299,29 @@ async function fetchGoogleAdsRows(
   creditFeature?: CreditFeature,
   baseDiagnostics?: Partial<ResearchDiagnostics>,
 ): Promise<ResearchResult> {
-  const { rows, provider, servedFirstParty, plannerEnvelope } =
-    await fetchGoogleAdsResearchRows(
-      {
-        seedKeyword,
-        locationCode: input.locationCode,
-        languageCode: input.languageCode,
-        resultLimit: input.resultLimit,
-        creditFeature,
-      },
-      billingCustomer,
-    );
+  const {
+    rows,
+    provider,
+    servedFirstParty,
+    plannerEnvelope,
+    diagnostics: fetchDiag,
+  } = await fetchGoogleAdsResearchRows(
+    {
+      seedKeyword,
+      locationCode: input.locationCode,
+      languageCode: input.languageCode,
+      resultLimit: input.resultLimit,
+      creditFeature,
+    },
+    billingCustomer,
+  );
   const requestedMode = input.mode ?? "auto";
+  const attempt = buildSourceAttempt(
+    "google_ads",
+    rows,
+    seedKeyword,
+    fetchDiag,
+  );
 
   return {
     provider: provider ?? "google_ads",
@@ -277,13 +340,8 @@ async function fetchGoogleAdsRows(
       ...baseDiagnostics,
       requestedMode,
       threshold: MIN_NON_SEED_FOR_AUTO,
-      sourceAttempts: [
-        {
-          source: "google_ads",
-          rowCount: rows.length,
-          nonSeedCount: countNonSeedKeywords(rows, seedKeyword),
-        },
-      ],
+      sourceAttempts: [attempt],
+      ...summarizeAttempts([attempt]),
       servingProvider: provider ?? "google_ads",
       providerReturnedData: provider ?? "google_ads",
     },
@@ -298,18 +356,18 @@ async function fetchManualRows(
   creditFeature?: CreditFeature,
   baseDiagnostics?: Partial<ResearchDiagnostics>,
 ): Promise<ResearchResult> {
-  const { rows, provider } = await fetchRowsFromSource(
+  const {
+    rows,
+    provider,
+    diagnostics: fetchDiag,
+  } = await fetchRowsFromSource(
     mode,
     input,
     seedKeyword,
     billingCustomer,
     creditFeature,
   );
-  const attempt: SourceAttempt = {
-    source: mode,
-    rowCount: rows.length,
-    nonSeedCount: countNonSeedKeywords(rows, seedKeyword),
-  };
+  const attempt = buildSourceAttempt(mode, rows, seedKeyword, fetchDiag);
 
   return {
     provider: provider ?? "provider",
@@ -321,6 +379,7 @@ async function fetchManualRows(
       requestedMode: mode,
       threshold: MIN_NON_SEED_FOR_AUTO,
       sourceAttempts: [attempt],
+      ...summarizeAttempts([attempt]),
       servingProvider: provider ?? "provider",
       providerReturnedData: provider ?? "provider",
     },
@@ -410,8 +469,11 @@ export function recordFirstPartyResearchRows(
       },
       records: envelope.records,
     });
-  })().catch((error) => {
-    console.error("keywords.research.record-first-party-observation:", error);
+  })().catch(() => {
+    console.error("keywords.research.record-first-party-observation", {
+      errorCategory: "PERSISTENCE_FAILURE",
+      requestId: crypto.randomUUID(),
+    });
   });
 }
 
@@ -439,6 +501,20 @@ export async function research(
   const effectiveInput: ResolvedResearchKeywordsInput =
     provider === "google_ads" ? { ...input, clickstream: false } : input;
   const mode = effectiveInput.mode ?? "auto";
+  const multiSource =
+    getKeywordResearchCountry(input.locationCode, input.languageCode) !==
+    undefined;
+  if (
+    multiSource &&
+    billingCustomer.projectId &&
+    billingCustomer.projectId !== input.projectId
+  ) {
+    throw new AppError("FORBIDDEN");
+  }
+  const scopedBillingCustomer = {
+    ...billingCustomer,
+    projectId: input.projectId,
+  };
 
   const flags = await getProviderFeatureFlags();
   const serankingConfig = {
@@ -448,7 +524,7 @@ export async function research(
   };
   const dataforseoConfig = {
     configured: false,
-    enabled: flags.dataforseoEnabled,
+    enabled: !multiSource && flags.dataforseoEnabled,
     priority: 1,
   };
 
@@ -456,6 +532,7 @@ export async function research(
     "google_ads",
     "seranking",
     "internal",
+    ...(multiSource ? ["gsc"] : []),
     "dataforseo",
   ];
   const enabledProviders = registeredProviders.filter((p) => {
@@ -464,6 +541,7 @@ export async function research(
     if (p === "dataforseo")
       return flags.dataforseoEnabled && dataforseoConfig.enabled;
     if (p === "google_ads") return flags.googleAdsEnabled;
+    if (p === "gsc") return flags.gscEnabled;
     return true;
   });
 
@@ -481,7 +559,7 @@ export async function research(
       provider: "dataforseo",
       reason: !flags.dataforseoEnabled
         ? "DATAFORSEO_ENABLED is false"
-        : "disabled in settings",
+        : "excluded from multi-source keyword research",
     });
   }
   if (!flags.googleAdsEnabled) {
@@ -494,15 +572,19 @@ export async function research(
   const baseDiagnostics: Partial<ResearchDiagnostics> = {
     registeredProviders,
     enabledProviders,
-    attemptedProvider:
-      provider === "google_ads" ? "google_ads" : (enabledProviders[0] ?? null),
+    attemptedProvider: null,
+    attemptedProviders: [],
     skippedProviders,
-    effectiveConfig: {
-      serankingConfigured: serankingConfig.configured,
-      serankingEnabled: serankingConfig.enabled,
-      dataforseoConfigured: dataforseoConfig.configured,
-      dataforseoEnabled: dataforseoConfig.enabled,
-    },
+    ...(!multiSource
+      ? {
+          effectiveConfig: {
+            serankingConfigured: serankingConfig.configured,
+            serankingEnabled: serankingConfig.enabled,
+            dataforseoConfigured: dataforseoConfig.configured,
+            dataforseoEnabled: dataforseoConfig.enabled,
+          },
+        }
+      : {}),
     keywordSourceRequested: mode,
   };
 
@@ -511,8 +593,17 @@ export async function research(
     // (keyed by dataType + keyword + market + constraints) and single-flight
     // coalesces concurrent requests, so a repeat research() run re-reads the
     // per-source router cache entries instead of re-calling providers.
-    const result =
-      provider === "google_ads"
+    const result = multiSource
+      ? await (
+          await import("./multi-source-research")
+        ).researchMultipleSources(
+          effectiveInput,
+          seedKeyword,
+          scopedBillingCustomer,
+          creditFeature,
+          baseDiagnostics,
+        )
+      : provider === "google_ads"
         ? await fetchGoogleAdsRows(
             effectiveInput,
             seedKeyword,
@@ -537,7 +628,22 @@ export async function research(
               baseDiagnostics,
             );
 
-    if (result.firstParty) {
+    if (multiSource) {
+      recordFirstPartyResearchRows(
+        result.plannerEnvelope ?? null,
+        seedKeyword,
+        effectiveInput,
+        scopedBillingCustomer,
+      );
+      persistRows(
+        effectiveInput,
+        result.rows.filter(
+          (row) =>
+            row.attribution?.[0]?.source === "seranking" &&
+            row.attribution[0].cacheStatus === "miss",
+        ),
+      );
+    } else if (result.firstParty) {
       recordFirstPartyResearchRows(
         result.plannerEnvelope ?? null,
         seedKeyword,
@@ -552,12 +658,11 @@ export async function research(
       result.rows,
       seedKeyword,
       effectiveInput.languageCode,
+      multiSource ? keywordOpportunityKey : undefined,
     );
 
     const exactRow =
-      result.rows.find((row) =>
-        isExactKeywordMatch(row.keyword, seedKeyword),
-      ) ?? null;
+      result.rows.find((row) => row.matchType === "exact") ?? null;
     if (exactRow) {
       const hasAnyMetric =
         exactRow.searchVolume !== null ||
@@ -581,7 +686,7 @@ export async function research(
           keywordDifficulty: null,
           cpc: null,
           competition: null,
-          intent: "unknown",
+          intent: multiSource ? null : "unknown",
           matchType: "exact",
           relevanceScore: 100,
           relevanceTier: "high",
@@ -590,7 +695,7 @@ export async function research(
       };
     }
 
-    if (result.provider === "seranking") {
+    if (!multiSource && result.provider === "seranking") {
       result.diagnostics.confirmedCreditsUsed = result.rows.length * 10;
     } else if (result.provider === "cache") {
       result.diagnostics.confirmedCreditsUsed = 0;

@@ -7,6 +7,7 @@ import {
   getSimilarKeywords,
   getRelatedKeywords,
   getLongTailKeywords,
+  getKeywordDiscoveryMeta,
   getDomainOverview,
   getDomainKeywords,
   getDomainPages,
@@ -28,6 +29,7 @@ import {
 } from "../errors";
 import { persistCompetitorSnapshot } from "../competitor-snapshot-repository";
 import { DomainOverviewSnapshotRepository } from "../domain-overview-snapshot-repository";
+import { attachProviderDiagnostics } from "../data-router";
 import type { SEODataProvider, SEODataRequest } from "../types";
 import type { BacklinkCall, KeywordIdeasSource } from "./dataforseo-provider";
 import type { KeywordMetricRow } from "@/server/lib/dataforseo/keyword-metrics";
@@ -269,20 +271,27 @@ async function routeKeywordIdeas(
   const limit = (c.limit as number | undefined) ?? 100;
 
   let rawItems;
+  let endpoint: string;
   if (ideaSource === "related") {
+    endpoint = "/v1/keywords/related";
     rawItems = await getRelatedKeywords(client, { keyword, source, limit });
   } else if (ideaSource === "suggestions") {
+    endpoint = "/v1/keywords/similar";
     rawItems = await getSimilarKeywords(client, { keyword, source, limit });
   } else if (ideaSource === "google_ads") {
     // SE Ranking long-tail / similar
+    endpoint = "/v1/keywords/longtail";
     rawItems = await getLongTailKeywords(client, { keyword, source, limit });
   } else {
     // Default "ideas": combine similar and related or similar
+    endpoint = "/v1/keywords/similar";
     rawItems = await getSimilarKeywords(client, { keyword, source, limit });
   }
 
+  const discoveryMeta = getKeywordDiscoveryMeta(rawItems);
+
   // Normalize into LabsKeywordDataItem shape so existing downstream consumers and mappers work seamlessly
-  return rawItems.map((item) => {
+  const mapped = rawItems.map((item) => {
     const dataItem = {
       keyword: item.keyword,
       keyword_info: {
@@ -310,6 +319,30 @@ async function routeKeywordIdeas(
       keyword_data: dataItem,
     };
   });
+
+  const diagnostics = {
+    endpoint: discoveryMeta?.endpoint ?? endpoint,
+    upstreamTotal: discoveryMeta?.upstreamTotal ?? null,
+    rawItemCount: discoveryMeta?.rawItemCount ?? rawItems.length,
+    parsedItemCount: discoveryMeta?.parsedItemCount ?? rawItems.length,
+  };
+  attachProviderDiagnostics(mapped, diagnostics);
+
+  console.info(
+    "[seranking] routeKeywordIdeas-diagnostics:",
+    JSON.stringify({
+      ...diagnostics,
+      ideaSource,
+      source,
+      keyword,
+      limit,
+      mappedRowCount: mapped.length,
+      servingProvider: "seranking",
+      fromCache: false,
+    }),
+  );
+
+  return mapped;
 }
 
 async function routeKeywordMetrics(

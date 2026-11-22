@@ -58,8 +58,10 @@ const DESCRIPTIONS: Record<
   },
 };
 
-export function IntentBadge({ intent }: { intent: KeywordIntent }) {
+export function IntentBadge({ intent }: { intent: KeywordIntent | null }) {
   const tooltip = useFloatingTooltip<HTMLSpanElement>({ delayMs: 0 });
+  if (intent === null)
+    return <span aria-label="Search intent unavailable">—</span>;
   const details = DESCRIPTIONS[intent];
 
   return (

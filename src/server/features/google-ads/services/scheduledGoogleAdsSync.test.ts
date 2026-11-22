@@ -142,6 +142,8 @@ describe("runScheduledGoogleAdsSync", () => {
   });
 
   it("keeps syncing later projects when one project throws", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const report = vi.spyOn(console, "error").mockImplementation(() => {});
     const later = {
       projectId: "project-2",
       organizationId: "org-1",
@@ -161,13 +163,25 @@ describe("runScheduledGoogleAdsSync", () => {
           startedAt: "2020-01-01T00:00:00.000Z",
         } as HistoryRow,
       ]);
-    runSync.mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce({
-      ok: true,
-      status: "success",
-      unitsSucceeded: 7,
-    });
+    runSync
+      .mockRejectedValueOnce(
+        new Error(`Bearer SYNTHETIC_SYNC_SECRET for ${CONNECTED.customerId}`),
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        status: "success",
+        unitsSucceeded: 7,
+      });
 
     await runScheduledGoogleAdsSync();
+    expect(report).toHaveBeenCalledWith(
+      expect.stringContaining("Uncaught error syncing project"),
+      { errorCategory: "SYNC_FAILURE", requestId: expect.any(String) },
+    );
+    const logged = JSON.stringify([log.mock.calls, report.mock.calls]);
+    expect(logged).not.toContain("SYNTHETIC_SYNC_SECRET");
+    expect(logged).not.toContain(CONNECTED.customerId);
+    expect(logged).not.toContain(later.customerId);
 
     expect(runSync).toHaveBeenCalledTimes(2);
     expect(runSync).toHaveBeenNthCalledWith(2, {

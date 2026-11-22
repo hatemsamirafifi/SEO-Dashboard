@@ -136,3 +136,43 @@ describe("createToolExecutionTracker", () => {
     logSpy.mockRestore();
   });
 });
+
+it("normalizes object keys and scopes Search Console and rank reads to the turn", () => {
+  const tracker = createToolExecutionTracker({
+    sessionId: "sam",
+    projectId: "project",
+  });
+  const tool = "get_search_console_performance";
+  tracker.beginTurn();
+  tracker.setCached(
+    tool,
+    {
+      dateRange: "last_3_months",
+      filters: [{ dimension: "query", expression: "ملعب" }],
+    },
+    { rows: 2 },
+  );
+  expect(
+    tracker.getCached(tool, {
+      filters: [{ expression: "ملعب", dimension: "query" }],
+      dateRange: "last_3_months",
+    }),
+  ).toEqual({ rows: 2 });
+  expect(
+    tracker.getCached(tool, {
+      filters: [{ expression: "ترتان", dimension: "query" }],
+      dateRange: "last_3_months",
+    }),
+  ).toBeUndefined();
+  tracker.setCached("get_rank_tracker", {}, { rows: 1 });
+  tracker.setCached("start_autopilot_run", {}, { run: "one" });
+  tracker.beginTurn();
+  expect(
+    tracker.getCached(tool, {
+      dateRange: "last_3_months",
+      filters: [{ dimension: "query", expression: "ملعب" }],
+    }),
+  ).toBeUndefined();
+  expect(tracker.getCached("get_rank_tracker", {})).toBeUndefined();
+  expect(tracker.getCached("start_autopilot_run", {})).toEqual({ run: "one" });
+});

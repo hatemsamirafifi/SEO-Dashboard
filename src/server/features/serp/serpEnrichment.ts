@@ -34,6 +34,7 @@ import {
 export type SerpEnrichmentInput = {
   results: Array<{ position: number; url: string; domain: string }>;
   billingCustomer: BillingCustomerContext;
+  excludeDataforseo?: boolean;
 };
 
 export type EnrichedCompetitorTarget = {
@@ -170,6 +171,7 @@ export async function enrichCompetitiveMetrics(
         domain,
         billingCustomer: input.billingCustomer,
         creditFeature: "backlinks",
+        ...(input.excludeDataforseo ? { excludeDataforseo: true } : {}),
       };
       const summaryRequest = {
         ...base,

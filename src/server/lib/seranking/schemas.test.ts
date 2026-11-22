@@ -95,6 +95,27 @@ describe("SE Ranking Schemas & API Contracts", () => {
       ]);
     });
 
+    it("keeps an explicit zero and omits blank or malformed values", () => {
+      expect(
+        seRankingKeywordSuggestionItemSchema.parse({
+          keyword: "عطور",
+          volume: " ",
+          cpc: true,
+          difficulty: 0,
+          history_trend: {
+            "2026-01": null,
+            "2026-02": "0",
+            "2026-03": "unknown",
+          },
+        }),
+      ).toMatchObject({
+        volume: null,
+        cpc: null,
+        difficulty: 0,
+        history_trend: [{ date: "2026-02", volume: 0 }],
+      });
+    });
+
     it("handles missing/null metrics without fabricating values", () => {
       const raw = {
         keyword: "عطور رجالية فخمة",

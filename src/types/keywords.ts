@@ -11,6 +11,37 @@ export type MonthlySearch = {
   searchVolume: number;
 };
 
+export type KeywordOpportunitySource =
+  | "seranking"
+  | "google_ads"
+  | "gsc"
+  | "internal";
+
+export type KeywordResearchSourceStatus =
+  | "available"
+  | "no_coverage"
+  | "unavailable"
+  | "permission_denied"
+  | "rate_limited"
+  | "credit_limit"
+  | "invalid_response"
+  | "skipped";
+
+export type KeywordResearchAttribution = {
+  source: KeywordOpportunitySource;
+  keyword: string;
+  observedAt: string | null;
+  cacheStatus: "hit" | "miss" | "stored";
+  /** Describes the evidence for the opportunity, independent of relevance. */
+  confidence: "provider_estimate" | "observed" | "stored_keyword";
+  sitePerformance?: {
+    impressions: number | null;
+    clicks: number | null;
+    startDate: string;
+    endDate: string;
+  };
+};
+
 export type KeywordResearchRow = {
   keyword: string;
   searchVolume: number | null;
@@ -18,7 +49,19 @@ export type KeywordResearchRow = {
   keywordDifficulty: number | null;
   cpc: number | null;
   competition: number | null;
-  intent: KeywordIntent;
+  intent: KeywordIntent | null;
+  /** First entry produced the row's market metrics. Other entries attest to the keyword only. */
+  attribution?: KeywordResearchAttribution[];
+  cpcCurrencyCode?: string | null;
+  metricAvailability?: Record<
+    | "searchVolume"
+    | "cpc"
+    | "keywordDifficulty"
+    | "competition"
+    | "intent"
+    | "trend",
+    boolean
+  >;
   matchType?: "exact" | "phrase" | "partial" | "related";
   relevanceScore?: number;
   relevanceTier?: "high" | "medium" | "low";

@@ -59,6 +59,10 @@
         "name": "SE_RANKING_RATE_LIMITER",
         "class_name": "SeRankingRateLimiter",
       },
+      {
+        "name": "GOOGLE_ADS_PLANNER_LIMITER",
+        "class_name": "GoogleAdsPlannerLimiter",
+      },
     ],
   },
   "migrations": [
@@ -69,6 +73,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["SamChatAgent"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["GoogleAdsPlannerLimiter"],
     },
   ],
   "triggers": {

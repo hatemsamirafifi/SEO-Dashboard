@@ -40,8 +40,23 @@ export type ToolInputRejectionEvent = {
 
 const DEFAULT_CACHE_CAP = 64;
 
-function cacheKey(toolName: string, args: unknown): CacheKey {
-  return `${toolName}:${JSON.stringify(args)}`;
+const TURN_SCOPED_READS = new Set([
+  "get_search_console_performance",
+  "get_rank_tracker",
+]);
+
+function cacheKey(toolName: string, args: unknown, turn: number): CacheKey {
+  const normalized = JSON.stringify(args, (_key, value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return value;
+    return Object.fromEntries(
+      Object.entries(value).toSorted(([a], [b]) =>
+        a < b ? -1 : a > b ? 1 : 0,
+      ),
+    );
+  });
+  const scope = TURN_SCOPED_READS.has(toolName) ? turn : "session";
+  return `${scope}:${toolName}:${normalized}`;
 }
 
 export function createToolDedupCache(maxEntries = DEFAULT_CACHE_CAP): {
@@ -67,14 +82,18 @@ export function createToolExecutionTracker(input: {
   sessionId: string;
   projectId: string;
   maxCacheEntries?: number;
-}): ToolExecutionTracker {
+}): ToolExecutionTracker & { beginTurn(): void } {
   const { get, set } = createToolDedupCache(input.maxCacheEntries);
+  let turn = 0;
   return {
+    beginTurn() {
+      turn += 1;
+    },
     getCached(toolName, args) {
-      return get(cacheKey(toolName, args));
+      return get(cacheKey(toolName, args, turn));
     },
     setCached(toolName, args, output) {
-      set(cacheKey(toolName, args), output);
+      set(cacheKey(toolName, args, turn), output);
     },
     log(event) {
       console.log(

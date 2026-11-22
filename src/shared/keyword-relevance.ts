@@ -17,6 +17,18 @@ const LATIN_CHAR_REGEX = /[a-zA-Z]/;
 const ARABIC_DIACRITICS_REGEX = /[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
 const ARABIC_ALEF_VARIANTS_REGEX = /[\u0622\u0623\u0625\u0671]/g;
 
+/** Fold common Arabic spelling variants and spacing while keeping word
+ * order, punctuation, ta marbuta and ya/alef maqsura distinct. */
+export function keywordOpportunityKey(keyword: string): string {
+  return keyword
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/[\u0640\u064b-\u0652\u0670]/g, "")
+    .replace(ARABIC_ALEF_VARIANTS_REGEX, "ا")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 const ARABIC_STOPWORDS = new Set([
   "في",
   "من",
@@ -111,13 +123,14 @@ export function scoreKeywordRelevance(
   candidate: string,
   seedKeyword: string,
   languageCode: string = "en",
+  key = normalizeArabicKeyword,
 ): KeywordRelevanceAssessment {
   const normCandidate = normalizeArabicKeyword(candidate);
   const normSeed = normalizeArabicKeyword(seedKeyword);
   const candidateScript = detectScriptKind(candidate);
   const seedScript = detectScriptKind(seedKeyword);
 
-  if (!normSeed || normCandidate === normSeed) {
+  if (!normSeed || key(candidate) === key(seedKeyword)) {
     return {
       matchType: "exact",
       relevanceScore: 100,
@@ -233,12 +246,14 @@ export function annotateAndSortKeywordRows(
   rows: KeywordResearchRow[],
   seedKeyword: string,
   languageCode: string = "en",
+  key = normalizeArabicKeyword,
 ): KeywordResearchRow[] {
   const annotated = rows.map((row) => {
     const assessment = scoreKeywordRelevance(
       row.keyword,
       seedKeyword,
       languageCode,
+      key,
     );
     return {
       ...row,

@@ -1,5 +1,9 @@
 import { defineConfig } from "@playwright/test";
 
+const existingBaseUrl = process.env.PLAYWRIGHT_BASE_URL?.trim();
+const fixturePort = 3197;
+const fixtureUrl = `http://127.0.0.1:${fixturePort}`;
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
@@ -10,7 +14,7 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:3101",
+    baseURL: existingBaseUrl || fixtureUrl,
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
     channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome",
@@ -18,18 +22,21 @@ export default defineConfig({
     trace: "retain-on-failure",
     video: "retain-on-failure",
   },
-  webServer: {
-    command: "pnpm exec vite dev --host 127.0.0.1 --port 3101 --strictPort",
-    url: "http://127.0.0.1:3101",
-    env: {
-      NODE_OPTIONS: "",
-      AUTH_MODE: "local_noauth",
-      VITE_E2E_DOMAIN_FIXTURES: "1",
-      VITE_E2E_KEYWORD_FIXTURES: "1",
-      VITE_E2E_AUDIT_FIXTURES: "1",
-      PORT: "3101",
-    },
-    reuseExistingServer: !process.env.CI,
-    timeout: 300_000,
-  },
+  // An explicit base URL runs against an already-started application.
+  webServer: existingBaseUrl
+    ? undefined
+    : {
+        command: `pnpm exec vite dev --mode e2e --host 127.0.0.1 --port ${fixturePort} --strictPort`,
+        url: fixtureUrl,
+        env: {
+          NODE_OPTIONS: "",
+          AUTH_MODE: "local_noauth",
+          VITE_E2E_DOMAIN_FIXTURES: "1",
+          VITE_E2E_KEYWORD_FIXTURES: "1",
+          VITE_E2E_AUDIT_FIXTURES: "1",
+          PORT: String(fixturePort),
+        },
+        reuseExistingServer: false,
+        timeout: 300_000,
+      },
 });
