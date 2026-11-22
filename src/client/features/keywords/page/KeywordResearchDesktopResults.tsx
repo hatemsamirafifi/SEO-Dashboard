@@ -106,7 +106,7 @@ function DesktopKeywordPanel({ controller }: Props) {
             <span className="font-medium">"{searchedKeyword}"</span> (exact
             volume not reported by provider — not zero). Showing closest related
             keywords instead.
-            {lastUsedFallback ? (
+            {lastUsedFallback && !controller.researchDiagnostics?.coverage ? (
               <span className="text-base-content/75">
                 {" "}
                 Source: {lastResultSource} fallback.

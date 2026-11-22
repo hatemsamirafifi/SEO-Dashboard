@@ -275,7 +275,10 @@ export function ProviderSection({
                       : ""}
                   </span>
                 )}
-                {p.dispatched === false && <span>SKIPPED</span>}
+                {p.dispatched === false &&
+                  operation.feature !== "keyword_research" && (
+                    <span>SKIPPED</span>
+                  )}
                 {p.httpStatus && <span>HTTP {p.httpStatus}</span>}
                 {p.taskStatus && <span>Task {p.taskStatus}</span>}
                 {p.transport && <span>[{p.transport}]</span>}
@@ -309,6 +312,14 @@ export function ProviderSection({
                     p.circuitBreakerEnabled === false && (
                       <span>Circuit protection: Disabled</span>
                     )}
+                </div>
+              )}
+              {operation.feature === "keyword_research" && p.statusMessage && (
+                <div className="mt-1 w-full text-[11px] text-base-content/70">
+                  {p.statusMessage}
+                  {p.dispatched !== false && p.skipReason
+                    ? ` · ${p.skipReason}`
+                    : ""}
                 </div>
               )}
               {p.retryable === true && p.dispatched !== false && (

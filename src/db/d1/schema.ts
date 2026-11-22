@@ -23,3 +23,4 @@ export * from "../reddit-attribution.schema";
 export * from "../telemetry.schema";
 export * from "../serp.schema";
 export * from "../ai-search.schema";
+export * from "../seo-action.schema";

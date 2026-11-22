@@ -1,6 +1,7 @@
 import type { KeywordResearchRow, SerpResultItem } from "@/types/keywords";
 import type { ResolvedResearchKeywordsInput } from "@/types/schemas/keywords";
 import type { SerpFeatureSet } from "@/server/features/serp/types";
+import type { ResearchResult } from "@/server/features/keywords/services/research/research";
 
 const MONTHLY_SEARCHES = [
   { year: 2025, month: 4, searchVolume: 1200 },
@@ -34,8 +35,98 @@ function makeRow(
   };
 }
 
-export function getKeywordResearchFixture(data: ResolvedResearchKeywordsInput) {
+function getMultiSourceFixture(
+  data: ResolvedResearchKeywordsInput,
+  seed: string,
+): ResearchResult {
+  const partial = seed === "عطور عربية";
+  const rows: KeywordResearchRow[] = partial
+    ? [
+        {
+          keyword: "عطور عربية اقتصادية",
+          searchVolume: null,
+          cpc: null,
+          competition: null,
+          intent: null,
+          keywordDifficulty: null,
+          trend: [],
+          matchType: "phrase",
+          attribution: [
+            {
+              source: "gsc",
+              cacheStatus: "miss",
+              confidence: "observed",
+              keyword: "عطور عربية اقتصادية",
+              observedAt: "2026-11-22T00:00:00Z",
+              sitePerformance: {
+                impressions: 18,
+                clicks: 0,
+                startDate: "2026-08-20",
+                endDate: "2026-11-20",
+              },
+            },
+          ],
+        },
+      ]
+    : [];
+  return {
+    provider: partial ? "gsc" : "none",
+    rows,
+    source: partial ? "gsc" : "suggestions",
+    usedFallback: partial,
+    diagnostics: {
+      requestedMode: data.mode,
+      threshold: 5,
+      coverage: partial ? "partial" : "empty",
+      servingProviders: partial ? ["gsc"] : [],
+      sourceAttempts: [
+        {
+          source: "suggestions",
+          provider: "seranking",
+          status: "no_coverage",
+          fromCache: true,
+          rowCount: 0,
+          nonSeedCount: 0,
+        },
+        {
+          source: "google_ads",
+          provider: "google_ads",
+          status: partial ? "rate_limited" : "skipped",
+          rowCount: 0,
+          nonSeedCount: 0,
+        },
+        {
+          source: "gsc",
+          provider: "gsc",
+          status: partial ? "available" : "no_coverage",
+          attemptedProviders: ["gsc"],
+          endpoint: "searchAnalytics.query",
+          fromCache: false,
+          rowCount: rows.length,
+          nonSeedCount: rows.length,
+        },
+        {
+          source: "internal",
+          provider: "internal",
+          status: "no_coverage",
+          rowCount: 0,
+          nonSeedCount: 0,
+        },
+      ],
+    },
+  };
+}
+
+export function getKeywordResearchFixture(
+  data: ResolvedResearchKeywordsInput,
+): ResearchResult {
   const seedKeyword = data.keywords[0] ?? "keyword research";
+  if (
+    data.languageCode === "ar" &&
+    ["عطور عربية", "عطور بلا نتائج"].includes(seedKeyword)
+  ) {
+    return getMultiSourceFixture(data, seedKeyword);
+  }
   const rows = [
     makeRow(seedKeyword, 0, {
       searchVolume: 288_431,
@@ -56,6 +147,7 @@ export function getKeywordResearchFixture(data: ResolvedResearchKeywordsInput) {
   ];
 
   return {
+    provider: "seranking",
     rows,
     source: "related" as const,
     usedFallback: false,

@@ -262,11 +262,20 @@ const resolveSelfHostAccess = (
 const dataEnv = {
   // AUTH_MODE, DATABASE_PROVIDER, BETTER_AUTH_URL, TEAM_DOMAIN, and
   // POLICY_AUD are stage-dependent and set in the stack body below.
-  DATAFORSEO_API_KEY: Config.redacted("DATAFORSEO_API_KEY"),
+  DATAFORSEO_API_KEY: optionalSecret("DATAFORSEO_API_KEY"),
+  DATAFORSEO_ENABLED: optionalVar("DATAFORSEO_ENABLED"),
+  SERANKING_ENABLED: optionalVar("SERANKING_ENABLED"),
+  SERANKING_REQUEST_CREDIT_CAP: optionalVar("SERANKING_REQUEST_CREDIT_CAP"),
+  SERANKING_MONTHLY_CREDIT_CAP: optionalVar("SERANKING_MONTHLY_CREDIT_CAP"),
+  GOOGLE_SEARCH_CONSOLE_ENABLED: optionalVar("GOOGLE_SEARCH_CONSOLE_ENABLED"),
+  GOOGLE_ADS_ENABLED: optionalVar("GOOGLE_ADS_ENABLED"),
   BYPASS_EMAIL_VERIFICATION: optionalVar("BYPASS_EMAIL_VERIFICATION"),
   BETTER_AUTH_SECRET: optionalSecret("BETTER_AUTH_SECRET"),
   GOOGLE_CLIENT_ID: optionalVar("GOOGLE_CLIENT_ID"),
   GOOGLE_CLIENT_SECRET: optionalSecret("GOOGLE_CLIENT_SECRET"),
+  GOOGLE_ADS_KEYWORD_RESEARCH_FALLBACK_ENABLED: optionalVar(
+    "GOOGLE_ADS_KEYWORD_RESEARCH_FALLBACK_ENABLED",
+  ),
   OPENROUTER_API_KEY: optionalSecret("OPENROUTER_API_KEY"),
   OPENAI_API_KEY: optionalSecret("OPENAI_API_KEY"),
   GEMINI_API_KEY: optionalSecret("GEMINI_API_KEY"),
@@ -335,6 +344,8 @@ export default Alchemy.Stack(
   Effect.gen(function* () {
     const stage = yield* Alchemy.Stage;
     const prod = stage === HOSTED_PROD_STAGE;
+    const cronsEnabled =
+      prod || (yield* optionalVar("OPENSEO_PREVIEW_CRONS_ENABLED")) !== "false";
     // Fail closed: an unset AUTH_MODE gets the Access-gated mode (matching the
     // app's own default in src/lib/auth-mode.ts), never public hosted signup.
     // hosted/local_noauth must be set explicitly.
@@ -418,8 +429,8 @@ export default Alchemy.Stack(
       },
       placement:
         wrangler.placement?.mode === "smart" ? { mode: "smart" } : undefined,
-      // Scheduled rank checks — src/server.ts `scheduled` handler.
-      crons: wrangler.triggers.crons,
+      // A controlled preview can suppress background provider requests.
+      crons: cronsEnabled ? wrangler.triggers.crons : [],
       env: {
         ...makeResources(stage),
         ...dataEnv,
@@ -432,8 +443,8 @@ export default Alchemy.Stack(
         // Prod-only: pooled Postgres via the existing Hyperdrive config.
         ...(prod ? { HYPERDRIVE: makeHyperdrive() } : {}),
 
-        // Durable Objects (Agents SDK chat agents). Alchemy backs new DO
-        // classes with SQLite storage, which both require.
+        // Durable Objects include the chat agents and provider limiters.
+        // Alchemy registers new classes with SQLite storage.
         ...Object.fromEntries(
           wrangler.durable_objects.bindings.map((binding) => [
             binding.name,

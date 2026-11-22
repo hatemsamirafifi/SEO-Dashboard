@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [tsConfigPaths()],
   test: {
     environment: "node",
+    setupFiles: ["./scripts/vitest-provider-safety.ts"],
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     restoreMocks: true,
     clearMocks: true,

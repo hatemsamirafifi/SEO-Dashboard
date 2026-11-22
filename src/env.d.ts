@@ -14,6 +14,7 @@ declare namespace Cloudflare {
 
     // Durable Object backing global distributed rate limiting for SE Ranking API.
     SE_RANKING_RATE_LIMITER?: DurableObjectNamespace;
+    GOOGLE_ADS_PLANNER_LIMITER?: DurableObjectNamespace;
 
     AUTH_MODE?: "cloudflare_access" | "local_noauth" | "hosted";
     BYPASS_EMAIL_VERIFICATION?: string;
@@ -85,6 +86,11 @@ declare namespace Cloudflare {
     AI_AGENT_MODEL?: string;
     AI_AGENT_MAX_TOOL_CALLS?: string;
     AI_AGENT_MAX_STEPS?: string;
+    AI_AGENT_MAX_RECOVERY_ATTEMPTS?: string;
+    AI_AGENT_MAX_TURN_INPUT_TOKENS?: string;
+    AI_AGENT_MAX_TURN_OUTPUT_TOKENS?: string;
+    AI_AGENT_MAX_TURN_MS?: string;
+    AI_AGENT_GLM53_MAX_OUTPUT_TOKENS?: string;
     // Long-running tool polling (site audits): exponential backoff between
     // status reads, attempt cap, and overall wall-clock window per wait
     // (defaults in samTurnControls.ts).

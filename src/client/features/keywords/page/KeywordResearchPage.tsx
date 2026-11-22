@@ -21,6 +21,7 @@ import {
 import { KeywordResearchEmptyState } from "./KeywordResearchEmptyState";
 import { KeywordResearchLoadingState } from "./KeywordResearchLoadingState";
 import { KeywordResearchResults } from "./KeywordResearchResults";
+import { KeywordResearchSources } from "./KeywordResearchSources";
 import { KeywordResearchSearchBar } from "./KeywordResearchSearchBar";
 import type { KeywordResearchControllerState } from "./types";
 
@@ -226,7 +227,10 @@ export function KeywordResearchPage(input: Props) {
           </p>
         </div>
 
-        <KeywordResearchSearchBar controller={controller} />
+        <KeywordResearchSearchBar
+          controller={controller}
+          projectId={projectId}
+        />
         {controller.hasSearched ? (
           <div className="flex flex-col gap-2">
             <button
@@ -281,14 +285,22 @@ function KeywordResearchContent({
 
   if (controller.rows.length === 0) {
     return (
-      <KeywordResearchEmptyState
-        controller={controller}
-        projectId={projectId}
-      />
+      <>
+        <KeywordResearchSources diagnostics={controller.researchDiagnostics} />
+        <KeywordResearchEmptyState
+          controller={controller}
+          projectId={projectId}
+        />
+      </>
     );
   }
 
-  return <KeywordResearchResults controller={controller} />;
+  return (
+    <>
+      <KeywordResearchSources diagnostics={controller.researchDiagnostics} />
+      <KeywordResearchResults controller={controller} />
+    </>
+  );
 }
 
 function KeywordSaveDialog({

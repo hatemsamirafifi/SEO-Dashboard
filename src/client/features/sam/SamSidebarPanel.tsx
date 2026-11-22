@@ -2,6 +2,8 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Archive, Loader2, Plus, X } from "lucide-react";
+import { BidiText } from "@/client/components/chat/bidiText";
+import { useSamLanguageSettings } from "./SamLanguageSettings";
 import { archiveSamSession, createSamSession } from "@/serverFunctions/sam";
 import {
   invalidateSamSessions,
@@ -39,11 +41,15 @@ function BetaNotice() {
           <X className="size-3.5" />
         </button>
       </div>
-      <p className="mt-1.5 text-xs text-base-content/70">
+      <p dir="ltr" className="mt-1.5 text-xs text-base-content/70">
         SAM is OpenSEO's built-in AI SEO agent. Working outside the app? Connect
         external coding agents like Claude Code or OpenCode through MCP.
       </p>
-      <Link to="/ai" className="link link-primary mt-1.5 inline-block text-xs">
+      <Link
+        to="/ai"
+        dir="ltr"
+        className="link link-primary mt-1.5 inline-block text-xs"
+      >
         Set up the MCP →
       </Link>
     </div>
@@ -76,6 +82,7 @@ export function SamSidebarPanel({
   projectId: string;
   onNavigate?: () => void;
 }) {
+  const { direction } = useSamLanguageSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const activeSessionId = (location.search as { s?: string }).s;
@@ -112,7 +119,7 @@ export function SamSidebarPanel({
   });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div dir={direction} className="flex min-h-0 flex-1 flex-col">
       <div className="px-2 pb-1">
         {/* Ghost row styled like a list item so the sidebar header doesn't
             stack three heavy full-width controls. */}
@@ -137,7 +144,10 @@ export function SamSidebarPanel({
             <Loader2 className="size-4 animate-spin" />
           </div>
         ) : sessions.length === 0 ? (
-          <p className="px-2 py-6 text-center text-xs text-base-content/50">
+          <p
+            dir="ltr"
+            className="px-2 py-6 text-center text-xs text-base-content/50"
+          >
             No chats yet. Start a new one.
           </p>
         ) : (
@@ -152,18 +162,23 @@ export function SamSidebarPanel({
               >
                 <button
                   type="button"
+                  dir="auto"
+                  aria-current={isActive ? "page" : undefined}
                   onClick={() => goToSession(session.id)}
-                  className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-sm text-base-content/80"
+                  className="min-w-0 flex-1 truncate px-2 py-1.5 text-start text-sm text-base-content/80"
                 >
-                  {session.title}
+                  <BidiText text={session.title} />
                 </button>
-                <span className="shrink-0 text-xs text-base-content/40 group-hover:hidden">
+                <bdi
+                  dir="ltr"
+                  className="shrink-0 text-xs text-base-content/40 group-hover:hidden group-focus-within:hidden"
+                >
                   {ageLabel(session.updatedAt)}
-                </span>
+                </bdi>
                 <button
                   type="button"
                   aria-label="Archive chat"
-                  className="btn btn-ghost btn-xs btn-square hidden group-hover:inline-flex"
+                  className="btn btn-ghost btn-xs btn-square hidden group-hover:inline-flex group-focus-within:inline-flex pointer-coarse:inline-flex"
                   disabled={archiveSession.isPending}
                   onClick={() => archiveSession.mutate(session.id)}
                 >

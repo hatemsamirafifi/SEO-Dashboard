@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   createSamTraceBus,
+  getSamTraceBus,
+  runWithSamTraceBus,
   runWithTraceScope,
   MAX_EVENTS_PER_TURN,
 } from "./samTraceBus";
@@ -106,4 +108,33 @@ describe("trace bus — event model and hygiene", () => {
       model: "kimi-k2.7-code",
     });
   });
+});
+
+it("keeps concurrent conversations and their provider scopes isolated", async () => {
+  const first = createSamTraceBus();
+  const second = createSamTraceBus();
+  first.startTurn({ ai: { provider: "Ollama Cloud", model: "first" } });
+  second.startTurn({ ai: { provider: "Ollama Cloud", model: "second" } });
+  await Promise.all([
+    runWithSamTraceBus(first, async () => {
+      await Promise.resolve();
+      getSamTraceBus().push({
+        event: "generation_request",
+        metadata: { task: "lookup" },
+      });
+    }),
+    runWithSamTraceBus(second, async () => {
+      await Promise.resolve();
+      getSamTraceBus().push({
+        event: "generation_request",
+        metadata: { task: "comprehensive" },
+      });
+    }),
+  ]);
+  expect(first.snapshot()?.events.map((event) => event.metadata?.task)).toEqual(
+    ["lookup"],
+  );
+  expect(
+    second.snapshot()?.events.map((event) => event.metadata?.task),
+  ).toEqual(["comprehensive"]);
 });

@@ -20,7 +20,6 @@ import {
   DeviceRankCell,
   DeviceUrlCell,
 } from "@/client/features/rank-tracking/RankTrackingTableParts";
-import { loadLocalEnv } from "../../../../../scripts/cli-utils";
 
 interface DataforseoTaskResult {
   status_code?: number;
@@ -38,16 +37,15 @@ type ProviderErrorFixture = Error & {
   status?: number;
 };
 
-loadLocalEnv();
-process.env.DATAFORSEO_ENABLED = "true";
-
 describe("Live and Paused-Account Rank Check Verification", () => {
-  const apiKey = process.env.DATAFORSEO_API_KEY;
+  const runLive = process.env.RUN_LIVE_DATAFORSEO_TESTS === "true";
 
-  it.skipIf(!apiKey)(
+  it.skipIf(!runLive)(
     "1. Live DataForSEO API call returns upstream error and truthful diagnostics",
     async () => {
-      expect(apiKey).toBeDefined();
+      const apiKey = process.env.DATAFORSEO_API_KEY?.trim();
+      if (!apiKey)
+        throw new Error("Set DATAFORSEO_API_KEY explicitly for the live test.");
 
       const start = Date.now();
       const res = await fetch(

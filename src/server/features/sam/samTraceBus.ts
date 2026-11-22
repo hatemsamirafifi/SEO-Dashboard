@@ -7,9 +7,8 @@
 // database: traces are ephemeral observability data bounded per turn.
 //
 // DESIGN NOTES:
-// - Lazy module-level singleton per isolate: the SAM chat DO is one DO per
-//   session, so at most one conversation writes into it at a time. Tests
-//   create their own instances / reset the singleton.
+// - Each SAM Durable Object owns its bus. AsyncLocalStorage carries that
+//   instance through tool adapters and their parallel provider calls.
 // - Bounded: MAX_EVENTS_PER_TURN caps memory; pushing past the cap drops the
 //   OLDEST events (keeps the newest, which carry the final states).
 // - The AsyncLocalStorage scope: like the MCP auth context, the trace "turn"
@@ -285,11 +284,17 @@ export function traceGscCall<T>(execute: () => Promise<T>): Promise<T> {
 // starts a fresh turn in beforeTurn, so interleaved sessions never mix).
 // ---------------------------------------------------------------------------
 
+const traceBusStorage = new AsyncLocalStorage<SamTraceBus>();
+
+export function runWithSamTraceBus<T>(bus: SamTraceBus, callback: () => T): T {
+  return traceBusStorage.run(bus, callback);
+}
+
 let singleton: SamTraceBus | null = null;
 
 /** The process-wide bus used by the SAM chat agent. */
 export function getSamTraceBus(): SamTraceBus {
-  return (singleton ??= createSamTraceBus());
+  return traceBusStorage.getStore() ?? (singleton ??= createSamTraceBus());
 }
 
 /** Test-only: drop the singleton so tests start clean. */

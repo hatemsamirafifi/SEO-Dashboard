@@ -8,121 +8,34 @@ import { ChatComposer } from "@/client/features/onboarding/OnboardingChatParts";
 import { invalidateSamSessions } from "@/client/features/sam/samQueries";
 import { SamDebugTracePanel } from "@/client/features/sam/SamDebugTrace";
 import { parseTraceFrame } from "@/client/features/sam/samTraceFormat";
+import type { TextDirection } from "@/client/components/chat/bidiText";
+import type { SamReplyLanguage } from "@/shared/samReplyLanguage";
 import type { SamTraceFrame } from "@/shared/samToolTraceTypes";
 import {
   ChatMessage,
-  humanizeToolLabel,
-  messageHasVisibleContent,
   type ResolveToolLabel,
-  type ToolLabel,
 } from "@/client/components/chat/ChatMessage";
-import {
-  isRecord,
-  toolPartOutput,
-  type ChatToolPart,
-} from "@/client/components/chat/toolParts";
 import { safeSamErrorMessage } from "@/client/features/sam/samErrorFallbacks";
 
-// Audit lifecycle labels: collapse the poller into one human activity
-// ("Running site audit…") with the outcome/progress as a detail suffix,
-// instead of exposing raw tool names for every step of the wait.
-function samToolLabel(partType: string): ToolLabel | null {
-  const normalized = partType.startsWith("tool-")
-    ? partType
-    : `tool-${partType}`;
-  if (normalized === "tool-run_site_audit") {
-    return { running: "Starting site audit", done: "Site audit started" };
-  }
-  if (normalized === "tool-poll_site_audit") {
-    const outcome = (part: ChatToolPart): string | null => {
-      const output = toolPartOutput(part);
-      if (!output || typeof output.state !== "string") return null;
-      const progress = isRecord(output.progress) ? output.progress : undefined;
-      const pages =
-        progress &&
-        typeof progress.current === "number" &&
-        typeof progress.total === "number"
-          ? `${progress.current}/${progress.total} pages`
-          : null;
-      switch (output.state) {
-        case "completed":
-          return pages ? `complete · ${pages}` : "complete";
-        case "failed":
-          return "failed";
-        case "cancelled":
-          return "cancelled";
-        case "running":
-          return pages ? `still running · ${pages}` : "still running";
-        default:
-          return null;
-      }
-    };
-    return {
-      running: "Running site audit",
-      done: "Audit checked",
-      detail: outcome,
-    };
-  }
-  if (normalized === "tool-get_audit_issues") {
-    return { running: "Checking issues", done: "Issues checked" };
-  }
-  if (normalized === "tool-get_audit_pages") {
-    return { running: "Reading crawled pages", done: "Pages read" };
-  }
-  if (normalized === "tool-get_audit_status") {
-    return { running: "Checking audit status", done: "Status checked" };
-  }
-  // SAM exposes the full MCP tool surface, too many to hand-label — fall back
-  // to generic humanized names.
-  return humanizeToolLabel(normalized);
-}
+import {
+  samToolLabel,
+  SUGGESTIONS,
+  WORKFLOW_PRESETS,
+} from "@/client/features/sam/samConversationPresets";
 
 const resolveSamToolLabel: ResolveToolLabel = (partType) =>
   samToolLabel(partType);
 
-const SUGGESTIONS = [
-  "What keywords should I focus on next?",
-  "Who are my top SERP competitors?",
-  "How is my Search Console traffic trending?",
-  "Find quick-win keywords I already rank for",
-];
-
-// One-click workflow templates: longer prompts that start SAM on a full
-// multi-tool research arc instead of a single question.
-const WORKFLOW_PRESETS: { label: string; prompt: string }[] = [
-  {
-    label: "Full SEO opportunity analysis",
-    prompt:
-      "Run a full SEO opportunity analysis for this project: read the site, review Search Console performance, then research my strongest opportunities — keyword gaps, ranking quick wins, and content or technical issues worth fixing first. Summarize as a prioritized list.",
-  },
-  {
-    label: "Commercial keyword research",
-    prompt:
-      "Research commercial keywords for this project: find high-intent terms people search when ready to buy, with realistic search volume and difficulty. Suggest where each should live on my site (or whether new pages are needed), and recommend which ones to save.",
-  },
-  {
-    label: "Competitor analysis",
-    prompt:
-      "Identify my main SERP competitors and analyze them: what they rank for, where they win, and what content or keywords they cover that I don't. Give me a concrete gap list I can act on.",
-  },
-  {
-    label: "Technical SEO",
-    prompt:
-      "Audit this site's technical SEO: run a site audit, then summarize the highest-impact issues (indexing, crawlability, Core Web Vitals, duplicate content) with a concrete fix order.",
-  },
-  {
-    label: "Executive SEO plan",
-    prompt:
-      "Turn everything you know about this project into a short executive SEO plan: current standing, the 3–5 highest-leverage moves, expected impact, and a 90-day timeline. Keep it tight enough to share with a founder.",
-  },
-];
-
 export function SamConversation({
   projectId,
   sessionId,
+  direction,
+  replyLanguage,
 }: {
   projectId: string;
   sessionId: string;
+  direction: TextDirection;
+  replyLanguage: SamReplyLanguage;
 }) {
   // The conversation lives in the SamChatAgent Durable Object, keyed by the
   // session id. The WebSocket is authorized in the Worker (src/server.ts) before
@@ -142,11 +55,31 @@ export function SamConversation({
     status,
     error,
     isStreaming,
-  } = useAgentChat({ agent, experimental_throttle: 100 });
+    stop,
+  } = useAgentChat({
+    agent,
+    body: { samReplyLanguage: replyLanguage },
+    experimental_throttle: 100,
+  });
 
   const isBusy =
     status === "submitted" || status === "streaming" || Boolean(isStreaming);
-  const sendText = (text: string) => void sendMessage({ text });
+  const [stopped, setStopped] = useState(false);
+  const sendText = (text: string) => {
+    setStopped(false);
+    void sendMessage({ text });
+  };
+  const stopTurn = () => {
+    setStopped(true);
+    void stop();
+  };
+  const latestUserText = messages
+    .findLast((message) => message.role === "user")
+    ?.parts.find((part) => part.type === "text")?.text;
+  const arabicFeedback =
+    replyLanguage === "ar" ||
+    (replyLanguage === "auto" &&
+      /\p{Script=Arabic}/u.test(latestUserText ?? ""));
 
   // Debug Trace (Phase DT): conversation-scoped trace frame. Always tracks
   // `sam_trace` WebSocket frames in a ref, but only dispatches React state
@@ -253,7 +186,7 @@ export function SamConversation({
 
   const undoFrom = (messageId: string) => void rewindTo(messageId);
   const editAndResend = async (messageId: string, newText: string) => {
-    if (await rewindTo(messageId)) void sendMessage({ text: newText });
+    if (await rewindTo(messageId)) sendText(newText);
   };
 
   // The DO names the session from its first message during the turn, so refresh
@@ -286,58 +219,60 @@ export function SamConversation({
   const showTyping =
     isBusy &&
     (lastMessage?.role !== "assistant" ||
-      !messageHasVisibleContent(lastMessage));
+      !lastMessage.parts.some(
+        (part) => part.type === "text" && part.text.trim(),
+      ));
   const showSuggestions = messages.length === 0 && !isBusy;
 
+  const showDebugTrace =
+    import.meta.env.DEV || import.meta.env.VITE_SAM_DEBUG_TRACE === "1";
+
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col">
-      <div className="absolute right-3 top-2 z-10 flex items-center gap-1">
-        {(import.meta.env.DEV ||
-          import.meta.env.VITE_SAM_DEBUG_TRACE === "1") &&
-        !tracePanelOpen ? (
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs gap-1 text-base-content/40"
-            title="Show SAM Debug Trace"
-            onClick={() => {
-              setTracePanelOpen(true);
-              if (traceFrameRef.current) setTraceFrame(traceFrameRef.current);
-            }}
-          >
-            <Radio className="size-3" />
-            Trace
-          </button>
-        ) : null}
-        {import.meta.env.DEV ? (
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs text-base-content/40"
-            onClick={() => clearHistory()}
-          >
-            Clear history (dev)
-          </button>
-        ) : null}
-      </div>
-      {/* Debug Trace (developer-only, dev build or SAM_DEBUG_TRACE=1): floats
-          above the conversation; collapse/clear are local-view-only. */}
-      {(import.meta.env.DEV || import.meta.env.VITE_SAM_DEBUG_TRACE === "1") &&
-      tracePanelOpen ? (
-        <div className="pointer-events-none absolute right-3 top-8 z-20 flex justify-end">
-          <SamDebugTracePanel
-            frame={traceFrame}
-            live={isBusy}
-            onClose={() => setTracePanelOpen(false)}
-            onClear={() => {
-              traceFrameRef.current = null;
-              setTraceFrame(null);
-            }}
-          />
+    <div dir={direction} className="flex min-w-0 flex-1 flex-col">
+      {showDebugTrace ? (
+        <div className="relative z-10 flex min-h-8 shrink-0 items-center justify-end gap-1 px-3">
+          {!tracePanelOpen ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs gap-1 text-base-content/40"
+              title="Show SAM Debug Trace"
+              onClick={() => {
+                setTracePanelOpen(true);
+                if (traceFrameRef.current) setTraceFrame(traceFrameRef.current);
+              }}
+            >
+              <Radio className="size-3" />
+              Trace
+            </button>
+          ) : null}
+          {import.meta.env.DEV ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs text-base-content/40"
+              onClick={() => clearHistory()}
+            >
+              Clear history (dev)
+            </button>
+          ) : null}
+          {tracePanelOpen ? (
+            <div className="pointer-events-none absolute end-3 top-full z-20 flex justify-end">
+              <SamDebugTracePanel
+                frame={traceFrame}
+                live={isBusy}
+                onClose={() => setTracePanelOpen(false)}
+                onClear={() => {
+                  traceFrameRef.current = null;
+                  setTraceFrame(null);
+                }}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-6">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         <div className="mx-auto max-w-2xl space-y-6">
           {messages.length === 0 ? (
-            <div className="space-y-2 text-sm text-base-content/80">
+            <div dir="ltr" className="space-y-2 text-sm text-base-content/80">
               <p>
                 Hey, I’m SAM — your in-app SEO agent. I can research keywords,
                 size up competitors, read your SERPs, backlinks, rank tracking
@@ -358,7 +293,7 @@ export function SamConversation({
                     className="rounded-full border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs font-medium text-base-content/80 transition-colors hover:border-primary/70 hover:bg-primary/10"
                     onClick={() => sendText(preset.prompt)}
                   >
-                    {preset.label}
+                    <bdi dir="ltr">{preset.label}</bdi>
                   </button>
                 ))}
               </div>
@@ -370,7 +305,7 @@ export function SamConversation({
                     className="rounded-full border border-base-300 bg-base-100 px-3 py-1.5 text-xs font-medium text-base-content/70 transition-colors hover:border-primary/50 hover:text-base-content"
                     onClick={() => sendText(question)}
                   >
-                    {question}
+                    <bdi dir="ltr">{question}</bdi>
                   </button>
                 ))}
               </div>
@@ -381,6 +316,7 @@ export function SamConversation({
             <ChatMessage
               key={message.id}
               message={message}
+              bidi
               resolveToolLabel={resolveSamToolLabel}
               streaming={
                 isBusy &&
@@ -410,8 +346,20 @@ export function SamConversation({
             </div>
           ) : null}
 
+          {stopped && !isBusy ? (
+            <p
+              role="status"
+              dir="auto"
+              className="text-sm text-base-content/70"
+            >
+              {arabicFeedback
+                ? "أوقفت رد سام. يمكنك طلب المتابعة من النتائج المتاحة."
+                : "You stopped SAM's reply. You can ask it to continue from the available results."}
+            </p>
+          ) : null}
+
           {status === "error" ? (
-            <p className="text-sm text-error">
+            <p role="alert" dir="auto" className="text-sm text-error">
               {/* The server normalizes provider failures into one curated,
                   secret-free message (auth / data policy / rate limit / …)
                   and delivers it as the terminal error body — at the turn
@@ -427,10 +375,24 @@ export function SamConversation({
 
       <div className="flex-shrink-0 border-t border-base-300 px-5 py-3">
         <div className="mx-auto w-full max-w-2xl">
+          {isBusy && !stopped ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs mb-1"
+              onClick={stopTurn}
+            >
+              {direction === "rtl" ? "إيقاف الرد" : "Stop response"}
+            </button>
+          ) : null}
           <ChatComposer
             busy={isBusy}
             onSend={sendText}
-            placeholder="Ask SAM to research, analyze, or track anything…"
+            placeholderDirection={direction}
+            placeholder={
+              direction === "rtl"
+                ? "اطلب من سام البحث أو التحليل أو المتابعة…"
+                : "Ask SAM to research, analyze, or track anything…"
+            }
           />
         </div>
       </div>

@@ -111,12 +111,18 @@ async function loadFlags(): Promise<ProviderFeatureFlags> {
 
   cachedFlags = {
     routerEnabled: (await get("SEO_PROVIDER_ROUTER_ENABLED")) ?? true,
-    serankingEnabled: (await get("SERANKING_ENABLED")) ?? true,
-    dataforseoEnabled: (await get("DATAFORSEO_ENABLED")) ?? true,
+    serankingEnabled:
+      import.meta.env.MODE !== "e2e" &&
+      ((await get("SERANKING_ENABLED")) ?? true),
+    dataforseoEnabled:
+      import.meta.env.MODE !== "e2e" &&
+      ((await get("DATAFORSEO_ENABLED")) ?? true),
     gscEnabled: (await get("GOOGLE_SEARCH_CONSOLE_ENABLED")) ?? false,
     // First-party Google Ads keyword data ships enabled by default; an
     // explicit false remains the kill switch (Phase 2 master plan).
-    googleAdsEnabled: (await get("GOOGLE_ADS_ENABLED")) ?? true,
+    googleAdsEnabled:
+      import.meta.env.MODE !== "e2e" &&
+      ((await get("GOOGLE_ADS_ENABLED")) ?? true),
     bingWebmasterEnabled: (await get("BING_WEBMASTER_ENABLED")) ?? false,
     localCrawlerEnabled: (await get("LOCAL_CRAWLER_ENABLED")) ?? true,
   };

@@ -20,6 +20,7 @@ import { DifficultyBadge } from "@/client/features/domain/components/DifficultyB
 import { formatNumber } from "@/client/features/keywords/utils";
 import type { KeywordResearchRow } from "@/types/keywords";
 import { EmptyFilterResults } from "./keywordResearchFilters";
+import { KeywordRowSources } from "./KeywordResearchSources";
 
 type Props = {
   activeFilterCount: number;
@@ -71,25 +72,29 @@ export function KeywordResearchDesktopTable({
           />
         ),
         cell: ({ row }) => (
-          <div className="flex items-center gap-1.5 min-w-48">
-            <span
-              className="whitespace-normal break-words font-medium"
-              title={row.original.keyword}
-            >
-              {row.original.keyword}
-            </span>
-            {row.original.matchType === "exact" ? (
-              <span className="badge badge-success badge-outline badge-xs shrink-0">
-                Exact
-              </span>
-            ) : row.original.isWeaklyRelated ? (
+          <div className="min-w-48">
+            <div className="flex items-center gap-1.5">
               <span
-                className="badge badge-warning badge-outline badge-xs shrink-0"
-                title="Weakly related cross-language keyword"
+                dir="auto"
+                className="whitespace-normal break-words font-medium"
+                title={row.original.keyword}
               >
-                Weak match
+                {row.original.keyword}
               </span>
-            ) : null}
+              {row.original.matchType === "exact" ? (
+                <span className="badge badge-success badge-outline badge-xs shrink-0">
+                  Exact
+                </span>
+              ) : row.original.isWeaklyRelated ? (
+                <span
+                  className="badge badge-warning badge-outline badge-xs shrink-0"
+                  title="Weakly related cross-language keyword"
+                >
+                  Weak match
+                </span>
+              ) : null}
+            </div>
+            <KeywordRowSources row={row.original} />
           </div>
         ),
         meta: {
@@ -119,7 +124,7 @@ export function KeywordResearchDesktopTable({
         header: () => (
           <SortHeader
             label="CPC"
-            helpText="Cost per click in USD."
+            helpText="Cost per click. Keyword Planner uses the connected account’s currency."
             field="cpc"
             current={sortField}
             dir={sortDir}
@@ -127,9 +132,13 @@ export function KeywordResearchDesktopTable({
             className="justify-end"
           />
         ),
-        cell: ({ getValue }) => {
+        cell: ({ getValue, row }) => {
           const value = getValue();
-          return value == null ? "-" : value.toFixed(2);
+          return value == null
+            ? "—"
+            : [value.toFixed(2), row.original.cpcCurrencyCode]
+                .filter(Boolean)
+                .join(" ");
         },
         meta: {
           headerClassName: "text-right",

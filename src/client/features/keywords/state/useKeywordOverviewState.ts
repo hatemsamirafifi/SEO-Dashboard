@@ -20,9 +20,11 @@ export function computeKeywordOverviewState({
   keywordMode?: KeywordMode;
 }) {
   const normalizedSeed = searchedKeyword.trim();
-  const hasExactMatchInResults =
-    Boolean(normalizedSeed) &&
-    rows.some((row) => isExactKeywordMatch(row.keyword, normalizedSeed));
+  const isExact = (row: KeywordResearchRow) =>
+    row.attribution
+      ? row.matchType === "exact"
+      : isExactKeywordMatch(row.keyword, normalizedSeed);
+  const hasExactMatchInResults = Boolean(normalizedSeed) && rows.some(isExact);
 
   const showApproximateMatchNotice =
     hasSearched &&
@@ -36,9 +38,7 @@ export function computeKeywordOverviewState({
   if (selectedKeyword) {
     overviewKeyword = selectedKeyword;
   } else if (normalizedSeed && rows.length > 0) {
-    const seed = rows.find((row) =>
-      isExactKeywordMatch(row.keyword, normalizedSeed),
-    );
+    const seed = rows.find(isExact);
     overviewKeyword = seed ?? rows[0];
   } else if (rows.length > 0) {
     overviewKeyword = rows[0];

@@ -1,8 +1,5 @@
-import type { StopCondition, ToolSet } from "ai";
-
-// Bounds for the SAM agent's inference loop. Think's own `maxSteps` guard
-// stays on; the tool-call cap stops the turn before the model can fan out
-// unbounded paid calls even when step count is generous.
+// Bounds for SAM's inference loop. Think enforces maxSteps and SAM reserves
+// time to write an answer once the tool budget is spent.
 
 export const DEFAULT_MAX_STEPS = 48;
 export const DEFAULT_MAX_TOOL_CALLS = 24;
@@ -80,21 +77,25 @@ export function parsePositiveIntEnv(
 }
 
 /**
- * Cumulative tool-call count across all steps of a turn. Extracted from
- * `toolCallCap` so the cap's logic is testable without constructing real
- * AI SDK step results.
+ * Cumulative tool-call count across all completed steps of a turn.
  */
 export function countToolCalls(steps: { toolCalls: unknown[] }[]): number {
   return steps.reduce((total, step) => total + step.toolCalls.length, 0);
 }
 
 /**
- * Stop condition that ends the turn once the cumulative number of tool calls
- * across all steps reaches `maxToolCalls`. The AI SDK runs this check between
- * steps, so the turn can never execute more than the cap.
+ * Let the model synthesize the collected evidence when either budget is spent.
+ * The tool budget is evaluated between steps, so an in-flight parallel batch
+ * can finish before tools are disabled.
  */
-export function toolCallCap<TOOLS extends ToolSet>(
-  maxToolCalls: number,
-): StopCondition<TOOLS> {
-  return ({ steps }) => countToolCalls(steps) >= maxToolCalls;
+export function samStepToolChoice(
+  {
+    stepNumber,
+    steps,
+  }: { stepNumber: number; steps: { toolCalls: unknown[] }[] },
+  { maxSteps, maxToolCalls }: { maxSteps: number; maxToolCalls: number },
+): { activeTools: []; toolChoice: "none" } | undefined {
+  if (stepNumber >= maxSteps - 1 || countToolCalls(steps) >= maxToolCalls) {
+    return { activeTools: [], toolChoice: "none" };
+  }
 }

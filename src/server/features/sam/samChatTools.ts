@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import { tool, type Tool, type ToolSet } from "ai";
 import { z, type ZodRawShape } from "zod";
 import { withPgClient } from "@/db";
@@ -62,6 +63,16 @@ import {
   tagStartedAudit,
 } from "@/server/features/sam/samLongRunningTools";
 import type { PollConfig } from "@/server/features/sam/samTurnControls";
+import { collectProjectSeoEvidence } from "@/server/features/sam/analyst/seoEvidenceCollector";
+import { runSeoAnalysis } from "@/server/features/sam/analyst/seoAnalyzer";
+import { buildPrioritizedActionPlan } from "@/server/features/sam/analyst/seoRecommendations";
+import {
+  type SeoActionStatus,
+  type SeoVerificationOutcome,
+  SeoAnalysisFocusSchema,
+} from "@/shared/samSeoAnalyst";
+import { SeoActionRepository } from "@/server/features/sam/actions/SeoActionRepository";
+import { buildSamActionTools } from "./samActionTools";
 
 // SAM reads more of a site than the onboarding preview: enough pages to work
 // out what a business does, sells, and positions against on its own.
@@ -302,6 +313,54 @@ export function buildSamMcpTools(
     }),
     ...scrapeTools(project.domain),
     whoami: adapt(whoamiTool),
+    analyze_seo_project: tool({
+      description:
+        "Analyze project SEO performance and produce a prioritized, evidence-backed action plan. Evaluates rankings, Search Console traffic, striking-distance keywords, ranking drops, and technical site audit issues from local project data. Strictly read-only, uses no external credits.",
+      inputSchema: z.object({
+        focus: SeoAnalysisFocusSchema.optional().describe(
+          "SEO analysis focus area: 'full', 'action_plan' (default), 'performance', 'keywords', 'ranking_drops', 'content_technical', or 'competitors'.",
+        ),
+      }),
+      execute: async (args) => {
+        return withPgClient(async () => {
+          const evidence = await collectProjectSeoEvidence({
+            projectId,
+            organizationId: authContext.organizationId,
+            focus: args.focus ?? "action_plan",
+          });
+          const findings = runSeoAnalysis(evidence);
+          let existingItems: Awaited<
+            ReturnType<typeof SeoActionRepository.getItemsForProject>
+          > = [];
+          try {
+            existingItems = await SeoActionRepository.getItemsForProject(
+              projectId,
+              authContext.organizationId,
+            );
+          } catch {
+            // Gracefully degrade if action tables are unmigrated or unseeded in test environment
+          }
+          return buildPrioritizedActionPlan(
+            evidence,
+            findings,
+            existingItems.map((item) => ({
+              id: item.id,
+              recommendationFingerprint: item.recommendationFingerprint,
+              status: item.status as SeoActionStatus,
+              actionPlanId: item.actionPlanId,
+              baselineValue: item.baselineValue,
+              verificationOutcome:
+                (item.verificationOutcome as SeoVerificationOutcome) ?? null,
+            })),
+          );
+        });
+      },
+    }),
+    ...buildSamActionTools({
+      projectId,
+      organizationId: authContext.organizationId,
+      userId: authContext.userId,
+    }),
     list_saved_keywords: adapt(listSavedKeywordsTool),
     research_keywords: adapt(researchKeywordsTool, {
       description:

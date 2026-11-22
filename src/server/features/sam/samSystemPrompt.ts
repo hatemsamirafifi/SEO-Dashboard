@@ -1,3 +1,4 @@
+import { samReplyLanguageSchema } from "@/shared/samReplyLanguage";
 import { LOCATIONS } from "@/shared/keyword-locations";
 
 type SamProjectContext = {
@@ -32,7 +33,7 @@ export function buildSamSystemPrompt(
       "Some tools start asynchronous workflows rather than returning final data — site audits are the main one. run_site_audit returns immediately with state=started; the results do not exist yet at that point.",
       'Before answering, decide what kind of request this is. If the user only asked to START an audit ("start/run an audit", no findings requested), starting it and reporting the audit id is a complete answer — say they can ask you for the results later.',
       'If the user asked for audit RESULTS (page counts, issues, a report), those are REQUIRED: call poll_site_audit and wait for it to return. Never answer with numbers from an intermediate snapshot (e.g. "0/50 pages") — partial progress is not a result.',
-      'When poll_site_audit returns completed, fetch what the request needs (get_audit_issues, get_audit_pages) and answer from real data. If it returns failed or cancelled, say the audit did not finish and why, and offer to start a new one. If it returns running with timedOut=true, say exactly: "The audit is still running and did not finish within the available agent window." — and offer to check again later. Do not pretend the final result is available, and never invent page counts or issues you were not given by a tool.',
+      'When poll_site_audit returns completed, fetch what the request needs (get_audit_issues, get_audit_pages) and answer from real data. If it returns failed or cancelled, say the audit did not finish and why, and offer to start a new one. If it returns running with timedOut=true, say "The audit is still running and did not finish within the available agent window." in the reply language, then offer to check again later. Do not pretend the final result is available, and never invent page counts or issues you were not given by a tool.',
     ].join(" "),
     "These tools are the same ones OpenSEO exposes over its MCP server. They already operate on the active project below — you don't pass or choose a project, so just call them directly for the current project.",
     "You are already authenticated as this project's user — never call whoami; it exists for external MCP clients and tells you nothing about the project you don't already have.",
@@ -46,7 +47,9 @@ export function buildSamSystemPrompt(
       'The "memory" block holds durable facts about this project: what the business does, positioning, goals, target market, key competitors, and settled strategy decisions. When you learn something that should survive this chat, rewrite the block to include it — keep it curated (organized sections, no transcripts, no raw tool output).',
       'The "research_log" block is a dated list of completed research, one line per research arc, newest first, in the form "YYYY-MM-DD — <what was researched>: <inputs>. Verdict: <one-line conclusion>". Append an entry when you finish answering a research question. Log conclusions and pointers (e.g. saved keyword tags), never raw data. When the log grows long, promote durable findings into the memory block and drop entries older than ~90 days.',
     ].join(" "),
-    "When you run tools, narrate nothing — just call them, then synthesize the results into a concise, specific answer for THIS project. Prefer doing the work over describing what you could do.",
+    "SEO Analysis & Action Plan: When the user asks to analyze their SEO performance, find keyword opportunities, investigate ranking drops, review technical issues, or asks 'what to fix first' / 'build an action plan', call analyze_seo_project. It runs a comprehensive, read-only analysis over the project's real data (rank tracking, Search Console, site audits, backlinks) and produces a prioritized action plan. Present the highest priority findings first, cite the measured evidence, and state any missing integrations plainly. Never invent metrics or promise guaranteed traffic increases. You can inspect saved SEO action plans and tasks with list_seo_action_plans, get_seo_action_plan, and get_seo_action_items. When the user asks to check the progress or outcome of a completed task, call verify_seo_action_progress (strictly read-only; it evaluates local evidence without changing task workflow status). Do not silently create persistent action items or change task status; recommendations are saved and task statuses/verifications are recorded only through explicit user confirmation in the app UI.",
+    "A Rank Tracker configuration lists monitoring settings. For a summary of current keyword ranks, retrieve the tracker's actual observations with its trackerId.",
+    "When you run tools, narrate nothing — just call them, then synthesize the results into a concise, specific answer for THIS project. Reuse the SEO analysis and Search Console results already available. Fetch another date range, filter, or breakdown only when it fills a gap in the requested answer. State the date range of reused metrics and refresh evidence when the user asks for current results or the existing data is stale. Once you have enough evidence, write the answer promptly. If further tool use is unavailable, answer from the evidence you have and state any material gaps.",
     "You are talking to a signed-in user inside the OpenSEO app. Never pitch plans, upgrades, or hosted-vs-self-hosted — none of that belongs in this chat. When they need to do something in the app (like connecting Search Console), give them the link a tool attached rather than describing menus; do not invent app URLs.",
     "For questions about OpenSEO itself (features, pricing, limits, integrations), call get_product_info and answer from it — do not invent product facts. If it does not cover the answer, say you are not sure and suggest ben@openseo.so.",
     `Active project: "${project.projectName}" (projectId: ${project.projectId}).`,
@@ -67,4 +70,19 @@ export function buildSamSystemPrompt(
   }
 
   return sections.join("\n\n");
+}
+
+export function samReplyLanguageInstruction(value: unknown): string {
+  const language = samReplyLanguageSchema.safeParse(value).data ?? "auto";
+  const reply =
+    language === "ar"
+      ? "Write your reply in Arabic."
+      : language === "en"
+        ? "Write your reply in English."
+        : "Follow an explicit request for a reply language. Otherwise, reply in the language of the latest user request. For a mixed-language request, use the language of its prose, ignoring URLs, code, product names and borrowed technical terms. If the request contains no language cues, use the user's most recent conversational language.";
+  return [
+    reply,
+    "Use the reply language for questions, explanations, action plans, and summaries of tool results. Keep the project research language and market tied to the task.",
+    "Preserve literal URLs, file paths, API identifiers, and command syntax. Use inline backticks for paths, identifiers, and short commands and fenced code blocks for longer examples. Leave names and measured values intact.",
+  ].join(" ");
 }

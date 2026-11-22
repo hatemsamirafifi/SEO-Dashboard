@@ -377,6 +377,7 @@ function createAuthenticatedFetch(classify?: DataforseoErrorClassifier) {
   return async (url: RequestInfo, init?: RequestInit): Promise<Response> => {
     const envEnabledRaw = await getOptionalEnvValue("DATAFORSEO_ENABLED");
     if (
+      import.meta.env.MODE === "e2e" ||
       ["false", "0"].includes(envEnabledRaw ?? "") ||
       ["false", "0"].includes(process.env.DATAFORSEO_ENABLED ?? "")
     ) {

@@ -352,7 +352,41 @@ describe("Google Ads v26 REST client", () => {
     expect(JSON.stringify(badList)).not.toContain("SECRET");
   });
 
-  it("sanitizes upstream error bodies (raw body, token and request id never leak)", async () => {
+  it("logs only safe diagnostics and a local request ID for upstream errors", async () => {
+    const logs = [
+      vi.spyOn(console, "warn"),
+      vi.spyOn(console, "error"),
+      vi.spyOn(console, "log"),
+    ];
+    for (const logger of logs) logger.mockImplementation(() => {});
+    const malicious = Response.json(
+      {
+        error: {
+          message: "Authorization: Bearer VENDOR_BODY_TOKEN",
+          details: [
+            {
+              requestId: "BODY_PRIVATE_ID",
+              errors: [
+                {
+                  errorCode: { authorizationError: "ACCOUNT_TOKEN_987654" },
+                  trigger: {
+                    customerId: DIRECT_CUSTOMER_ID,
+                    email: "private-account@example.invalid",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        status: 403,
+        headers: {
+          "request-id": "HEADER_PRIVATE_ID",
+          Authorization: "Bearer RESPONSE_SECRET",
+        },
+      },
+    );
     fetchMock
       .mockResolvedValueOnce(
         adsErrorResponse(403, {
@@ -369,6 +403,12 @@ describe("Google Ads v26 REST client", () => {
           status: 502,
           headers: { "Content-Type": "text/html" },
         }),
+      )
+      .mockResolvedValueOnce(malicious)
+      .mockRejectedValueOnce(
+        new Error(
+          `socket https://googleads.googleapis.com/customers/${DIRECT_CUSTOMER_ID} url-token=TRANSPORT_SECRET`,
+        ),
       );
     const ads = client();
     const forbidden = await captureApiError(ads.listAccessibleCustomers());
@@ -389,6 +429,44 @@ describe("Google Ads v26 REST client", () => {
     const html = await captureApiError(ads.listAccessibleCustomers());
     expect(JSON.stringify(html)).not.toContain("SECRET-BLOB");
     expect(html.googleAdsErrorCode).toBeUndefined();
+    const injected = await captureApiError(ads.getCustomer(DIRECT_CUSTOMER_ID));
+    const transport = await capture(ads.getCustomer(DIRECT_CUSTOMER_ID));
+    expect(injected.googleAdsErrorCode).toBeUndefined();
+    expect(logs[0].mock.calls).toContainEqual([
+      "[GoogleAdsApiError]",
+      {
+        httpStatus: 403,
+        errorCategory: "API_ACCESS_RESTRICTED",
+        providerCode:
+          "AuthorizationError.CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION",
+        requestId: forbidden.requestId,
+      },
+    ]);
+    expect(forbidden.requestId).toMatch(/^[0-9a-f-]{36}$/u);
+    const output = JSON.stringify([
+      logs.map((logger) => logger.mock.calls),
+      ...[forbidden, untrusted, html, injected, transport].map((error) => [
+        error,
+        String(error),
+        classifyGoogleAdsError(error),
+      ]),
+    ]);
+    for (const privateValue of [
+      "SECRET-VALUE",
+      "TRIGGER-VALUE",
+      "test-token",
+      "pipeline-yb7mCEUYxcIgkD3xAIdrjQ",
+      "SECRET-BLOB",
+      "VENDOR_BODY_TOKEN",
+      "BODY_PRIVATE_ID",
+      "ACCOUNT_TOKEN_987654",
+      DIRECT_CUSTOMER_ID,
+      "private-account@example.invalid",
+      "HEADER_PRIVATE_ID",
+      "RESPONSE_SECRET",
+      "TRANSPORT_SECRET",
+    ])
+      expect(output).not.toContain(privateValue);
     // Cloud project restrictions are distinct from account permissions.
     expect(classifyGoogleAdsError(forbidden).errorClass).toBe(
       "API_ACCESS_RESTRICTED",

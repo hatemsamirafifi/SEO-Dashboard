@@ -35,6 +35,10 @@ services:
       # Local dev should never require auth or external credentials.
       AUTH_MODE: ${AUTH_MODE:-local_noauth}
       PORT: ${PORT:-3001}
+      # Fail-safe migration policy: NEVER silently apply new local D1 migrations
+      # on ordinary Docker restarts. Set OPENSEO_ALLOW_AUTO_MIGRATE=true only for
+      # an explicit operator-approved migration run after backup & rehearsal.
+      OPENSEO_ALLOW_AUTO_MIGRATE: ${OPENSEO_ALLOW_AUTO_MIGRATE:-false}
       # Default all SEO data providers off: local dev runs on cache/internal
       # data only unless explicitly enabled. DataForSEO is controlled by
       # .env.docker (env_file) like the AI keys below — an explicit mapping

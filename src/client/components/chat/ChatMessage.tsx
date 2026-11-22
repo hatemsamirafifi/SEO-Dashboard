@@ -9,6 +9,7 @@ import {
   Pencil,
   Undo2,
 } from "lucide-react";
+import { BidiText, firstTextDirection, splitTechnicalText } from "./bidiText";
 import { Markdown } from "@/client/components/Markdown";
 import {
   buildRenderPlan,
@@ -109,7 +110,7 @@ function MessageActions({
 }) {
   return (
     <div
-      className={`flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 ${
+      className={`flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100 ${
         message.role === "user" ? "justify-end" : ""
       }`}
     >
@@ -133,7 +134,7 @@ function MessageActions({
           className="btn btn-ghost btn-xs btn-square text-base-content/40 hover:text-base-content"
           onClick={onUndo}
         >
-          <Undo2 className="size-3.5" />
+          <Undo2 className="size-3.5 rtl:-scale-x-100" />
         </button>
       ) : null}
     </div>
@@ -146,9 +147,11 @@ function MessageActions({
 const ReasoningBlock = memo(function ReasoningBlock({
   part,
   live,
+  bidi,
 }: {
   part: Extract<UIMessage["parts"][number], { type: "reasoning" }>;
   live: boolean;
+  bidi?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   // Persisted parts can keep a stale state:"streaming" (interrupted or
@@ -159,6 +162,7 @@ const ReasoningBlock = memo(function ReasoningBlock({
     <div className="text-base-content/60">
       <button
         type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded((open) => !open)}
         className="inline-flex items-center gap-1.5 text-xs hover:text-base-content/80"
       >
@@ -166,14 +170,17 @@ const ReasoningBlock = memo(function ReasoningBlock({
           <Loader2 className="size-3 animate-spin" />
         ) : (
           <ChevronRight
-            className={`size-3 transition-transform ${expanded ? "rotate-90" : ""}`}
+            className={`size-3 transition-transform ${expanded ? "rotate-90" : "rtl:rotate-180"}`}
           />
         )}
         <span>{isStreaming ? "Thinking…" : "Thought process"}</span>
       </button>
       {expanded ? (
-        <div className="mt-1.5 max-h-96 overflow-y-auto whitespace-pre-wrap border-l-2 border-base-300 pl-3 text-xs text-base-content/50">
-          {part.text}
+        <div
+          dir={bidi ? "auto" : undefined}
+          className="mt-1.5 max-h-96 overflow-y-auto whitespace-pre-wrap wrap-anywhere border-s-2 border-base-300 ps-3 text-start text-xs text-base-content/50"
+        >
+          {bidi ? <BidiText text={part.text} /> : part.text}
         </div>
       ) : null}
     </div>
@@ -189,10 +196,12 @@ function ToolBadge({
   group,
   live,
   resolveToolLabel,
+  bidi,
 }: {
   group: ToolPartGroup;
   live: boolean;
   resolveToolLabel: ResolveToolLabel;
+  bidi?: boolean;
 }) {
   const labels = resolveToolLabel(group.type);
   if (!labels) return null;
@@ -209,7 +218,7 @@ function ToolBadge({
   const detail = customDetail ?? failureDetail;
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
+      className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
         isError ? "bg-error/10 text-error" : "bg-base-200 text-base-content/70"
       }`}
     >
@@ -220,10 +229,21 @@ function ToolBadge({
       ) : (
         <Check className="size-3" />
       )}
-      <span>
+      <span className="min-w-0 wrap-anywhere">
         {isRunning ? `${labels.running}…` : labels.done}
         {group.parts.length > 1 ? ` ×${group.parts.length}` : ""}
-        {detail ? ` · ${detail}` : ""}
+        {detail ? (
+          bidi ? (
+            <>
+              {" · "}
+              <bdi>
+                <BidiText text={detail} />
+              </bdi>
+            </>
+          ) : (
+            ` · ${detail}`
+          )
+        ) : null}
       </span>
     </span>
   );
@@ -256,6 +276,7 @@ function ChatMessageImpl({
   streaming,
   onUndo,
   onEdit,
+  bidi,
 }: {
   message: UIMessage;
   resolveToolLabel: ResolveToolLabel;
@@ -264,6 +285,7 @@ function ChatMessageImpl({
   streaming?: boolean;
   onUndo?: () => void;
   onEdit?: (newText: string) => void;
+  bidi?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -276,15 +298,21 @@ function ChatMessageImpl({
         if (text && text !== messageText(message)) onEdit(text);
       };
       return (
-        <div className="flex flex-col items-end gap-1.5 pl-8 sm:pl-16">
+        <div className="flex flex-col items-end gap-1.5 ps-8 sm:ps-16">
           <textarea
-            className="textarea textarea-bordered w-full max-w-xl text-sm"
+            dir={bidi ? firstTextDirection(draft) : undefined}
+            aria-label="Edit message"
+            className="textarea textarea-bordered w-full max-w-xl text-start text-sm"
             rows={Math.min(6, Math.max(2, draft.split("\n").length))}
             value={draft}
             autoFocus
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
                 event.preventDefault();
                 submit();
               }
@@ -312,12 +340,16 @@ function ChatMessageImpl({
     }
     return (
       <div className="group flex flex-col gap-1">
-        <div className="flex justify-end pl-8 sm:pl-16">
-          <div className="rounded-box rounded-br-sm bg-primary px-4 py-2.5 text-sm text-primary-content">
+        <div className="flex justify-end ps-8 sm:ps-16">
+          <div className="min-w-0 rounded-box rounded-ee-sm bg-primary px-4 py-2.5 text-sm text-primary-content">
             {safeParts(message.parts).map((part, index) =>
               part.type === "text" ? (
-                <span key={index} className="whitespace-pre-wrap">
-                  {part.text}
+                <span
+                  key={index}
+                  dir={bidi ? "auto" : undefined}
+                  className="block whitespace-pre-wrap wrap-anywhere text-start"
+                >
+                  {bidi ? <BidiText text={part.text} /> : part.text}
                 </span>
               ) : null,
             )}
@@ -339,9 +371,10 @@ function ChatMessageImpl({
     );
   }
 
+  const direction = bidi ? assistantDirection(message) : undefined;
   return (
-    <div className="group flex flex-col gap-1">
-      <div className="min-w-0 space-y-2 text-sm">
+    <div dir={direction} className="group flex flex-col gap-1">
+      <div className="min-w-0 space-y-2 text-start text-sm">
         {buildRenderPlan(message.parts).map((entry, index) => {
           if (entry.kind === "tools") {
             const toolCallId =
@@ -358,6 +391,7 @@ function ChatMessageImpl({
                 group={entry.group}
                 live={Boolean(streaming)}
                 resolveToolLabel={resolveToolLabel}
+                bidi={bidi}
               />
             );
           }
@@ -367,13 +401,16 @@ function ChatMessageImpl({
               <ReasoningBlock
                 key={`reasoning-${index}`}
                 part={part}
+                bidi={bidi}
                 live={Boolean(streaming)}
               />
             ) : null;
           }
           if (part.type === "text") {
             return part.text.trim() ? (
-              <Markdown key={`text-${index}`}>{part.text}</Markdown>
+              <Markdown key={`text-${index}`} bidi={bidi}>
+                {part.text}
+              </Markdown>
             ) : null;
           }
           return null;
@@ -381,6 +418,22 @@ function ChatMessageImpl({
       </div>
       {streaming ? null : <MessageActions message={message} />}
     </div>
+  );
+}
+
+function assistantDirection(message: UIMessage) {
+  const prose = messageText(message)
+    .replace(
+      /^ {0,3}(`{3,}|~{3,}).*(?:\n|$)[\s\S]*?(?:^ {0,3}\1[`~]*[ \t]*$|(?![\s\S]))/gm,
+      "",
+    )
+    .replace(/(`+)[^`]*\1/g, "")
+    .replace(/!?\[([^\]]*)\]\([^\n]*?\)/g, "$1");
+  return firstTextDirection(
+    splitTechnicalText(prose)
+      .filter((part) => !part.isolate)
+      .map((part) => part.text)
+      .join(""),
   );
 }
 
@@ -406,6 +459,7 @@ function chatMessagePropsEqual(
   return (
     prev.message === next.message &&
     prev.streaming === next.streaming &&
+    prev.bidi === next.bidi &&
     prev.resolveToolLabel === next.resolveToolLabel &&
     (prev.onUndo === next.onUndo ||
       (prev.onUndo != null && next.onUndo != null && sameMessageId())) &&

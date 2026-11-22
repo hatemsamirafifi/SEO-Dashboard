@@ -282,6 +282,7 @@ export function useKeywordResearchController(
     researchError,
     researchMutationError,
     retrySearch,
+    researchDiagnostics: researchQuery.data?.diagnostics,
     resetFilters,
     rows,
     searchedKeyword,

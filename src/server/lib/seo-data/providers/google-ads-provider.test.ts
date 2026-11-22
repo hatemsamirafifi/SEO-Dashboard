@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- full provider contract suite: supports(), targeting, error provenance and planner dispatch */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /* Phase 2 — the router-facing google_ads provider consumes the per-project
  * Google Ads connection and the v26 typed Planner client from Phase 1.
@@ -20,6 +20,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const auth = vi.hoisted(() => ({ getAccessToken: vi.fn() }));
+const grantRepo = vi.hoisted(() => ({ getOwnedGrant: vi.fn() }));
+const cooldown = vi.hoisted(() => vi.fn());
+const workersEnv = vi.hoisted(() => ({
+  GOOGLE_ADS_PLANNER_LIMITER: undefined as
+    | {
+        idFromName: (name: string) => string;
+        get: (name: string) => { fetch: typeof cooldown };
+      }
+    | undefined,
+}));
+vi.mock("cloudflare:workers", () => ({ env: workersEnv }));
+vi.mock(
+  "@/server/features/google-ads/repositories/GoogleAdsGrantRepository",
+  () => ({
+    GoogleAdsGrantRepository: {
+      getOwnedGrant: grantRepo.getOwnedGrant,
+      hasAdsConsent: (scope: string | null) =>
+        scope === "https://www.googleapis.com/auth/adwords",
+    },
+  }),
+);
 vi.mock("@/lib/auth", () => ({
   getAuth: () => ({ api: { getAccessToken: auth.getAccessToken } }),
 }));
@@ -49,6 +70,7 @@ import {
   type GoogleAdsPlannerCacheIdentity,
 } from "./google-ads-provider";
 import { ProviderUnavailableError } from "../errors";
+import { authorizePlannerResearchFallback } from "./google-ads-planner-fallback";
 import type { SEODataRequest } from "../types";
 import {
   BASE,
@@ -247,6 +269,93 @@ describe("google_ads provider — planner access", () => {
     fetchMock = installFetchMock();
     resetPlannerTargetMemoForTests();
     provider = createGoogleAdsProvider();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    workersEnv.GOOGLE_ADS_PLANNER_LIMITER = undefined;
+    cooldown.mockReset();
+  });
+
+  it("requires an explicit fallback opt-in and the connected owner's Ads consent", async () => {
+    vi.stubEnv("GOOGLE_ADS_KEYWORD_RESEARCH_FALLBACK_ENABLED", undefined);
+    const request = ideasRequest({ onlyProvider: "google_ads" });
+    await expect(provider.get(request)).rejects.toThrow("fallback is disabled");
+    expect(connectionRepo.getByProjectId).not.toHaveBeenCalled();
+
+    vi.stubEnv("GOOGLE_ADS_KEYWORD_RESEARCH_FALLBACK_ENABLED", "true");
+    grantRepo.getOwnedGrant.mockResolvedValueOnce({ scope: "openid" });
+    await expect(provider.get(request)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect(grantRepo.getOwnedGrant).toHaveBeenCalledWith(
+      CONNECTION.connectedByUserId,
+      CONNECTION.grantAccountId,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("caps an eligible fallback to one target-scoped page and suppresses repeat calls", async () => {
+    vi.stubEnv("GOOGLE_ADS_KEYWORD_RESEARCH_FALLBACK_ENABLED", "true");
+    grantRepo.getOwnedGrant.mockResolvedValue({
+      scope: "https://www.googleapis.com/auth/adwords",
+    });
+    const input = ideasRequest({
+      onlyProvider: "google_ads",
+      keyword: "عطور",
+      locationCode: 2682,
+      languageCode: "ar",
+    });
+    const { scope } = await authorizePlannerResearchFallback(
+      input.billingCustomer,
+    );
+    const request = {
+      ...input,
+      constraints: { source: "ideas", limit: 500, plannerScope: scope },
+    };
+    await expect(provider.get(request)).rejects.toThrow(
+      "Shared Keyword Planner cooldown is unavailable",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    workersEnv.GOOGLE_ADS_PLANNER_LIMITER = {
+      idFromName: (name) => name,
+      get: (name) => {
+        expect(name).toBe(CONNECTION.customerId);
+        return { fetch: cooldown };
+      },
+    };
+    cooldown
+      .mockResolvedValueOnce(
+        new Response("synthetic-sensitive-body", { status: 503 }),
+      )
+      .mockRejectedValueOnce(new Error("synthetic-sensitive-limiter-exception"))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 429 }));
+    await expect(provider.get(request)).rejects.toThrow(
+      "Shared Keyword Planner cooldown could not reserve a slot.",
+    );
+    await expect(provider.get(request)).rejects.toThrow(
+      "Shared Keyword Planner cooldown is unavailable.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock
+      .mockResolvedValueOnce(geoSuggestResponse("SA", "2682", "Saudi Arabia"))
+      .mockResolvedValueOnce(languageConstantResponse("ar"))
+      .mockResolvedValueOnce(
+        jsonResponse({ results: [ideaRow("عطور")], nextPageToken: "next" }),
+      );
+    await expect(provider.get(request)).resolves.toMatchObject({
+      truncated: true,
+      ideas: [expect.objectContaining({ keyword: "عطور" })],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(cooldown).toHaveBeenCalledWith("https://planner-limiter/reserve", {
+      method: "POST",
+    });
+    await expect(provider.get(request)).rejects.toMatchObject({
+      name: "RateLimitError",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("resolves the connection only from the billing context and runs the planner through the real client", async () => {

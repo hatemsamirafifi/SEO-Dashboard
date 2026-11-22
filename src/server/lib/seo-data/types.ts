@@ -32,8 +32,19 @@ export type SEODataRequest = {
   billingCustomer: BillingCustomerContext;
   /** Optional credit feature attribution (e.g. "onboarding"). */
   creditFeature?: string;
+  /** Restrict a request and its cache entry to one provider. */
+  onlyProvider?: "seranking" | "google_ads";
+  /** Keep DataForSEO out of both provider dispatch and cache reuse. */
+  excludeDataforseo?: boolean;
   /** Provider-specific constraints passed through. */
   constraints?: Record<string, unknown>;
+};
+
+export type SEODataDiagnostics = {
+  endpoint?: string;
+  upstreamTotal?: number | null;
+  rawItemCount?: number;
+  parsedItemCount?: number;
 };
 
 export type SEODataResponse<T = unknown> = {
@@ -43,6 +54,10 @@ export type SEODataResponse<T = unknown> = {
   fromCache: boolean;
   fallbackReason?: string;
   durationMs: number;
+  /** Providers actually attempted during this route() call (empty on cache hit). */
+  attemptedProviders?: string[];
+  /** Optional safe provider/upstream diagnostics (never includes credentials). */
+  diagnostics?: SEODataDiagnostics;
   /** ISO timestamp of the payload as fetched by the serving provider
    *  (first-party keyword flows only). */
   fetchedAt?: string;

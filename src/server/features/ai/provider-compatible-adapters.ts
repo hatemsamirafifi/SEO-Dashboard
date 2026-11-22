@@ -30,6 +30,7 @@ type OpenAiCompatibleConfig = {
   defaultModelId: string;
   /** Whether a missing API key is acceptable (local gateways often need none). */
   keyOptional: boolean;
+  includeUsage?: boolean;
 };
 
 type WarmableAdapter = { baseUrlCache: string | null };
@@ -214,6 +215,7 @@ function createOpenAiCompatibleAdapter(
         name: config.sdkName,
         baseURL: base,
         apiKey: apiKey || undefined,
+        ...(config.includeUsage ? { includeUsage: true } : {}),
       }).chatModel(modelId);
     },
     estimateCostUsd() {
@@ -240,6 +242,7 @@ export const ollamaCloudProvider = createOpenAiCompatibleAdapter({
   id: "ollama_cloud",
   displayName: "Ollama Cloud",
   sdkName: "ollama-cloud",
+  includeUsage: true,
   envApiKey: "OLLAMA_API_KEY",
   envModel: "OLLAMA_CLOUD_MODEL",
   envBaseUrl: "OLLAMA_CLOUD_BASE_URL",

@@ -28,7 +28,10 @@ export type SamToolTraceEventName =
   | "cache_miss"
   | "cache_write"
   | "cache_write_skipped"
-  | "tool_completed";
+  | "tool_completed"
+  | "generation_request"
+  | "generation_finish"
+  | "generation_terminal";
 
 export type SamToolTraceEvent = {
   id: string;

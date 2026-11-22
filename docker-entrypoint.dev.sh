@@ -22,15 +22,14 @@ if [ ! -d node_modules/.bin ] || [ ! -x node_modules/.bin/vite ]; then
   pnpm install --frozen-lockfile --workspace-root
 fi
 
-# Local D1 lives in .wrangler/state. Apply migrations against the LOCAL
-# database only — identical to `pnpm db:migrate:local`, and intentionally
-# separate from production. Safe to re-run: already-applied migrations are
-# skipped. `yes` auto-confirms wrangler's interactive "apply N migrations?"
-# prompt so the container doesn't hang on stdin.
-echo "[dev] Applying local D1 migrations (wrangler d1 migrations apply DB --local)..."
-timeout 60 pnpm run db:migrate:local </dev/null || {
-  echo "[dev] D1 migration check skipped (database may not exist on first boot; it will be created by Wrangler)."
-}
+# Local D1 lives in .wrangler/state. Never silently apply new schema migrations
+# during ordinary Docker restarts. The read-only guard verifies Drizzle journal
+# consistency and confirms all required migrations are already applied:
+#   - Up to date: logs OK and proceeds with normal startup.
+#   - Pending migrations: fails fast with backup/rehearsal/apply guidance unless
+#     OPENSEO_ALLOW_AUTO_MIGRATE=true is explicitly set by the operator.
+echo "[dev] Checking local D1 migration state (fail-safe guard; OPENSEO_ALLOW_AUTO_MIGRATE=${OPENSEO_ALLOW_AUTO_MIGRATE:-false})..."
+node scripts/local-d1-migration-guard.mjs
 
 echo "[dev] Starting OpenSEO dev server (pnpm dev → vite + wrangler/workerd)..."
 echo "[dev] App will be available on http://localhost:${PORT:-3001}"

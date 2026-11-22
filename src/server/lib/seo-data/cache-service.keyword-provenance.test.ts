@@ -3,7 +3,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { z } from "zod";
 
-import { SeoCacheService, KEYWORD_CACHE_VERSION } from "./cache-service";
+import {
+  SeoCacheService,
+  KEYWORD_CACHE_VERSION,
+  NEGATIVE_KEYWORD_IDEAS_TTL_SECONDS,
+} from "./cache-service";
 import { resetProviderConfigCache } from "./config";
 import type { SEODataRequest } from "./types";
 import type { GoogleAdsConnectionRepository } from "@/server/features/google-ads/repositories/GoogleAdsConnectionRepository";
@@ -240,6 +244,71 @@ describe("SeoCacheService — keyword payload envelope writes", () => {
       expect.any(Number),
     );
   });
+
+  it("does not cache null, undefined, or primitive malformed payloads", async () => {
+    const request = keywordIdeasRequest();
+    const key = await SeoCacheService.buildKey(request);
+
+    await SeoCacheService.set(request, key, null, { provider: "seranking" });
+    await SeoCacheService.set(request, key, undefined, {
+      provider: "seranking",
+    });
+    await SeoCacheService.set(request, key, "<html>error</html>", {
+      provider: "seranking",
+    });
+
+    expect(cached.setCached).not.toHaveBeenCalled();
+  });
+
+  it("uses short negative-result TTL for empty keyword_ideas arrays", async () => {
+    const request = keywordIdeasRequest();
+    const key = await SeoCacheService.buildKey(request);
+
+    await SeoCacheService.set(request, key, [], { provider: "seranking" });
+
+    expect(cached.setCached).toHaveBeenCalledWith(
+      key,
+      expect.objectContaining({
+        seoCacheVersion: KEYWORD_CACHE_VERSION,
+        provider: "seranking",
+        data: [],
+      }),
+      NEGATIVE_KEYWORD_IDEAS_TTL_SECONDS,
+    );
+  });
+
+  it("keeps restricted provider keys disjoint and uses the short TTL for empty Planner results", async () => {
+    const base = keywordIdeasRequest();
+    const google: SEODataRequest = {
+      ...base,
+      onlyProvider: "google_ads",
+      constraints: { source: "ideas", plannerScope: "project-one-connection" },
+    };
+    const key = await SeoCacheService.buildKey(google);
+    expect(key).not.toBe(
+      await SeoCacheService.buildKey({ ...google, onlyProvider: "seranking" }),
+    );
+    expect(key).not.toBe(
+      await SeoCacheService.buildKey({
+        ...google,
+        constraints: {
+          ...google.constraints,
+          plannerScope: "project-two-connection",
+        },
+      }),
+    );
+    await SeoCacheService.set(
+      google,
+      key,
+      { ideas: [] },
+      { provider: "google_ads" },
+    );
+    expect(cached.setCached).toHaveBeenCalledWith(
+      key,
+      expect.objectContaining({ provider: "google_ads" }),
+      NEGATIVE_KEYWORD_IDEAS_TTL_SECONDS,
+    );
+  });
 });
 
 describe("SeoCacheService — keyword envelope reads and freshness", () => {
@@ -248,6 +317,48 @@ describe("SeoCacheService — keyword envelope reads and freshness", () => {
     resetProviderConfigCache();
     connectionRepo.getByProjectId.mockResolvedValue(CONNECTED_CONNECTION);
   });
+
+  it.each([
+    ["seranking", []],
+    ["google_ads", { ideas: [], keywords: [] }],
+  ] as const)(
+    "rejects an expired negative %s payload even when R2 still returns it",
+    async (provider, data) => {
+      const request = keywordIdeasRequest({
+        onlyProvider: provider,
+        locationCode: 2818,
+        languageCode: "ar",
+      });
+      expect(await SeoCacheService.buildKey(request)).not.toBe(
+        await SeoCacheService.buildKey({ ...request, onlyProvider: undefined }),
+      );
+      const envelope = {
+        seoCacheVersion: KEYWORD_CACHE_VERSION,
+        provider,
+        data,
+      };
+      const fetcher = vi.fn(async () => ["fresh"]);
+      cached.getCached.mockResolvedValueOnce({
+        ...envelope,
+        fetchedAt: new Date(Date.now() - 60_000).toISOString(),
+      });
+      expect(
+        (await SeoCacheService.getOrFetch(request, z.unknown(), fetcher))
+          .fromCache,
+      ).toBe(true);
+      cached.getCached.mockResolvedValueOnce({
+        ...envelope,
+        fetchedAt: new Date(Date.now() - 600_000).toISOString(),
+      });
+      expect(
+        await SeoCacheService.getOrFetch(request, z.unknown(), fetcher),
+      ).toMatchObject({
+        fromCache: false,
+        data: ["fresh"],
+      });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("unwraps a valid envelope on hit and surfaces provenance", async () => {
     const fetchedAt = new Date().toISOString();

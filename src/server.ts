@@ -478,6 +478,7 @@ export { OnboardingChatAgent } from "./server/features/onboarding/OnboardingChat
 export { SamChatAgent } from "./server/features/sam/SamChatAgent";
 // Durable Object class for SE Ranking distributed rate limiting.
 export { SeRankingRateLimiter } from "./server/lib/seranking/rateLimiter";
+export { GoogleAdsPlannerLimiter } from "./server/lib/seo-data/providers/google-ads-planner-limiter";
 
 export default {
   fetch,

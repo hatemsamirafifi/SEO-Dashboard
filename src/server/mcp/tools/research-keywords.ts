@@ -8,6 +8,11 @@ import {
 } from "@/server/mcp/output-schemas";
 import { withMcpProjectAuth } from "@/server/mcp/project-auth";
 import { resolveMarket } from "@/shared/keyword-locations";
+import {
+  KEYWORD_SOURCE_LABELS,
+  KEYWORD_SOURCE_STATUS_LABELS,
+} from "@/shared/keyword-research-sources";
+import type { KeywordResearchRow } from "@/types/keywords";
 import { formatMcpTable, type McpTableColumn } from "@/server/mcp/table";
 import { assertLanguageForLocation } from "@/server/lib/market";
 import {
@@ -101,34 +106,34 @@ const inputSchema = {
 
 type Args = z.infer<z.ZodObject<typeof inputSchema>>;
 
-type ResearchRow = {
-  keyword: string;
-  searchVolume: number | null;
-  keywordDifficulty: number | null;
-  cpc: number | null;
-  competition: number | null;
-  intent: string;
-};
-
 // The full rows (including trend data) still ship in structuredContent; this
 // table exists so MCP clients that surface only text content see every keyword
 // and its metrics, not just the count summary.
-const RESEARCH_COLUMNS: McpTableColumn<ResearchRow>[] = [
+const RESEARCH_COLUMNS: McpTableColumn<KeywordResearchRow>[] = [
   { header: "keyword", value: (row) => row.keyword },
   { header: "volume", value: (row) => row.searchVolume },
   { header: "KD", value: (row) => row.keywordDifficulty },
-  { header: "CPC", value: (row) => row.cpc },
+  {
+    header: "CPC",
+    value: (row) =>
+      row.cpcCurrencyCode && row.cpc !== null
+        ? `${row.cpc} ${row.cpcCurrencyCode}`
+        : row.cpc,
+  },
   { header: "competition", value: (row) => row.competition },
   { header: "intent", value: (row) => row.intent },
 ];
-
-function snapResultLimit(limit?: number): 150 | 300 | 500 | 1000 {
-  if (!limit) return 300;
-  if (limit <= 150) return 150;
-  if (limit <= 300) return 300;
-  if (limit <= 500) return 500;
-  return 1000;
-}
+const SOURCE_COLUMN: McpTableColumn<KeywordResearchRow> = {
+  header: "sources",
+  value: (row) =>
+    row.attribution
+      ?.map(({ source, sitePerformance }) =>
+        sitePerformance?.impressions != null
+          ? `${KEYWORD_SOURCE_LABELS[source]} (${sitePerformance.impressions} site impressions)`
+          : KEYWORD_SOURCE_LABELS[source],
+      )
+      .join(", "),
+};
 
 export const researchKeywordsTool = {
   name: "research_keywords",
@@ -182,7 +187,7 @@ export const researchKeywordsTool = {
               keywords: [item.seed],
               locationCode,
               languageCode,
-              resultLimit: snapResultLimit(args.resultLimit),
+              resultLimit: args.resultLimit ?? 300,
               mode: "auto",
               clickstream: args.includeClickstreamData ?? false,
             },
@@ -196,6 +201,9 @@ export const researchKeywordsTool = {
             source: data.source,
             usedFallback: data.usedFallback,
             seedOverview: data.seedOverview,
+            ...(data.diagnostics?.coverage
+              ? { diagnostics: data.diagnostics }
+              : {}),
             rows: data.rows,
           };
         } catch (error) {
@@ -217,17 +225,29 @@ export const researchKeywordsTool = {
             return `## "${r.seed}" — FAILED\n${r.error}`;
           }
           const header = `## "${r.seed}" — ${r.rowCount} keywords (provider: ${r.provider}, source: ${r.source}${r.usedFallback ? ", fallback" : ""})`;
+          const sourceNote = r.diagnostics
+            ? "\nSources: " +
+              r.diagnostics.sourceAttempts
+                .flatMap(({ provider, status, source }) =>
+                  provider && status
+                    ? [
+                        `${KEYWORD_SOURCE_LABELS[provider]}${provider === "seranking" ? ` (${source})` : ""}: ${KEYWORD_SOURCE_STATUS_LABELS[status]}`,
+                      ]
+                    : [],
+                )
+                .join("; ")
+            : "";
           const exactMissingNote =
             r.seedOverview && !r.seedOverview.exactMatchFound
-              ? `\nNote: Exact-match metrics for "${r.seed}" were not reported by ${r.provider} (search volume is unavailable, not zero). Showing related suggestions.`
+              ? `\nExact-match metrics for "${r.seed}" are unavailable.`
               : "";
           if (r.rowCount === 0) {
-            return `${header}${exactMissingNote}\n(no keywords returned)`;
+            return `${header}${exactMissingNote}${sourceNote}\n(no keywords returned)`;
           }
-          return `${header}${exactMissingNote}\n${formatMcpTable(r.rows, RESEARCH_COLUMNS)}`;
+          return `${header}${exactMissingNote}${sourceNote}\n${formatMcpTable(r.rows, r.diagnostics ? [...RESEARCH_COLUMNS, SOURCE_COLUMN] : RESEARCH_COLUMNS)}`;
         })
         .join("\n\n") +
-      `\n\nResearched ${okCount} of ${results.length} seeds${failCount > 0 ? ` (${failCount} failed)` : ""}. Columns: volume = monthly searches, KD = keyword difficulty (0-100), CPC in USD, competition = paid competition (0-1); "—" = unavailable.`;
+      `\n\nResearched ${okCount} of ${results.length} seeds${failCount > 0 ? ` (${failCount} failed)` : ""}. Volume shows monthly searches. Search Console site impressions describe the project's property. KD is keyword difficulty (0–100). Keyword Planner CPC uses the account currency. A dash marks an unavailable metric.`;
 
     return mcpResponse({
       text,

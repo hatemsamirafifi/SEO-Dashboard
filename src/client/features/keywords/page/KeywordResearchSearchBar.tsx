@@ -7,10 +7,14 @@ import {
 import { RESULT_LIMITS } from "@/client/features/keywords/keywordResearchTypes";
 import { isLabsLocationCode } from "@/client/features/keywords/locations";
 import { LocationSelect } from "@/client/components/LocationSelect";
+import { useProjectMarket } from "@/client/features/projects/useProjectMarket";
+import { getLanguageCode, resolveMarket } from "@/shared/keyword-locations";
+import { getKeywordResearchCountry } from "@/shared/keyword-research-sources";
 import type { KeywordResearchControllerState } from "./types";
 
 type Props = {
   controller: KeywordResearchControllerState;
+  projectId: string;
 };
 
 function getTextareaRows(value: string): number {
@@ -19,8 +23,9 @@ function getTextareaRows(value: string): number {
   return Math.min(6, Math.max(1, lines));
 }
 
-export function KeywordResearchSearchBar({ controller }: Props) {
+export function KeywordResearchSearchBar({ controller, projectId }: Props) {
   const { controlsForm, handleSearchSubmit } = controller;
+  const project = useProjectMarket(projectId);
 
   return (
     <div className="card border border-base-300 bg-base-100">
@@ -42,6 +47,7 @@ export function KeywordResearchSearchBar({ controller }: Props) {
                 >
                   <Search className="mt-0.5 size-4 shrink-0 text-base-content/60" />
                   <textarea
+                    dir="auto"
                     className="grow min-w-0 resize-none bg-transparent text-sm leading-6 outline-none placeholder:text-base-content/40"
                     rows={rows}
                     placeholder="Enter a keyword"
@@ -95,7 +101,8 @@ export function KeywordResearchSearchBar({ controller }: Props) {
             <controlsForm.Field name="mode">
               {(field) => (
                 <select
-                  className="select select-bordered w-full lg:w-auto lg:shrink-0"
+                  aria-label="Research mode"
+                  className="select select-bordered col-span-2 w-full lg:w-auto lg:shrink-0"
                   value={field.state.value}
                   onChange={(event) =>
                     field.handleChange(normalizeKeywordMode(event.target.value))
@@ -106,14 +113,14 @@ export function KeywordResearchSearchBar({ controller }: Props) {
                     Related searches (تم البحث أيضاً عن)
                   </option>
                   <option value="suggestions">Autocomplete suggestions</option>
-                  <option value="ideas">Keyword ideas (Planner)</option>
+                  <option value="ideas">Keyword ideas</option>
                 </select>
               )}
             </controlsForm.Field>
 
             <button
               type="submit"
-              className="btn btn-primary w-full px-6 lg:w-auto lg:shrink-0"
+              className="btn btn-primary col-span-2 w-full px-6 lg:w-auto lg:shrink-0"
             >
               Search
             </button>
@@ -129,8 +136,14 @@ export function KeywordResearchSearchBar({ controller }: Props) {
           }}
         </controlsForm.Field>
         <controlsForm.Field name="locationCode">
-          {(locationField) =>
-            isLabsLocationCode(locationField.state.value) ? (
+          {(locationField) => {
+            const locationCode = locationField.state.value;
+            const languageCode = project
+              ? resolveMarket({ locationCode }, project).languageCode
+              : getLanguageCode(locationCode);
+            if (getKeywordResearchCountry(locationCode, languageCode))
+              return null;
+            return isLabsLocationCode(locationCode) ? (
               <controlsForm.Field name="clickstream">
                 {(field) => (
                   <div className="flex items-center gap-2">
@@ -168,8 +181,8 @@ export function KeywordResearchSearchBar({ controller }: Props) {
                   intent are not.
                 </span>
               </div>
-            )
-          }
+            );
+          }}
         </controlsForm.Field>
       </div>
     </div>

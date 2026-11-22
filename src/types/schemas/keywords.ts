@@ -152,9 +152,9 @@ export type SaveKeywordsInput = z.infer<typeof saveKeywordsSchema>;
 type ResolvedMarket = { locationCode: number; languageCode: string };
 export type ResolvedResearchKeywordsInput = Omit<
   ResearchKeywordsInput,
-  keyof ResolvedMarket
+  keyof ResolvedMarket | "resultLimit"
 > &
-  ResolvedMarket;
+  ResolvedMarket & { resultLimit: number };
 export type ResolvedSaveKeywordsInput = Omit<
   SaveKeywordsInput,
   keyof ResolvedMarket
