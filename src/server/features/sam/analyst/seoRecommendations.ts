@@ -339,13 +339,11 @@ export function generateMarkdownFallback(
       const taskBadge = rec.existingActionItem
         ? ` · 📌 [Status: ${rec.existingActionItem.status.toUpperCase()}]`
         : " · 🆕 [New]";
-      lines.push(`### ${i + 1}. [${rec.priority}] ${rec.title}${taskBadge}`);
-      lines.push(`- **Action:** ${rec.recommendedAction}`);
-      lines.push(`- **Why it matters:** ${rec.explanation}`);
       lines.push(
+        `### ${i + 1}. [${rec.priority}] ${rec.title}${taskBadge}`,
+        `- **Action:** ${rec.recommendedAction}`,
+        `- **Why it matters:** ${rec.explanation}`,
         `- **Validation:** Measure ${rec.validationMetric} (Review in ${rec.reviewPeriod})`,
-      );
-      lines.push(
         `- **Confidence:** ${rec.confidence.level} (${rec.confidence.score}%) — *${rec.confidence.rationale}*`,
       );
       if (rec.evidenceQuality) {
