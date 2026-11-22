@@ -79,10 +79,7 @@ async function evaluateItemAgainstLocalEvidence(
 
   if (item.category === "ranking_drop" || hasRankTrackerProvenance) {
     check = await verifyViaRankTracker(item, projectId);
-  } else if (
-    item.category === "keyword_opportunity" &&
-    hasGscProvenance
-  ) {
+  } else if (item.category === "keyword_opportunity" && hasGscProvenance) {
     check = await verifyViaSearchConsole(item, projectId);
   } else if (item.category === "keyword_opportunity") {
     check = {
@@ -132,7 +129,9 @@ export class SeoActionVerificationEngine {
       outcome: check.outcome,
       evidenceSufficient,
       awaitingNewerData: !evidenceSufficient,
-      recommendedStatus: evidenceSufficient ? "verified" : "verification_pending",
+      recommendedStatus: evidenceSufficient
+        ? "verified"
+        : "verification_pending",
       notes: check.notes,
       metricName,
       baselineValue: item.baselineValue,

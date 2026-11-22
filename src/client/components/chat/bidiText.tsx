@@ -40,13 +40,14 @@ export function firstTextDirection(text: string): TextDirection | undefined {
 }
 
 export function BidiText({ text }: { text: string }) {
-  return splitTechnicalText(text).map(({ text: fragment, isolate: Isolate, start }) =>
-    Isolate ? (
-      <Isolate key={start} dir="ltr">
-        {fragment}
-      </Isolate>
-    ) : (
-      fragment
-    ),
+  return splitTechnicalText(text).map(
+    ({ text: fragment, isolate: Isolate, start }) =>
+      Isolate ? (
+        <Isolate key={start} dir="ltr">
+          {fragment}
+        </Isolate>
+      ) : (
+        fragment
+      ),
   );
 }

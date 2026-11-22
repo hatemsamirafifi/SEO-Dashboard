@@ -50,7 +50,9 @@ function makeBaseEvidence(
         provider: "mixed",
         freshnessLabel: "2 days old",
         recordCount: 10,
-        limitations: ["Rank observations originate from multiple providers: dataforseo, seranking."],
+        limitations: [
+          "Rank observations originate from multiple providers: dataforseo, seranking.",
+        ],
       },
     ],
     observations: [],
@@ -105,12 +107,18 @@ describe("SAM SEO Analyst Phase 2: Evidence Quality Gates (Task 1)", () => {
     expect(spamRec!.priority).toBe("Low");
     expect(spamRec!.expectedImpact).toBe("Low");
     expect(spamRec!.confidence.level).toBe("Low");
-    expect(spamRec!.evidenceQuality?.signalStrength).toBe("suspicious_investigate");
+    expect(spamRec!.evidenceQuality?.signalStrength).toBe(
+      "suspicious_investigate",
+    );
     expect(spamRec!.evidenceQuality?.sampleSize).toBe("sparse");
-    expect(spamRec!.evidenceQuality?.isDestructiveActionRecommended).toBe(false);
+    expect(spamRec!.evidenceQuality?.isDestructiveActionRecommended).toBe(
+      false,
+    );
 
     // Recommended action MUST be investigative, NOT destructive
-    expect(spamRec!.recommendedAction).toContain("Investigate query and landing page");
+    expect(spamRec!.recommendedAction).toContain(
+      "Investigate query and landing page",
+    );
     expect(spamRec!.recommendedAction).not.toContain("noindex");
     expect(spamRec!.recommendedAction).not.toContain("robots.txt");
     expect(spamRec!.recommendedAction).not.toContain("delete");
@@ -175,22 +183,48 @@ describe("SAM SEO Analyst Phase 2: Evidence Quality Gates (Task 1)", () => {
 
 describe("SAM SEO Analyst Phase 2: Action Lifecycle Transitions (Task 4)", () => {
   it("allows valid lifecycle transitions", () => {
-    expect(SeoActionService.isValidTransition("proposed", "accepted")).toBe(true);
-    expect(SeoActionService.isValidTransition("proposed", "dismissed")).toBe(true);
-    expect(SeoActionService.isValidTransition("accepted", "in_progress")).toBe(true);
-    expect(SeoActionService.isValidTransition("accepted", "blocked")).toBe(true);
-    expect(SeoActionService.isValidTransition("in_progress", "completed")).toBe(true);
-    expect(SeoActionService.isValidTransition("completed", "verification_pending")).toBe(true);
-    expect(SeoActionService.isValidTransition("verification_pending", "verified")).toBe(true);
-    expect(SeoActionService.isValidTransition("verified", "reopened")).toBe(true);
-    expect(SeoActionService.isValidTransition("reopened", "in_progress")).toBe(true);
+    expect(SeoActionService.isValidTransition("proposed", "accepted")).toBe(
+      true,
+    );
+    expect(SeoActionService.isValidTransition("proposed", "dismissed")).toBe(
+      true,
+    );
+    expect(SeoActionService.isValidTransition("accepted", "in_progress")).toBe(
+      true,
+    );
+    expect(SeoActionService.isValidTransition("accepted", "blocked")).toBe(
+      true,
+    );
+    expect(SeoActionService.isValidTransition("in_progress", "completed")).toBe(
+      true,
+    );
+    expect(
+      SeoActionService.isValidTransition("completed", "verification_pending"),
+    ).toBe(true);
+    expect(
+      SeoActionService.isValidTransition("verification_pending", "verified"),
+    ).toBe(true);
+    expect(SeoActionService.isValidTransition("verified", "reopened")).toBe(
+      true,
+    );
+    expect(SeoActionService.isValidTransition("reopened", "in_progress")).toBe(
+      true,
+    );
   });
 
   it("rejects unauthorized and invalid state jumps", () => {
-    expect(SeoActionService.isValidTransition("proposed", "completed")).toBe(false);
-    expect(SeoActionService.isValidTransition("proposed", "verified")).toBe(false);
-    expect(SeoActionService.isValidTransition("dismissed", "completed")).toBe(false);
-    expect(SeoActionService.isValidTransition("verified", "in_progress")).toBe(false);
+    expect(SeoActionService.isValidTransition("proposed", "completed")).toBe(
+      false,
+    );
+    expect(SeoActionService.isValidTransition("proposed", "verified")).toBe(
+      false,
+    );
+    expect(SeoActionService.isValidTransition("dismissed", "completed")).toBe(
+      false,
+    );
+    expect(SeoActionService.isValidTransition("verified", "in_progress")).toBe(
+      false,
+    );
   });
 });
 
@@ -229,7 +263,11 @@ describe("SAM SEO Analyst Phase 2: Action Plan Integration with Recommendations 
       },
     ];
 
-    const result = buildPrioritizedActionPlan(evidence, findings, existingItems);
+    const result = buildPrioritizedActionPlan(
+      evidence,
+      findings,
+      existingItems,
+    );
     const rec = result.recommendations.find(
       (r) => r.fingerprint === expectedFp,
     );
@@ -729,8 +767,12 @@ describe("SAM SEO Analyst Phase 2: Verification Outcome Semantics (Operational C
     expect(insufficientState.verificationAttempted).toBe(true);
     expect(insufficientState.evidenceSufficient).toBe(false);
     expect(insufficientState.isAwaitingNewerData).toBe(true);
-    expect(insufficientState.outcomeBadgeLabel).toContain("Insufficient Evidence");
-    expect(insufficientState.outcomeBadgeLabel).toContain("Awaiting Newer Data");
+    expect(insufficientState.outcomeBadgeLabel).toContain(
+      "Insufficient Evidence",
+    );
+    expect(insufficientState.outcomeBadgeLabel).toContain(
+      "Awaiting Newer Data",
+    );
     expect(insufficientState.canVerify).toBe(true);
 
     // Defensive check: even a legacy row marked verified + insufficient_data is NEVER shown as verified improvement

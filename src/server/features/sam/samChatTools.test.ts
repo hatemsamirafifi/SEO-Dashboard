@@ -87,7 +87,11 @@ vi.mock("@/server/mcp/tools/autopilot-run-tools", () => {
 
 vi.mock("@/server/features/sam/analyst/seoEvidenceCollector", () => ({
   collectProjectSeoEvidence: vi.fn(
-    async (input: { projectId: string; organizationId: string; focus?: string }) => ({
+    async (input: {
+      projectId: string;
+      organizationId: string;
+      focus?: string;
+    }) => ({
       projectId: input.projectId,
       domain: "example.com",
       collectedAt: "2026-11-17T00:00:00Z",
@@ -105,7 +109,8 @@ vi.mock("@/server/features/sam/analyst/seoAnalyzer", () => ({
   runSeoAnalysis: vi.fn(() => ({
     performance: {
       searchVisibility: "stable",
-      trafficTrend: "Measured 28-day Search Console data: 0 clicks, 0 impressions",
+      trafficTrend:
+        "Measured 28-day Search Console data: 0 clicks, 0 impressions",
       averagePosition: 0,
       rankTrackerSummary: "0 tracked keywords",
       auditSummary: "No site audit data",
@@ -115,7 +120,11 @@ vi.mock("@/server/features/sam/analyst/seoAnalyzer", () => ({
     keywordOpportunities: [],
     rankingDrops: [],
     contentTechnical: [],
-    competitors: { status: "unavailable", summary: "None", opportunitiesCount: 0 },
+    competitors: {
+      status: "unavailable",
+      summary: "None",
+      opportunitiesCount: 0,
+    },
   })),
 }));
 
@@ -280,9 +289,13 @@ describe("samChatTools autopilot wiring", () => {
   it("registers analyze_seo_project and executes scoped analysis", async () => {
     const set = tools();
     expect(set.analyze_seo_project).toBeDefined();
-    expect(set.analyze_seo_project.description).toContain("Analyze project SEO performance");
+    expect(set.analyze_seo_project.description).toContain(
+      "Analyze project SEO performance",
+    );
 
-    const result = await callTool(set.analyze_seo_project, { focus: "action_plan" });
+    const result = await callTool(set.analyze_seo_project, {
+      focus: "action_plan",
+    });
     expect(result).toHaveProperty("recommendations");
     expect(result).toHaveProperty("capabilities");
     expect(result).toHaveProperty("markdownFallback");

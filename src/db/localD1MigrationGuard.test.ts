@@ -56,7 +56,9 @@ function createTempFixture(options: {
             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
           );
         `);
-        const insert = db.prepare("INSERT INTO d1_migrations (name) VALUES (?)");
+        const insert = db.prepare(
+          "INSERT INTO d1_migrations (name) VALUES (?)",
+        );
         for (const name of options.appliedMigrations ?? []) {
           insert.run(name);
         }

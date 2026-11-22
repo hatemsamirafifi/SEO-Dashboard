@@ -124,7 +124,8 @@ export async function verifyViaRankTracker(
 
   const matchedRow = results.rows.find(
     (r) =>
-      r.keyword.trim().toLowerCase() === item.targetKeyword!.trim().toLowerCase(),
+      r.keyword.trim().toLowerCase() ===
+      item.targetKeyword!.trim().toLowerCase(),
   );
   const devResult = matchedRow
     ? matchedRow.desktop?.position != null
@@ -196,7 +197,8 @@ export async function verifyViaSearchConsole(
     pageSize: 50,
   });
   const queryRow = rowsRes.rows.find(
-    (r) => r.key.trim().toLowerCase() === item.targetKeyword!.trim().toLowerCase(),
+    (r) =>
+      r.key.trim().toLowerCase() === item.targetKeyword!.trim().toLowerCase(),
   );
 
   if (!queryRow) {
@@ -237,7 +239,8 @@ export async function verifyViaSiteAudit(
   if (item.completedAt && latestAudit.completedAt < item.completedAt) {
     return {
       outcome: "insufficient_data",
-      notes: "No site audit has been executed since the task was marked completed.",
+      notes:
+        "No site audit has been executed since the task was marked completed.",
       currentValue: null,
       observationDate: latestAudit.completedAt,
     };

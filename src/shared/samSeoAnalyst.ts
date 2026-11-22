@@ -198,11 +198,7 @@ export type SeoEvidenceSignalStrength = z.infer<
   typeof SeoEvidenceSignalStrengthSchema
 >;
 
-export const SeoSampleSizeSchema = z.enum([
-  "sparse",
-  "moderate",
-  "robust",
-]);
+export const SeoSampleSizeSchema = z.enum(["sparse", "moderate", "robust"]);
 
 export type SeoSampleSize = z.infer<typeof SeoSampleSizeSchema>;
 

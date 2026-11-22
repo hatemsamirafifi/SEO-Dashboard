@@ -69,7 +69,9 @@ export function buildSamActionTools(authContext: {
       description:
         "List persistent SEO action items for the current project with optional status/category filtering. Read-only, uses no credits.",
       inputSchema: z.object({
-        status: SeoActionStatusSchema.optional().describe("Filter by task status"),
+        status: SeoActionStatusSchema.optional().describe(
+          "Filter by task status",
+        ),
         category: z
           .string()
           .optional()

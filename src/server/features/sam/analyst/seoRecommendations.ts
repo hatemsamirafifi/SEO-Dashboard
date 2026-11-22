@@ -191,7 +191,11 @@ function buildKeywordOpportunityRecommendations(
           : impressions >= 100
             ? "strong_signal"
             : "insufficient_evidence",
-        sampleSize: isLowVolume ? "sparse" : impressions >= 100 ? "robust" : "moderate",
+        sampleSize: isLowVolume
+          ? "sparse"
+          : impressions >= 100
+            ? "robust"
+            : "moderate",
         comparabilityNotes: "Aggregated Search Console query performance.",
         isDestructiveActionRecommended: false,
       },

@@ -52,7 +52,9 @@ export function invalidateSeoActions(projectId: string) {
   void queryClient.invalidateQueries({
     queryKey: ["seoActionPlans", projectId],
   });
-  void queryClient.invalidateQueries({ queryKey: ["seoActionPlan", projectId] });
+  void queryClient.invalidateQueries({
+    queryKey: ["seoActionPlan", projectId],
+  });
   void queryClient.invalidateQueries({
     queryKey: ["seoActionItems", projectId],
   });

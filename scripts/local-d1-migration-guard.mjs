@@ -92,9 +92,7 @@ export function checkDrizzleJournalConsistency(
 
   const rawJournal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
   const entries = Array.isArray(rawJournal?.entries) ? rawJournal.entries : [];
-  const journalMigrations = entries
-    .map((entry) => `${entry.tag}.sql`)
-    .sort();
+  const journalMigrations = entries.map((entry) => `${entry.tag}.sql`).sort();
 
   const diskSet = new Set(diskMigrations);
   const journalSet = new Set(journalMigrations);
@@ -119,7 +117,9 @@ export function inspectLocalD1Migrations(options = {}) {
   const drizzleDir = options.drizzleDir ?? DEFAULT_DRIZZLE_DIR;
   const stateDir = options.stateDir ?? DEFAULT_D1_STATE_DIR;
   const dbPath =
-    options.dbPath !== undefined ? options.dbPath : findLocalD1Database(stateDir);
+    options.dbPath !== undefined
+      ? options.dbPath
+      : findLocalD1Database(stateDir);
 
   const journal = checkDrizzleJournalConsistency(drizzleDir);
 
@@ -294,7 +294,8 @@ export function runMigrationGuard(options = {}) {
 
 const isMain =
   process.argv[1] &&
-  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+  path.resolve(process.argv[1]) ===
+    path.resolve(fileURLToPath(import.meta.url));
 
 if (isMain) {
   const args = new Set(process.argv.slice(2));

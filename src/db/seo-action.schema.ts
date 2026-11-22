@@ -104,9 +104,7 @@ export const seoActionEvidence = sqliteTable(
     targetUrl: text("target_url"),
     metadata: text("metadata"),
   },
-  (table) => [
-    index("seo_action_evidence_item_idx").on(table.actionItemId),
-  ],
+  (table) => [index("seo_action_evidence_item_idx").on(table.actionItemId)],
 );
 
 export const seoActionEvents = sqliteTable(
@@ -125,7 +123,5 @@ export const seoActionEvents = sqliteTable(
       .notNull()
       .default(sql`(current_timestamp)`),
   },
-  (table) => [
-    index("seo_action_events_item_idx").on(table.actionItemId),
-  ],
+  (table) => [index("seo_action_events_item_idx").on(table.actionItemId)],
 );

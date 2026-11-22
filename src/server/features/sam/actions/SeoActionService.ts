@@ -1,7 +1,5 @@
 // oxlint-disable typescript-eslint/no-extraneous-class
-import {
-  type SeoActionStatus,
-} from "@/shared/samSeoAnalyst";
+import { type SeoActionStatus } from "@/shared/samSeoAnalyst";
 import {
   SeoActionRepository,
   type SaveActionItemInput,

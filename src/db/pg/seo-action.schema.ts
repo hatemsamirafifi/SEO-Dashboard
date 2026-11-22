@@ -1,10 +1,5 @@
 import { sql } from "drizzle-orm";
-import {
-  index,
-  pgTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/pg-core";
+import { index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { user, organization } from "./better-auth-schema";
 import { projects } from "./app.schema";
 
@@ -103,9 +98,7 @@ export const seoActionEvidence = pgTable(
     targetUrl: text("target_url"),
     metadata: text("metadata"),
   },
-  (table) => [
-    index("seo_action_evidence_item_idx").on(table.actionItemId),
-  ],
+  (table) => [index("seo_action_evidence_item_idx").on(table.actionItemId)],
 );
 
 export const seoActionEvents = pgTable(
@@ -122,7 +115,5 @@ export const seoActionEvents = pgTable(
     metadata: text("metadata"),
     createdAt: text("created_at").notNull().default(isoNow),
   },
-  (table) => [
-    index("seo_action_events_item_idx").on(table.actionItemId),
-  ],
+  (table) => [index("seo_action_events_item_idx").on(table.actionItemId)],
 );
