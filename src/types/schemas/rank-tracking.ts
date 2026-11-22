@@ -326,6 +326,49 @@ export const seRankingSyncStatusInputSchema = z.object({
   projectId: z.string().uuid().optional(),
 });
 
+// ---------------------------------------------------------------------------
+// Selective SE Ranking keyword sync (rank tracking dashboard)
+// ---------------------------------------------------------------------------
+
+export const seRankingEngineModeSchema = z.enum([
+  "assignments",
+  "desktop",
+  "mobile",
+  "both",
+]);
+
+export const seRankingSelectiveSyncPreviewSchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid(),
+  /** Exact selected keyword ids. Omitted when previewing sync-all-missing. */
+  keywordIds: z.array(z.string().min(1)).max(1000).optional(),
+  syncAllMissing: z.boolean().optional(),
+});
+
+export const seRankingSelectiveSyncConfirmSchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid(),
+  /** Exact selected keyword ids. Omitted when confirming sync-all-missing. */
+  keywordIds: z.array(z.string().min(1)).max(1000).optional(),
+  syncAllMissing: z.boolean().optional(),
+  /** The keyword set the user saw and approved. Confirmation never broadens it. */
+  approvedKeywordIds: z.array(z.string().min(1)).max(1000),
+  engineMode: seRankingEngineModeSchema,
+  expectedSiteId: z.number().int().positive(),
+  expectedKeywords: z.record(
+    z.string(),
+    z.object({
+      engineIds: z.array(z.number().int().positive()).min(1),
+      remoteKeywordId: z.string().nullable(),
+    }),
+  ),
+});
+
+export const seRankingKeywordSyncStatusesInputSchema = z.object({
+  projectId: z.string().uuid(),
+  configId: z.string().uuid(),
+});
+
 export const retrySeRankingSyncSchema = z.object({
   projectId: z.string().uuid(),
   configId: z.string().uuid().optional(),

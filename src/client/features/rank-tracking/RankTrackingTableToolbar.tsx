@@ -27,6 +27,7 @@ export function RankTrackingTableToolbar({
   onCheckNow,
   onCheckMissingRankings,
   onReadOnlySync,
+  onSyncAllMissingSeRanking,
   missingRankingsCount,
   missingRankingsLoading,
   onRefreshMetrics,
@@ -62,6 +63,7 @@ export function RankTrackingTableToolbar({
   onCheckNow: () => void;
   onCheckMissingRankings: () => void;
   onReadOnlySync?: () => void;
+  onSyncAllMissingSeRanking?: () => void;
   missingRankingsCount: number | null;
   missingRankingsLoading: boolean;
   onRefreshMetrics: () => void;
@@ -281,6 +283,7 @@ export function RankTrackingTableToolbar({
         onCheckNow={onCheckNow}
         onCheckMissingRankings={onCheckMissingRankings}
         onReadOnlySync={onReadOnlySync}
+        onSyncAllMissingSeRanking={onSyncAllMissingSeRanking}
         missingRankingsCount={
           missingRankingsLoading ? null : missingRankingsCount
         }

@@ -14,6 +14,7 @@ import {
   getSeRankingSyncStatusFn,
   retrySeRankingProjectSyncFn,
 } from "@/serverFunctions/rank-tracking-targets";
+import { getSeRankingKeywordSyncStatusesFn } from "@/serverFunctions/seranking-selective-sync";
 import { getIsoCountryCode } from "@/shared/keyword-locations";
 import type { MissingRankingBucket } from "@/shared/rank-tracking";
 import type {
@@ -276,6 +277,22 @@ export function useRankTrackingDetailData(params: {
     queryFn: () => getSeRankingSyncStatusFn({ data: { projectId } }),
   });
 
+  const latestProjectBinding = seSyncStatus?.projects.find(
+    (p) => p.isLatestForProject,
+  );
+  const seRankingLinked = Boolean(
+    latestProjectBinding && latestProjectBinding.remoteSiteId != null,
+  );
+
+  const { data: keywordSyncStatuses } = useQuery({
+    queryKey: ["seRankingKeywordSyncStatuses", projectId, configId],
+    queryFn: () =>
+      getSeRankingKeywordSyncStatusesFn({ data: { projectId, configId } }),
+    enabled: seRankingLinked,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
   const retrySyncMutation = useMutation({
     mutationFn: () =>
       retrySeRankingProjectSyncFn({ data: { projectId, configId } }),
@@ -312,6 +329,8 @@ export function useRankTrackingDetailData(params: {
     latestSyncBinding: syncNeedsAttention ? latestSyncBinding : null,
     retryingSync: retrySyncMutation.isPending,
     onRetrySync: () => retrySyncMutation.mutate(),
+    seRankingLinked,
+    keywordSyncStatuses: keywordSyncStatuses?.statuses ?? null,
   };
 }
 

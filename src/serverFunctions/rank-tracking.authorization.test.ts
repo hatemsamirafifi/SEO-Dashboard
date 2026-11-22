@@ -40,6 +40,11 @@ vi.mock(
 );
 
 import { getSerpClusters } from "./rank-tracking";
+import {
+  confirmSeRankingSelectiveSync,
+  getSeRankingKeywordSyncStatusesFn,
+  previewSeRankingSelectiveSync,
+} from "./seranking-selective-sync";
 import { globalServerFunctionMiddleware } from "./middleware";
 
 type ServerFunction = {
@@ -112,4 +117,24 @@ describe("SERP clusters server-function project authorization", () => {
     expect(mocks.getClusters).not.toHaveBeenCalled();
     expect(mocks.getConfigById).not.toHaveBeenCalled();
   });
+  it.each([
+    ["preview", previewSeRankingSelectiveSync],
+    ["confirm", confirmSeRankingSelectiveSync],
+    ["status", getSeRankingKeywordSyncStatusesFn],
+  ] as const)(
+    "rejects cross-tenant keyword sync %s before configuration lookup",
+    async (_action, serverFunction) => {
+      const result = await executeServerFunction(serverFunction, {
+        projectId: "8814bf28-0081-48e6-8f07-a4774efe4d15",
+        configId: "08cbc9b1-82b4-4b5b-984a-0f7e57f8296d",
+        keywordIds: ["a"],
+        approvedKeywordIds: ["a"],
+        engineMode: "desktop",
+        expectedSiteId: 13188608,
+        expectedKeywords: { a: { engineIds: [539194], remoteKeywordId: null } },
+      });
+      expect(result).toMatchObject({ error: new Error("NOT_FOUND") });
+      expect(mocks.getConfigById).not.toHaveBeenCalled();
+    },
+  );
 });

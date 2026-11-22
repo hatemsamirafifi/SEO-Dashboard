@@ -128,6 +128,7 @@ export const seRankingProjectKeywordSchema = z
     keyword: z.string().nullable().optional(),
     group_id: z.coerce.number().nullable().optional(),
     target_url: z.string().nullable().optional(),
+    link: z.string().nullable().optional(),
     site_engine_ids: z.array(z.coerce.number()).nullable().optional(),
   })
   .passthrough()
@@ -135,7 +136,7 @@ export const seRankingProjectKeywordSchema = z
     id: data.id,
     keyword: data.name ?? data.keyword ?? "",
     groupId: data.group_id ?? undefined,
-    targetUrl: data.target_url ?? undefined,
+    targetUrl: data.target_url ?? data.link ?? undefined,
     siteEngineIds: data.site_engine_ids ?? [],
   }));
 

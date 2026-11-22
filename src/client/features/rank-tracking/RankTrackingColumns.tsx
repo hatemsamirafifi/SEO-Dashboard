@@ -6,6 +6,7 @@ import type {
   RankTrackingRow,
   RankTrackingTarget,
 } from "@/types/schemas/rank-tracking";
+import { makeSeRankingSyncColumn } from "./SeRankingStatusColumn";
 import { formatLocationLabel } from "@/shared/keyword-locations";
 import {
   CpcCell,
@@ -311,6 +312,7 @@ export function useRankTrackingColumns(options: {
   serpDepth?: number;
   targets?: RankTrackingTarget[];
   targetIdsByKeyword?: Record<string, string[]>;
+  seRankingSyncStatuses?: Record<string, string>;
 }): ColumnDef<RankTrackingRow>[] {
   const {
     showDesktop,
@@ -323,6 +325,7 @@ export function useRankTrackingColumns(options: {
     serpDepth,
     targets,
     targetIdsByKeyword,
+    seRankingSyncStatuses,
   } = options;
   const locationLabel = locationName
     ? formatLocationLabel(locationName, 2)
@@ -332,6 +335,9 @@ export function useRankTrackingColumns(options: {
       makeSelectionColumn<RankTrackingRow>(selectAnchorRef),
       makeKeywordColumn(onKeywordClick),
     ];
+    if (seRankingSyncStatuses) {
+      cols.push(makeSeRankingSyncColumn(seRankingSyncStatuses));
+    }
     if (showDesktop) {
       cols.push(makeDeviceColumn("desktop", isChecking, serpDepth));
       cols.push(makeUrlColumn("desktop", domain, serpDepth));
@@ -363,5 +369,6 @@ export function useRankTrackingColumns(options: {
     serpDepth,
     targets,
     targetIdsByKeyword,
+    seRankingSyncStatuses,
   ]);
 }

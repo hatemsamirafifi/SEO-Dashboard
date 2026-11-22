@@ -662,7 +662,7 @@ export const seRankingKeywordMappings = sqliteTable(
       .references(() => rankTrackingKeywords.id, { onDelete: "cascade" }),
     remoteKeywordId: text("remote_keyword_id").notNull(),
     status: text("status", {
-      enum: ["synced", "pending", "failed"],
+      enum: ["synced", "pending", "partial", "failed"],
     })
       .notNull()
       .default("synced"),

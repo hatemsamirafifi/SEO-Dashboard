@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   ChevronDown,
+  CloudUpload,
   Copy,
   Download,
   FileDown,
@@ -96,6 +97,7 @@ export function MoreMenu({
   onCheckNow,
   onCheckMissingRankings,
   onReadOnlySync,
+  onSyncAllMissingSeRanking,
   missingRankingsCount,
   checkBusy,
   checkDisabled,
@@ -106,6 +108,7 @@ export function MoreMenu({
   onCheckNow: () => void;
   onCheckMissingRankings: () => void;
   onReadOnlySync?: () => void;
+  onSyncAllMissingSeRanking?: () => void;
   missingRankingsCount: number | null;
   checkBusy: boolean;
   checkDisabled: boolean;
@@ -129,6 +132,15 @@ export function MoreMenu({
           description="Fetch daily positions from SE Ranking without initiating a paid check (0 credits)"
           onClick={onReadOnlySync}
           disabled={checkBusy}
+        />
+      )}
+      {onSyncAllMissingSeRanking && (
+        <MenuItem
+          icon={<CloudUpload className="size-3.5" />}
+          label="Sync all missing keywords to SE Ranking"
+          description="Preview every keyword not yet tracked in the linked SE Ranking project, then confirm"
+          onClick={onSyncAllMissingSeRanking}
+          disabled={checkBusy || !hasData}
         />
       )}
       {!checkDisabled && (
