@@ -13,6 +13,12 @@ export type RequestOptions = {
   body?: unknown;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /**
+   * Disables the generic 429/5xx retry loop for non-idempotent writes whose
+   * commit state is ambiguous after a failure (e.g. keyword POSTs). Callers
+   * must reconcile fresh provider state instead of replaying the request.
+   */
+  noRetry?: boolean;
 };
 
 // Global or per-instance single-flight in-memory deduplication for concurrent identical requests
@@ -79,8 +85,12 @@ export class SeRankingClient {
     const url = this.buildUrl(path, options.params);
     const bodyStr = options.body ? JSON.stringify(options.body) : undefined;
 
-    // Deduplication key for concurrent identical in-flight reads
-    const flightKey = `${method}:${url}:${bodyStr ?? ""}`;
+    // Deduplication key for concurrent identical in-flight reads. The
+    // credential fingerprint isolates accounts: without it, two clients with
+    // different API keys issuing the same GET could share each other's
+    // responses, leaking data across tenant accounts.
+    const credentialFingerprint = await this.getFingerprint();
+    const flightKey = `${credentialFingerprint}:${method}:${url}:${bodyStr ?? ""}`;
     if (method === "GET" && inFlightRequests.has(flightKey)) {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       return inFlightRequests.get(flightKey) as Promise<T>;
@@ -141,8 +151,12 @@ export class SeRankingClient {
               response.status,
               parsedBody,
             );
-            // Retry on 429 or 5xx if attempts remain
+            // Retry on 429 or 5xx if attempts remain. Non-idempotent writes
+            // opted into noRetry surface immediately so the caller can
+            // reconcile fresh state instead of replaying a possibly
+            // committed request.
             if (
+              !options.noRetry &&
               (response.status === 429 || response.status >= 500) &&
               attempt <= this.maxRetries
             ) {
@@ -170,6 +184,7 @@ export class SeRankingClient {
           }
 
           if (
+            !options.noRetry &&
             lastError instanceof SeRankingError &&
             (lastError.statusCode === 429 ||
               (lastError.statusCode && lastError.statusCode >= 500))

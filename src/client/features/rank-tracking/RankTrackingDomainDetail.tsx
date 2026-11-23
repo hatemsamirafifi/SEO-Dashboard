@@ -43,6 +43,10 @@ import type {
 } from "@/types/schemas/rank-tracking";
 import { AddKeywordsPanel } from "./AddKeywordsPanel";
 import {
+  SeRankingSelectiveSyncModal,
+  type SeRankingSelectiveSyncScope,
+} from "./SeRankingSelectiveSyncModal";
+import {
   FilterPanel,
   applyFilters,
   countActiveFilters,
@@ -78,6 +82,8 @@ export function RankTrackingDomainDetail({
   const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(
     undefined,
   );
+  const [seRankingSyncScope, setSeRankingSyncScope] =
+    useState<SeRankingSelectiveSyncScope | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [comparePeriod, setComparePeriod] = useState<ComparePeriod>(
@@ -112,6 +118,8 @@ export function RankTrackingDomainDetail({
     latestSyncBinding,
     retryingSync,
     onRetrySync,
+    seRankingLinked,
+    keywordSyncStatuses,
   } = useRankTrackingDetailData({
     projectId,
     configId: config.id,
@@ -349,6 +357,11 @@ export function RankTrackingDomainDetail({
             if (count > 0) requestCheck(count);
           }}
           onCheckMissingRankings={() => requestMissingRankingsCheck()}
+          onSyncAllMissingSeRanking={
+            seRankingLinked && rows && rows.length > 0
+              ? () => setSeRankingSyncScope({ type: "allMissing" })
+              : undefined
+          }
           missingRankingsCount={missingRankingsSummary?.eligibleCount ?? null}
           missingRankingsLoading={missingRankingsLoading}
           onRefreshMetrics={refreshMetrics}
@@ -402,10 +415,31 @@ export function RankTrackingDomainDetail({
               onCheckMissingSelected={handleCheckMissingSelected}
               checkSelectedBusy={isBusy}
               checkSelectedDisabled={isFreePlan}
+              onSeRankingSyncSelected={
+                seRankingLinked
+                  ? (keywordIds) =>
+                      setSeRankingSyncScope({
+                        type: "selected",
+                        keywordIds,
+                      })
+                  : undefined
+              }
+              seRankingSyncStatuses={
+                seRankingLinked ? (keywordSyncStatuses ?? undefined) : undefined
+              }
             />
           )}
         </div>
       </div>
+
+      {seRankingSyncScope && (
+        <SeRankingSelectiveSyncModal
+          projectId={projectId}
+          configId={config.id}
+          scope={seRankingSyncScope}
+          onClose={() => setSeRankingSyncScope(null)}
+        />
+      )}
 
       <RankTrackingDetailFooter
         projectId={projectId}

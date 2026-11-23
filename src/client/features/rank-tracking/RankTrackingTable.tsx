@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
-import { FileDown, Loader2, Play, SearchX, Sheet, Trash2 } from "lucide-react";
+import {
+  CloudUpload,
+  FileDown,
+  Loader2,
+  Play,
+  SearchX,
+  Sheet,
+  Trash2,
+} from "lucide-react";
 import {
   AppDataTable,
   useAppTable,
@@ -74,6 +82,8 @@ export function RankTrackingTable({
   onCheckMissingSelected,
   checkSelectedBusy,
   checkSelectedDisabled,
+  onSeRankingSyncSelected,
+  seRankingSyncStatuses,
 }: {
   totalCount: number;
   rows: RankTrackingRow[];
@@ -94,6 +104,8 @@ export function RankTrackingTable({
   onCheckMissingSelected: (keywordIds: string[]) => void;
   checkSelectedBusy: boolean;
   checkSelectedDisabled: boolean;
+  onSeRankingSyncSelected?: (keywordIds: string[]) => void;
+  seRankingSyncStatuses?: Record<string, string>;
 }) {
   const queryClient = useQueryClient();
   const [showConfirm, setShowConfirm] = useState(false);
@@ -138,6 +150,7 @@ export function RankTrackingTable({
     serpDepth,
     targets,
     targetIdsByKeyword,
+    seRankingSyncStatuses,
   });
 
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() =>
@@ -270,7 +283,7 @@ export function RankTrackingTable({
         selectedCount={selectedCount}
         onClear={() => table.resetRowSelection()}
         actions={
-          <div className="flex items-center px-1.5">
+          <div className="flex min-w-0 flex-wrap items-center px-1.5">
             <TableBulkActionButton
               icon={
                 checkSelectedBusy ? (
@@ -317,6 +330,16 @@ export function RankTrackingTable({
               targets={targets}
               selectedKeywordIds={selectedKeywordIds}
             />
+            {onSeRankingSyncSelected && (
+              <TableBulkActionButton
+                icon={<CloudUpload className="size-3.5" />}
+                onClick={() => onSeRankingSyncSelected(selectedKeywordIds)}
+                disabled={selectedCount === 0}
+                title="Preview adding the selected keywords to the linked SE Ranking project"
+              >
+                Add Selected to SE Ranking
+              </TableBulkActionButton>
+            )}
             <TableBulkExportMenu
               actions={[
                 {

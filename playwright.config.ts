@@ -6,6 +6,10 @@ const fixtureUrl = `http://127.0.0.1:${fixturePort}`;
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore:
+    process.env.PLAYWRIGHT_SERANKING_MOCK === "1"
+      ? []
+      : ["**/seranking-selective-sync.spec.ts"],
   timeout: 60_000,
   expect: {
     timeout: 10_000,
